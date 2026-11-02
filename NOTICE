@@ -1,4 +1,4 @@
-<app-name>
+blade-lite
 Copyright (c) 2026 Audrius
 
 This project ports code and protocol details from the following projects.
@@ -24,7 +24,7 @@ features (refresh rate, touchpad, battery) that the projects above do not
 have.
 
 Licences:
-- <app-name>: MIT (see LICENSE)
+- blade-lite: MIT (see LICENSE)
 - R-Helper: MIT
 - razer-ctl (librazer): MIT
 

@@ -1,7 +1,4 @@
-# &lt;app-name&gt;
-
-> **Name not final.** `<app-name>` is a placeholder until the repo name is chosen.
-> "blade-control" is already used by another Blade tool, so it is not an option.
+# blade-lite
 
 A small, fast replacement for Razer Synapse on one laptop: the
 **Razer Blade 18, RZ09-0529**. It is written in Rust and runs on Windows 11.
@@ -114,8 +111,6 @@ cargo test -- --ignored
 | `ui` | View models (fully unit-tested) and the Slint markup |
 | `blade` (exe) | The tray app. Single instance, starts at login |
 | `blade-dev` (exe) | Developer tool for sending single commands |
-
-Crate and exe names may change when the repo name is chosen.
 
 ### Coding standards
 
