@@ -189,3 +189,76 @@ fn each_preset_is_set_and_read_back_and_the_old_one_restored() {
     }
     assert_eq!(after, before);
 }
+
+/// Get a boost level. Args are `[1, cluster, 0]`, the reply args `[1, cluster, level]`.
+const GET_BOOST: u16 = 0x0D87;
+const SET_BOOST: u16 = 0x0D07;
+/// Get a fan's target. Args are `[1, fan, 0]`, the reply args `[1, fan, rpm / 100]`.
+const GET_FAN: u16 = 0x0D81;
+const SET_FAN: u16 = 0x0D01;
+/// Get a fan's real speed. The reply args are `[1, fan, rpm / 100]`.
+const GET_FAN_RPM: u16 = 0x0D88;
+const CLUSTERS: [u8; 2] = [1, 2];
+const FANS: [u8; 2] = [1, 2];
+
+/// Reads `[1, index, 0]` for each index and returns the reply args.
+fn read_each<C: Clock>(
+    device: &mut Device<HidTransport, C>,
+    id: u16,
+    indexes: &[u8],
+) -> Vec<Vec<u8>> {
+    indexes
+        .iter()
+        .map(|&index| device.send(id, &[1, index, 0]).unwrap().args().to_vec())
+        .collect()
+}
+
+/// The preset of each zone, both boosts and both fan targets.
+fn custom_state<C: Clock>(device: &mut Device<HidTransport, C>) -> Vec<Vec<u8>> {
+    let mut state = preset_args(device);
+    state.extend(read_each(device, GET_BOOST, &CLUSTERS));
+    state.extend(read_each(device, GET_FAN, &FANS));
+    state
+}
+
+#[test]
+#[ignore = "needs the Blade 18"]
+fn custom_is_set_and_read_back_and_the_old_preset_restored() {
+    use razer_proto::{BLADE_18, CpuBoost, Custom, FanMode, GpuBoost, Rpm};
+
+    let mut device = Device::new(HidTransport::open(&BLADE_18).unwrap(), SystemClock);
+    let before = custom_state(&mut device);
+
+    // Safe values: middle boosts, and a fan above what auto runs at idle.
+    let custom = Custom {
+        cpu: CpuBoost::new(1, &BLADE_18).unwrap(),
+        gpu: GpuBoost::new(1, &BLADE_18).unwrap(),
+        fan: FanMode::Manual(Rpm::new(3000, &BLADE_18).unwrap()),
+    };
+    let set = device.run(&custom.commands(&BLADE_18));
+    let manual = custom_state(&mut device);
+    std::thread::sleep(Duration::from_secs(5));
+    let real_rpm = read_each(&mut device, GET_FAN_RPM, &FANS);
+
+    // Boosts and fan targets first: a mode write after them resets them.
+    let boosts = &before[4..6];
+    let targets = &before[6..8];
+    for args in boosts {
+        device.send(SET_BOOST, args).unwrap();
+    }
+    for args in targets {
+        device.send(SET_FAN, args).unwrap();
+    }
+    for args in &before[..4] {
+        device.send(0x0D02, args).unwrap();
+    }
+    let after = custom_state(&mut device);
+    eprintln!(
+        "before {before:02X?}\nset {set:?}, read back {manual:02X?}\nreal rpm {real_rpm:02X?}\nafter {after:02X?}"
+    );
+    set.unwrap();
+    assert!(manual[..4].iter().all(|args| args[2..4] == [0x04, 0x01]));
+    assert_eq!(manual[4..6], [vec![1, 1, 1], vec![1, 2, 1]]);
+    assert_eq!(manual[6..8], [vec![1, 1, 30], vec![1, 2, 30]]);
+    assert_eq!(after, before);
+}

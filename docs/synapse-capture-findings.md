@@ -28,7 +28,7 @@ Args are bytes 8 onwards. Data size is byte 5.
 | Feature | Command | Args Synapse sends | Notes |
 | --- | --- | --- | --- |
 | Preset | `0D02` | `[01, zone, mode, fan]` for zones 1, 2, 3 and 4 | Silent 5, Balanced 0, Performance 2, Custom 4. r-helper sends zones 1 and 2 only. Read back with `0D82` `[01, zone, 00, 00]`: on the laptop (2026-11-02) all 4 zones read back each preset |
-| Manual fan flag | `0D02` | `[01, zone, 04, 01]` | fan byte 1 in Custom |
+| Manual fan flag | `0D02` | `[01, zone, 04, 01]` | fan byte 1 in Custom. Synapse sends the 4 mode writes, then both boosts, then the fan targets |
 | CPU boost | `0D07` | `[01, 01, level]` | Levels 0 to 3 |
 | GPU boost | `0D07` | `[01, 02, level]` | Levels 0 to 3 (r-helper said 0 to 2) |
 | Fan target | `0D01` | `[01, zone, rpm/100]` | Synapse has a fan curve, not a slider. It sent 1600 to 2300 RPM as the curve followed the temperature. First arg is `01` (r-helper uses `00`) |
@@ -93,5 +93,16 @@ capture would give a golden report, but it also switches the panel.
 1. Display mode: optional golden report (click "Restart" while recording).
 2. Red touchpad key: after Synapse is removed (stage 2), check if the key still
    turns red by itself. If not, test whether sending `0059` makes it red.
-3. Real manual fan range: Synapse only has a curve. We may keep r-helper's
-   limits or test the range with `0D01` ourselves.
+3. Real manual fan range: Synapse only has a curve. The profile allows
+   1600 to 4500 RPM, the speeds seen to work (see below). Higher may work but
+   is not tested.
+
+## Custom on the laptop (2026-11-02)
+
+Set Custom with CPU 1, GPU 1 and both fans at 3000 RPM. All 4 zones read back
+`[01, zone, 04, 01]`. `0D87 [01, cluster, 00]` read back level 1 for both, and
+`0D81 [01, fan, 00]` read back `1E` (3000) for both fans. After 5 s, `0D88`
+said 1300 and 1400 RPM: the fans speed up slowly, so this does not prove the
+real speed. Before and after: Performance, fans auto, CPU 2, GPU 3, fan
+targets 4500 and 1600. The old values were written back (boosts, then fan
+targets, then the mode last) and read back the same.
