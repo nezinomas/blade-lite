@@ -3,8 +3,8 @@
 use std::thread;
 use std::time::{Duration, Instant};
 
-use blade_core::{set_touchpad, touchpad_on};
-use platform::{WindowsKeys, WindowsRegistry};
+use blade_core::{RefreshRate, refresh_rates, set_touchpad, touchpad_on};
+use platform::{DisplayApi, OutputTechnology, WindowsDisplays, WindowsKeys, WindowsRegistry};
 
 /// Waits until Windows reports the touchpad state, or gives up.
 fn wait_for_touchpad(on: bool) -> bool {
@@ -31,4 +31,18 @@ fn the_touchpad_is_toggled_and_put_back() {
 
     assert!(toggled, "the state did not change");
     assert!(restored, "the old state was not put back");
+}
+
+#[test]
+#[ignore = "needs a laptop with its own panel turned on"]
+fn the_panel_offers_its_current_rate() {
+    let rates = refresh_rates(&WindowsDisplays).unwrap();
+    eprintln!("rates on offer: {rates:?}");
+
+    let displays = WindowsDisplays.displays().unwrap();
+    let panel = displays
+        .iter()
+        .find(|display| display.technology == OutputTechnology::Internal)
+        .unwrap();
+    assert!(rates.contains(&RefreshRate(panel.current.hz)));
 }

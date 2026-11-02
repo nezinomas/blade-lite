@@ -6,7 +6,7 @@ use std::ptr;
 use windows_sys::Win32::Foundation::ERROR_SUCCESS;
 use windows_sys::Win32::System::Registry::{HKEY_CURRENT_USER, RRF_RT_REG_DWORD, RegGetValueW};
 
-use crate::{Registry, windows_error};
+use crate::{Registry, wide, windows_error};
 
 /// The registry of the user running the app.
 pub struct WindowsRegistry;
@@ -35,9 +35,4 @@ impl Registry for WindowsRegistry {
         }
         Ok(value)
     }
-}
-
-/// The text as UTF-16 with a closing nul, as Windows wants it.
-fn wide(text: &str) -> Vec<u16> {
-    text.encode_utf16().chain([0]).collect()
 }
