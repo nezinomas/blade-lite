@@ -112,3 +112,36 @@ fn brightness_is_set_and_read_back() {
     eprintln!("levels before {before:?}, at 50%: {after:?}, restored");
     assert_eq!(after, [128, 128]);
 }
+
+/// Get and set the keyboard effect. Args start `[1, 5]`: storage, keyboard LED.
+const GET_EFFECT: u16 = 0x0F82;
+const SET_EFFECT: u16 = 0x0F02;
+const EFFECT_ARGS: usize = 12;
+
+#[test]
+#[ignore = "needs the Blade 18"]
+fn static_colour_is_painted_and_the_effect_restored() {
+    let mut device = Device::new(
+        HidTransport::open(&razer_proto::BLADE_18).unwrap(),
+        SystemClock,
+    );
+    let mut query = [0; EFFECT_ARGS];
+    query[..2].copy_from_slice(&[1, 5]);
+    let before = device.send(GET_EFFECT, &query).unwrap().args().to_vec();
+
+    let painted = device.run(&razer_proto::static_colour(
+        razer_proto::Rgb::new(0xFF, 0, 0),
+        &razer_proto::BLADE_18,
+    ));
+    let during = device.send(GET_EFFECT, &query).unwrap().args().to_vec();
+    std::thread::sleep(Duration::from_secs(5));
+
+    let restored = device.send(SET_EFFECT, &before).map(|_| ());
+    let after = device.send(GET_EFFECT, &query).unwrap().args().to_vec();
+    eprintln!(
+        "effect before {before:02X?}, painted {painted:?}, during {during:02X?}, restored {restored:?}, after {after:02X?}"
+    );
+    painted.unwrap();
+    restored.unwrap();
+    assert_eq!(after, before);
+}
