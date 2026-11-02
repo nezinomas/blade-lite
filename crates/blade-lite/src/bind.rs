@@ -1,13 +1,14 @@
 //! Copies the view models into the window, and turns the window's callbacks
 //! into view-model commands.
 
-use std::rc::Rc;
+use std::rc::{Rc, Weak};
 
 use razer_proto::Rgb;
 use slint::{ModelRc, SharedString, VecModel};
-use ui::{DisplayView, Header, KeyboardView, PerformanceView};
+use ui::{DisplayView, FlyoutView, Header, KeyboardView, PerformanceView};
 
-use crate::{Choice, MainWindow, Shell, SliderRow, Stat, SwatchItem};
+use crate::shell::Shell;
+use crate::{Choice, FlyoutWindow, MainWindow, SliderRow, Stat, SwatchItem};
 
 pub fn colour(rgb: Rgb) -> slint::Color {
     slint::Color::from_rgb_u8(rgb.red, rgb.green, rgb.blue)
@@ -96,78 +97,156 @@ fn index(value: i32) -> usize {
     usize::try_from(value).unwrap_or(usize::MAX)
 }
 
+pub fn flyout(window: &FlyoutWindow, view: &FlyoutView, header: &Header) {
+    window.set_device(text(&header.title));
+    window.set_power(text(header.power.label()));
+    window.set_presets(model(
+        view.presets.iter().map(|p| choice(p.label, p.selected)),
+    ));
+    window.set_rates(model(
+        view.rates.iter().map(|r| choice(&r.label, r.selected)),
+    ));
+    window.set_rates_enabled(view.rates_enabled);
+    window.set_brightness(i32::from(view.brightness));
+    window.set_brightness_text(text(&view.brightness_text));
+    window.set_touchpad_on(view.touchpad_on);
+    window.set_reset_enabled(view.reset_enabled);
+}
+
+/// Runs `act` with the shell, while it still exists.
+fn on(shell: &Weak<Shell>, act: impl FnOnce(&Shell)) {
+    if let Some(shell) = shell.upgrade() {
+        act(&shell);
+    }
+}
+
+fn pick_preset(shell: &Shell, i: i32) {
+    shell.act(|app| match app.performance_view().pick_preset(index(i)) {
+        Some(command) => app.on_performance(command),
+        None => Ok(()),
+    });
+}
+
+fn pick_rate(shell: &Shell, i: i32) {
+    shell.act(|app| match app.display_view()?.pick_rate(index(i)) {
+        Some(command) => app.on_display(command),
+        None => Ok(()),
+    });
+}
+
+fn move_brightness(shell: &Shell, percent: i32) {
+    let percent = u8::try_from(percent).unwrap_or(u8::MAX);
+    shell.act(|app| match app.keyboard_view()?.move_brightness(percent) {
+        Some(command) => app.on_keyboard(command),
+        None => Ok(()),
+    });
+}
+
+fn toggle_touchpad(shell: &Shell) {
+    shell.act(|app| {
+        let command = app.keyboard_view()?.toggle_touchpad();
+        app.on_keyboard(command)
+    });
+}
+
 /// Each callback builds the group's view again and asks it for the command,
 /// so a click that changes nothing sends nothing.
-pub fn callbacks(window: &MainWindow, shell: &Rc<Shell>) {
-    let s = Rc::clone(shell);
-    window.on_pick_preset(move |i| {
-        s.act(|app| match app.performance_view().pick_preset(index(i)) {
-            Some(command) => app.on_performance(command),
-            None => Ok(()),
+pub fn callbacks(shell: &Rc<Shell>) {
+    window_callbacks(shell);
+    flyout_callbacks(shell);
+}
+
+fn flyout_callbacks(shell: &Rc<Shell>) {
+    let flyout = shell.flyout();
+    let s = Rc::downgrade(shell);
+    flyout.on_pick_preset(move |i| on(&s, |shell| pick_preset(shell, i)));
+    let s = Rc::downgrade(shell);
+    flyout.on_pick_rate(move |i| on(&s, |shell| pick_rate(shell, i)));
+    let s = Rc::downgrade(shell);
+    flyout.on_move_brightness(move |percent| on(&s, |shell| move_brightness(shell, percent)));
+    let s = Rc::downgrade(shell);
+    flyout.on_toggle_touchpad(move || on(&s, toggle_touchpad));
+    let s = Rc::downgrade(shell);
+    flyout.on_reset(move || {
+        on(&s, |shell| {
+            shell.act(|app| {
+                let view = app.performance_view();
+                let reset = ui::FlyoutView::new(&view, &app.display_view()?, &app.keyboard_view()?);
+                match reset.reset_to_balanced() {
+                    Some(command) => app.on_performance(command),
+                    None => Ok(()),
+                }
+            });
         });
     });
-    let s = Rc::clone(shell);
+    let s = Rc::downgrade(shell);
+    flyout.on_open_window(move || {
+        if let Some(shell) = s.upgrade() {
+            shell.show_window();
+        }
+    });
+}
+
+fn window_callbacks(shell: &Rc<Shell>) {
+    let window = shell.window();
+    let s = Rc::downgrade(shell);
+    window.on_pick_preset(move |i| on(&s, |shell| pick_preset(shell, i)));
+    let s = Rc::downgrade(shell);
     window.on_move_slider(move |i, position| {
-        s.act(|app| {
-            let view = app.performance_view();
-            match view.move_slider(index(i), index(position)) {
-                Some(command) => app.on_performance(command),
-                None => Ok(()),
-            }
+        on(&s, |shell| {
+            shell.act(|app| {
+                let view = app.performance_view();
+                match view.move_slider(index(i), index(position)) {
+                    Some(command) => app.on_performance(command),
+                    None => Ok(()),
+                }
+            });
         });
     });
-    let s = Rc::clone(shell);
-    window.on_pick_rate(move |i| {
-        s.act(|app| match app.display_view()?.pick_rate(index(i)) {
-            Some(command) => app.on_display(command),
-            None => Ok(()),
-        });
-    });
-    let s = Rc::clone(shell);
+    let s = Rc::downgrade(shell);
+    window.on_pick_rate(move |i| on(&s, |shell| pick_rate(shell, i)));
+    let s = Rc::downgrade(shell);
     window.on_toggle_sixty_hz(move || {
-        s.act(|app| {
-            let command = app.display_view()?.toggle_sixty_hz_on_battery();
-            app.on_display(command)
+        on(&s, |shell| {
+            shell.act(|app| {
+                let command = app.display_view()?.toggle_sixty_hz_on_battery();
+                app.on_display(command)
+            });
         });
     });
-    let s = Rc::clone(shell);
+    let s = Rc::downgrade(shell);
     window.on_pick_native(move |i| {
-        s.act(|app| match app.display_view()?.pick_native_mode(index(i)) {
-            Some(command) => app.on_display(command),
-            None => Ok(()),
+        on(&s, |shell| {
+            shell.act(|app| match app.display_view()?.pick_native_mode(index(i)) {
+                Some(command) => app.on_display(command),
+                None => Ok(()),
+            });
         });
     });
-    let s = Rc::clone(shell);
-    window.on_move_brightness(move |percent| {
-        let percent = u8::try_from(percent).unwrap_or(u8::MAX);
-        s.act(|app| match app.keyboard_view()?.move_brightness(percent) {
-            Some(command) => app.on_keyboard(command),
-            None => Ok(()),
-        });
-    });
-    let s = Rc::clone(shell);
+    let s = Rc::downgrade(shell);
+    window.on_move_brightness(move |percent| on(&s, |shell| move_brightness(shell, percent)));
+    let s = Rc::downgrade(shell);
     window.on_pick_swatch(move |i| {
-        s.act(|app| match app.keyboard_view()?.pick_swatch(index(i)) {
-            Some(command) => app.on_keyboard(command),
-            None => Ok(()),
+        on(&s, |shell| {
+            shell.act(|app| match app.keyboard_view()?.pick_swatch(index(i)) {
+                Some(command) => app.on_keyboard(command),
+                None => Ok(()),
+            });
         });
     });
-    let s = Rc::clone(shell);
+    let s = Rc::downgrade(shell);
     window.on_pick_custom(move |hex| {
-        let Ok(rgb) = hex.trim().parse::<Rgb>() else {
-            s.show_error(&format!("{hex} is not a colour. Use #RRGGBB."));
-            return;
-        };
-        s.act(|app| match app.keyboard_view()?.pick_custom(rgb) {
-            Some(command) => app.on_keyboard(command),
-            None => Ok(()),
+        on(&s, |shell| {
+            let Ok(rgb) = hex.trim().parse::<Rgb>() else {
+                shell.show_error(&format!("{hex} is not a colour. Use #RRGGBB."));
+                return;
+            };
+            shell.act(|app| match app.keyboard_view()?.pick_custom(rgb) {
+                Some(command) => app.on_keyboard(command),
+                None => Ok(()),
+            });
         });
     });
-    let s = Rc::clone(shell);
-    window.on_toggle_touchpad(move || {
-        s.act(|app| {
-            let command = app.keyboard_view()?.toggle_touchpad();
-            app.on_keyboard(command)
-        });
-    });
+    let s = Rc::downgrade(shell);
+    window.on_toggle_touchpad(move || on(&s, toggle_touchpad));
 }

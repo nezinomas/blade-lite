@@ -14,6 +14,7 @@ raw-window-handle = "0.6.2"
 razer-proto = { path = "../razer-proto" }
 slint = { version = "1.18.1", features = ["raw-window-handle-06", "unstable-winit-030"] }
 thiserror = "2.0.21"
+tray-icon = "0.26.1"
 ui = { path = "../ui" }
 
 [build-dependencies]
