@@ -1,9 +1,13 @@
 import struct
 import unittest
 
-from decode_usbpcap import extract_reports, read_pcap, to_lines
+from decode_usbpcap import extract_reports, read_pcap, to_lines, trim
 
 REPORT = bytes([0x00, 0x1F, 0, 0, 0, 0x04, 0x0D, 0x02, 1, 1, 2, 0]) + bytes(78)
+
+
+def report(tid, cls, cmd, *args):
+    return bytes([0, tid, 0, 0, 0, len(args), cls, cmd, *args]) + bytes(82 - len(args))
 
 
 def packet(irp, stage, from_device, payload, transfer=2):
@@ -44,6 +48,25 @@ class DecodeTest(unittest.TestCase):
         pkts = list(read_pcap(pcap([packet(1, 0, 0, setup(0x21, 0x09) + REPORT)])))
         line = to_lines(extract_reports(pkts))[0]
         self.assertTrue(line.startswith('> mi=2 00 1f 00 00 00 04 0d 02'))
+
+
+class TrimTest(unittest.TestCase):
+    def test_fan_rpm_polling_is_dropped(self):
+        poll = report(1, 0x0D, 0x88, 1, 1, 0)
+        preset = report(2, 0x0D, 0x02, 1, 1, 5, 0)
+        reps = [('>', 2, poll), ('<', 2, poll), ('>', 2, preset)]
+        self.assertEqual(trim(reps, keep_polling=False), [('>', 2, preset)])
+
+    def test_polling_is_kept_when_asked(self):
+        poll = report(1, 0x0D, 0x88, 1, 1, 0)
+        self.assertEqual(trim([('>', 2, poll)], keep_polling=True), [('>', 2, poll)])
+
+    def test_repeated_frame_rows_are_kept_once_whatever_the_transaction_id(self):
+        row = report(1, 0x03, 0x0B, 0xFF, 0, 0, 0x12)
+        same_row_later = report(9, 0x03, 0x0B, 0xFF, 0, 0, 0x12)
+        other_row = report(3, 0x03, 0x0B, 0xFF, 1, 0, 0x12)
+        reps = [('>', 2, row), ('>', 2, other_row), ('>', 2, same_row_later)]
+        self.assertEqual(trim(reps, keep_polling=False), [('>', 2, row), ('>', 2, other_row)])
 
 
 if __name__ == '__main__':

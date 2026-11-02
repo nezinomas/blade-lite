@@ -5,6 +5,7 @@ Writes one fixture per input to tests/fixtures/<step>.txt:
   > <90 bytes hex>   host -> device (SET_REPORT), with the interface number
   < <90 bytes hex>   device -> host (GET_REPORT reply)
 Only class requests of exactly 90 bytes are kept, so key presses are dropped.
+Fan RPM polling is kept only in the idle step, and repeated frame rows once.
 """
 
 import struct
@@ -17,6 +18,8 @@ CONTROL = 2
 STAGE_SETUP, STAGE_DATA, STAGE_COMPLETE = 0, 1, 3
 SET_REPORT = (0x21, 0x09)
 GET_REPORT = (0xA1, 0x01)
+FAN_RPM_GET = 0x0D88
+FRAME_ROW_SET = 0x030B
 
 
 def read_pcap(data: bytes):
@@ -71,6 +74,30 @@ def extract_reports(packets):
                 yield '<', index, payload[:REPORT_LEN]
 
 
+def command(report: bytes) -> int:
+    return report[6] << 8 | report[7]
+
+
+def trim(reports, keep_polling: bool):
+    """Drops what every capture has, so a fixture shows its own step.
+
+    Fan RPM polling (0D88) goes unless keep_polling. Lighting frame rows
+    (030B) are kept once each, compared without the transaction ID.
+    """
+    seen_rows, kept = set(), []
+    for direction, mi, rep in reports:
+        cmd = command(rep)
+        if cmd == FAN_RPM_GET and not keep_polling:
+            continue
+        if cmd == FRAME_ROW_SET:
+            body = rep[2:]
+            if body in seen_rows:
+                continue
+            seen_rows.add(body)
+        kept.append((direction, mi, rep))
+    return kept
+
+
 def to_lines(reports):
     return [f'{d} mi={mi} {r.hex(" ")}' for d, mi, r in reports]
 
@@ -83,7 +110,8 @@ def main(paths):
     out_dir = Path(__file__).resolve().parent.parent / 'tests' / 'fixtures'
     out_dir.mkdir(parents=True, exist_ok=True)
     for p in map(Path, paths):
-        lines = to_lines(extract_reports(read_pcap(p.read_bytes())))
+        reports = extract_reports(read_pcap(p.read_bytes()))
+        lines = to_lines(trim(reports, keep_polling='idle' in p.name))
         if not lines:
             print(f'{p.name}: no 90-byte reports')
             continue
