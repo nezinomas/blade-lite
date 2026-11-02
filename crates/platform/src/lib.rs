@@ -8,6 +8,7 @@ mod display;
 mod keys;
 mod power;
 mod registry;
+mod sensors;
 
 use std::io;
 
@@ -15,6 +16,7 @@ pub use display::WindowsDisplays;
 pub use keys::WindowsKeys;
 pub use power::WindowsPowerEvents;
 pub use registry::WindowsRegistry;
+pub use sensors::WindowsSensors;
 
 /// Something Windows tells us about power.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -105,6 +107,64 @@ pub trait DisplayApi {
     ///
     /// The Windows error if the display did not take the mode.
     fn set_mode(&mut self, name: &str, mode: DisplayMode) -> io::Result<()>;
+}
+
+/// How long the CPUs have run since boot, in 100 ns units, summed over all.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CpuTimes {
+    /// Time spent idle.
+    pub idle: u64,
+    /// All time, idle included.
+    pub total: u64,
+}
+
+/// The battery as Windows reports it.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct PowerReading {
+    /// `None` if Windows does not know it.
+    pub battery_percent: Option<u8>,
+    /// Milliwatts into the battery: below zero while it drains. `None` if
+    /// Windows does not know it.
+    pub battery_rate_mw: Option<i32>,
+}
+
+/// What the NVIDIA GPU reports.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct GpuReading {
+    pub celsius: u32,
+    pub load_percent: u32,
+}
+
+/// Reads the sensors Windows offers.
+pub trait Sensors {
+    /// The CPU time since boot.
+    ///
+    /// # Errors
+    ///
+    /// The Windows error if it could not be read.
+    fn cpu_times(&mut self) -> io::Result<CpuTimes>;
+
+    /// The battery charge and rate.
+    ///
+    /// # Errors
+    ///
+    /// The Windows error if it could not be read.
+    fn power(&mut self) -> io::Result<PowerReading>;
+
+    /// Whether the NVIDIA GPU is awake. Asking does not wake it.
+    ///
+    /// # Errors
+    ///
+    /// The Windows error if its power state could not be read.
+    fn gpu_awake(&mut self) -> io::Result<bool>;
+
+    /// The GPU's temperature and load. This wakes a sleeping GPU, so ask
+    /// [`gpu_awake`](Self::gpu_awake) first.
+    ///
+    /// # Errors
+    ///
+    /// The error if the GPU could not be read.
+    fn gpu(&mut self) -> io::Result<GpuReading>;
 }
 
 /// The Windows error for a status code that a call returned.
