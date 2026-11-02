@@ -24,3 +24,15 @@ Each step says what to put back after.
 10. **Close and open again.** The preset and the lighting you left are still set.
 
 The app now remembers the lighting in `%APPDATA%\blade-lite\config.toml`. The controller can't report it, so the window shows 100% white until you set it once.
+
+# Tray check (stage 28)
+
+Start the app as above. A blue bolt icon shows in the tray. It may hide under the tray's ^ arrow. Drag it next to the clock to keep it there.
+
+1. **Close the window.** The app keeps running. The icon stays in the tray.
+2. **Open the flyout.** Left-click the icon. A small panel with round corners and Mica opens just above the icon.
+3. **Close the flyout.** Click the icon again, or click anywhere else. The panel closes.
+4. **Flyout controls.** Click Silent. Click your old rate, or another rate and then your old one. Drag Keyboard light, then put it back. Flip Touchpad twice.
+5. **Reset to Balanced.** With Silent set, click it. The preset goes back to Balanced, and the button greys out.
+6. **Open window.** Click it. The settings window opens and shows the same state.
+7. **Menu.** Right-click the icon. "Open window" opens the window. "Quit" ends the app, and the icon goes away.
