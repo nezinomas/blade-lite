@@ -134,3 +134,69 @@ Crate and exe names may change when the repo name is chosen.
   and `#![deny(unsafe_code)]` in every crate except `platform`. CI fails if
   any of these fail.
 - **Commits:** small and logical, with short messages.
+
+## Install
+
+There is no release yet. When there is, it will be a per-user MSI installer
+from the GitHub Releases page. It needs no admin rights, sets up autostart,
+and its uninstaller removes the autostart entry and the config.
+
+### Unsigned releases and SmartScreen
+
+Releases are **not code-signed** for now. Windows SmartScreen may show
+"Windows protected your PC" the first time you run the installer.
+
+1. Click **More info**.
+2. Click **Run anyway**.
+
+Only do this for files from this repo's Releases page. We plan to apply to
+SignPath Foundation (free signing for open source). If accepted, releases will
+be signed. winget comes after the first signed release.
+
+### Removing Synapse
+
+The app is made to run with Synapse and its Razer Control Device driver
+removed. Step-by-step removal and rollback notes will be added before the
+first release. Make a restore point and keep the Synapse installer first.
+
+## Credits
+
+This app ports code and protocol facts from other open-source projects.
+Their licence notices will be kept in `NOTICE` when code is ported.
+
+### Reused code
+
+| Project | Licence | What we use |
+| --- | --- | --- |
+| [r-helper, Blade 18 fork](https://github.com/brandonjank/r-helper) by brandonjank | MIT | The 02C7 support: interface, transaction ID, command table, fan channels, sensor reads and its [capability notes](https://github.com/brandonjank/r-helper/blob/main/docs/razer-controller-capabilities.md). It is a fork of [Fatalution/r-helper](https://github.com/Fatalution/r-helper) (MIT) |
+| [razer-ctl](https://github.com/tdakhran/razer-ctl) by tdakhran | MIT | The laptop command set (performance modes, boost, fans, brightness), packet code and reverse-engineering notes |
+
+### Used as documentation only (no code copied)
+
+| Project | Licence | What we learn from it |
+| --- | --- | --- |
+| [OpenRazer](https://github.com/openrazer/openrazer) | GPL | The 90-byte report format and lighting commands |
+| [razer-laptop-control-no-dkms](https://github.com/Razer-Linux/razer-laptop-control-no-dkms) | Not yet checked | A second source for fan and power commands |
+| [G-Helper](https://github.com/seerge/g-helper) | GPL-3.0 | The product idea: a small tray app that replaces a heavy vendor suite (ASUS) |
+
+### Planned dependencies
+
+These crates are planned. Licences will be checked again when each is added.
+
+| Crate | Use | Licence |
+| --- | --- | --- |
+| [slint](https://slint.dev) | UI toolkit | Royalty-free licence for desktop apps, with attribution (or GPL-3.0) |
+| [hidapi](https://crates.io/crates/hidapi) | USB HID transport | MIT |
+| [windows](https://crates.io/crates/windows) | Win32 APIs (display, power, DWM, registry) | MIT or Apache-2.0 |
+| [nvml-wrapper](https://crates.io/crates/nvml-wrapper) | GPU temperature and load | MIT or Apache-2.0 |
+| [serde](https://crates.io/crates/serde) and [toml](https://crates.io/crates/toml) | Config file | MIT or Apache-2.0 |
+| [thiserror](https://crates.io/crates/thiserror) and [anyhow](https://crates.io/crates/anyhow) | Errors | MIT or Apache-2.0 |
+| [tracing](https://crates.io/crates/tracing) | Logging | MIT |
+| [cargo-wix](https://crates.io/crates/cargo-wix) | Builds the MSI (build tool only) | MIT or Apache-2.0 |
+
+## Licence
+
+MIT. The `LICENSE` and `NOTICE` files come with the first release.
+
+Razer, Synapse and Blade are trademarks of Razer Inc. This project is not
+made by, or connected to, Razer.
