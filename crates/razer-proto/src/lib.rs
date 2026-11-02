@@ -49,10 +49,10 @@ impl Request {
     ///
     /// [`BuildError::TooManyArgs`] if there are more than [`MAX_ARGS`] args.
     pub fn new(transaction_id: u8, command: u16, args: &[u8]) -> Result<Self, BuildError> {
-        let data_size = u8::try_from(args.len())
-            .ok()
-            .filter(|_| args.len() <= MAX_ARGS)
-            .ok_or(BuildError::TooManyArgs(args.len()))?;
+        let data_size = match u8::try_from(args.len()) {
+            Ok(size) if usize::from(size) <= MAX_ARGS => size,
+            _ => return Err(BuildError::TooManyArgs(args.len())),
+        };
         let mut padded = [0; MAX_ARGS];
         padded[..args.len()].copy_from_slice(args);
         Ok(Self {
