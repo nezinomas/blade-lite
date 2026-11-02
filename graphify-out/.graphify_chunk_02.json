@@ -1,0 +1,1049 @@
+{
+ "nodes": [
+  {
+   "id": "tests_fixtures_00_idle_dashboard_scenario",
+   "label": "Idle dashboard capture",
+   "file_type": "document",
+   "source_file": "D:\\rust\\synapse\\tests\\fixtures\\00-idle-dashboard.txt",
+   "source_location": null,
+   "source_url": null,
+   "captured_at": null,
+   "author": null,
+   "contributor": null,
+   "rationale": "Synapse idle on dashboard: repaints keyboard frame once, then polls fan RPM 0D88 for fans 1 and 2 continuously; replies 0x11-0x13 (x100 rpm, about 1700-1900)."
+  },
+  {
+   "id": "tests_fixtures_01_preset_silent_scenario",
+   "label": "Silent preset capture",
+   "file_type": "document",
+   "source_file": "D:\\rust\\synapse\\tests\\fixtures\\01-preset-silent.txt",
+   "source_location": null,
+   "source_url": null,
+   "captured_at": null,
+   "author": null,
+   "contributor": null,
+   "rationale": "Selecting Silent sends 0D02 per zone 1-4 with mode byte 05, after reading 07 8C."
+  },
+  {
+   "id": "tests_fixtures_02_preset_balanced_scenario",
+   "label": "Balanced preset capture",
+   "file_type": "document",
+   "source_file": "D:\\rust\\synapse\\tests\\fixtures\\02-preset-balanced.txt",
+   "source_location": null,
+   "source_url": null,
+   "captured_at": null,
+   "author": null,
+   "contributor": null,
+   "rationale": "Selecting Balanced sends 0D02 per zone 1-4 with mode byte 00."
+  },
+  {
+   "id": "tests_fixtures_03_preset_performance_scenario",
+   "label": "Performance preset capture",
+   "file_type": "document",
+   "source_file": "D:\\rust\\synapse\\tests\\fixtures\\03-preset-performance.txt",
+   "source_location": null,
+   "source_url": null,
+   "captured_at": null,
+   "author": null,
+   "contributor": null,
+   "rationale": "Selecting Performance sends 0D02 per zone 1-4 with mode byte 02."
+  },
+  {
+   "id": "tests_fixtures_04_custom_cpu_boost_scenario",
+   "label": "Custom CPU boost capture",
+   "file_type": "document",
+   "source_file": "D:\\rust\\synapse\\tests\\fixtures\\04-custom-cpu-boost.txt",
+   "source_location": null,
+   "source_url": null,
+   "captured_at": null,
+   "author": null,
+   "contributor": null,
+   "rationale": "Custom mode: 0D02 zones 1-4 mode 04, then 0D07 01 01 <level> sets CPU boost 0-3, each followed by a 0D87 read-back."
+  },
+  {
+   "id": "tests_fixtures_05_custom_gpu_boost_scenario",
+   "label": "Custom GPU boost capture",
+   "file_type": "document",
+   "source_file": "D:\\rust\\synapse\\tests\\fixtures\\05-custom-gpu-boost.txt",
+   "source_location": null,
+   "source_url": null,
+   "captured_at": null,
+   "author": null,
+   "contributor": null,
+   "rationale": "0D07 01 02 <level> sets GPU boost levels 0-3."
+  },
+  {
+   "id": "tests_fixtures_06_fan_manual_min_scenario",
+   "label": "Fan manual min capture",
+   "file_type": "document",
+   "source_file": "D:\\rust\\synapse\\tests\\fixtures\\06-fan-manual-min.txt",
+   "source_location": null,
+   "source_url": null,
+   "captured_at": null,
+   "author": null,
+   "contributor": null,
+   "rationale": "Manual fan: 0D02 mode 04 then 00 per zone, boosts 0D07 set to 03, then 0D01 01 <fan> <rpm/100> streamed for fans 1 and 2 with values 0x10-0x17 (1600-2300 rpm); 0x10 = 1600 min."
+  },
+  {
+   "id": "tests_fixtures_07_fan_manual_max_scenario",
+   "label": "Fan manual max capture",
+   "file_type": "document",
+   "source_file": "D:\\rust\\synapse\\tests\\fixtures\\07-fan-manual-max.txt",
+   "source_location": null,
+   "source_url": null,
+   "captured_at": null,
+   "author": null,
+   "contributor": null,
+   "rationale": "Fan slider writes 0D01 for both fans with 0x11 and 0x12 only; a max (4500 rpm) value does not appear in this capture."
+  },
+  {
+   "id": "tests_fixtures_09_charge_limit_on_scenario",
+   "label": "Charge limit on capture",
+   "file_type": "document",
+   "source_file": "D:\\rust\\synapse\\tests\\fixtures\\09-charge-limit-on.txt",
+   "source_location": null,
+   "source_url": null,
+   "captured_at": null,
+   "author": null,
+   "contributor": null,
+   "rationale": "Only keyboard frame repaint captured; no charge-limit command observed."
+  },
+  {
+   "id": "tests_fixtures_10_charge_limit_levels_scenario",
+   "label": "Charge limit levels capture",
+   "file_type": "document",
+   "source_file": "D:\\rust\\synapse\\tests\\fixtures\\10-charge-limit-levels.txt",
+   "source_location": null,
+   "source_url": null,
+   "captured_at": null,
+   "author": null,
+   "contributor": null,
+   "rationale": "0712 written with d0 (bit7 enable + 0x50 = 80%), then 078F read returns 08 and 070F writes 08 back."
+  },
+  {
+   "id": "tests_fixtures_11_charge_limit_off_scenario",
+   "label": "Charge limit off capture",
+   "file_type": "document",
+   "source_file": "D:\\rust\\synapse\\tests\\fixtures\\11-charge-limit-off.txt",
+   "source_location": null,
+   "source_url": null,
+   "captured_at": null,
+   "author": null,
+   "contributor": null,
+   "rationale": "0712 written with 50 (enable bit cleared, level 80 retained), then 078F/070F as in levels capture."
+  },
+  {
+   "id": "tests_fixtures_12_charge_limit_80_scenario",
+   "label": "Charge limit 80 capture",
+   "file_type": "document",
+   "source_file": "D:\\rust\\synapse\\tests\\fixtures\\12-charge-limit-80.txt",
+   "source_location": null,
+   "source_url": null,
+   "captured_at": null,
+   "author": null,
+   "contributor": null,
+   "rationale": "Only keyboard frame repaint captured; no charge-limit traffic observed."
+  },
+  {
+   "id": "tests_fixtures_00_idle_dashboard_keyboard_custom_frame_030b",
+   "label": "Keyboard custom frame 03 0B (rows 0-6)",
+   "file_type": "concept",
+   "source_file": "D:\\rust\\synapse\\tests\\fixtures\\00-idle-dashboard.txt",
+   "source_location": null,
+   "source_url": null,
+   "captured_at": null,
+   "author": null,
+   "contributor": null,
+   "rationale": "Size 0x3d, class 03 id 0B, row index 00-06, RGB per key; Synapse repaints all 7 rows at the start of nearly every capture."
+  },
+  {
+   "id": "tests_fixtures_00_idle_dashboard_fan_rpm_read_0d88",
+   "label": "Get fan RPM 0D 88",
+   "file_type": "concept",
+   "source_file": "D:\\rust\\synapse\\tests\\fixtures\\00-idle-dashboard.txt",
+   "source_location": null,
+   "source_url": null,
+   "captured_at": null,
+   "author": null,
+   "contributor": null,
+   "rationale": "Size 03, args 01 <fan 1|2>; reply byte = rpm/100."
+  },
+  {
+   "id": "tests_fixtures_01_preset_silent_set_performance_mode_0d02",
+   "label": "Set performance mode 0D 02",
+   "file_type": "concept",
+   "source_file": "D:\\rust\\synapse\\tests\\fixtures\\01-preset-silent.txt",
+   "source_location": null,
+   "source_url": null,
+   "captured_at": null,
+   "author": null,
+   "contributor": null,
+   "rationale": "Size 04, args 01 <zone 1-4> <mode>; modes seen: 00 balanced, 02 performance, 04 custom, 05 silent. Device echoes the request as reply."
+  },
+  {
+   "id": "tests_fixtures_01_preset_silent_read_078c",
+   "label": "Read 07 8C",
+   "file_type": "concept",
+   "source_file": "D:\\rust\\synapse\\tests\\fixtures\\01-preset-silent.txt",
+   "source_location": null,
+   "source_url": null,
+   "captured_at": null,
+   "author": null,
+   "contributor": null,
+   "rationale": "Size 02, class 07 id 8C; reply 13 13. Meaning unclear (read before preset change)."
+  },
+  {
+   "id": "tests_fixtures_01_preset_silent_silent_mode_05",
+   "label": "Silent mode byte 05",
+   "file_type": "concept",
+   "source_file": "D:\\rust\\synapse\\tests\\fixtures\\01-preset-silent.txt",
+   "source_location": null,
+   "source_url": null,
+   "captured_at": null,
+   "author": null,
+   "contributor": null
+  },
+  {
+   "id": "tests_fixtures_02_preset_balanced_balanced_mode_00",
+   "label": "Balanced mode byte 00",
+   "file_type": "concept",
+   "source_file": "D:\\rust\\synapse\\tests\\fixtures\\02-preset-balanced.txt",
+   "source_location": null,
+   "source_url": null,
+   "captured_at": null,
+   "author": null,
+   "contributor": null
+  },
+  {
+   "id": "tests_fixtures_03_preset_performance_performance_mode_02",
+   "label": "Performance mode byte 02",
+   "file_type": "concept",
+   "source_file": "D:\\rust\\synapse\\tests\\fixtures\\03-preset-performance.txt",
+   "source_location": null,
+   "source_url": null,
+   "captured_at": null,
+   "author": null,
+   "contributor": null
+  },
+  {
+   "id": "tests_fixtures_04_custom_cpu_boost_custom_mode_04",
+   "label": "Custom mode byte 04",
+   "file_type": "concept",
+   "source_file": "D:\\rust\\synapse\\tests\\fixtures\\04-custom-cpu-boost.txt",
+   "source_location": null,
+   "source_url": null,
+   "captured_at": null,
+   "author": null,
+   "contributor": null
+  },
+  {
+   "id": "tests_fixtures_04_custom_cpu_boost_set_boost_0d07",
+   "label": "Set boost 0D 07",
+   "file_type": "concept",
+   "source_file": "D:\\rust\\synapse\\tests\\fixtures\\04-custom-cpu-boost.txt",
+   "source_location": null,
+   "source_url": null,
+   "captured_at": null,
+   "author": null,
+   "contributor": null,
+   "rationale": "Size 03, args 01 <1=CPU|2=GPU> <level 0-3>."
+  },
+  {
+   "id": "tests_fixtures_04_custom_cpu_boost_get_boost_0d87",
+   "label": "Get boost 0D 87",
+   "file_type": "concept",
+   "source_file": "D:\\rust\\synapse\\tests\\fixtures\\04-custom-cpu-boost.txt",
+   "source_location": null,
+   "source_url": null,
+   "captured_at": null,
+   "author": null,
+   "contributor": null,
+   "rationale": "Read-back of boost level, args 01 <1|2>."
+  },
+  {
+   "id": "tests_fixtures_04_custom_cpu_boost_cpu_boost",
+   "label": "CPU boost",
+   "file_type": "concept",
+   "source_file": "D:\\rust\\synapse\\tests\\fixtures\\04-custom-cpu-boost.txt",
+   "source_location": null,
+   "source_url": null,
+   "captured_at": null,
+   "author": null,
+   "contributor": null
+  },
+  {
+   "id": "tests_fixtures_05_custom_gpu_boost_gpu_boost",
+   "label": "GPU boost",
+   "file_type": "concept",
+   "source_file": "D:\\rust\\synapse\\tests\\fixtures\\05-custom-gpu-boost.txt",
+   "source_location": null,
+   "source_url": null,
+   "captured_at": null,
+   "author": null,
+   "contributor": null
+  },
+  {
+   "id": "tests_fixtures_06_fan_manual_min_set_fan_rpm_0d01",
+   "label": "Set fan RPM 0D 01",
+   "file_type": "concept",
+   "source_file": "D:\\rust\\synapse\\tests\\fixtures\\06-fan-manual-min.txt",
+   "source_location": null,
+   "source_url": null,
+   "captured_at": null,
+   "author": null,
+   "contributor": null,
+   "rationale": "Size 03, args 01 <fan 1|2> <rpm/100>; streamed while slider is dragged."
+  },
+  {
+   "id": "tests_fixtures_06_fan_manual_min_fan_min_1600",
+   "label": "Fan minimum 1600 rpm (0x10)",
+   "file_type": "concept",
+   "source_file": "D:\\rust\\synapse\\tests\\fixtures\\06-fan-manual-min.txt",
+   "source_location": null,
+   "source_url": null,
+   "captured_at": null,
+   "author": null,
+   "contributor": null
+  },
+  {
+   "id": "tests_fixtures_10_charge_limit_levels_set_charge_limit_0712",
+   "label": "Set charge limit 07 12",
+   "file_type": "concept",
+   "source_file": "D:\\rust\\synapse\\tests\\fixtures\\10-charge-limit-levels.txt",
+   "source_location": null,
+   "source_url": null,
+   "captured_at": null,
+   "author": null,
+   "contributor": null,
+   "rationale": "Size 01, byte = enable bit 0x80 | percent; d0 = on at 80%, 50 = off at 80%."
+  },
+  {
+   "id": "tests_fixtures_10_charge_limit_levels_get_078f",
+   "label": "Get 07 8F",
+   "file_type": "concept",
+   "source_file": "D:\\rust\\synapse\\tests\\fixtures\\10-charge-limit-levels.txt",
+   "source_location": null,
+   "source_url": null,
+   "captured_at": null,
+   "author": null,
+   "contributor": null,
+   "rationale": "Read returns 08; unknown battery-related setting."
+  },
+  {
+   "id": "tests_fixtures_10_charge_limit_levels_set_070f",
+   "label": "Set 07 0F",
+   "file_type": "concept",
+   "source_file": "D:\\rust\\synapse\\tests\\fixtures\\10-charge-limit-levels.txt",
+   "source_location": null,
+   "source_url": null,
+   "captured_at": null,
+   "author": null,
+   "contributor": null,
+   "rationale": "Writes 08 back right after charge-limit change."
+  },
+  {
+   "id": "tests_fixtures_00_idle_dashboard_razer_report_frame",
+   "label": "Razer 90-byte HID report (mi=2)",
+   "file_type": "concept",
+   "source_file": "D:\\rust\\synapse\\tests\\fixtures\\00-idle-dashboard.txt",
+   "source_location": null,
+   "source_url": null,
+   "captured_at": null,
+   "author": null,
+   "contributor": null,
+   "rationale": "Lines: > host->device, < device->host; byte0 status (00 new, 02 ok), byte1 transaction id, size, class, id, args, checksum byte before trailing 00."
+  }
+ ],
+ "edges": [
+  {
+   "source": "tests_fixtures_00_idle_dashboard_scenario",
+   "target": "tests_fixtures_00_idle_dashboard_razer_report_frame",
+   "relation": "references",
+   "confidence": "INFERRED",
+   "confidence_score": 0.85,
+   "source_file": "D:\\rust\\synapse\\tests\\fixtures\\00-idle-dashboard.txt",
+   "source_location": null,
+   "weight": 1.0
+  },
+  {
+   "source": "tests_fixtures_00_idle_dashboard_scenario",
+   "target": "tests_fixtures_00_idle_dashboard_keyboard_custom_frame_030b",
+   "relation": "calls",
+   "confidence": "EXTRACTED",
+   "confidence_score": 1.0,
+   "source_file": "D:\\rust\\synapse\\tests\\fixtures\\00-idle-dashboard.txt",
+   "source_location": null,
+   "weight": 1.0
+  },
+  {
+   "source": "tests_fixtures_01_preset_silent_scenario",
+   "target": "tests_fixtures_00_idle_dashboard_razer_report_frame",
+   "relation": "references",
+   "confidence": "INFERRED",
+   "confidence_score": 0.85,
+   "source_file": "D:\\rust\\synapse\\tests\\fixtures\\01-preset-silent.txt",
+   "source_location": null,
+   "weight": 1.0
+  },
+  {
+   "source": "tests_fixtures_01_preset_silent_scenario",
+   "target": "tests_fixtures_00_idle_dashboard_keyboard_custom_frame_030b",
+   "relation": "calls",
+   "confidence": "EXTRACTED",
+   "confidence_score": 1.0,
+   "source_file": "D:\\rust\\synapse\\tests\\fixtures\\01-preset-silent.txt",
+   "source_location": null,
+   "weight": 1.0
+  },
+  {
+   "source": "tests_fixtures_02_preset_balanced_scenario",
+   "target": "tests_fixtures_00_idle_dashboard_razer_report_frame",
+   "relation": "references",
+   "confidence": "INFERRED",
+   "confidence_score": 0.85,
+   "source_file": "D:\\rust\\synapse\\tests\\fixtures\\02-preset-balanced.txt",
+   "source_location": null,
+   "weight": 1.0
+  },
+  {
+   "source": "tests_fixtures_02_preset_balanced_scenario",
+   "target": "tests_fixtures_00_idle_dashboard_keyboard_custom_frame_030b",
+   "relation": "calls",
+   "confidence": "EXTRACTED",
+   "confidence_score": 1.0,
+   "source_file": "D:\\rust\\synapse\\tests\\fixtures\\02-preset-balanced.txt",
+   "source_location": null,
+   "weight": 1.0
+  },
+  {
+   "source": "tests_fixtures_03_preset_performance_scenario",
+   "target": "tests_fixtures_00_idle_dashboard_razer_report_frame",
+   "relation": "references",
+   "confidence": "INFERRED",
+   "confidence_score": 0.85,
+   "source_file": "D:\\rust\\synapse\\tests\\fixtures\\03-preset-performance.txt",
+   "source_location": null,
+   "weight": 1.0
+  },
+  {
+   "source": "tests_fixtures_03_preset_performance_scenario",
+   "target": "tests_fixtures_00_idle_dashboard_keyboard_custom_frame_030b",
+   "relation": "calls",
+   "confidence": "EXTRACTED",
+   "confidence_score": 1.0,
+   "source_file": "D:\\rust\\synapse\\tests\\fixtures\\03-preset-performance.txt",
+   "source_location": null,
+   "weight": 1.0
+  },
+  {
+   "source": "tests_fixtures_04_custom_cpu_boost_scenario",
+   "target": "tests_fixtures_00_idle_dashboard_razer_report_frame",
+   "relation": "references",
+   "confidence": "INFERRED",
+   "confidence_score": 0.85,
+   "source_file": "D:\\rust\\synapse\\tests\\fixtures\\04-custom-cpu-boost.txt",
+   "source_location": null,
+   "weight": 1.0
+  },
+  {
+   "source": "tests_fixtures_04_custom_cpu_boost_scenario",
+   "target": "tests_fixtures_00_idle_dashboard_keyboard_custom_frame_030b",
+   "relation": "calls",
+   "confidence": "EXTRACTED",
+   "confidence_score": 1.0,
+   "source_file": "D:\\rust\\synapse\\tests\\fixtures\\04-custom-cpu-boost.txt",
+   "source_location": null,
+   "weight": 1.0
+  },
+  {
+   "source": "tests_fixtures_05_custom_gpu_boost_scenario",
+   "target": "tests_fixtures_00_idle_dashboard_razer_report_frame",
+   "relation": "references",
+   "confidence": "INFERRED",
+   "confidence_score": 0.85,
+   "source_file": "D:\\rust\\synapse\\tests\\fixtures\\05-custom-gpu-boost.txt",
+   "source_location": null,
+   "weight": 1.0
+  },
+  {
+   "source": "tests_fixtures_05_custom_gpu_boost_scenario",
+   "target": "tests_fixtures_00_idle_dashboard_keyboard_custom_frame_030b",
+   "relation": "calls",
+   "confidence": "EXTRACTED",
+   "confidence_score": 1.0,
+   "source_file": "D:\\rust\\synapse\\tests\\fixtures\\05-custom-gpu-boost.txt",
+   "source_location": null,
+   "weight": 1.0
+  },
+  {
+   "source": "tests_fixtures_06_fan_manual_min_scenario",
+   "target": "tests_fixtures_00_idle_dashboard_razer_report_frame",
+   "relation": "references",
+   "confidence": "INFERRED",
+   "confidence_score": 0.85,
+   "source_file": "D:\\rust\\synapse\\tests\\fixtures\\06-fan-manual-min.txt",
+   "source_location": null,
+   "weight": 1.0
+  },
+  {
+   "source": "tests_fixtures_06_fan_manual_min_scenario",
+   "target": "tests_fixtures_00_idle_dashboard_keyboard_custom_frame_030b",
+   "relation": "calls",
+   "confidence": "EXTRACTED",
+   "confidence_score": 1.0,
+   "source_file": "D:\\rust\\synapse\\tests\\fixtures\\06-fan-manual-min.txt",
+   "source_location": null,
+   "weight": 1.0
+  },
+  {
+   "source": "tests_fixtures_07_fan_manual_max_scenario",
+   "target": "tests_fixtures_00_idle_dashboard_razer_report_frame",
+   "relation": "references",
+   "confidence": "INFERRED",
+   "confidence_score": 0.85,
+   "source_file": "D:\\rust\\synapse\\tests\\fixtures\\07-fan-manual-max.txt",
+   "source_location": null,
+   "weight": 1.0
+  },
+  {
+   "source": "tests_fixtures_07_fan_manual_max_scenario",
+   "target": "tests_fixtures_00_idle_dashboard_keyboard_custom_frame_030b",
+   "relation": "calls",
+   "confidence": "EXTRACTED",
+   "confidence_score": 1.0,
+   "source_file": "D:\\rust\\synapse\\tests\\fixtures\\07-fan-manual-max.txt",
+   "source_location": null,
+   "weight": 1.0
+  },
+  {
+   "source": "tests_fixtures_09_charge_limit_on_scenario",
+   "target": "tests_fixtures_00_idle_dashboard_razer_report_frame",
+   "relation": "references",
+   "confidence": "INFERRED",
+   "confidence_score": 0.85,
+   "source_file": "D:\\rust\\synapse\\tests\\fixtures\\09-charge-limit-on.txt",
+   "source_location": null,
+   "weight": 1.0
+  },
+  {
+   "source": "tests_fixtures_09_charge_limit_on_scenario",
+   "target": "tests_fixtures_00_idle_dashboard_keyboard_custom_frame_030b",
+   "relation": "calls",
+   "confidence": "EXTRACTED",
+   "confidence_score": 1.0,
+   "source_file": "D:\\rust\\synapse\\tests\\fixtures\\09-charge-limit-on.txt",
+   "source_location": null,
+   "weight": 1.0
+  },
+  {
+   "source": "tests_fixtures_10_charge_limit_levels_scenario",
+   "target": "tests_fixtures_00_idle_dashboard_razer_report_frame",
+   "relation": "references",
+   "confidence": "INFERRED",
+   "confidence_score": 0.85,
+   "source_file": "D:\\rust\\synapse\\tests\\fixtures\\10-charge-limit-levels.txt",
+   "source_location": null,
+   "weight": 1.0
+  },
+  {
+   "source": "tests_fixtures_10_charge_limit_levels_scenario",
+   "target": "tests_fixtures_00_idle_dashboard_keyboard_custom_frame_030b",
+   "relation": "calls",
+   "confidence": "EXTRACTED",
+   "confidence_score": 1.0,
+   "source_file": "D:\\rust\\synapse\\tests\\fixtures\\10-charge-limit-levels.txt",
+   "source_location": null,
+   "weight": 1.0
+  },
+  {
+   "source": "tests_fixtures_11_charge_limit_off_scenario",
+   "target": "tests_fixtures_00_idle_dashboard_razer_report_frame",
+   "relation": "references",
+   "confidence": "INFERRED",
+   "confidence_score": 0.85,
+   "source_file": "D:\\rust\\synapse\\tests\\fixtures\\11-charge-limit-off.txt",
+   "source_location": null,
+   "weight": 1.0
+  },
+  {
+   "source": "tests_fixtures_11_charge_limit_off_scenario",
+   "target": "tests_fixtures_00_idle_dashboard_keyboard_custom_frame_030b",
+   "relation": "calls",
+   "confidence": "EXTRACTED",
+   "confidence_score": 1.0,
+   "source_file": "D:\\rust\\synapse\\tests\\fixtures\\11-charge-limit-off.txt",
+   "source_location": null,
+   "weight": 1.0
+  },
+  {
+   "source": "tests_fixtures_12_charge_limit_80_scenario",
+   "target": "tests_fixtures_00_idle_dashboard_razer_report_frame",
+   "relation": "references",
+   "confidence": "INFERRED",
+   "confidence_score": 0.85,
+   "source_file": "D:\\rust\\synapse\\tests\\fixtures\\12-charge-limit-80.txt",
+   "source_location": null,
+   "weight": 1.0
+  },
+  {
+   "source": "tests_fixtures_12_charge_limit_80_scenario",
+   "target": "tests_fixtures_00_idle_dashboard_keyboard_custom_frame_030b",
+   "relation": "calls",
+   "confidence": "EXTRACTED",
+   "confidence_score": 1.0,
+   "source_file": "D:\\rust\\synapse\\tests\\fixtures\\12-charge-limit-80.txt",
+   "source_location": null,
+   "weight": 1.0
+  },
+  {
+   "source": "tests_fixtures_00_idle_dashboard_scenario",
+   "target": "tests_fixtures_00_idle_dashboard_fan_rpm_read_0d88",
+   "relation": "calls",
+   "confidence": "EXTRACTED",
+   "confidence_score": 1.0,
+   "source_file": "D:\\rust\\synapse\\tests\\fixtures\\00-idle-dashboard.txt",
+   "source_location": null,
+   "weight": 1.0
+  },
+  {
+   "source": "tests_fixtures_01_preset_silent_scenario",
+   "target": "tests_fixtures_01_preset_silent_set_performance_mode_0d02",
+   "relation": "calls",
+   "confidence": "EXTRACTED",
+   "confidence_score": 1.0,
+   "source_file": "D:\\rust\\synapse\\tests\\fixtures\\01-preset-silent.txt",
+   "source_location": null,
+   "weight": 1.0
+  },
+  {
+   "source": "tests_fixtures_01_preset_silent_scenario",
+   "target": "tests_fixtures_01_preset_silent_read_078c",
+   "relation": "calls",
+   "confidence": "EXTRACTED",
+   "confidence_score": 1.0,
+   "source_file": "D:\\rust\\synapse\\tests\\fixtures\\01-preset-silent.txt",
+   "source_location": null,
+   "weight": 1.0
+  },
+  {
+   "source": "tests_fixtures_01_preset_silent_silent_mode_05",
+   "target": "tests_fixtures_01_preset_silent_set_performance_mode_0d02",
+   "relation": "implements",
+   "confidence": "EXTRACTED",
+   "confidence_score": 1.0,
+   "source_file": "D:\\rust\\synapse\\tests\\fixtures\\01-preset-silent.txt",
+   "source_location": null,
+   "weight": 1.0
+  },
+  {
+   "source": "tests_fixtures_02_preset_balanced_scenario",
+   "target": "tests_fixtures_01_preset_silent_set_performance_mode_0d02",
+   "relation": "calls",
+   "confidence": "EXTRACTED",
+   "confidence_score": 1.0,
+   "source_file": "D:\\rust\\synapse\\tests\\fixtures\\02-preset-balanced.txt",
+   "source_location": null,
+   "weight": 1.0
+  },
+  {
+   "source": "tests_fixtures_02_preset_balanced_scenario",
+   "target": "tests_fixtures_01_preset_silent_read_078c",
+   "relation": "calls",
+   "confidence": "EXTRACTED",
+   "confidence_score": 1.0,
+   "source_file": "D:\\rust\\synapse\\tests\\fixtures\\02-preset-balanced.txt",
+   "source_location": null,
+   "weight": 1.0
+  },
+  {
+   "source": "tests_fixtures_02_preset_balanced_balanced_mode_00",
+   "target": "tests_fixtures_01_preset_silent_set_performance_mode_0d02",
+   "relation": "implements",
+   "confidence": "EXTRACTED",
+   "confidence_score": 1.0,
+   "source_file": "D:\\rust\\synapse\\tests\\fixtures\\02-preset-balanced.txt",
+   "source_location": null,
+   "weight": 1.0
+  },
+  {
+   "source": "tests_fixtures_03_preset_performance_scenario",
+   "target": "tests_fixtures_01_preset_silent_set_performance_mode_0d02",
+   "relation": "calls",
+   "confidence": "EXTRACTED",
+   "confidence_score": 1.0,
+   "source_file": "D:\\rust\\synapse\\tests\\fixtures\\03-preset-performance.txt",
+   "source_location": null,
+   "weight": 1.0
+  },
+  {
+   "source": "tests_fixtures_03_preset_performance_scenario",
+   "target": "tests_fixtures_01_preset_silent_read_078c",
+   "relation": "calls",
+   "confidence": "EXTRACTED",
+   "confidence_score": 1.0,
+   "source_file": "D:\\rust\\synapse\\tests\\fixtures\\03-preset-performance.txt",
+   "source_location": null,
+   "weight": 1.0
+  },
+  {
+   "source": "tests_fixtures_03_preset_performance_performance_mode_02",
+   "target": "tests_fixtures_01_preset_silent_set_performance_mode_0d02",
+   "relation": "implements",
+   "confidence": "EXTRACTED",
+   "confidence_score": 1.0,
+   "source_file": "D:\\rust\\synapse\\tests\\fixtures\\03-preset-performance.txt",
+   "source_location": null,
+   "weight": 1.0
+  },
+  {
+   "source": "tests_fixtures_04_custom_cpu_boost_scenario",
+   "target": "tests_fixtures_01_preset_silent_set_performance_mode_0d02",
+   "relation": "calls",
+   "confidence": "EXTRACTED",
+   "confidence_score": 1.0,
+   "source_file": "D:\\rust\\synapse\\tests\\fixtures\\04-custom-cpu-boost.txt",
+   "source_location": null,
+   "weight": 1.0
+  },
+  {
+   "source": "tests_fixtures_04_custom_cpu_boost_scenario",
+   "target": "tests_fixtures_01_preset_silent_read_078c",
+   "relation": "calls",
+   "confidence": "EXTRACTED",
+   "confidence_score": 1.0,
+   "source_file": "D:\\rust\\synapse\\tests\\fixtures\\04-custom-cpu-boost.txt",
+   "source_location": null,
+   "weight": 1.0
+  },
+  {
+   "source": "tests_fixtures_04_custom_cpu_boost_custom_mode_04",
+   "target": "tests_fixtures_01_preset_silent_set_performance_mode_0d02",
+   "relation": "implements",
+   "confidence": "EXTRACTED",
+   "confidence_score": 1.0,
+   "source_file": "D:\\rust\\synapse\\tests\\fixtures\\04-custom-cpu-boost.txt",
+   "source_location": null,
+   "weight": 1.0
+  },
+  {
+   "source": "tests_fixtures_06_fan_manual_min_scenario",
+   "target": "tests_fixtures_01_preset_silent_read_078c",
+   "relation": "calls",
+   "confidence": "EXTRACTED",
+   "confidence_score": 1.0,
+   "source_file": "D:\\rust\\synapse\\tests\\fixtures\\06-fan-manual-min.txt",
+   "source_location": null,
+   "weight": 1.0
+  },
+  {
+   "source": "tests_fixtures_06_fan_manual_min_scenario",
+   "target": "tests_fixtures_01_preset_silent_set_performance_mode_0d02",
+   "relation": "calls",
+   "confidence": "EXTRACTED",
+   "confidence_score": 1.0,
+   "source_file": "D:\\rust\\synapse\\tests\\fixtures\\06-fan-manual-min.txt",
+   "source_location": null,
+   "weight": 1.0
+  },
+  {
+   "source": "tests_fixtures_04_custom_cpu_boost_scenario",
+   "target": "tests_fixtures_04_custom_cpu_boost_set_boost_0d07",
+   "relation": "calls",
+   "confidence": "EXTRACTED",
+   "confidence_score": 1.0,
+   "source_file": "D:\\rust\\synapse\\tests\\fixtures\\04-custom-cpu-boost.txt",
+   "source_location": null,
+   "weight": 1.0
+  },
+  {
+   "source": "tests_fixtures_04_custom_cpu_boost_scenario",
+   "target": "tests_fixtures_04_custom_cpu_boost_get_boost_0d87",
+   "relation": "calls",
+   "confidence": "EXTRACTED",
+   "confidence_score": 1.0,
+   "source_file": "D:\\rust\\synapse\\tests\\fixtures\\04-custom-cpu-boost.txt",
+   "source_location": null,
+   "weight": 1.0
+  },
+  {
+   "source": "tests_fixtures_04_custom_cpu_boost_cpu_boost",
+   "target": "tests_fixtures_04_custom_cpu_boost_set_boost_0d07",
+   "relation": "implements",
+   "confidence": "EXTRACTED",
+   "confidence_score": 1.0,
+   "source_file": "D:\\rust\\synapse\\tests\\fixtures\\04-custom-cpu-boost.txt",
+   "source_location": null,
+   "weight": 1.0
+  },
+  {
+   "source": "tests_fixtures_05_custom_gpu_boost_scenario",
+   "target": "tests_fixtures_04_custom_cpu_boost_set_boost_0d07",
+   "relation": "calls",
+   "confidence": "EXTRACTED",
+   "confidence_score": 1.0,
+   "source_file": "D:\\rust\\synapse\\tests\\fixtures\\05-custom-gpu-boost.txt",
+   "source_location": null,
+   "weight": 1.0
+  },
+  {
+   "source": "tests_fixtures_05_custom_gpu_boost_gpu_boost",
+   "target": "tests_fixtures_04_custom_cpu_boost_set_boost_0d07",
+   "relation": "implements",
+   "confidence": "EXTRACTED",
+   "confidence_score": 1.0,
+   "source_file": "D:\\rust\\synapse\\tests\\fixtures\\05-custom-gpu-boost.txt",
+   "source_location": null,
+   "weight": 1.0
+  },
+  {
+   "source": "tests_fixtures_06_fan_manual_min_scenario",
+   "target": "tests_fixtures_04_custom_cpu_boost_set_boost_0d07",
+   "relation": "calls",
+   "confidence": "EXTRACTED",
+   "confidence_score": 1.0,
+   "source_file": "D:\\rust\\synapse\\tests\\fixtures\\06-fan-manual-min.txt",
+   "source_location": null,
+   "weight": 1.0
+  },
+  {
+   "source": "tests_fixtures_06_fan_manual_min_scenario",
+   "target": "tests_fixtures_06_fan_manual_min_set_fan_rpm_0d01",
+   "relation": "calls",
+   "confidence": "EXTRACTED",
+   "confidence_score": 1.0,
+   "source_file": "D:\\rust\\synapse\\tests\\fixtures\\06-fan-manual-min.txt",
+   "source_location": null,
+   "weight": 1.0
+  },
+  {
+   "source": "tests_fixtures_06_fan_manual_min_fan_min_1600",
+   "target": "tests_fixtures_06_fan_manual_min_set_fan_rpm_0d01",
+   "relation": "conceptually_related_to",
+   "confidence": "INFERRED",
+   "confidence_score": 0.85,
+   "source_file": "D:\\rust\\synapse\\tests\\fixtures\\06-fan-manual-min.txt",
+   "source_location": null,
+   "weight": 1.0
+  },
+  {
+   "source": "tests_fixtures_07_fan_manual_max_scenario",
+   "target": "tests_fixtures_06_fan_manual_min_set_fan_rpm_0d01",
+   "relation": "calls",
+   "confidence": "EXTRACTED",
+   "confidence_score": 1.0,
+   "source_file": "D:\\rust\\synapse\\tests\\fixtures\\07-fan-manual-max.txt",
+   "source_location": null,
+   "weight": 1.0
+  },
+  {
+   "source": "tests_fixtures_07_fan_manual_max_scenario",
+   "target": "tests_fixtures_06_fan_manual_min_fan_min_1600",
+   "relation": "conceptually_related_to",
+   "confidence": "AMBIGUOUS",
+   "confidence_score": 0.2,
+   "source_file": "D:\\rust\\synapse\\tests\\fixtures\\07-fan-manual-max.txt",
+   "source_location": null,
+   "weight": 1.0
+  },
+  {
+   "source": "tests_fixtures_04_custom_cpu_boost_get_boost_0d87",
+   "target": "tests_fixtures_04_custom_cpu_boost_set_boost_0d07",
+   "relation": "shares_data_with",
+   "confidence": "INFERRED",
+   "confidence_score": 0.95,
+   "source_file": "D:\\rust\\synapse\\tests\\fixtures\\04-custom-cpu-boost.txt",
+   "source_location": null,
+   "weight": 1.0
+  },
+  {
+   "source": "tests_fixtures_00_idle_dashboard_fan_rpm_read_0d88",
+   "target": "tests_fixtures_06_fan_manual_min_set_fan_rpm_0d01",
+   "relation": "shares_data_with",
+   "confidence": "INFERRED",
+   "confidence_score": 0.85,
+   "source_file": "D:\\rust\\synapse\\tests\\fixtures\\06-fan-manual-min.txt",
+   "source_location": null,
+   "weight": 1.0
+  },
+  {
+   "source": "tests_fixtures_06_fan_manual_min_scenario",
+   "target": "tests_fixtures_04_custom_cpu_boost_custom_mode_04",
+   "relation": "references",
+   "confidence": "INFERRED",
+   "confidence_score": 0.85,
+   "source_file": "D:\\rust\\synapse\\tests\\fixtures\\06-fan-manual-min.txt",
+   "source_location": null,
+   "weight": 1.0
+  },
+  {
+   "source": "tests_fixtures_10_charge_limit_levels_scenario",
+   "target": "tests_fixtures_10_charge_limit_levels_set_charge_limit_0712",
+   "relation": "calls",
+   "confidence": "EXTRACTED",
+   "confidence_score": 1.0,
+   "source_file": "D:\\rust\\synapse\\tests\\fixtures\\10-charge-limit-levels.txt",
+   "source_location": null,
+   "weight": 1.0
+  },
+  {
+   "source": "tests_fixtures_10_charge_limit_levels_scenario",
+   "target": "tests_fixtures_10_charge_limit_levels_get_078f",
+   "relation": "calls",
+   "confidence": "EXTRACTED",
+   "confidence_score": 1.0,
+   "source_file": "D:\\rust\\synapse\\tests\\fixtures\\10-charge-limit-levels.txt",
+   "source_location": null,
+   "weight": 1.0
+  },
+  {
+   "source": "tests_fixtures_10_charge_limit_levels_scenario",
+   "target": "tests_fixtures_10_charge_limit_levels_set_070f",
+   "relation": "calls",
+   "confidence": "EXTRACTED",
+   "confidence_score": 1.0,
+   "source_file": "D:\\rust\\synapse\\tests\\fixtures\\10-charge-limit-levels.txt",
+   "source_location": null,
+   "weight": 1.0
+  },
+  {
+   "source": "tests_fixtures_11_charge_limit_off_scenario",
+   "target": "tests_fixtures_10_charge_limit_levels_set_charge_limit_0712",
+   "relation": "calls",
+   "confidence": "EXTRACTED",
+   "confidence_score": 1.0,
+   "source_file": "D:\\rust\\synapse\\tests\\fixtures\\11-charge-limit-off.txt",
+   "source_location": null,
+   "weight": 1.0
+  },
+  {
+   "source": "tests_fixtures_11_charge_limit_off_scenario",
+   "target": "tests_fixtures_10_charge_limit_levels_get_078f",
+   "relation": "calls",
+   "confidence": "EXTRACTED",
+   "confidence_score": 1.0,
+   "source_file": "D:\\rust\\synapse\\tests\\fixtures\\11-charge-limit-off.txt",
+   "source_location": null,
+   "weight": 1.0
+  },
+  {
+   "source": "tests_fixtures_11_charge_limit_off_scenario",
+   "target": "tests_fixtures_10_charge_limit_levels_set_070f",
+   "relation": "calls",
+   "confidence": "EXTRACTED",
+   "confidence_score": 1.0,
+   "source_file": "D:\\rust\\synapse\\tests\\fixtures\\11-charge-limit-off.txt",
+   "source_location": null,
+   "weight": 1.0
+  },
+  {
+   "source": "tests_fixtures_10_charge_limit_levels_set_070f",
+   "target": "tests_fixtures_10_charge_limit_levels_get_078f",
+   "relation": "shares_data_with",
+   "confidence": "INFERRED",
+   "confidence_score": 0.75,
+   "source_file": "D:\\rust\\synapse\\tests\\fixtures\\10-charge-limit-levels.txt",
+   "source_location": null,
+   "weight": 1.0
+  },
+  {
+   "source": "tests_fixtures_10_charge_limit_levels_get_078f",
+   "target": "tests_fixtures_10_charge_limit_levels_set_charge_limit_0712",
+   "relation": "conceptually_related_to",
+   "confidence": "AMBIGUOUS",
+   "confidence_score": 0.3,
+   "source_file": "D:\\rust\\synapse\\tests\\fixtures\\10-charge-limit-levels.txt",
+   "source_location": null,
+   "weight": 1.0
+  },
+  {
+   "source": "tests_fixtures_09_charge_limit_on_scenario",
+   "target": "tests_fixtures_10_charge_limit_levels_set_charge_limit_0712",
+   "relation": "references",
+   "confidence": "AMBIGUOUS",
+   "confidence_score": 0.2,
+   "source_file": "D:\\rust\\synapse\\tests\\fixtures\\09-charge-limit-on.txt",
+   "source_location": null,
+   "weight": 1.0
+  },
+  {
+   "source": "tests_fixtures_12_charge_limit_80_scenario",
+   "target": "tests_fixtures_10_charge_limit_levels_set_charge_limit_0712",
+   "relation": "references",
+   "confidence": "AMBIGUOUS",
+   "confidence_score": 0.2,
+   "source_file": "D:\\rust\\synapse\\tests\\fixtures\\12-charge-limit-80.txt",
+   "source_location": null,
+   "weight": 1.0
+  },
+  {
+   "source": "tests_fixtures_01_preset_silent_read_078c",
+   "target": "tests_fixtures_10_charge_limit_levels_set_charge_limit_0712",
+   "relation": "conceptually_related_to",
+   "confidence": "AMBIGUOUS",
+   "confidence_score": 0.2,
+   "source_file": "D:\\rust\\synapse\\tests\\fixtures\\01-preset-silent.txt",
+   "source_location": null,
+   "weight": 1.0
+  }
+ ],
+ "hyperedges": [
+  {
+   "id": "performance_preset_selection",
+   "label": "Preset selection via 0D02 mode byte",
+   "nodes": [
+    "tests_fixtures_01_preset_silent_set_performance_mode_0d02",
+    "tests_fixtures_01_preset_silent_silent_mode_05",
+    "tests_fixtures_02_preset_balanced_balanced_mode_00",
+    "tests_fixtures_03_preset_performance_performance_mode_02",
+    "tests_fixtures_04_custom_cpu_boost_custom_mode_04"
+   ],
+   "relation": "form",
+   "confidence": "EXTRACTED",
+   "confidence_score": 1.0,
+   "source_file": "D:\\rust\\synapse\\tests\\fixtures\\01-preset-silent.txt"
+  },
+  {
+   "id": "custom_mode_tuning",
+   "label": "Custom mode: boosts and manual fan",
+   "nodes": [
+    "tests_fixtures_04_custom_cpu_boost_custom_mode_04",
+    "tests_fixtures_04_custom_cpu_boost_set_boost_0d07",
+    "tests_fixtures_04_custom_cpu_boost_get_boost_0d87",
+    "tests_fixtures_06_fan_manual_min_set_fan_rpm_0d01"
+   ],
+   "relation": "participate_in",
+   "confidence": "INFERRED",
+   "confidence_score": 0.85,
+   "source_file": "D:\\rust\\synapse\\tests\\fixtures\\06-fan-manual-min.txt"
+  },
+  {
+   "id": "charge_limit_write_flow",
+   "label": "Charge limit write then 078F/070F",
+   "nodes": [
+    "tests_fixtures_10_charge_limit_levels_set_charge_limit_0712",
+    "tests_fixtures_10_charge_limit_levels_get_078f",
+    "tests_fixtures_10_charge_limit_levels_set_070f"
+   ],
+   "relation": "participate_in",
+   "confidence": "EXTRACTED",
+   "confidence_score": 1.0,
+   "source_file": "D:\\rust\\synapse\\tests\\fixtures\\10-charge-limit-levels.txt"
+  }
+ ],
+ "input_tokens": 0,
+ "output_tokens": 0,
+ "coverage": {
+  "D:\\rust\\synapse\\tests\\fixtures\\00-idle-dashboard.txt": 239,
+  "D:\\rust\\synapse\\tests\\fixtures\\01-preset-silent.txt": 17,
+  "D:\\rust\\synapse\\tests\\fixtures\\02-preset-balanced.txt": 17,
+  "D:\\rust\\synapse\\tests\\fixtures\\03-preset-performance.txt": 17,
+  "D:\\rust\\synapse\\tests\\fixtures\\04-custom-cpu-boost.txt": 37,
+  "D:\\rust\\synapse\\tests\\fixtures\\05-custom-gpu-boost.txt": 15,
+  "D:\\rust\\synapse\\tests\\fixtures\\06-fan-manual-min.txt": 501,
+  "D:\\rust\\synapse\\tests\\fixtures\\07-fan-manual-max.txt": 31,
+  "D:\\rust\\synapse\\tests\\fixtures\\09-charge-limit-on.txt": 7,
+  "D:\\rust\\synapse\\tests\\fixtures\\10-charge-limit-levels.txt": 13,
+  "D:\\rust\\synapse\\tests\\fixtures\\11-charge-limit-off.txt": 13,
+  "D:\\rust\\synapse\\tests\\fixtures\\12-charge-limit-80.txt": 7
+ }
+}
