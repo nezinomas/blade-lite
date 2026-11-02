@@ -5,11 +5,14 @@ use std::rc::Rc;
 use std::time::Duration;
 
 use blade_core::{
-    ApplyError, Config, Controller, CustomSettings, Preset, RESUME_PAUSE, apply, reapply_on_resume,
+    ApplyError, Config, Controller, CustomSettings, Lighting, Preset, RESUME_PAUSE, apply,
+    reapply_on_resume,
 };
 use platform::{PowerEvent, PowerEvents};
 use razer_device::{Clock, DeviceError};
-use razer_proto::{BLADE_18, Command, CustomError};
+use razer_proto::{
+    BLADE_18, Brightness, BrightnessError, Command, CustomError, Rgb, static_colour,
+};
 
 /// One thing that happened, in order.
 #[derive(Debug, PartialEq, Eq)]
@@ -180,6 +183,47 @@ fn bad_custom_values_do_not_matter_while_another_preset_is_active() {
     apply(&saved, &BLADE_18, &mut controller).unwrap();
 
     assert_eq!(*log.borrow(), preset_steps(0x00));
+}
+
+#[test]
+fn saved_lighting_is_sent_after_the_preset() {
+    let (mut controller, _, log) = fakes();
+    let colour = Rgb::new(0xE8, 0x11, 0x23);
+    let saved = Config {
+        lighting: Some(Lighting {
+            brightness: 50,
+            colour,
+        }),
+        ..Config::default()
+    };
+
+    apply(&saved, &BLADE_18, &mut controller).unwrap();
+
+    let mut expected = preset_steps(0x00);
+    let lighting = Brightness::new(50).unwrap().commands(&BLADE_18);
+    let lighting = lighting.into_iter().chain(static_colour(colour, &BLADE_18));
+    expected.extend(lighting.map(Step::Sent));
+    assert_eq!(*log.borrow(), expected);
+}
+
+#[test]
+fn a_brightness_over_100_sends_nothing() {
+    let (mut controller, _, log) = fakes();
+    let saved = Config {
+        lighting: Some(Lighting {
+            brightness: 101,
+            colour: Rgb::new(0, 0, 0),
+        }),
+        ..Config::default()
+    };
+
+    let result = apply(&saved, &BLADE_18, &mut controller);
+
+    assert!(matches!(
+        result,
+        Err(ApplyError::Brightness(BrightnessError::OutOfRange(101)))
+    ));
+    assert!(log.borrow().is_empty());
 }
 
 #[test]

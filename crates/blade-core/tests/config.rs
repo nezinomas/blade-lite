@@ -1,7 +1,8 @@
 use std::fs;
 use std::path::Path;
 
-use blade_core::{Config, ConfigError, CustomSettings, Preset};
+use blade_core::{Config, ConfigError, CustomSettings, Lighting, Preset};
+use razer_proto::Rgb;
 
 const FILE: &str = "config.toml";
 
@@ -22,6 +23,10 @@ fn round_trip_keeps_custom_values_while_another_preset_is_active() {
         preset: Preset::Performance,
         custom: tweaked_custom(),
         sixty_hz_on_battery: true,
+        lighting: Some(Lighting {
+            brightness: 40,
+            colour: Rgb::new(0x00, 0x78, 0xD4),
+        }),
     };
 
     config.save(&path).unwrap();
@@ -108,4 +113,44 @@ fn path_in_appdata_is_the_app_folder() {
         path,
         Path::new(r"C:\Users\me\AppData\Roaming\blade-lite\config.toml")
     );
+}
+
+#[test]
+fn lighting_is_unset_by_default_so_nothing_is_sent_for_it() {
+    assert_eq!(Config::default().lighting, None);
+}
+
+#[test]
+fn lighting_colour_is_stored_as_hex() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join(FILE);
+    let config = Config {
+        lighting: Some(Lighting {
+            brightness: 75,
+            colour: Rgb::new(0xFF, 0x8C, 0x00),
+        }),
+        ..Config::default()
+    };
+
+    config.save(&path).unwrap();
+
+    let text = fs::read_to_string(&path).unwrap();
+    assert!(text.contains("colour = \"#FF8C00\""), "{text}");
+    assert!(text.contains("brightness = 75"), "{text}");
+}
+
+#[test]
+fn a_colour_that_is_not_hex_is_an_error() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join(FILE);
+    fs::write(
+        &path,
+        "[lighting]
+brightness = 50
+colour = \"red\"
+",
+    )
+    .unwrap();
+
+    assert!(matches!(Config::load(&path), Err(ConfigError::Parse(_))));
 }
