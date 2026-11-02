@@ -1,5 +1,4 @@
-//! Tests on the real laptop, one at a time so they do not share the controller:
-//! `cargo test -p razer-device --test hardware -- --ignored --test-threads=1`.
+//! Tests on the real laptop. Run with `cargo hw`.
 
 use std::cell::Cell;
 use std::time::Duration;
