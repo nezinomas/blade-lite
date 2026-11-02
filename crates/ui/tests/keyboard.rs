@@ -129,7 +129,10 @@ fn a_colour_off_the_swatches_shows_as_the_custom_colour() {
 fn picking_a_custom_colour_sets_it_unless_it_is_the_current_one() {
     let view = view();
 
-    assert_eq!(view.pick_custom(PINK), Some(KeyboardCommand::SetColour(PINK)));
+    assert_eq!(
+        view.pick_custom(PINK),
+        Some(KeyboardCommand::SetColour(PINK))
+    );
     assert_eq!(view.pick_custom(TEAL), None);
 }
 
