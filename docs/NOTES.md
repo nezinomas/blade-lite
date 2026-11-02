@@ -9,11 +9,12 @@
 - An external 4K monitor is attached. Ignore it.
 - Touchpad registry value 0 means off.
 - `0D85` replies `[2, cpu °C, gpu, 0]` whatever the args. The CPU value is not checked against another sensor.
+- The NVIDIA GPU sleeps in D3 when idle. Its power state (`DEVPKEY_Device_PowerData`) can be read without waking it. An NVML read wakes it, and it sleeps again about 1 s later, even with NVML still loaded.
 - `0D8E` reads back the native mode chosen with `0D0E` at once. The panel stays as it booted.
 
 ## Progress
 
-- Stages 0–19 are done. See `docs/PLAN.md`.
+- Stages 0–20 are done. See `docs/PLAN.md`.
 - Retros ran after stages 5 and 14.
 
 ## Working style
