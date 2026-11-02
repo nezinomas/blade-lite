@@ -3,7 +3,7 @@
 use std::io;
 use std::time::Duration;
 
-use razer_proto::{BuildError, ParseError, REPORT_LEN, Report, Request, Status};
+use razer_proto::{BuildError, Command, ParseError, REPORT_LEN, Report, Request, Status};
 
 mod discovery;
 mod hid;
@@ -113,6 +113,18 @@ impl<T: Transport, C: Clock> Device<T, C> {
             }
         }
         Err(DeviceError::Busy)
+    }
+
+    /// Sends each command in order, and stops at the first that fails.
+    ///
+    /// # Errors
+    ///
+    /// See [`DeviceError`].
+    pub fn run(&mut self, commands: &[Command]) -> Result<(), DeviceError> {
+        for command in commands {
+            self.send(command.id, &command.args)?;
+        }
+        Ok(())
     }
 
     /// Reads the controller's firmware version.
