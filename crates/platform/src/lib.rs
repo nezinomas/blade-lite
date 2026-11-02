@@ -8,6 +8,7 @@ mod display;
 mod keys;
 mod power;
 mod registry;
+mod sensors;
 
 use std::io;
 
@@ -15,6 +16,7 @@ pub use display::WindowsDisplays;
 pub use keys::WindowsKeys;
 pub use power::WindowsPowerEvents;
 pub use registry::WindowsRegistry;
+pub use sensors::WindowsSensors;
 
 /// Something Windows tells us about power.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
