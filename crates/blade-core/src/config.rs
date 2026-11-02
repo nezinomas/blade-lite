@@ -120,6 +120,8 @@ impl Config {
     }
 }
 
+// serde hands the value by reference.
+#[allow(clippy::trivially_copy_pass_by_ref)]
 fn hex<S: Serializer>(colour: &Rgb, serializer: S) -> Result<S::Ok, S::Error> {
     let Rgb { red, green, blue } = colour;
     serializer.serialize_str(&format!("#{red:02X}{green:02X}{blue:02X}"))
