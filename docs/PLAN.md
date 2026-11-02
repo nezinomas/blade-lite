@@ -37,7 +37,7 @@ https://claude.ai/artifact/JSzNYRpwZJyywztJtBSk2P
 - [x] 21 Poll schedule
 
 ## UI
-- [ ] 22 Mica spike
+- [x] 22 Mica spike
 - [ ] 23 Header view model
 - [ ] 24 Display view model
 - [ ] 25 Performance view model
