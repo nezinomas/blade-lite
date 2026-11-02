@@ -37,7 +37,7 @@ Args are bytes 8 onwards. Data size is byte 5.
 | Static colour | `030A` + `030B` | `030A [05, 00]`, then 7 frame rows | See below. Synapse sends no `0F02` |
 | Logo on/off | `0300` | `[00, 04, on]` | Storage byte `00`, not `01` |
 | Logo effect | `0302` | `[00, 04, 00]` | Static |
-| Touchpad key | `0059` | `[00, 01, x]`, x 0 or 1 | New command. Sent when the touchpad key is pressed. The key does turn red, but no frame paints it red. So the firmware paints it, maybe after `0059` |
+| Touchpad key | `0059` | `[00, 01, x]`, x 0 or 1 | New command. Sent when the touchpad key is pressed. The key turned red with Synapse, but no frame painted it red. Without Synapse it stays unlit, so Synapse caused it, likely through `0059` |
 | Other reads | `078C`, `0084`, `0086`, `0D87` | | Sent once when a page opens |
 
 ### Lighting frame (`030B`)
@@ -53,8 +53,8 @@ cols 0 and 14, row 3 cols 0, 13, 14, row 4 cols 0, 2, 13, 14, row 5 cols 0, 4,
 ### Fn keys
 
 Fn + brightness keys made Synapse send `0303` in steps of `0x10` (16 levels).
-So the Fn brightness keys go through Synapse. Without Synapse they may do
-nothing.
+Synapse followed them. After removing Synapse (stage 2) the Fn brightness
+and volume keys still work, so the firmware handles them.
 
 ## Not over USB
 
