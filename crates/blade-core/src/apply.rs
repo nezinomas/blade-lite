@@ -74,11 +74,9 @@ pub fn reapply_on_resume(
     controller: &mut impl Controller,
 ) -> Result<(), ApplyError> {
     while let Some(event) = events.next_event() {
-        match event {
-            PowerEvent::Resumed => {
-                clock.sleep(RESUME_PAUSE);
-                apply(config, model, controller)?;
-            }
+        if event == PowerEvent::Resumed {
+            clock.sleep(RESUME_PAUSE);
+            apply(config, model, controller)?;
         }
     }
     Ok(())

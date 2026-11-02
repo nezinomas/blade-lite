@@ -19,10 +19,10 @@ fn panel_at(hz: u32) -> FakeDisplays {
 }
 
 /// Feeds each event to a fresh [`BatteryRate`], and stops at an error.
-fn feed(events: &[PowerEvent], config: &Config, api: &mut FakeDisplays) {
+fn feed(events: &[PowerEvent], config: Config, api: &mut FakeDisplays) {
     let mut battery_rate = BatteryRate::default();
     for &event in events {
-        battery_rate.on_event(event, config, api).unwrap();
+        battery_rate.on_event(event, &config, api).unwrap();
     }
 }
 
@@ -30,7 +30,7 @@ fn feed(events: &[PowerEvent], config: &Config, api: &mut FakeDisplays) {
 fn battery_sets_60_hz() {
     let mut api = panel_at(240);
 
-    feed(&[PowerEvent::OnBattery], &config(true), &mut api);
+    feed(&[PowerEvent::OnBattery], config(true), &mut api);
 
     assert_eq!(api.panel_mode(), mode(3840, 2400, 60));
 }
@@ -41,7 +41,7 @@ fn ac_after_battery_restores_the_rate_that_was_active() {
 
     feed(
         &[PowerEvent::OnBattery, PowerEvent::OnAc],
-        &config(true),
+        config(true),
         &mut api,
     );
 
@@ -58,7 +58,7 @@ fn a_second_battery_event_keeps_the_first_rate() {
             PowerEvent::OnBattery,
             PowerEvent::OnAc,
         ],
-        &config(true),
+        config(true),
         &mut api,
     );
 
@@ -71,7 +71,7 @@ fn with_the_option_off_nothing_changes() {
 
     feed(
         &[PowerEvent::OnBattery, PowerEvent::OnAc],
-        &config(false),
+        config(false),
         &mut api,
     );
 
@@ -83,7 +83,7 @@ fn ac_without_battery_first_changes_nothing() {
     // Windows reports the power source once when the app starts.
     let mut api = panel_at(240);
 
-    feed(&[PowerEvent::OnAc], &config(true), &mut api);
+    feed(&[PowerEvent::OnAc], config(true), &mut api);
 
     assert_eq!(api.set, []);
 }
@@ -94,7 +94,7 @@ fn a_panel_already_at_60_hz_is_left_alone() {
 
     feed(
         &[PowerEvent::OnBattery, PowerEvent::OnAc],
-        &config(true),
+        config(true),
         &mut api,
     );
 
@@ -105,7 +105,7 @@ fn a_panel_already_at_60_hz_is_left_alone() {
 fn resume_does_not_touch_the_rate() {
     let mut api = panel_at(240);
 
-    feed(&[PowerEvent::Resumed], &config(true), &mut api);
+    feed(&[PowerEvent::Resumed], config(true), &mut api);
 
     assert_eq!(api.set, []);
 }

@@ -38,6 +38,17 @@ pub fn refresh_rates(api: &impl DisplayApi) -> Result<Vec<RefreshRate>, DisplayE
     Ok(rates_at_current_resolution(panel))
 }
 
+/// The panel's current rate.
+///
+/// # Errors
+///
+/// See [`DisplayError`].
+pub fn current_rate(api: &impl DisplayApi) -> Result<RefreshRate, DisplayError> {
+    let displays = api.displays().map_err(DisplayError::Query)?;
+    let panel = internal_panel(&displays).ok_or(DisplayError::NoInternalPanel)?;
+    Ok(RefreshRate(panel.current.hz))
+}
+
 /// Switches the panel to `rate` and keeps its resolution. A rate the panel
 /// does not offer is refused before Windows is asked.
 ///

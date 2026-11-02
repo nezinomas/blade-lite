@@ -84,7 +84,11 @@ fn preset_steps(mode: u8) -> Vec<Step> {
 }
 
 fn config(preset: Preset, custom: CustomSettings) -> Config {
-    Config { preset, custom }
+    Config {
+        preset,
+        custom,
+        ..Config::default()
+    }
 }
 
 fn custom(cpu_boost: u8, gpu_boost: u8, fan_rpm: Option<u16>) -> CustomSettings {
