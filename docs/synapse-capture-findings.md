@@ -37,7 +37,7 @@ Args are bytes 8 onwards. Data size is byte 5.
 | Static colour | `030A` + `030B` | `030A [05, 00]`, then 7 frame rows | See below. Synapse sends no `0F02` |
 | Logo on/off | `0300` | `[00, 04, on]` | Storage byte `00`, not `01` |
 | Logo effect | `0302` | `[00, 04, 00]` | Static |
-| Touchpad key | `0059` | `[00, 01, x]`, x 0 or 1 | New command. Sent when the touchpad key is pressed. No key turned red in the frames |
+| Touchpad key | `0059` | `[00, 01, x]`, x 0 or 1 | New command. Sent when the touchpad key is pressed. The key does turn red, but no frame paints it red. So the firmware paints it, maybe after `0059` |
 | Other reads | `078C`, `0084`, `0086`, `0D87` | | Sent once when a page opens |
 
 ### Lighting frame (`030B`)
@@ -60,13 +60,14 @@ nothing.
 
 | Feature | Finding |
 | --- | --- |
-| GPU mode | No 90-byte report at all. Needs the Process Monitor capture |
-| Native display mode | No 90-byte report at all. Needs the Process Monitor capture |
+| GPU mode | Synapse has no GPU mode switch on this model. It only links to the NVIDIA app ("NVIDIA laptop display mode", Advanced Optimus). Drop it from our app |
+| Native display mode | Two options: 3840 × 2400 at 240 Hz, or 1920 × 1200 at 440 Hz. Needs a restart. No 90-byte report at all. Needs the Process Monitor capture |
 | Charge limits other than 80% | Synapse did not offer them |
 
 ## Still open
 
-1. GPU mode and display mode: Process Monitor capture (steps 28 and 29 again).
-2. Red touchpad key: did the key turn red? The frames show no red key.
+1. Display mode: Process Monitor capture (step 28 again).
+2. Red touchpad key: after Synapse is removed (stage 2), check if the key still
+   turns red by itself. If not, test whether sending `0059` makes it red.
 3. Real manual fan range: Synapse only has a curve. We may keep r-helper's
    limits or test the range with `0D01` ourselves.
