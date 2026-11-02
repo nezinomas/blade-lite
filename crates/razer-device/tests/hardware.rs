@@ -76,3 +76,32 @@ fn reads_without_a_pause_fail() {
     );
     assert!(!errors.is_empty(), "the pause is not needed");
 }
+
+/// Get LED brightness. Args are `[1, led, 0]`, the reply args `[1, led, level]`.
+const GET_BRIGHTNESS: u16 = 0x0383;
+const SET_BRIGHTNESS: u16 = 0x0303;
+const LEDS: [u8; 2] = [0x05, 0x26];
+
+fn levels<C: Clock>(device: &mut Device<HidTransport, C>) -> Vec<u8> {
+    LEDS.iter()
+        .map(|&led| device.send(GET_BRIGHTNESS, &[1, led, 0]).unwrap().args()[2])
+        .collect()
+}
+
+#[test]
+#[ignore = "needs the Blade 18"]
+fn brightness_is_set_and_read_back() {
+    let mut device = Device::new(HidTransport::open().unwrap(), SystemClock);
+    let before = levels(&mut device);
+
+    device
+        .run(&razer_proto::Brightness::new(50).unwrap().commands())
+        .unwrap();
+    let after = levels(&mut device);
+
+    for (&led, &level) in LEDS.iter().zip(&before) {
+        device.send(SET_BRIGHTNESS, &[1, led, level]).unwrap();
+    }
+    eprintln!("levels before {before:?}, at 50%: {after:?}, restored");
+    assert_eq!(after, [128, 128]);
+}
