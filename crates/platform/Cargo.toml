@@ -1,0 +1,18 @@
+[package]
+name = "platform"
+description = "Windows APIs behind small traits, so the rest can be tested with fakes."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+
+[dependencies]
+windows-sys = { version = "0.61.2", features = [
+    "Win32_Foundation",
+    "Win32_System_Power",
+    "Win32_UI_WindowsAndMessaging",
+] }
+
+[lints]
+workspace = true
