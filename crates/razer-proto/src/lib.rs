@@ -17,6 +17,65 @@ pub fn checksum(report: &[u8; REPORT_LEN]) -> u8 {
     report[CHECKSUMMED].iter().fold(0, |acc, byte| acc ^ byte)
 }
 
+/// Most args a report can carry: bytes 8 to 87.
+pub const MAX_ARGS: usize = 80;
+
+/// Positions of the request fields in a report.
+const TRANSACTION_ID_INDEX: usize = 1;
+const DATA_SIZE_INDEX: usize = 5;
+const COMMAND_INDEX: usize = 6;
+const ARGS_INDEX: usize = 8;
+
+/// Why a request could not be built.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BuildError {
+    /// More args than fit in a report.
+    TooManyArgs(usize),
+}
+
+/// A command for the controller, ready to send.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Request {
+    transaction_id: u8,
+    command: u16,
+    args: [u8; MAX_ARGS],
+    data_size: u8,
+}
+
+impl Request {
+    /// Makes a request. The high byte of `command` is the command class.
+    ///
+    /// # Errors
+    ///
+    /// [`BuildError::TooManyArgs`] if there are more than [`MAX_ARGS`] args.
+    pub fn new(transaction_id: u8, command: u16, args: &[u8]) -> Result<Self, BuildError> {
+        let data_size = match u8::try_from(args.len()) {
+            Ok(size) if usize::from(size) <= MAX_ARGS => size,
+            _ => return Err(BuildError::TooManyArgs(args.len())),
+        };
+        let mut padded = [0; MAX_ARGS];
+        padded[..args.len()].copy_from_slice(args);
+        Ok(Self {
+            transaction_id,
+            command,
+            args: padded,
+            data_size,
+        })
+    }
+
+    /// The 90 bytes to send, with the checksum filled in.
+    #[must_use]
+    pub fn to_bytes(&self) -> [u8; REPORT_LEN] {
+        let mut bytes = [0; REPORT_LEN];
+        bytes[TRANSACTION_ID_INDEX] = self.transaction_id;
+        bytes[DATA_SIZE_INDEX] = self.data_size;
+        bytes[COMMAND_INDEX..ARGS_INDEX].copy_from_slice(&self.command.to_be_bytes());
+        bytes[ARGS_INDEX..CHECKSUM_INDEX].copy_from_slice(&self.args);
+        bytes[CHECKSUM_INDEX] = checksum(&bytes);
+        bytes
+    }
+}
+
 /// Position of the status byte in a reply.
 const STATUS_INDEX: usize = 0;
 

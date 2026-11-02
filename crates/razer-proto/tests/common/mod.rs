@@ -58,11 +58,22 @@ pub fn captured_reports() -> Vec<Captured> {
     reports
 }
 
+/// Only the reports that went one way.
+fn captured(direction: Direction) -> Vec<Captured> {
+    captured_reports()
+        .into_iter()
+        .filter(|report| report.direction == direction)
+        .collect()
+}
+
 /// Only the controller's replies.
 #[allow(dead_code)] // Not every test binary uses it.
 pub fn captured_replies() -> Vec<Captured> {
-    captured_reports()
-        .into_iter()
-        .filter(|report| report.direction == Direction::Reply)
-        .collect()
+    captured(Direction::Reply)
+}
+
+/// Only the host's requests.
+#[allow(dead_code)] // Not every test binary uses it.
+pub fn captured_requests() -> Vec<Captured> {
+    captured(Direction::Sent)
 }
