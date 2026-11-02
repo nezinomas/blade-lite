@@ -5,6 +5,10 @@ use std::time::Duration;
 
 use razer_proto::{BuildError, ParseError, REPORT_LEN, Report, Request, Status};
 
+mod discovery;
+
+pub use discovery::{HidInfo, find_controller};
+
 /// Sends and reads the controller's feature reports.
 pub trait Transport {
     /// Sends one report to the controller.
@@ -49,6 +53,18 @@ pub enum DeviceError {
     Busy,
     /// The controller replied Failure or `NotSupported`.
     Rejected(Status),
+    /// The reply has fewer args than the command needs.
+    ShortReply,
+}
+
+/// Get firmware version. Args are `[0, 0]`, the reply args are `[major, minor]`.
+const FIRMWARE_VERSION: u16 = 0x0081;
+
+/// The controller's firmware version, such as 1.7.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct FirmwareVersion {
+    pub major: u8,
+    pub minor: u8,
 }
 
 /// The controller, with the pause and the Busy retry built in.
@@ -86,6 +102,19 @@ impl<T: Transport, C: Clock> Device<T, C> {
             }
         }
         Err(DeviceError::Busy)
+    }
+
+    /// Reads the controller's firmware version.
+    ///
+    /// # Errors
+    ///
+    /// See [`DeviceError`].
+    pub fn firmware_version(&mut self) -> Result<FirmwareVersion, DeviceError> {
+        let report = self.send(FIRMWARE_VERSION, &[0, 0])?;
+        match *report.args() {
+            [major, minor, ..] => Ok(FirmwareVersion { major, minor }),
+            _ => Err(DeviceError::ShortReply),
+        }
     }
 
     /// Sends one report, pauses, and reads the reply.
