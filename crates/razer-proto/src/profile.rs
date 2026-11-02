@@ -1,7 +1,7 @@
 //! What differs between laptop models, kept as data.
 //! Adding a model means adding a profile, not changing the code.
 
-use crate::PerfMode;
+use crate::{CustomLimits, PerfMode, RpmRange};
 
 /// How the controller shows up on USB.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -44,6 +44,8 @@ pub struct ModelProfile {
     pub presets: &'static [PerfMode],
     /// The zones a preset change sets, in the order Synapse sets them.
     pub perf_zones: &'static [u8],
+    /// What the Custom preset accepts.
+    pub custom: CustomLimits,
 }
 
 /// The Blade 18 (RZ09-0529), from the stage 1 capture.
@@ -85,4 +87,17 @@ pub const BLADE_18: ModelProfile = ModelProfile {
     presets: &[PerfMode::Silent, PerfMode::Balanced, PerfMode::Performance],
     // Synapse sets all four. r-helper sets only 1 and 2.
     perf_zones: &[1, 2, 3, 4],
+    custom: CustomLimits {
+        // Synapse sent levels 0 to 3 for both.
+        cpu_max: 3,
+        gpu_max: 3,
+        // Only speeds seen to work here: 1600 is the lowest Synapse sent,
+        // 4500 the highest r-helper set and read back.
+        fan_rpm: RpmRange {
+            min: 1600,
+            max: 4500,
+        },
+        // Two fans. Synapse sets and reads only these.
+        fan_zones: &[1, 2],
+    },
 };

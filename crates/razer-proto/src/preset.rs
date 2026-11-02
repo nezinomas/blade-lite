@@ -3,13 +3,13 @@
 use crate::{Command, ModelProfile};
 
 /// Set the preset of one zone. Args are `[1, zone, mode, fan]`.
-const SET_PRESET: u16 = 0x0D02;
+pub(crate) const SET_PRESET: u16 = 0x0D02;
 /// Get the preset of one zone. The reply args are `[1, zone, mode, fan]`.
 const GET_PRESET: u16 = 0x0D82;
 /// The args start with 1, as Synapse sends them.
-const VARIABLE_STORAGE: u8 = 0x01;
+pub(crate) const VARIABLE_STORAGE: u8 = 0x01;
 /// The fan byte: the controller picks the fan speed.
-const FAN_AUTO: u8 = 0x00;
+pub(crate) const FAN_AUTO: u8 = 0x00;
 /// Position of the mode byte in the args.
 const MODE_INDEX: usize = 2;
 
