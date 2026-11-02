@@ -1,6 +1,7 @@
 use std::ffi::CString;
 
 use razer_device::{HidInfo, find_controller};
+use razer_proto::{BLADE_18, UsbId};
 
 /// The keyboard controller, as captured: 1532:02C7, `MI_02`, usage page 1, usage 2.
 fn controller() -> HidInfo {
@@ -35,12 +36,31 @@ fn the_controller_is_picked_out_of_the_other_devices() {
         controller(),
     ];
 
-    assert_eq!(find_controller(&devices), Some(&controller()));
+    assert_eq!(
+        find_controller(&devices, &BLADE_18.usb),
+        Some(&controller())
+    );
 }
 
 #[test]
 fn no_controller_is_none() {
     let devices = [info("interface 3", 0x1532, 0x02C7, 3, 0x59, 0x01)];
 
-    assert_eq!(find_controller(&devices), None);
+    assert_eq!(find_controller(&devices, &BLADE_18.usb), None);
+}
+
+#[test]
+fn another_model_is_found_by_its_own_usb_id() {
+    let other_model = UsbId {
+        product_id: 0x0099,
+        ..BLADE_18.usb
+    };
+    let devices = [
+        controller(),
+        info("other model", 0x1532, 0x0099, 2, 0x01, 0x02),
+    ];
+
+    let found = find_controller(&devices, &other_model).unwrap();
+
+    assert_eq!(found.path.to_str().unwrap(), "other model");
 }

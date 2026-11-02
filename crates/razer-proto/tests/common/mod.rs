@@ -15,9 +15,12 @@ pub enum Direction {
 }
 
 /// One captured report and the fixture it came from.
+#[allow(dead_code)] // Not every test binary reads every field.
 pub struct Captured {
     pub fixture: String,
     pub direction: Direction,
+    /// The USB interface it went through (`mi=2`).
+    pub interface: i32,
     pub bytes: [u8; REPORT_LEN],
 }
 
@@ -33,13 +36,18 @@ fn parse_line(fixture: &str, line: &str) -> Captured {
         Some("<") => Direction::Reply,
         other => panic!("{fixture}: unknown direction {other:?}"),
     };
+    let interface = fields
+        .next()
+        .and_then(|field| field.strip_prefix("mi="))
+        .and_then(|number| number.parse().ok())
+        .unwrap_or_else(|| panic!("{fixture}: no mi= field"));
     let bytes: Vec<u8> = fields
-        .skip(1)
         .map(|hex| u8::from_str_radix(hex, 16).unwrap())
         .collect();
     Captured {
         fixture: fixture.to_owned(),
         direction,
+        interface,
         bytes: bytes.try_into().unwrap(),
     }
 }

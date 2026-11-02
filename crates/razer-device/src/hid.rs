@@ -3,7 +3,7 @@
 use std::io;
 
 use hidapi::{DeviceInfo, HidApi, HidDevice};
-use razer_proto::REPORT_LEN;
+use razer_proto::{ModelProfile, REPORT_LEN};
 
 use crate::{HidInfo, Transport, find_controller};
 
@@ -17,17 +17,22 @@ pub struct HidTransport {
 }
 
 impl HidTransport {
-    /// Finds the controller among the HID devices and opens it.
+    /// Finds the model's controller among the HID devices and opens it.
     ///
     /// # Errors
     ///
     /// [`io::ErrorKind::NotFound`] if there is no controller, or any hidapi error.
-    pub fn open() -> io::Result<Self> {
+    pub fn open(model: &ModelProfile) -> io::Result<Self> {
         let api = HidApi::new().map_err(io::Error::other)?;
         let devices: Vec<HidInfo> = api.device_list().map(hid_info).collect();
-        let info = find_controller(&devices)
+        let info = find_controller(&devices, &model.usb)
             .cloned()
-            .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "no Blade 18 controller"))?;
+            .ok_or_else(|| {
+                io::Error::new(
+                    io::ErrorKind::NotFound,
+                    format!("no {} controller", model.name),
+                )
+            })?;
         let device = api.open_path(&info.path).map_err(io::Error::other)?;
         Ok(Self { device, info })
     }

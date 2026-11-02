@@ -12,7 +12,7 @@ const READS: usize = 100;
 #[test]
 #[ignore = "needs the Blade 18"]
 fn the_firmware_version_is_read() {
-    let transport = HidTransport::open().unwrap();
+    let transport = HidTransport::open(&razer_proto::BLADE_18).unwrap();
     eprintln!("opened {:?}", transport.info());
 
     let version = Device::new(transport, SystemClock)
@@ -47,7 +47,7 @@ impl Clock for &CountedPause {
 #[ignore = "needs the Blade 18"]
 fn the_pause_leaves_no_busy_replies() {
     let clock = CountedPause::default();
-    let mut device = Device::new(HidTransport::open().unwrap(), &clock);
+    let mut device = Device::new(HidTransport::open(&razer_proto::BLADE_18).unwrap(), &clock);
 
     for _ in 0..READS {
         device.firmware_version().unwrap();
@@ -63,7 +63,7 @@ fn the_pause_leaves_no_busy_replies() {
 #[test]
 #[ignore = "needs the Blade 18"]
 fn reads_without_a_pause_fail() {
-    let mut device = Device::new(HidTransport::open().unwrap(), NoPause);
+    let mut device = Device::new(HidTransport::open(&razer_proto::BLADE_18).unwrap(), NoPause);
 
     let errors: Vec<_> = (0..READS)
         .filter_map(|_| device.firmware_version().err())
@@ -91,11 +91,18 @@ fn levels<C: Clock>(device: &mut Device<HidTransport, C>) -> Vec<u8> {
 #[test]
 #[ignore = "needs the Blade 18"]
 fn brightness_is_set_and_read_back() {
-    let mut device = Device::new(HidTransport::open().unwrap(), SystemClock);
+    let mut device = Device::new(
+        HidTransport::open(&razer_proto::BLADE_18).unwrap(),
+        SystemClock,
+    );
     let before = levels(&mut device);
 
     device
-        .run(&razer_proto::Brightness::new(50).unwrap().commands())
+        .run(
+            &razer_proto::Brightness::new(50)
+                .unwrap()
+                .commands(&razer_proto::BLADE_18),
+        )
         .unwrap();
     let after = levels(&mut device);
 
