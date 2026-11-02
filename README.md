@@ -94,10 +94,10 @@ Hardware sits behind small traits (`Transport`, `KeyInjector`, `Registry`,
 so almost every test runs on any Windows machine without a Blade. Expected
 bytes come from a USB capture of Synapse on the real laptop, saved in
 `tests/fixtures`. Tests that need the real laptop are marked `#[ignore]` and
-run by hand:
+run by hand, one at a time (alias in `.cargo/config.toml`):
 
 ```bash
-cargo test -- --ignored
+cargo hw
 ```
 
 ### Crates

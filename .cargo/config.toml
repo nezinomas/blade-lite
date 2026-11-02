@@ -1,0 +1,3 @@
+[alias]
+# Hardware tests on the real laptop, one at a time so they do not share the controller.
+hw = "test --workspace -- --ignored --test-threads=1"

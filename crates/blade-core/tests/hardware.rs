@@ -1,4 +1,4 @@
-//! Checks on the real laptop. Run with `cargo test -- --ignored`.
+//! Checks on the real laptop. Run with `cargo hw`.
 
 use std::thread;
 use std::time::{Duration, Instant};
