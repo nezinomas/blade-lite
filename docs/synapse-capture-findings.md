@@ -34,7 +34,7 @@ Args are bytes 8 onwards. Data size is byte 5.
 | Fan target | `0D01` | `[01, zone, rpm/100]` | Synapse has a fan curve, not a slider. It sent 1600 to 2300 RPM as the curve followed the temperature. First arg is `01` (r-helper uses `00`) |
 | Fan RPM read | `0D88` | `[01, zone, 00]` | Polled for zones 1 and 2, about once a second |
 | Charge limit | `0712` | `[D0]` on, `[50]` off | Then `078F` read and `070F [08]`. Only 80% was offered |
-| Keyboard brightness | `0303` | `[01, 05, v]` and `[01, 26, v]` | Keyboard and underside together. v = percent × 255 / 100, rounded up: 0→0, 1→3, 10→26, 50→128, 100→255 |
+| Keyboard brightness | `0303` | `[01, 05, v]` and `[01, 26, v]` | Keyboard and underside together. v = percent × 255 / 100, rounded up: 0→0, 1→3, 10→26, 50→128, 100→255. Read back with `0383` `[01, led, 00]`: 50% gave 128 on both LEDs on the laptop (2026-11-02) |
 | Static colour | `030A` + `030B` | `030A [05, 00]`, then 7 frame rows | See below. Synapse sends no `0F02` |
 | Logo on/off | `0300` | `[00, 04, on]` | Storage byte `00`, not `01` |
 | Logo effect | `0302` | `[00, 04, 00]` | Static |

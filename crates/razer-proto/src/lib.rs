@@ -2,6 +2,12 @@
 
 use std::ops::Range;
 
+mod brightness;
+mod command;
+
+pub use brightness::{Brightness, BrightnessError};
+pub use command::Command;
+
 /// Size of every feature report, sent and received.
 pub const REPORT_LEN: usize = 90;
 
