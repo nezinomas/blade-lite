@@ -1,0 +1,6 @@
+#!/bin/sh
+# Project rule: commit messages carry no AI attribution.
+if grep -qiE 'co-authored-by|claude\.(ai|com)|generated with' "$1"; then
+  echo "commit-msg: remove the AI attribution line" >&2
+  exit 1
+fi

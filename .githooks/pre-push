@@ -1,0 +1,7 @@
+#!/bin/sh
+# Same checks as CI, so a branch is checked before it reaches master.
+set -e
+cargo fmt --all --check
+cargo clippy --workspace --all-targets -- -D warnings
+cargo test --workspace
+python -m unittest discover -s capture
