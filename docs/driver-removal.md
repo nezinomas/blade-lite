@@ -39,6 +39,20 @@ Use the restore point "Before Razer driver removal" (System Properties >
 System Protection > System Restore), or install Synapse again from
 razer.com.
 
-## After
+## After (2026-11-02)
 
-Not run yet.
+Uninstalling Synapse in Settings already removed all 5 Razer driver
+packages. `-Apply` then only made the restore point and the Windows Update
+block.
+
+| Check | Result |
+| --- | --- |
+| Script check | `Result: DONE`. 0 Razer apps, 0 Razer packages, 0 of 13 nodes on a Razer driver |
+| HID MI_02 | `msmouse.inf` (inbox "HID-compliant mouse"), was `oem81` |
+| Typing, touchpad | Work |
+| Touchpad key | Turns the touchpad on and off. The key does NOT turn red any more |
+| Fn + keyboard brightness | Works (up and down) |
+| Fn + volume | Works |
+
+So the firmware handles the Fn keys, not Synapse. The red touchpad key came
+from Synapse after all (likely through `0059`), so our app must paint it.
