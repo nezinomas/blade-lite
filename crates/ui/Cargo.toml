@@ -1,0 +1,17 @@
+[package]
+name = "ui"
+description = "View models that turn the app's state into what the window and flyout show."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+blade-core = { path = "../blade-core" }
+razer-proto = { path = "../razer-proto" }
+
+[dev-dependencies]
+platform = { path = "../platform" }
+
+[lints]
+workspace = true
