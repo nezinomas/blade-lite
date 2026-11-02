@@ -21,6 +21,10 @@ pub use registry::WindowsRegistry;
 pub enum PowerEvent {
     /// The laptop woke from sleep or hibernation.
     Resumed,
+    /// The laptop now runs on its battery.
+    OnBattery,
+    /// The laptop now runs on its charger.
+    OnAc,
 }
 
 /// Power events from Windows, one at a time.

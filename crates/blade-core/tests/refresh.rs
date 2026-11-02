@@ -1,74 +1,9 @@
 //! The refresh rates on offer, over a fake display list.
 
-use std::io;
+mod common;
 
 use blade_core::{DisplayError, RefreshRate, refresh_rates, set_refresh_rate};
-use platform::{Display, DisplayApi, DisplayMode, OutputTechnology};
-
-const fn mode(width: u32, height: u32, hz: u32) -> DisplayMode {
-    DisplayMode { width, height, hz }
-}
-
-/// What the Blade 18 panel reports, in both native modes' resolutions.
-const PANEL_MODES: [DisplayMode; 7] = [
-    mode(3840, 2400, 60),
-    mode(3840, 2400, 120),
-    mode(3840, 2400, 240),
-    mode(1920, 1200, 60),
-    mode(1920, 1200, 120),
-    mode(1920, 1200, 240),
-    mode(1920, 1200, 440),
-];
-
-fn panel(current: DisplayMode) -> Display {
-    Display {
-        name: r"\\.\DISPLAY1".into(),
-        technology: OutputTechnology::Internal,
-        current,
-        modes: PANEL_MODES.to_vec(),
-    }
-}
-
-fn monitor() -> Display {
-    Display {
-        name: r"\\.\DISPLAY2".into(),
-        technology: OutputTechnology::External,
-        current: mode(2560, 1440, 165),
-        modes: vec![
-            mode(2560, 1440, 60),
-            mode(2560, 1440, 144),
-            mode(2560, 1440, 165),
-        ],
-    }
-}
-
-/// The displays Windows reports, and the modes asked of it.
-struct FakeDisplays {
-    /// `None` means the query fails.
-    displays: Option<Vec<Display>>,
-    /// Each display name and the mode it was asked to take.
-    set: Vec<(String, DisplayMode)>,
-}
-
-impl FakeDisplays {
-    fn new(displays: Option<Vec<Display>>) -> Self {
-        Self {
-            displays,
-            set: Vec::new(),
-        }
-    }
-}
-
-impl DisplayApi for FakeDisplays {
-    fn displays(&self) -> io::Result<Vec<Display>> {
-        self.displays.clone().ok_or(io::ErrorKind::Other.into())
-    }
-
-    fn set_mode(&mut self, name: &str, mode: DisplayMode) -> io::Result<()> {
-        self.set.push((name.into(), mode));
-        Ok(())
-    }
-}
+use common::{FakeDisplays, mode, monitor, panel};
 
 fn rates(hz: &[u32]) -> Vec<RefreshRate> {
     hz.iter().copied().map(RefreshRate).collect()

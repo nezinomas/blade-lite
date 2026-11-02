@@ -84,7 +84,11 @@ fn preset_steps(mode: u8) -> Vec<Step> {
 }
 
 fn config(preset: Preset, custom: CustomSettings) -> Config {
-    Config { preset, custom }
+    Config {
+        preset,
+        custom,
+        ..Config::default()
+    }
 }
 
 fn custom(cpu_boost: u8, gpu_boost: u8, fan_rpm: Option<u16>) -> CustomSettings {
@@ -207,6 +211,23 @@ fn each_resume_waits_the_pause_then_applies_again() {
     expected.push(Step::Slept(RESUME_PAUSE));
     expected.extend(preset_steps(0x00));
     assert_eq!(*log.borrow(), expected);
+}
+
+#[test]
+fn power_source_changes_do_not_apply_again() {
+    let (mut controller, clock, log) = fakes();
+    let mut events = FakePowerEvents(vec![PowerEvent::OnBattery, PowerEvent::OnAc].into_iter());
+
+    reapply_on_resume(
+        &mut events,
+        &clock,
+        &Config::default(),
+        &BLADE_18,
+        &mut controller,
+    )
+    .unwrap();
+
+    assert_eq!(*log.borrow(), []);
 }
 
 #[test]

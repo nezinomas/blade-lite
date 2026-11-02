@@ -66,6 +66,8 @@ impl Default for CustomSettings {
 pub struct Config {
     pub preset: Preset,
     pub custom: CustomSettings,
+    /// Drop the panel to 60 Hz on battery, and put the old rate back on AC.
+    pub sixty_hz_on_battery: bool,
 }
 
 impl Config {

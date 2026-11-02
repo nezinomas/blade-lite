@@ -11,7 +11,7 @@
 
 ## Progress
 
-- Stages 0–16 are done. See `docs/PLAN.md`.
+- Stages 0–17 are done. See `docs/PLAN.md`.
 - Retros ran after stages 5 and 14.
 
 ## Working style
@@ -25,4 +25,4 @@
 - The git hooks need `git config core.hooksPath .githooks` once. They run fmt, clippy and tests before push, because CI only sees master.
 - Check `docs/PLAN.md` against what is actually built. Stage 5 found the order did not match.
 - Stage branches are never pushed, so there is nothing to delete on GitHub.
-- Still unverified on the laptop: the 2 s wait after wake, and a real sleep/wake cycle.
+- Still unverified on the laptop: the 2 s wait after wake, a real sleep/wake cycle, and a real unplug (60 Hz on battery).
