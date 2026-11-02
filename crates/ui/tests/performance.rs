@@ -69,7 +69,10 @@ fn custom_shows_its_three_sliders() {
 #[test]
 fn the_other_presets_hide_the_sliders() {
     for preset in [Preset::Silent, Preset::Balanced, Preset::Performance] {
-        assert!(PerformanceView::new(&state(preset)).sliders.is_empty(), "{preset:?}");
+        assert!(
+            PerformanceView::new(&state(preset)).sliders.is_empty(),
+            "{preset:?}"
+        );
     }
 }
 
@@ -89,7 +92,10 @@ fn the_fan_slider_starts_at_auto_then_runs_over_the_models_range() {
 
     // Auto, then 1600 to 4500 rpm in steps of 100.
     let fan = slider(&view, "Fan");
-    assert_eq!((fan.stops, fan.position, fan.text.as_str()), (31, 0, "Auto"));
+    assert_eq!(
+        (fan.stops, fan.position, fan.text.as_str()),
+        (31, 0, "Auto")
+    );
 }
 
 #[test]

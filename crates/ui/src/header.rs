@@ -71,7 +71,7 @@ impl Header {
     }
 }
 
-fn preset_label(preset: Preset) -> &'static str {
+pub(crate) fn preset_label(preset: Preset) -> &'static str {
     match preset {
         Preset::Silent => "Silent",
         Preset::Balanced => "Balanced",
