@@ -6,8 +6,10 @@ use std::time::Duration;
 use razer_proto::{BuildError, ParseError, REPORT_LEN, Report, Request, Status};
 
 mod discovery;
+mod hid;
 
 pub use discovery::{HidInfo, find_controller};
+pub use hid::HidTransport;
 
 /// Sends and reads the controller's feature reports.
 pub trait Transport {
@@ -29,6 +31,15 @@ pub trait Transport {
 /// Waits. A trait so that tests do not wait for real.
 pub trait Clock {
     fn sleep(&self, duration: Duration);
+}
+
+/// Waits for real.
+pub struct SystemClock;
+
+impl Clock for SystemClock {
+    fn sleep(&self, duration: Duration) {
+        std::thread::sleep(duration);
+    }
 }
 
 /// How long the controller needs between a send and a read, and before a retry.
