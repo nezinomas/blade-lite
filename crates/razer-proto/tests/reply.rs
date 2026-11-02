@@ -1,6 +1,6 @@
 mod common;
 
-use razer_proto::{CHECKSUM_INDEX, ParseError, REPORT_LEN, Report, Status};
+use razer_proto::{CHECKSUM_INDEX, MAX_ARGS, ParseError, REPORT_LEN, Report, Status, checksum};
 
 /// Status codes from the controller (same as in r-helper).
 const BUSY: u8 = 0x01;
@@ -59,4 +59,29 @@ fn bad_checksum_is_an_error() {
             found: good ^ 0xFF,
         })
     );
+}
+
+/// Position of the data size byte in a report.
+const DATA_SIZE_INDEX: usize = 5;
+
+#[test]
+fn args_are_the_data_size_bytes_after_the_command() {
+    let reply = common::captured_replies()
+        .into_iter()
+        .find(|reply| reply.bytes[6..8] == [0x07, 0x8C])
+        .expect("a captured 078C reply");
+
+    let report = Report::parse(&reply.bytes).unwrap();
+
+    assert_eq!(report.args(), [0x13, 0x13], "{}", reply.fixture);
+}
+
+#[test]
+fn data_size_past_the_args_is_an_error() {
+    let mut bytes = reply_with_status(SUCCESS);
+    let size = u8::try_from(MAX_ARGS + 1).unwrap();
+    bytes[DATA_SIZE_INDEX] = size;
+    bytes[CHECKSUM_INDEX] = checksum(&bytes);
+
+    assert_eq!(Report::parse(&bytes), Err(ParseError::BadDataSize(size)));
 }

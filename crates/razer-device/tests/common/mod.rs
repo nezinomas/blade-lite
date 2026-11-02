@@ -11,7 +11,9 @@ use razer_proto::{REPORT_LEN, Request};
 
 /// Status bytes the controller puts in byte 0 of a reply.
 pub const SUCCESS: u8 = 0x02;
+#[allow(dead_code)] // Not every test binary uses it.
 pub const BUSY: u8 = 0x01;
+#[allow(dead_code)] // Not every test binary uses it.
 pub const FAILURE: u8 = 0x03;
 
 /// One thing the device did, in order.
@@ -91,4 +93,12 @@ pub fn sent(log: &Log) -> Vec<[u8; REPORT_LEN]> {
             _ => None,
         })
         .collect()
+}
+
+/// A Success reply that carries `args`.
+#[allow(dead_code)] // Not every test binary uses it.
+pub fn reply_with_args(transaction_id: u8, command: u16, args: &[u8]) -> [u8; REPORT_LEN] {
+    let mut bytes = request(transaction_id, command, args);
+    bytes[0] = SUCCESS;
+    bytes
 }

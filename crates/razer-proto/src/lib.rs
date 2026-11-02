@@ -109,12 +109,16 @@ pub enum ParseError {
     BadChecksum { expected: u8, found: u8 },
     /// The status byte is not one we know.
     UnknownStatus(u8),
+    /// The data size byte says more args than fit in a report.
+    BadDataSize(u8),
 }
 
 /// A reply from the controller, with a checked checksum and a known status.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Report {
     status: Status,
+    args: [u8; MAX_ARGS],
+    data_size: usize,
 }
 
 impl Report {
@@ -123,7 +127,8 @@ impl Report {
     /// # Errors
     ///
     /// [`ParseError::BadChecksum`] if the checksum byte is wrong,
-    /// [`ParseError::UnknownStatus`] if the status byte is not known.
+    /// [`ParseError::UnknownStatus`] if the status byte is not known,
+    /// [`ParseError::BadDataSize`] if the data size is more than [`MAX_ARGS`].
     pub fn parse(bytes: &[u8; REPORT_LEN]) -> Result<Self, ParseError> {
         let expected = checksum(bytes);
         let found = bytes[CHECKSUM_INDEX];
@@ -131,12 +136,28 @@ impl Report {
             return Err(ParseError::BadChecksum { expected, found });
         }
         let status = Status::try_from(bytes[STATUS_INDEX])?;
-        Ok(Self { status })
+        let data_size = bytes[DATA_SIZE_INDEX];
+        if usize::from(data_size) > MAX_ARGS {
+            return Err(ParseError::BadDataSize(data_size));
+        }
+        let mut args = [0; MAX_ARGS];
+        args.copy_from_slice(&bytes[ARGS_INDEX..CHECKSUM_INDEX]);
+        Ok(Self {
+            status,
+            args,
+            data_size: usize::from(data_size),
+        })
     }
 
     /// The controller's status for the command.
     #[must_use]
     pub fn status(&self) -> Status {
         self.status
+    }
+
+    /// The args the controller sent back: as many bytes as the data size says.
+    #[must_use]
+    pub fn args(&self) -> &[u8] {
+        &self.args[..self.data_size]
     }
 }

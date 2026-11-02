@@ -19,6 +19,7 @@ committed (they also hold key presses).
 | CRC (byte 88) | XOR of bytes 2 to 87. Right in all 4964 reports |
 | Reply status | Always `0x02` (ok). No busy replies seen |
 | `030B` frame rows | Synapse does not read a reply for these |
+| Pause before the read | 1 ms is enough: 0 Busy replies in 100 reads. With no pause, 96 of 100 reads come back short (65 bytes). Checked on the laptop on 2026-11-02, firmware 1.6 |
 
 ## Commands seen
 
