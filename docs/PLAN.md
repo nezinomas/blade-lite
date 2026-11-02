@@ -27,7 +27,7 @@ https://claude.ai/artifact/JSzNYRpwZJyywztJtBSk2P
 ## Windows features
 - [x] 14 Touchpad
 - [x] 15 Refresh rates on offer
-- [ ] 16 Set refresh rate
+- [x] 16 Set refresh rate
 - [ ] 17 60 Hz on battery
 - [ ] 18 Native display mode
 

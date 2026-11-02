@@ -11,7 +11,7 @@
 
 ## Progress
 
-- Stages 0–15 are done. See `docs/PLAN.md`.
+- Stages 0–16 are done. See `docs/PLAN.md`.
 - Retros ran after stages 5 and 14.
 
 ## Working style
