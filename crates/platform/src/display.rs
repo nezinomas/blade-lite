@@ -1,5 +1,6 @@
 //! The active displays, from `QueryDisplayConfig`, and their modes, from
-//! `EnumDisplaySettingsW`. Nothing here changes a display.
+//! `EnumDisplaySettingsW`. Only `set_mode` changes a display, through
+//! `ChangeDisplaySettingsExW`.
 
 use std::io;
 use std::ptr;
@@ -14,7 +15,9 @@ use windows_sys::Win32::Devices::Display::{
 };
 use windows_sys::Win32::Foundation::{ERROR_INSUFFICIENT_BUFFER, ERROR_SUCCESS};
 use windows_sys::Win32::Graphics::Gdi::{
-    DEVMODEW, ENUM_CURRENT_SETTINGS, ENUM_DISPLAY_SETTINGS_MODE, EnumDisplaySettingsW,
+    CDS_UPDATEREGISTRY, ChangeDisplaySettingsExW, DEVMODEW, DISP_CHANGE, DISP_CHANGE_SUCCESSFUL,
+    DM_DISPLAYFREQUENCY, DM_PELSHEIGHT, DM_PELSWIDTH, ENUM_CURRENT_SETTINGS,
+    ENUM_DISPLAY_SETTINGS_MODE, EnumDisplaySettingsW,
 };
 
 use crate::{Display, DisplayApi, DisplayMode, OutputTechnology, wide, windows_error};
@@ -28,6 +31,40 @@ pub struct WindowsDisplays;
 impl DisplayApi for WindowsDisplays {
     fn displays(&self) -> io::Result<Vec<Display>> {
         active_paths()?.iter().map(display).collect()
+    }
+
+    fn set_mode(&mut self, name: &str, mode: DisplayMode) -> io::Result<()> {
+        let device = wide(name);
+        // Start from the current settings, so colour depth and position stay.
+        let mut devmode =
+            devmode(&device, ENUM_CURRENT_SETTINGS).ok_or_else(io::Error::last_os_error)?;
+        devmode.dmPelsWidth = mode.width;
+        devmode.dmPelsHeight = mode.height;
+        devmode.dmDisplayFrequency = mode.hz;
+        devmode.dmFields = DM_PELSWIDTH | DM_PELSHEIGHT | DM_DISPLAYFREQUENCY;
+        // SAFETY: the name ends in a nul, and the mode is a whole DEVMODEW
+        // whose `dmSize` Windows filled in.
+        let result = unsafe {
+            ChangeDisplaySettingsExW(
+                device.as_ptr(),
+                &raw const devmode,
+                ptr::null_mut(),
+                CDS_UPDATEREGISTRY,
+                ptr::null(),
+            )
+        };
+        change_result(result)
+    }
+}
+
+/// `Ok` only when Windows switched the mode at once.
+fn change_result(result: DISP_CHANGE) -> io::Result<()> {
+    if result == DISP_CHANGE_SUCCESSFUL {
+        Ok(())
+    } else {
+        Err(io::Error::other(format!(
+            "ChangeDisplaySettingsExW returned {result}"
+        )))
     }
 }
 
@@ -105,6 +142,15 @@ fn source_name(path: &DISPLAYCONFIG_PATH_INFO) -> io::Result<String> {
 
 /// One mode of a display, or `None` past the last one.
 fn mode(device: &[u16], index: ENUM_DISPLAY_SETTINGS_MODE) -> Option<DisplayMode> {
+    devmode(device, index).map(|devmode| DisplayMode {
+        width: devmode.dmPelsWidth,
+        height: devmode.dmPelsHeight,
+        hz: devmode.dmDisplayFrequency,
+    })
+}
+
+/// One mode of a display as Windows describes it, or `None` past the last one.
+fn devmode(device: &[u16], index: ENUM_DISPLAY_SETTINGS_MODE) -> Option<DEVMODEW> {
     let mut devmode = DEVMODEW {
         dmSize: u16::try_from(size_of::<DEVMODEW>()).unwrap_or(u16::MAX),
         ..DEVMODEW::default()
@@ -112,11 +158,7 @@ fn mode(device: &[u16], index: ENUM_DISPLAY_SETTINGS_MODE) -> Option<DisplayMode
     // SAFETY: the name ends in a nul, and `dmSize` tells Windows how much of
     // the struct it may write.
     let found = unsafe { EnumDisplaySettingsW(device.as_ptr(), index, &raw mut devmode) };
-    (found != 0).then_some(DisplayMode {
-        width: devmode.dmPelsWidth,
-        height: devmode.dmPelsHeight,
-        hz: devmode.dmDisplayFrequency,
-    })
+    (found != 0).then_some(devmode)
 }
 
 /// A laptop panel shows up as one of the embedded kinds.
@@ -148,6 +190,15 @@ mod tests {
         ] {
             assert_eq!(technology(raw), OutputTechnology::Internal, "{raw}");
         }
+    }
+
+    #[test]
+    fn only_an_immediate_switch_is_success() {
+        use windows_sys::Win32::Graphics::Gdi::{DISP_CHANGE_BADMODE, DISP_CHANGE_RESTART};
+
+        assert!(change_result(DISP_CHANGE_SUCCESSFUL).is_ok());
+        assert!(change_result(DISP_CHANGE_RESTART).is_err());
+        assert!(change_result(DISP_CHANGE_BADMODE).is_err());
     }
 
     #[test]
