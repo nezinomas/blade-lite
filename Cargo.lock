@@ -30,6 +30,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "blade-lite"
+version = "0.1.0"
+dependencies = [
+ "blade-core",
+ "platform",
+ "razer-device",
+ "razer-proto",
+ "tempfile",
+ "thiserror 2.0.21",
+ "ui",
+]
+
+[[package]]
 name = "cc"
 version = "1.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
