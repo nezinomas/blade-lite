@@ -2,7 +2,7 @@ use std::ffi::CString;
 
 use razer_device::{HidInfo, find_controller};
 
-/// The keyboard controller, as captured: 1532:02C7, MI_02, usage page 1, usage 2.
+/// The keyboard controller, as captured: 1532:02C7, `MI_02`, usage page 1, usage 2.
 fn controller() -> HidInfo {
     info("controller", 0x1532, 0x02C7, 2, 0x01, 0x02)
 }

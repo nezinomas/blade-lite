@@ -20,7 +20,9 @@ fn the_firmware_version_is_read_from_the_reply_args() {
 fn a_reply_without_two_args_is_an_error() {
     let (transport, clock, _) = fakes(vec![reply(SUCCESS, 0, COMMAND)]);
 
-    let error = Device::new(transport, clock).firmware_version().unwrap_err();
+    let error = Device::new(transport, clock)
+        .firmware_version()
+        .unwrap_err();
 
     assert!(matches!(error, DeviceError::ShortReply), "{error:?}");
 }

@@ -11,7 +11,9 @@ use razer_proto::{REPORT_LEN, Request};
 
 /// Status bytes the controller puts in byte 0 of a reply.
 pub const SUCCESS: u8 = 0x02;
+#[allow(dead_code)] // Not every test binary uses it.
 pub const BUSY: u8 = 0x01;
+#[allow(dead_code)] // Not every test binary uses it.
 pub const FAILURE: u8 = 0x03;
 
 /// One thing the device did, in order.
