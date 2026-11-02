@@ -95,14 +95,20 @@ function Invoke-Step([int]$Index, [hashtable]$Step) {
     Write-Host ("[{0}/{1}] {2}" -f $Index, ($steps.Count - 1), $Step.Name) -ForegroundColor Cyan
     Write-Host $Step.Do
     Read-Host 'Press Enter to START recording'
+    # USBPcapCMD cannot write over an old file, so a redone step starts clean.
+    Remove-Item "$base.*" -ErrorAction SilentlyContinue
     $pm = if ($Step.Procmon) { Start-Procmon $base }
     $procs = Start-Capture $base
-    Start-Sleep -Seconds 1
-    Write-Host 'RECORDING. Do the step in Synapse now.' -ForegroundColor Yellow
-    if ($Step.Seconds) { Start-Sleep -Seconds $Step.Seconds } else { Read-Host 'Press Enter when DONE' }
-    Start-Sleep -Seconds 2
-    $procs | Stop-Process -Force -ErrorAction SilentlyContinue
-    if ($pm) { Stop-Procmon }
+    try {
+        Start-Sleep -Seconds 1
+        Write-Host 'RECORDING. Do the step in Synapse now.' -ForegroundColor Yellow
+        if ($Step.Seconds) { Start-Sleep -Seconds $Step.Seconds } else { Read-Host 'Press Enter when DONE' }
+        Start-Sleep -Seconds 2
+    } finally {
+        # Also runs on Ctrl+C, so no recorder is left holding a file.
+        $procs | Stop-Process -Force -ErrorAction SilentlyContinue
+        if ($pm) { Stop-Procmon }
+    }
     $note = Read-Host 'What did you see? (type a note, or just Enter)'
     Add-Content -Path (Join-Path $OutDir 'notes.txt') -Value ('{0:D2}-{1}: {2}' -f $Index, $Step.Name, $note)
 }
