@@ -32,7 +32,7 @@ https://claude.ai/artifact/JSzNYRpwZJyywztJtBSk2P
 - [x] 18 Native display mode
 
 ## Sensors
-- [ ] 19 Controller readings
+- [x] 19 Controller readings
 - [ ] 20 Windows readings
 - [ ] 21 Poll schedule
 

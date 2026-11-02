@@ -8,11 +8,12 @@
 - Internal screen is 3840×2400 at 60/120/240 Hz.
 - An external 4K monitor is attached. Ignore it.
 - Touchpad registry value 0 means off.
+- `0D85` replies `[2, cpu °C, gpu, 0]` whatever the args. The CPU value is not checked against another sensor.
 - `0D8E` reads back the native mode chosen with `0D0E` at once. The panel stays as it booted.
 
 ## Progress
 
-- Stages 0–18 are done. See `docs/PLAN.md`.
+- Stages 0–19 are done. See `docs/PLAN.md`.
 - Retros ran after stages 5 and 14.
 
 ## Working style
