@@ -1,4 +1,12 @@
 //! Windows APIs behind small traits, so the rest can be tested with fakes.
+//!
+//! This is the only crate allowed `unsafe`: each block says why it is sound.
+
+#![allow(unsafe_code)]
+
+mod power;
+
+pub use power::WindowsPowerEvents;
 
 /// Something Windows tells us about power.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
