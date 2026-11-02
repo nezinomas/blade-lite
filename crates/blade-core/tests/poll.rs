@@ -46,7 +46,7 @@ fn nothing_polls_while_no_view_is_visible() {
     let mut clock = FakeClock::new();
     let mut schedule = PollSchedule::default();
 
-    assert!(clock.run(&mut schedule, Duration::from_secs(5)).is_empty());
+    assert_eq!(clock.run(&mut schedule, Duration::from_secs(5)), secs(&[]));
     assert_eq!(schedule.next_poll(), None);
 }
 
@@ -105,7 +105,7 @@ fn polling_stops_when_both_views_are_closed() {
     schedule.hide(View::Window);
     schedule.hide(View::Flyout);
 
-    assert!(clock.run(&mut schedule, Duration::from_secs(5)).is_empty());
+    assert_eq!(clock.run(&mut schedule, Duration::from_secs(5)), secs(&[]));
     assert_eq!(schedule.next_poll(), None);
 }
 
