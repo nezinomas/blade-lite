@@ -38,7 +38,7 @@ https://claude.ai/artifact/JSzNYRpwZJyywztJtBSk2P
 
 ## UI
 - [x] 22 Mica spike
-- [ ] 23 Header view model
+- [x] 23 Header view model
 - [ ] 24 Display view model
 - [ ] 25 Performance view model
 - [ ] 26 Keyboard and touchpad view model
