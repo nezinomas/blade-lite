@@ -116,6 +116,11 @@ function Invoke-Step([int]$Index, [hashtable]$Step) {
 Assert-Admin
 $script:UsbPcap = Find-Tool @('C:\Program Files\USBPcap\USBPcapCMD.exe')
 $script:Procmon = (Get-Command Procmon64.exe, Procmon.exe -ErrorAction SilentlyContinue | Select-Object -First 1).Source
+if (-not $script:Procmon) {
+    # winget puts it under Packages without a PATH alias.
+    $script:Procmon = (Get-ChildItem "$env:LOCALAPPDATA\Microsoft\WinGet\Packages\Microsoft.Sysinternals.ProcessMonitor*" `
+        -Recurse -Filter Procmon64.exe -ErrorAction SilentlyContinue | Select-Object -First 1).FullName
+}
 $script:Interfaces = @(Get-UsbPcapInterfaces)
 if (-not $script:Interfaces) { throw 'No USBPcap interface found. Did you restart after installing USBPcap?' }
 New-Item -ItemType Directory -Force -Path $OutDir | Out-Null
