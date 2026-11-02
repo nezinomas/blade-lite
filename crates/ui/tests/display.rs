@@ -24,7 +24,10 @@ fn state() -> DisplayState<'static> {
 }
 
 fn labels(view: &DisplayView) -> Vec<&str> {
-    view.rates.iter().map(|segment| segment.label.as_str()).collect()
+    view.rates
+        .iter()
+        .map(|segment| segment.label.as_str())
+        .collect()
 }
 
 #[test]
