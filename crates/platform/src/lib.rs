@@ -4,6 +4,7 @@
 
 #![allow(unsafe_code)]
 
+mod keys;
 mod power;
 
 use std::io;
