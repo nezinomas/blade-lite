@@ -21,6 +21,7 @@ fn round_trip_keeps_custom_values_while_another_preset_is_active() {
     let config = Config {
         preset: Preset::Performance,
         custom: tweaked_custom(),
+        sixty_hz_on_battery: true,
     };
 
     config.save(&path).unwrap();
@@ -38,6 +39,7 @@ fn round_trip_keeps_auto_fan() {
             fan_rpm: None,
             ..tweaked_custom()
         },
+        ..Config::default()
     };
 
     config.save(&path).unwrap();
@@ -60,6 +62,11 @@ fn defaults_are_balanced_with_fans_on_auto() {
 
     assert_eq!(config.preset, Preset::Balanced);
     assert_eq!(config.custom.fan_rpm, None);
+}
+
+#[test]
+fn sixty_hz_on_battery_is_off_by_default() {
+    assert!(!Config::default().sixty_hz_on_battery);
 }
 
 #[test]

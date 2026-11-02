@@ -210,6 +210,23 @@ fn each_resume_waits_the_pause_then_applies_again() {
 }
 
 #[test]
+fn power_source_changes_do_not_apply_again() {
+    let (mut controller, clock, log) = fakes();
+    let mut events = FakePowerEvents(vec![PowerEvent::OnBattery, PowerEvent::OnAc].into_iter());
+
+    reapply_on_resume(
+        &mut events,
+        &clock,
+        &Config::default(),
+        &BLADE_18,
+        &mut controller,
+    )
+    .unwrap();
+
+    assert_eq!(*log.borrow(), []);
+}
+
+#[test]
 fn no_resume_applies_nothing() {
     let (mut controller, clock, log) = fakes();
     let mut events = FakePowerEvents(Vec::new().into_iter());
