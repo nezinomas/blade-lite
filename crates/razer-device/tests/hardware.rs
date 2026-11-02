@@ -261,3 +261,30 @@ fn custom_is_set_and_read_back_and_the_old_preset_restored() {
     assert_eq!(manual[6..8], [vec![1, 1, 30], vec![1, 2, 30]]);
     assert_eq!(after, before);
 }
+
+#[test]
+#[ignore = "needs the Blade 18"]
+fn both_fans_and_the_cpu_temperature_are_read() {
+    use razer_proto::{BLADE_18, Celsius, FanRpm};
+
+    let mut device = Device::new(HidTransport::open(&BLADE_18).unwrap(), SystemClock);
+    let fans: Vec<_> = FanRpm::queries(&BLADE_18)
+        .iter()
+        .map(|query| {
+            let reply = device.send(query.id, &query.args).unwrap();
+            FanRpm::from_reply(reply.args()).unwrap()
+        })
+        .collect();
+    let query = Celsius::query();
+    let reply = device.send(query.id, &query.args).unwrap();
+    let cpu = Celsius::cpu_from_reply(reply.args());
+
+    eprintln!(
+        "fans {fans:?}, cpu {cpu:?}, temperature reply {:02X?}",
+        reply.args()
+    );
+    assert_eq!(fans.len(), 2);
+    assert!(fans.iter().all(|fan| fan.0 <= 6000), "{fans:?}");
+    let cpu = cpu.expect("the controller reports the CPU temperature");
+    assert!((20..=105).contains(&cpu.0), "{cpu:?}");
+}
