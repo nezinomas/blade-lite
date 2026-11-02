@@ -2,7 +2,7 @@ mod common;
 
 use razer_proto::{CHECKSUM_INDEX, ParseError, Report, Status};
 
-/// Status codes from the controller, as OpenRazer and r-helper name them.
+/// Status codes from the controller (same as in r-helper).
 const BUSY: u8 = 0x01;
 const SUCCESS: u8 = 0x02;
 const FAILURE: u8 = 0x03;
