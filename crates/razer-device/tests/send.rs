@@ -20,7 +20,9 @@ fn a_success_reply_is_returned() {
 fn the_device_pauses_between_send_and_read() {
     let (transport, clock, log) = fakes(vec![reply(SUCCESS, 0, COMMAND)]);
 
-    Device::new(transport, clock).send(COMMAND, &[1, 2]).unwrap();
+    Device::new(transport, clock)
+        .send(COMMAND, &[1, 2])
+        .unwrap();
 
     assert_eq!(
         *log.borrow(),
@@ -60,7 +62,10 @@ fn a_failure_reply_is_an_error() {
 
     let result = Device::new(transport, clock).send(COMMAND, &[]);
 
-    assert!(matches!(result, Err(DeviceError::Rejected(Status::Failure))));
+    assert!(matches!(
+        result,
+        Err(DeviceError::Rejected(Status::Failure))
+    ));
 }
 
 #[test]
