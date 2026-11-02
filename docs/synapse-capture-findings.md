@@ -61,12 +61,28 @@ nothing.
 | Feature | Finding |
 | --- | --- |
 | GPU mode | Synapse has no GPU mode switch on this model. It only links to the NVIDIA app ("NVIDIA laptop display mode", Advanced Optimus). Drop it from our app |
-| Native display mode | Two options: 3840 × 2400 at 240 Hz, or 1920 × 1200 at 440 Hz. Needs a restart. No 90-byte report at all. Needs the Process Monitor capture |
+| Native display mode | Two options: 3840 × 2400 at 240 Hz, or 1920 × 1200 at 440 Hz. It is a HID command after all, see below. "Cancel" sends nothing, so the capture saw nothing |
 | Charge limits other than 80% | Synapse did not offer them |
+
+### Native display mode, from Synapse's code
+
+Process Monitor showed no driver call. Synapse's own UI code (its cached
+JavaScript under `%LOCALAPPDATA%\Razer\RazerAppEngine\User Data`) names it
+"Mini LED Panel Resolution":
+
+| Item | Value |
+| --- | --- |
+| Get | `0D8E`, data size 1 (r-helper's "panel mode" getter; it read `[0]`) |
+| Set | `0D0E`, data size 1, args `[mode]` |
+| Modes | `0` = UHD (3840 × 2400, 240 Hz), `1` = FHD (1920 × 1200, 440 Hz) |
+| Flow | Synapse sends the set, then restarts Windows at once. Cancel sends nothing |
+
+These bytes come from code, not from a capture. Clicking "Restart" during a
+capture would give a golden report, but it also switches the panel.
 
 ## Still open
 
-1. Display mode: Process Monitor capture (step 28 again).
+1. Display mode: optional golden report (click "Restart" while recording).
 2. Red touchpad key: after Synapse is removed (stage 2), check if the key still
    turns red by itself. If not, test whether sending `0059` makes it red.
 3. Real manual fan range: Synapse only has a curve. We may keep r-helper's
