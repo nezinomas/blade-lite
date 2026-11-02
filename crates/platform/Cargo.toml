@@ -1,0 +1,10 @@
+[package]
+name = "platform"
+description = "Windows APIs behind small traits, so the rest can be tested with fakes."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[lints]
+workspace = true
