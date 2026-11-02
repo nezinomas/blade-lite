@@ -1,0 +1,13 @@
+[package]
+name = "blade-dev"
+description = "Developer tool for the Blade 18 controller."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+razer-device = { path = "../razer-device" }
+
+[lints]
+workspace = true
