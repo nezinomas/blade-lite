@@ -36,7 +36,10 @@ fn the_controller_is_picked_out_of_the_other_devices() {
         controller(),
     ];
 
-    assert_eq!(find_controller(&devices, &BLADE_18.usb), Some(&controller()));
+    assert_eq!(
+        find_controller(&devices, &BLADE_18.usb),
+        Some(&controller())
+    );
 }
 
 #[test]

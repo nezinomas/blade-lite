@@ -4,6 +4,7 @@ use std::process::ExitCode;
 
 use blade_dev::Command;
 use razer_device::{Device, HidTransport, SystemClock};
+use razer_proto::BLADE_18;
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -17,7 +18,7 @@ fn main() -> ExitCode {
 }
 
 fn probe() -> ExitCode {
-    let transport = match HidTransport::open() {
+    let transport = match HidTransport::open(&BLADE_18) {
         Ok(transport) => transport,
         Err(error) => {
             eprintln!("cannot open the controller: {error}");

@@ -30,7 +30,8 @@ fn every_command_is_sent_in_order() {
 fn a_failed_command_stops_the_rest() {
     let (transport, clock, log) = fakes(vec![reply(common::FAILURE, 0, SET_BRIGHTNESS)]);
 
-    let result = Device::new(transport, clock).run(&Brightness::new(50).unwrap().commands(&BLADE_18));
+    let result =
+        Device::new(transport, clock).run(&Brightness::new(50).unwrap().commands(&BLADE_18));
 
     assert!(result.is_err());
     assert_eq!(sent(&log).len(), 1);
