@@ -1,0 +1,65 @@
+//! Fan speeds and the CPU temperature, read from the controller.
+
+use crate::{Command, ModelProfile};
+
+/// Get a fan's speed. Args are `[1, fan, 0]`, the reply's `[1, fan, rpm/100]`.
+const GET_FAN_RPM: u16 = 0x0D88;
+/// Get the temperatures. The reply's args are `[2, cpu, gpu, 0]`.
+const GET_TEMPERATURES: u16 = 0x0D85;
+/// The args start with 1, as Synapse sends them.
+const VARIABLE_STORAGE: u8 = 0x01;
+/// Position of the speed byte in a fan reply.
+const RPM_INDEX: usize = 2;
+/// Position of the CPU temperature in a temperature reply.
+const CPU_INDEX: usize = 1;
+
+/// A measured fan speed. Unlike a target `Rpm`, any value can be read.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct FanRpm(pub u16);
+
+impl FanRpm {
+    /// The commands that read each fan of the model, in its fan order.
+    #[must_use]
+    pub fn queries(model: &ModelProfile) -> Vec<Command> {
+        model
+            .custom
+            .fan_zones
+            .iter()
+            .map(|&fan| Command {
+                id: GET_FAN_RPM,
+                args: vec![VARIABLE_STORAGE, fan, 0],
+            })
+            .collect()
+    }
+
+    /// The speed in a query's reply args, or `None` if they are too short.
+    #[must_use]
+    pub fn from_reply(args: &[u8]) -> Option<Self> {
+        let hundreds = *args.get(RPM_INDEX)?;
+        Some(Self(u16::from(hundreds) * 100))
+    }
+}
+
+/// A temperature in degrees Celsius.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub struct Celsius(pub u8);
+
+impl Celsius {
+    /// The command that reads the temperatures. Synapse never sends it;
+    /// these are r-helper's args.
+    #[must_use]
+    pub fn query() -> Command {
+        Command {
+            id: GET_TEMPERATURES,
+            args: vec![0x00, 0x01, 0x00, 0x00],
+        }
+    }
+
+    /// The CPU temperature in a query's reply args. `None` if the controller
+    /// does not report it: the args are too short, or it reads 0.
+    #[must_use]
+    pub fn cpu_from_reply(args: &[u8]) -> Option<Self> {
+        let celsius = *args.get(CPU_INDEX)?;
+        (celsius != 0).then_some(Self(celsius))
+    }
+}

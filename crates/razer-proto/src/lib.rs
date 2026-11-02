@@ -9,6 +9,7 @@ mod custom;
 mod native_mode;
 mod preset;
 mod profile;
+mod readings;
 
 pub use brightness::{Brightness, BrightnessError};
 pub use colour::{ParseRgbError, Rgb, static_colour};
@@ -17,6 +18,7 @@ pub use custom::{CpuBoost, Custom, CustomError, CustomLimits, FanMode, GpuBoost,
 pub use native_mode::NativeMode;
 pub use preset::{PerfMode, PresetError};
 pub use profile::{BLADE_18, KeyGrid, ModelProfile, UsbId};
+pub use readings::{Celsius, FanRpm};
 
 /// Size of every feature report, sent and received.
 pub const REPORT_LEN: usize = 90;
