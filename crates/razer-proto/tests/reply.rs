@@ -1,6 +1,6 @@
 mod common;
 
-use razer_proto::{CHECKSUM_INDEX, ParseError, Report, Status};
+use razer_proto::{CHECKSUM_INDEX, ParseError, REPORT_LEN, Report, Status};
 
 /// Status codes from the controller (same as in r-helper).
 const BUSY: u8 = 0x01;
@@ -10,7 +10,7 @@ const NOT_SUPPORTED: u8 = 0x05;
 
 /// A captured reply with its status byte changed. The checksum does not cover
 /// the status byte, so the reply stays valid.
-fn reply_with_status(status: u8) -> [u8; 90] {
+fn reply_with_status(status: u8) -> [u8; REPORT_LEN] {
     let mut bytes = common::captured_replies()[0].bytes;
     bytes[0] = status;
     bytes
