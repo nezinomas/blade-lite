@@ -4,9 +4,15 @@
 
 #![allow(unsafe_code)]
 
+mod keys;
 mod power;
+mod registry;
 
+use std::io;
+
+pub use keys::WindowsKeys;
 pub use power::WindowsPowerEvents;
+pub use registry::WindowsRegistry;
 
 /// Something Windows tells us about power.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -19,4 +25,37 @@ pub enum PowerEvent {
 pub trait PowerEvents {
     /// Waits for the next event. `None` means no more events will come.
     fn next_event(&mut self) -> Option<PowerEvent>;
+}
+
+/// Reads values under `HKEY_CURRENT_USER`.
+pub trait Registry {
+    /// Reads the DWORD `name` in `key`.
+    ///
+    /// # Errors
+    ///
+    /// The Windows error if the value is missing or is not a DWORD.
+    fn read_user_dword(&self, key: &str, name: &str) -> io::Result<u32>;
+}
+
+/// A key that the app may send. The app never sends any other key.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Key {
+    Win,
+    Ctrl,
+    F24,
+}
+
+/// Sends key presses to Windows, as if typed.
+pub trait KeyInjector {
+    /// Presses the keys down in order, then lets them go in reverse order.
+    ///
+    /// # Errors
+    ///
+    /// The Windows error if the presses could not be sent.
+    fn press(&mut self, keys: &[Key]) -> io::Result<()>;
+}
+
+/// The Windows error for a status code that a call returned.
+fn windows_error(status: u32) -> io::Error {
+    io::Error::from_raw_os_error(i32::try_from(status).unwrap_or(i32::MAX))
 }

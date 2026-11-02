@@ -12,7 +12,7 @@ use windows_sys::Win32::System::Power::{
 };
 use windows_sys::Win32::UI::WindowsAndMessaging::{DEVICE_NOTIFY_CALLBACK, PBT_APMRESUMEAUTOMATIC};
 
-use crate::{PowerEvent, PowerEvents};
+use crate::{PowerEvent, PowerEvents, windows_error};
 
 /// Resume events from Windows, from [`register`](Self::register) until drop.
 ///
@@ -98,10 +98,6 @@ unsafe extern "system" fn on_power_event(
         let _ = sender.send(PowerEvent::Resumed);
     }
     ERROR_SUCCESS
-}
-
-fn windows_error(status: u32) -> io::Error {
-    io::Error::from_raw_os_error(i32::try_from(status).unwrap_or(i32::MAX))
 }
 
 #[cfg(test)]
