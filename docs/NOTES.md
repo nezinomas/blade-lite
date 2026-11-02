@@ -12,11 +12,13 @@
 - The NVIDIA GPU sleeps in D3 when idle. Its power state (`DEVPKEY_Device_PowerData`) can be read without waking it. An NVML read wakes it, and it sleeps again about 1 s later, even with NVML still loaded.
 - Mica works in a Slint 1.18 window (stage 22 spike, code in commit 7a330fb). It needs the winit backend with `with_transparent(true)`, `background: transparent` on the Window, then `DwmExtendFrameIntoClientArea(-1)` and `DWMWA_SYSTEMBACKDROP_TYPE = DWMSBT_MAINWINDOW`. Set them after the event loop has run once, since the HWND does not exist before. Without Mica the window is see-through.
 - `UISettings` gives the accent colour as RGB 0, 120, 212.
+- The accent colour is also in the registry, `Explorer\Accent\AccentColorMenu`, as ABGR (`FFD47800`). The app reads it there, so it needs no WinRT.
+- The window (stage 27) is checked by hand with `docs/window-check.md`.
 - `0D8E` reads back the native mode chosen with `0D0E` at once. The panel stays as it booted.
 
 ## Progress
 
-- Stages 0–26 are done. See `docs/PLAN.md`.
+- Stages 0–27 are done. See `docs/PLAN.md`.
 - Retros ran after stages 5 and 14.
 
 ## Working style
