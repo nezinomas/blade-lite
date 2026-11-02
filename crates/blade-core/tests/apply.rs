@@ -207,6 +207,42 @@ fn saved_lighting_is_sent_after_the_preset() {
 }
 
 #[test]
+fn applying_the_performance_leaves_the_lighting_alone() {
+    let (mut controller, _, log) = fakes();
+    let saved = Config {
+        lighting: Some(Lighting {
+            brightness: 50,
+            colour: Rgb::new(1, 2, 3),
+        }),
+        ..Config::default()
+    };
+
+    apply_performance(&saved, &BLADE_18, &mut controller).unwrap();
+
+    assert_eq!(*log.borrow(), preset_steps(0x00));
+}
+
+#[test]
+fn applying_the_lighting_sends_brightness_then_colour() {
+    let (mut controller, _, log) = fakes();
+    let colour = Rgb::new(1, 2, 3);
+    let lighting = Lighting {
+        brightness: 20,
+        colour,
+    };
+
+    apply_lighting(lighting, &BLADE_18, &mut controller).unwrap();
+
+    let brightness = Brightness::new(20).unwrap().commands(&BLADE_18);
+    let expected: Vec<Step> = brightness
+        .into_iter()
+        .chain(static_colour(colour, &BLADE_18))
+        .map(Step::Sent)
+        .collect();
+    assert_eq!(*log.borrow(), expected);
+}
+
+#[test]
 fn a_brightness_over_100_sends_nothing() {
     let (mut controller, _, log) = fakes();
     let saved = Config {
