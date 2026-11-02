@@ -7,7 +7,8 @@ use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 use std::{fs, io};
 
-use serde::{Deserialize, Serialize};
+use razer_proto::Rgb;
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 /// The app's folder in `%APPDATA%`.
 const APP_DIR: &str = "blade-lite";
@@ -60,6 +61,17 @@ impl Default for CustomSettings {
     }
 }
 
+/// The keyboard's lighting. The controller can't report it, so the app
+/// keeps it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Lighting {
+    /// In percent, 0 to 100.
+    pub brightness: u8,
+    /// Stored as `#RRGGBB`.
+    #[serde(serialize_with = "hex", deserialize_with = "from_hex")]
+    pub colour: Rgb,
+}
+
 /// The user's saved settings.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
@@ -68,6 +80,9 @@ pub struct Config {
     pub custom: CustomSettings,
     /// Drop the panel to 60 Hz on battery, and put the old rate back on AC.
     pub sixty_hz_on_battery: bool,
+    /// `None` until the user sets it, so the keyboard is left as it is.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub lighting: Option<Lighting>,
 }
 
 impl Config {
@@ -103,4 +118,15 @@ impl Config {
         fs::write(path, toml::to_string(self)?)?;
         Ok(())
     }
+}
+
+fn hex<S: Serializer>(colour: &Rgb, serializer: S) -> Result<S::Ok, S::Error> {
+    let Rgb { red, green, blue } = colour;
+    serializer.serialize_str(&format!("#{red:02X}{green:02X}{blue:02X}"))
+}
+
+fn from_hex<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Rgb, D::Error> {
+    let text = String::deserialize(deserializer)?;
+    text.parse()
+        .map_err(|_| serde::de::Error::custom(format!("not a #RRGGBB colour: {text}")))
 }

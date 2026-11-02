@@ -11,7 +11,7 @@ mod touchpad;
 
 pub use apply::{ApplyError, Controller, RESUME_PAUSE, apply, reapply_on_resume};
 pub use battery_rate::{BATTERY_RATE, BatteryRate};
-pub use config::{Config, ConfigError, CustomSettings, Preset};
+pub use config::{Config, ConfigError, CustomSettings, Lighting, Preset};
 pub use native_mode::{NativeModeState, native_mode_state, set_native_mode};
 pub use poll::{POLL_INTERVAL, PollSchedule, View};
 pub use readings::{Readings, ReadingsSampler};

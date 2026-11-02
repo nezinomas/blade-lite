@@ -5,11 +5,11 @@ use std::time::Duration;
 use platform::{PowerEvent, PowerEvents};
 use razer_device::{Clock, Device, DeviceError, Transport};
 use razer_proto::{
-    Command, CpuBoost, Custom, CustomError, FanMode, GpuBoost, ModelProfile, PerfMode, PresetError,
-    Rpm,
+    Brightness, BrightnessError, Command, CpuBoost, Custom, CustomError, FanMode, GpuBoost,
+    ModelProfile, PerfMode, PresetError, Rpm, static_colour,
 };
 
-use crate::{Config, CustomSettings, Preset};
+use crate::{Config, CustomSettings, Lighting, Preset};
 
 /// How long to wait after resume before applying again, so the controller is
 /// awake. A guess: the device layer also retries while it replies Busy.
@@ -24,6 +24,9 @@ pub enum ApplyError {
     /// A saved Custom value is outside what the model takes.
     #[error("a Custom value is outside what the model takes: {0:?}")]
     Custom(CustomError),
+    /// The saved brightness is over 100 percent.
+    #[error("the saved brightness is over 100 percent: {0:?}")]
+    Brightness(BrightnessError),
     /// The controller did not take a command.
     #[error("the controller did not take a command: {0:?}")]
     Device(DeviceError),
@@ -82,8 +85,25 @@ pub fn reapply_on_resume(
     Ok(())
 }
 
-/// The commands that set the saved preset.
+/// The commands that set the saved preset, then the saved lighting.
 fn commands(config: Config, model: &ModelProfile) -> Result<Vec<Command>, ApplyError> {
+    let mut commands = preset_commands(config, model)?;
+    if let Some(lighting) = config.lighting {
+        commands.extend(lighting_commands(lighting, model)?);
+    }
+    Ok(commands)
+}
+
+/// The brightness, then the colour on every key.
+fn lighting_commands(lighting: Lighting, model: &ModelProfile) -> Result<Vec<Command>, ApplyError> {
+    let brightness = Brightness::new(lighting.brightness).map_err(ApplyError::Brightness)?;
+    let mut commands = brightness.commands(model);
+    commands.extend(static_colour(lighting.colour, model));
+    Ok(commands)
+}
+
+/// The commands that set the saved preset.
+fn preset_commands(config: Config, model: &ModelProfile) -> Result<Vec<Command>, ApplyError> {
     let mode = match config.preset {
         Preset::Silent => PerfMode::Silent,
         Preset::Balanced => PerfMode::Balanced,
