@@ -51,6 +51,13 @@ These positions are always black, so they have no key: row 0 col 0, rows 1–2
 cols 0 and 14, row 3 cols 0, 13, 14, row 4 cols 0, 2, 13, 14, row 5 cols 0, 4,
 7, 8, row 6 col 0.
 
+On the laptop (2026-11-02, firmware 1.6): our 8 commands for red got an ok
+reply each, so reading a reply after a `030B` row does no harm. The keyboard
+effect read `0F82 [01, 05, ...]` said Spectrum (`03`) before, during and after
+the red frame, and `038A` said `[04, 00]` each time. So no read shows the
+frame: only the eyes can check the colour. Sending the `0F82` args back with
+`0F02` puts the old effect back.
+
 ### Fn keys
 
 Fn + brightness keys made Synapse send `0303` in steps of `0x10` (16 levels).
