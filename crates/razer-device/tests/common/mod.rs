@@ -92,3 +92,11 @@ pub fn sent(log: &Log) -> Vec<[u8; REPORT_LEN]> {
         })
         .collect()
 }
+
+/// A Success reply that carries `args`.
+#[allow(dead_code)] // Not every test binary uses it.
+pub fn reply_with_args(transaction_id: u8, command: u16, args: &[u8]) -> [u8; REPORT_LEN] {
+    let mut bytes = request(transaction_id, command, args);
+    bytes[0] = SUCCESS;
+    bytes
+}
