@@ -31,6 +31,12 @@ impl Brightness {
         Ok(Self(percent))
     }
 
+    /// The brightness in percent, 0 to 100.
+    #[must_use]
+    pub fn percent(self) -> u8 {
+        self.0
+    }
+
     /// The controller's level, 0 to 255: percent × 255 / 100, rounded up.
     #[must_use]
     pub fn level(self) -> u8 {
