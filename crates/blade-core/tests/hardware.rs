@@ -4,10 +4,13 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use blade_core::{
-    NativeModeState, RefreshRate, native_mode_state, refresh_rates, set_native_mode,
-    set_refresh_rate, set_touchpad, touchpad_on,
+    BatteryRate, Config, NativeModeState, RefreshRate, native_mode_state, refresh_rates,
+    set_native_mode, set_refresh_rate, set_touchpad, touchpad_on,
 };
-use platform::{DisplayApi, OutputTechnology, WindowsDisplays, WindowsKeys, WindowsRegistry};
+use platform::{
+    DisplayApi, OutputTechnology, PowerEvent, PowerEvents, WindowsDisplays, WindowsKeys,
+    WindowsPowerEvents, WindowsRegistry,
+};
 use razer_device::{Device, HidTransport, SystemClock};
 use razer_proto::{BLADE_18, NativeMode};
 
@@ -108,4 +111,56 @@ fn the_native_mode_is_chosen_for_the_next_boot_and_put_back() {
 
     assert_eq!(chosen, NativeModeState::AppliesAfterRestart(other));
     assert_eq!(restored, NativeModeState::Active(before));
+}
+
+/// How long the unplug check waits for the charger to go back in.
+const PLUG_IN_WAIT: Duration = Duration::from_secs(300);
+
+/// The power events from Windows, on their own thread.
+fn power_events() -> std::sync::mpsc::Receiver<PowerEvent> {
+    let (sender, events) = std::sync::mpsc::channel();
+    thread::spawn(move || {
+        let mut windows = WindowsPowerEvents::register().unwrap();
+        while let Some(event) = windows.next_event() {
+            if sender.send(event).is_err() {
+                break;
+            }
+        }
+    });
+    events
+}
+
+#[test]
+#[ignore = "start on battery, then plug the charger in; switches the panel's rate"]
+fn battery_drops_to_60_hz_and_ac_puts_the_rate_back() {
+    let before = panel_rate();
+    let config = Config {
+        sixty_hz_on_battery: true,
+        ..Config::default()
+    };
+    let mut battery_rate = BatteryRate::default();
+    let events = power_events();
+    let (mut on_battery, mut after_ac) = (None, None);
+    eprintln!("rate before: {before:?}");
+
+    while let Ok(event) = events.recv_timeout(PLUG_IN_WAIT) {
+        battery_rate
+            .on_event(event, &config, &mut WindowsDisplays)
+            .unwrap();
+        eprintln!("{event:?}: panel at {:?}", panel_rate());
+        match event {
+            PowerEvent::OnBattery => on_battery = Some(panel_rate()),
+            PowerEvent::OnAc if on_battery.is_some() => {
+                after_ac = Some(panel_rate());
+                break;
+            }
+            _ => {}
+        }
+    }
+    if panel_rate() != before {
+        set_refresh_rate(&mut WindowsDisplays, before).unwrap();
+    }
+
+    assert_eq!(on_battery, Some(RefreshRate(60)), "no 60 Hz on battery");
+    assert_eq!(after_ac, Some(before), "the rate was not put back on AC");
 }
