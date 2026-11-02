@@ -34,8 +34,7 @@ fn value(header: &Header, label: &str) -> String {
         .stats
         .iter()
         .find(|stat| stat.label == label)
-        .map(|stat| stat.value.clone())
-        .unwrap_or_else(|| panic!("no {label} stat"))
+        .map_or_else(|| panic!("no {label} stat"), |stat| stat.value.clone())
 }
 
 fn stat(label: &str, value: &str) -> Stat {
