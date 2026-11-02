@@ -3,5 +3,12 @@
 version = 4
 
 [[package]]
+name = "razer-device"
+version = "0.1.0"
+dependencies = [
+ "razer-proto",
+]
+
+[[package]]
 name = "razer-proto"
 version = "0.1.0"
