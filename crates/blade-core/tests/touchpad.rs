@@ -7,6 +7,7 @@ use blade_core::{TOUCHPAD_KEY, TOUCHPAD_VALUE, TouchpadError, set_touchpad, touc
 use platform::{Key, KeyInjector, Registry};
 
 const TOGGLE: [Key; 3] = [Key::Win, Key::Ctrl, Key::F24];
+const NOTHING: [Vec<Key>; 0] = [];
 
 /// The touchpad state as Windows keeps it. `None` means it can't be read.
 struct FakeRegistry {
@@ -88,7 +89,7 @@ fn nothing_is_sent_when_the_touchpad_is_already_in_that_state() {
 
     set_touchpad(false, &registry, &mut keys).unwrap();
 
-    assert!(keys.pressed.is_empty());
+    assert_eq!(keys.pressed, NOTHING);
     assert!(!touchpad_on(&registry).unwrap());
 }
 
@@ -105,7 +106,7 @@ fn a_failed_read_is_an_error_and_nothing_is_sent() {
         set_touchpad(false, &registry, &mut keys),
         Err(TouchpadError::Read(_))
     ));
-    assert!(keys.pressed.is_empty());
+    assert_eq!(keys.pressed, NOTHING);
 }
 
 #[test]
@@ -121,5 +122,5 @@ fn a_value_other_than_0_or_1_is_an_error_not_a_guess() {
         set_touchpad(true, &registry, &mut keys),
         Err(TouchpadError::Unknown(2))
     ));
-    assert!(keys.pressed.is_empty());
+    assert_eq!(keys.pressed, NOTHING);
 }
