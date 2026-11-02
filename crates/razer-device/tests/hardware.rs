@@ -95,7 +95,7 @@ fn brightness_is_set_and_read_back() {
     let before = levels(&mut device);
 
     device
-        .run(&razer_proto::Brightness::new(50).unwrap().commands())
+        .run(&razer_proto::Brightness::new(50).unwrap().commands(&razer_proto::BLADE_18))
         .unwrap();
     let after = levels(&mut device);
 

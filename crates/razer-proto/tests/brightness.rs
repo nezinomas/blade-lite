@@ -1,6 +1,6 @@
 mod common;
 
-use razer_proto::{Brightness, BrightnessError, Request};
+use razer_proto::{BLADE_18, Brightness, BrightnessError, ModelProfile, Request};
 
 /// The captured brightness steps: the fixture and the percent Synapse set.
 const STEPS: [(&str, u8); 4] = [
@@ -24,7 +24,7 @@ fn captured_brightness(fixture: &str) -> Vec<[u8; razer_proto::REPORT_LEN]> {
 fn each_step_matches_its_golden_bytes() {
     for (fixture, percent) in STEPS {
         let golden = captured_brightness(fixture);
-        let commands = Brightness::new(percent).unwrap().commands();
+        let commands = Brightness::new(percent).unwrap().commands(&BLADE_18);
 
         let built: Vec<_> = commands
             .iter()
@@ -44,4 +44,17 @@ fn each_step_matches_its_golden_bytes() {
 #[test]
 fn above_100_percent_cannot_be_built() {
     assert_eq!(Brightness::new(101), Err(BrightnessError::OutOfRange(101)));
+}
+
+#[test]
+fn one_command_is_built_per_led_of_the_model() {
+    let one_led = ModelProfile {
+        brightness_leds: &[0x05],
+        ..BLADE_18
+    };
+
+    let commands = Brightness::new(50).unwrap().commands(&one_led);
+
+    assert_eq!(commands.len(), 1);
+    assert_eq!(commands[0].args, [0x01, 0x05, 128]);
 }
