@@ -1,6 +1,8 @@
 mod common;
 
-use razer_proto::{BLADE_18, KeyGrid, ModelProfile, REPORT_LEN, Request, Rgb, static_colour};
+use razer_proto::{
+    BLADE_18, KeyGrid, ModelProfile, ParseRgbError, REPORT_LEN, Request, Rgb, static_colour,
+};
 
 /// The captured colour steps: the fixture and the colour Synapse set last.
 const STEPS: [(&str, Rgb); 3] = [
@@ -76,4 +78,19 @@ fn one_row_is_built_per_row_of_the_model() {
             &vec![0xFF, 1, 0, 2, 1, 2, 3, 0, 0, 0, 1, 2, 3],
         ]
     );
+}
+
+#[test]
+fn rgb_is_read_from_hash_rrggbb() {
+    assert_eq!("#00C0FF".parse(), Ok(Rgb::new(0x00, 0xC0, 0xFF)));
+    assert_eq!("#ff8000".parse(), Ok(Rgb::new(0xFF, 0x80, 0x00)));
+}
+
+#[test]
+fn other_text_is_not_an_rgb() {
+    for text in [
+        "", "#", "00C0FF", "#00C0F", "#00C0FFF", "#00C0FG", "#+0C0FF", "#00É0F",
+    ] {
+        assert_eq!(text.parse::<Rgb>(), Err(ParseRgbError), "{text}");
+    }
 }
