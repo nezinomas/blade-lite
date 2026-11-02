@@ -11,7 +11,10 @@ struct FakeRegistry(Option<u32>);
 
 impl Registry for FakeRegistry {
     fn read_user_dword(&self, key: &str, name: &str) -> io::Result<u32> {
-        assert_eq!(key, r"Software\Microsoft\Windows\CurrentVersion\Explorer\Accent");
+        assert_eq!(
+            key,
+            r"Software\Microsoft\Windows\CurrentVersion\Explorer\Accent"
+        );
         assert_eq!(name, "AccentColorMenu");
         self.0.ok_or(io::ErrorKind::NotFound.into())
     }
