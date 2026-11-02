@@ -3,10 +3,12 @@
 use std::ops::Range;
 
 mod brightness;
+mod colour;
 mod command;
 mod profile;
 
 pub use brightness::{Brightness, BrightnessError};
+pub use colour::{Rgb, static_colour};
 pub use command::Command;
 pub use profile::{BLADE_18, KeyGrid, ModelProfile, UsbId};
 
