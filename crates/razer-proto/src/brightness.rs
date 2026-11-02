@@ -1,12 +1,9 @@
 //! Keyboard brightness, set as Synapse sets it.
 
-use crate::Command;
+use crate::{Command, ModelProfile};
 
 /// Set LED brightness. Args are `[1, led, level]`.
 const SET_BRIGHTNESS: u16 = 0x0303;
-/// Synapse sets these two LEDs together.
-const KEYBOARD_LED: u8 = 0x05;
-const UNDERSIDE_LED: u8 = 0x26;
 /// The args start with 1, as Synapse sends them.
 const VARIABLE_STORAGE: u8 = 0x01;
 
@@ -41,12 +38,16 @@ impl Brightness {
         u8::try_from(level).unwrap_or(u8::MAX)
     }
 
-    /// The commands that set it: the keyboard, then the underside.
+    /// The commands that set it: one per brightness LED of the model.
     #[must_use]
-    pub fn commands(self) -> [Command; 2] {
-        [KEYBOARD_LED, UNDERSIDE_LED].map(|led| Command {
-            id: SET_BRIGHTNESS,
-            args: vec![VARIABLE_STORAGE, led, self.level()],
-        })
+    pub fn commands(self, model: &ModelProfile) -> Vec<Command> {
+        model
+            .brightness_leds
+            .iter()
+            .map(|&led| Command {
+                id: SET_BRIGHTNESS,
+                args: vec![VARIABLE_STORAGE, led, self.level()],
+            })
+            .collect()
     }
 }

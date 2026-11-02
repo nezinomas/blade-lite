@@ -4,9 +4,11 @@ use std::ops::Range;
 
 mod brightness;
 mod command;
+mod profile;
 
 pub use brightness::{Brightness, BrightnessError};
 pub use command::Command;
+pub use profile::{BLADE_18, ModelProfile, UsbId};
 
 /// Size of every feature report, sent and received.
 pub const REPORT_LEN: usize = 90;

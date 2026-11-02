@@ -15,6 +15,7 @@ pub enum Direction {
 }
 
 /// One captured report and the fixture it came from.
+#[allow(dead_code)] // Not every test binary reads every field.
 pub struct Captured {
     pub fixture: String,
     pub direction: Direction,
