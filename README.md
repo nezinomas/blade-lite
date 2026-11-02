@@ -59,3 +59,78 @@ driver. The USB capture (stage 1 of the plan) decides this.
 
 **Not planned:** lighting effects, per-key colour, brightness slider, global
 hotkeys, cloud profiles, and other Razer devices.
+
+## UI
+
+The look follows Windows 11 Settings, so the app feels like part of Windows.
+
+- **Light theme**, the Windows accent colour, **Mica** backdrop, Fluent
+  controls and Segoe UI Variable.
+- **Tray flyout:** a plain list like the Wi-Fi flyout. It has preset, refresh
+  rate, lighting, touchpad, "Reset to Balanced" and "Open window".
+- **Window:** one scrolling page, like Settings > System > Display, in a normal
+  resizable window. No side menu. A header card shows the laptop, the preset,
+  a plugged-in or battery pill and the live readings. Below it are three
+  groups: Display, Performance, and Keyboard and touchpad.
+- Closing the window hides it to the tray. Quit is in the flyout.
+
+The UI toolkit is [Slint](https://slint.dev) with its Fluent style. Mica comes
+from `DwmSetWindowAttribute(DWMWA_SYSTEMBACKDROP_TYPE)`. egui cannot look like
+Settings, and WebView2 or Tauri would break the memory target.
+
+## How it is built
+
+Work goes in small stages. Each stage is one sitting and one pull request of
+about 200 changed lines at most.
+
+### TDD, red to green
+
+1. **Red:** write one small failing test for the next behaviour, and commit it.
+2. **Green:** write the least code that makes it pass.
+3. **Refactor:** tidy up while all tests stay green.
+
+A stage is done only when `cargo test`, `cargo clippy -- -D warnings` and
+`cargo fmt --check` all pass.
+
+Hardware sits behind small traits (`Transport`, `KeyInjector`, `Registry`,
+`DisplayApi`, `PowerEvents`, `Sensors`, `Backdrop`, `Clock`). Each has a fake,
+so almost every test runs on any Windows machine without a Blade. Expected
+bytes come from a USB capture of Synapse on the real laptop, saved in
+`tests/fixtures`. Tests that need the real laptop are marked `#[ignore]` and
+run by hand:
+
+```bash
+cargo test -- --ignored
+```
+
+### Crates
+
+| Crate | Job |
+| --- | --- |
+| `razer-proto` | Builds and parses packets, the checksum and the command table. No I/O |
+| `razer-device` | The `Transport` trait, the HID transport, retries on Busy |
+| `blade-core` | Presets, Custom, config (TOML in `%APPDATA%`), apply and re-apply after resume, sensor polling |
+| `platform` | All Windows FFI. The only crate allowed `unsafe` |
+| `ui` | View models (fully unit-tested) and the Slint markup |
+| `blade` (exe) | The tray app. Single instance, starts at login |
+| `blade-dev` (exe) | Developer tool for sending single commands |
+
+Crate and exe names may change when the repo name is chosen.
+
+### Coding standards
+
+- **YAGNI:** build only the v1 features. No plugins, no "for later" settings.
+- **KISS:** the plainest design that passes the test.
+- **DRY:** every command is one entry in one command table, sent by one
+  generic `send`. No hand-written 90-byte buffers.
+- **Small functions:** about 20 lines, one job each.
+- **SOLID:** each layer has one job, small traits, logic depends on traits.
+- **Invalid states can't be built:** enums and newtypes such as `PerfMode`,
+  `FanMode::{Auto, Manual(Rpm)}`, `Rgb` and `RefreshRate`.
+- **Errors:** one `thiserror` enum per library crate, `anyhow` only in the
+  exes. No `unwrap()` or `expect()` outside tests.
+- **Logging:** `tracing` to a rolling file in `%APPDATA%`. No `println!`.
+- **Tools:** `cargo fmt`, `cargo clippy -- -D warnings` with `clippy::pedantic`,
+  and `#![deny(unsafe_code)]` in every crate except `platform`. CI fails if
+  any of these fail.
+- **Commits:** small and logical, with short messages.
