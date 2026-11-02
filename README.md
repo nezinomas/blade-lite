@@ -162,7 +162,8 @@ first release. Make a restore point and keep the Synapse installer first.
 ## Credits
 
 This app ports code and protocol facts from other open-source projects.
-Their licence notices will be kept in `NOTICE` when code is ported.
+Their notices are in [NOTICE](NOTICE), and their full licence texts are in
+[THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md).
 
 ### Reused code
 
@@ -196,7 +197,7 @@ These crates are planned. Licences will be checked again when each is added.
 
 ## Licence
 
-MIT. The `LICENSE` and `NOTICE` files come with the first release.
+MIT. See [LICENSE](LICENSE).
 
 Razer, Synapse and Blade are trademarks of Razer Inc. This project is not
 made by, or connected to, Razer.
