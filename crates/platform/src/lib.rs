@@ -4,12 +4,14 @@
 
 #![allow(unsafe_code)]
 
+mod display;
 mod keys;
 mod power;
 mod registry;
 
 use std::io;
 
+pub use display::WindowsDisplays;
 pub use keys::WindowsKeys;
 pub use power::WindowsPowerEvents;
 pub use registry::WindowsRegistry;
@@ -97,4 +99,9 @@ pub trait DisplayApi {
 /// The Windows error for a status code that a call returned.
 fn windows_error(status: u32) -> io::Error {
     io::Error::from_raw_os_error(i32::try_from(status).unwrap_or(i32::MAX))
+}
+
+/// The text as UTF-16 with a closing nul, as Windows wants it.
+fn wide(text: &str) -> Vec<u16> {
+    text.encode_utf16().chain([0]).collect()
 }

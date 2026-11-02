@@ -17,5 +17,8 @@ fn the_laptop_panel_is_listed_with_its_current_mode() {
     assert_eq!(panels.len(), 1, "expected one internal panel");
     let panel = panels[0];
     assert!(panel.name.starts_with(r"\\.\DISPLAY"), "{}", panel.name);
-    assert!(panel.modes.contains(&panel.current), "current mode not offered");
+    assert!(
+        panel.modes.contains(&panel.current),
+        "current mode not offered"
+    );
 }
