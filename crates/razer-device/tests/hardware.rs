@@ -145,3 +145,47 @@ fn static_colour_is_painted_and_the_effect_restored() {
     restored.unwrap();
     assert_eq!(after, before);
 }
+
+/// Reads each zone's preset args, as the controller sends them back.
+fn preset_args<C: Clock>(device: &mut Device<HidTransport, C>) -> Vec<Vec<u8>> {
+    razer_proto::PerfMode::queries(&razer_proto::BLADE_18)
+        .iter()
+        .map(|query| device.send(query.id, &query.args).unwrap().args().to_vec())
+        .collect()
+}
+
+#[test]
+#[ignore = "needs the Blade 18"]
+fn each_preset_is_set_and_read_back_and_the_old_one_restored() {
+    use razer_proto::PerfMode;
+
+    let mut device = Device::new(
+        HidTransport::open(&razer_proto::BLADE_18).unwrap(),
+        SystemClock,
+    );
+    let before = preset_args(&mut device);
+
+    let read_back: Vec<_> = [PerfMode::Silent, PerfMode::Balanced, PerfMode::Performance]
+        .into_iter()
+        .map(|preset| {
+            device
+                .run(&preset.commands(&razer_proto::BLADE_18).unwrap())
+                .unwrap();
+            let zones: Vec<_> = preset_args(&mut device)
+                .iter()
+                .map(|args| PerfMode::from_reply(args))
+                .collect();
+            (preset, zones)
+        })
+        .collect();
+
+    for args in &before {
+        device.send(0x0D02, args).unwrap();
+    }
+    let after = preset_args(&mut device);
+    eprintln!("before {before:02X?}, read back {read_back:?}, after {after:02X?}");
+    for (preset, zones) in read_back {
+        assert!(zones.iter().all(|zone| *zone == Some(preset)), "{preset:?}");
+    }
+    assert_eq!(after, before);
+}

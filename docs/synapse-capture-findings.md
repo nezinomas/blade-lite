@@ -27,7 +27,7 @@ Args are bytes 8 onwards. Data size is byte 5.
 
 | Feature | Command | Args Synapse sends | Notes |
 | --- | --- | --- | --- |
-| Preset | `0D02` | `[01, zone, mode, fan]` for zones 1, 2, 3 and 4 | Silent 5, Balanced 0, Performance 2, Custom 4. r-helper sends zones 1 and 2 only |
+| Preset | `0D02` | `[01, zone, mode, fan]` for zones 1, 2, 3 and 4 | Silent 5, Balanced 0, Performance 2, Custom 4. r-helper sends zones 1 and 2 only. Read back with `0D82` `[01, zone, 00, 00]`: on the laptop (2026-11-02) all 4 zones read back each preset |
 | Manual fan flag | `0D02` | `[01, zone, 04, 01]` | fan byte 1 in Custom |
 | CPU boost | `0D07` | `[01, 01, level]` | Levels 0 to 3 |
 | GPU boost | `0D07` | `[01, 02, level]` | Levels 0 to 3 (r-helper said 0 to 2) |

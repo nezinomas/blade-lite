@@ -1,6 +1,8 @@
 //! What differs between laptop models, kept as data.
 //! Adding a model means adding a profile, not changing the code.
 
+use crate::PerfMode;
+
 /// How the controller shows up on USB.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct UsbId {
@@ -38,6 +40,10 @@ pub struct ModelProfile {
     /// The LEDs a brightness change sets, in the order Synapse sets them.
     pub brightness_leds: &'static [u8],
     pub keys: KeyGrid,
+    /// The presets the model offers.
+    pub presets: &'static [PerfMode],
+    /// The zones a preset change sets, in the order Synapse sets them.
+    pub perf_zones: &'static [u8],
 }
 
 /// The Blade 18 (RZ09-0529), from the stage 1 capture.
@@ -76,4 +82,7 @@ pub const BLADE_18: ModelProfile = ModelProfile {
             (6, 0),
         ],
     },
+    presets: &[PerfMode::Silent, PerfMode::Balanced, PerfMode::Performance],
+    // Synapse sets all four. r-helper sets only 1 and 2.
+    perf_zones: &[1, 2, 3, 4],
 };

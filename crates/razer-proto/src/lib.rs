@@ -5,11 +5,13 @@ use std::ops::Range;
 mod brightness;
 mod colour;
 mod command;
+mod preset;
 mod profile;
 
 pub use brightness::{Brightness, BrightnessError};
 pub use colour::{ParseRgbError, Rgb, static_colour};
 pub use command::Command;
+pub use preset::{PerfMode, PresetError};
 pub use profile::{BLADE_18, KeyGrid, ModelProfile, UsbId};
 
 /// Size of every feature report, sent and received.
