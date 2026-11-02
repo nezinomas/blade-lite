@@ -82,7 +82,7 @@ fn rates_at_current_resolution(panel: &Display) -> Vec<RefreshRate> {
 }
 
 /// The laptop's own panel, picked by how it is connected.
-fn internal_panel(displays: &[Display]) -> Option<&Display> {
+pub(crate) fn internal_panel(displays: &[Display]) -> Option<&Display> {
     displays
         .iter()
         .find(|display| display.technology == OutputTechnology::Internal)

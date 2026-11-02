@@ -3,8 +3,13 @@
 use std::thread;
 use std::time::{Duration, Instant};
 
-use blade_core::{RefreshRate, refresh_rates, set_refresh_rate, set_touchpad, touchpad_on};
+use blade_core::{
+    NativeModeState, RefreshRate, native_mode_state, refresh_rates, set_native_mode,
+    set_refresh_rate, set_touchpad, touchpad_on,
+};
 use platform::{DisplayApi, OutputTechnology, WindowsDisplays, WindowsKeys, WindowsRegistry};
+use razer_device::{Device, HidTransport, SystemClock};
+use razer_proto::{BLADE_18, NativeMode};
 
 /// Waits until Windows reports the touchpad state, or gives up.
 fn wait_for_touchpad(on: bool) -> bool {
@@ -70,4 +75,37 @@ fn the_refresh_rate_is_switched_and_put_back() {
 
     assert_eq!(switched.unwrap(), other, "the rate did not change");
     assert_eq!(restored.unwrap(), before, "the old rate was not put back");
+}
+
+/// The native mode the controller has chosen, and its state.
+fn native_state(device: &mut Device<HidTransport, SystemClock>) -> NativeModeState {
+    let query = NativeMode::query();
+    let reply = device.send(query.id, &query.args).unwrap();
+    eprintln!("0D8E reply: {:02X?}", reply.args());
+    let chosen = NativeMode::from_reply(reply.args(), &BLADE_18).unwrap();
+    native_mode_state(chosen, &BLADE_18, &WindowsDisplays).unwrap()
+}
+
+#[test]
+#[ignore = "needs the Blade 18; chooses the other native mode, then puts it back"]
+fn the_native_mode_is_chosen_for_the_next_boot_and_put_back() {
+    let transport = HidTransport::open(&BLADE_18).unwrap();
+    let mut device = Device::new(transport, SystemClock);
+    let NativeModeState::Active(before) = native_state(&mut device) else {
+        panic!("a mode change already waits for a restart");
+    };
+    let other = *BLADE_18
+        .native_modes
+        .iter()
+        .find(|&&mode| mode != before)
+        .unwrap();
+    eprintln!("booted in {before:?}, choosing {other:?}");
+
+    set_native_mode(other, &mut device).unwrap();
+    let chosen = native_state(&mut device);
+    set_native_mode(before, &mut device).unwrap();
+    let restored = native_state(&mut device);
+
+    assert_eq!(chosen, NativeModeState::AppliesAfterRestart(other));
+    assert_eq!(restored, NativeModeState::Active(before));
 }

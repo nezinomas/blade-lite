@@ -6,6 +6,7 @@ mod brightness;
 mod colour;
 mod command;
 mod custom;
+mod native_mode;
 mod preset;
 mod profile;
 
@@ -13,6 +14,7 @@ pub use brightness::{Brightness, BrightnessError};
 pub use colour::{ParseRgbError, Rgb, static_colour};
 pub use command::Command;
 pub use custom::{CpuBoost, Custom, CustomError, CustomLimits, FanMode, GpuBoost, Rpm, RpmRange};
+pub use native_mode::NativeMode;
 pub use preset::{PerfMode, PresetError};
 pub use profile::{BLADE_18, KeyGrid, ModelProfile, UsbId};
 

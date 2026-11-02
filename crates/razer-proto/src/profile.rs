@@ -1,7 +1,7 @@
 //! What differs between laptop models, kept as data.
 //! Adding a model means adding a profile, not changing the code.
 
-use crate::{CustomLimits, PerfMode, RpmRange};
+use crate::{CustomLimits, NativeMode, PerfMode, RpmRange};
 
 /// How the controller shows up on USB.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -46,6 +46,8 @@ pub struct ModelProfile {
     pub perf_zones: &'static [u8],
     /// What the Custom preset accepts.
     pub custom: CustomLimits,
+    /// The panel's native modes. Empty if the panel has only one.
+    pub native_modes: &'static [NativeMode],
 }
 
 /// The Blade 18 (RZ09-0529), from the stage 1 capture.
@@ -100,4 +102,19 @@ pub const BLADE_18: ModelProfile = ModelProfile {
         // Two fans. Synapse sets and reads only these.
         fan_zones: &[1, 2],
     },
+    // From Synapse's code ("Mini LED Panel Resolution"), not a capture.
+    native_modes: &[
+        NativeMode {
+            id: 0,
+            width: 3840,
+            height: 2400,
+            hz: 240,
+        },
+        NativeMode {
+            id: 1,
+            width: 1920,
+            height: 1200,
+            hz: 440,
+        },
+    ],
 };
