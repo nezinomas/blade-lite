@@ -58,10 +58,13 @@ function Find-Tool([string[]]$Paths) {
 }
 
 function Get-UsbPcapInterfaces {
-    1..8 | ForEach-Object { "\\.\USBPcap$_" } | Where-Object {
-        $out = & $script:UsbPcap --extcap-config --extcap-interface $_ 2>$null
-        $LASTEXITCODE -eq 0 -and $out
-    }
+    # USBPcapCMD output does not reach a PowerShell pipe, so go through a file.
+    $tmp = New-TemporaryFile
+    Start-Process -FilePath $script:UsbPcap -ArgumentList '--extcap-interfaces' `
+        -RedirectStandardOutput $tmp -NoNewWindow -Wait
+    $list = Get-Content $tmp
+    Remove-Item $tmp
+    $list | ForEach-Object { if ($_ -match '\{value=([^}]+)\}') { $Matches[1] } }
 }
 
 function Start-Capture([string]$Base) {
