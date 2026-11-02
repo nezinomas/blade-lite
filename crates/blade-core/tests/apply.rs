@@ -6,7 +6,7 @@ use std::time::Duration;
 
 use blade_core::{
     ApplyError, Config, Controller, CustomSettings, Lighting, Preset, RESUME_PAUSE, apply,
-    reapply_on_resume,
+    apply_lighting, apply_performance, reapply_on_resume,
 };
 use platform::{PowerEvent, PowerEvents};
 use razer_device::{Clock, DeviceError};

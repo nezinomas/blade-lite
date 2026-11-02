@@ -63,6 +63,34 @@ pub fn apply(
     controller.run(&commands).map_err(ApplyError::Device)
 }
 
+/// Sends only the saved preset, with its Custom values.
+///
+/// # Errors
+///
+/// See [`ApplyError`].
+pub fn apply_performance(
+    config: &Config,
+    model: &ModelProfile,
+    controller: &mut impl Controller,
+) -> Result<(), ApplyError> {
+    let commands = preset_commands(*config, model)?;
+    controller.run(&commands).map_err(ApplyError::Device)
+}
+
+/// Sends only the lighting: the brightness, then the colour on every key.
+///
+/// # Errors
+///
+/// See [`ApplyError`].
+pub fn apply_lighting(
+    lighting: Lighting,
+    model: &ModelProfile,
+    controller: &mut impl Controller,
+) -> Result<(), ApplyError> {
+    let commands = lighting_commands(lighting, model)?;
+    controller.run(&commands).map_err(ApplyError::Device)
+}
+
 /// Applies the settings again after each resume, once [`RESUME_PAUSE`] has
 /// passed. Returns when no more events will come.
 ///
