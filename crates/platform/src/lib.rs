@@ -13,7 +13,7 @@ mod sensors;
 
 use std::io;
 
-pub use backdrop::set_mica;
+pub use backdrop::{round_corners, set_mica};
 pub use display::WindowsDisplays;
 pub use keys::WindowsKeys;
 pub use power::WindowsPowerEvents;

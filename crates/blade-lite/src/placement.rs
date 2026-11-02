@@ -1,0 +1,28 @@
+//! Where the tray flyout opens, in physical pixels.
+
+/// The gap between the flyout and the taskbar or the screen's edge.
+const GAP: i32 = 12;
+
+/// A rectangle on screen, in physical pixels.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Rect {
+    pub x: i32,
+    pub y: i32,
+    pub width: i32,
+    pub height: i32,
+}
+
+/// The flyout's top-left corner: centred over the tray icon and above it,
+/// or below it when the taskbar is at the top, and always inside the screen.
+#[must_use]
+pub fn flyout_position(icon: Rect, (width, height): (i32, i32), screen: Rect) -> (i32, i32) {
+    let centred = icon.x + icon.width / 2 - width / 2;
+    let x = centred.clamp(screen.x + GAP, screen.x + screen.width - width - GAP);
+    let above = icon.y - height - GAP;
+    let y = if above >= screen.y {
+        above
+    } else {
+        icon.y + icon.height + GAP
+    };
+    (x, y)
+}

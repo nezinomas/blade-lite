@@ -5,7 +5,8 @@ use std::io;
 
 use windows_sys::Win32::Graphics::Dwm::{
     DWMSBT_MAINWINDOW, DWMWA_SYSTEMBACKDROP_TYPE, DWMWA_USE_IMMERSIVE_DARK_MODE,
-    DwmExtendFrameIntoClientArea, DwmSetWindowAttribute,
+    DWMWA_WINDOW_CORNER_PREFERENCE, DWMWCP_ROUND, DwmExtendFrameIntoClientArea,
+    DwmSetWindowAttribute,
 };
 use windows_sys::Win32::UI::Controls::MARGINS;
 use windows_sys::core::HRESULT;
@@ -42,6 +43,26 @@ pub fn set_mica(hwnd: isize, dark: bool) -> io::Result<()> {
             hwnd,
             DWMWA_SYSTEMBACKDROP_TYPE as u32,
             (&raw const backdrop).cast(),
+            size_of_u32::<i32>(),
+        ))
+    }
+}
+
+/// Gives a window without a frame the rounded corners that framed windows
+/// get on Windows 11.
+///
+/// # Errors
+///
+/// The Windows error if the call fails.
+pub fn round_corners(hwnd: isize) -> io::Result<()> {
+    let round = DWMWCP_ROUND;
+    // SAFETY: the pointer is to a local that outlives the call, and the size
+    // is its size. A bad handle only makes the call fail.
+    unsafe {
+        check(DwmSetWindowAttribute(
+            hwnd as *mut c_void,
+            DWMWA_WINDOW_CORNER_PREFERENCE as u32,
+            (&raw const round).cast(),
             size_of_u32::<i32>(),
         ))
     }
