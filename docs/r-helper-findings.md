@@ -64,6 +64,37 @@ Getter = setter with bit `0x80` set on the command ID.
 | GPU mode (MUX) | none | `0D89` | `[0, 0]` | Returns `[2, 0]`. Meaning unknown |
 | Panel mode (native res) | none | `0D8E` | `[0]` | Returns `[0]`. Meaning unknown |
 
+## Read-only run on this laptop (2026-11-02)
+
+Built with `cargo build --workspace --release --locked` in `D:\rust\r-helper`.
+The build passed. Smart App Control did not block it.
+Ran `rhelper-diagnostics` with `--probe`, `--probe-sensors` and
+`--probe-lighting`. These only read. No setter was sent. Synapse was installed.
+
+Laptop: RZ09-05299ER4, BIOS 2.01 (2025-08-04). r-helper found it and picked
+MI_02 (usage page 1, usage 2). The 02C7 device shows 10 HID collections on
+MI_00 to MI_03.
+
+| Reading | Value | Result |
+| --- | --- | --- |
+| Preset / fan mode | Balanced / Auto | OK |
+| Fan 1 and fan 2 actual | 2200 / 2200, then 1800 / 1800 RPM | OK |
+| Fan 3 (selector 3) | actual 1800, stored 2000 RPM | OK |
+| Temperature `0D85` | args `[2, 60, 0, 0]`: field A 60 °C, field B 0 | OK. B was 0, so it may be the GPU while asleep |
+| Controller firmware | 1.6 | OK |
+| Keyboard brightness | 32 / 255 | OK |
+| Keyboard effect `0F82` | 3 (Spectrum) | OK |
+| Keyboard effects offered | 0, 1, 2, 3, 4, 5, 7, 6, 8 | OK |
+| Chroma regions | Keyboard 5: RGB 6 × 19. Logo 4: single colour | OK |
+| Logo | Static, brightness 255 | OK |
+| Underside light | Off, brightness 32 | OK |
+| Battery care | On | OK |
+| Lights always on | On | OK |
+| LED 4 / LED 5 RGB, LED 5 effect, underside RGB | Not supported | Same as r-helper's notes |
+
+So every getter r-helper uses works on this laptop too. Setters were not
+tried. They change the hardware state and wait for the owner's OK.
+
 ## Plan features vs r-helper
 
 | Plan feature | r-helper | Status |
