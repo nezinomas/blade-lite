@@ -1,0 +1,32 @@
+<app-name>
+Copyright (c) 2026 Audrius
+
+This project ports code and protocol details from the following projects.
+Each keeps its own copyright and MIT licence. Full texts are in
+THIRD_PARTY_LICENSES.md.
+
+1) R-Helper, Blade 18 fork (MIT)
+   Fork:     https://github.com/brandonjank/r-helper
+   Upstream: https://github.com/Fatalution/r-helper
+   Copyright (c) 2025 Ivan Romanchuk
+   Used for: the Razer Blade 18 (RZ09-0529, USB 1532:02C7) support, its
+   command table, fan channels, sensor reads and capability notes.
+
+2) razer-ctl, librazer (MIT)
+   Original: https://github.com/tdakhran/razer-ctl
+   Copyright (c) 2024 Tarek Dakhran
+   Used for: the laptop command set (performance modes, boost, fans,
+   brightness) and its packet code.
+
+Changes in this project: a new Rust crate layout, a Slint UI, the
+Blade 18 (02C7) command set checked against USB captures, and Windows
+features (refresh rate, touchpad, battery) that the projects above do not
+have.
+
+Licences:
+- <app-name>: MIT (see LICENSE)
+- R-Helper: MIT
+- razer-ctl (librazer): MIT
+
+Razer, Synapse and Blade are trademarks of Razer Inc. This project is not
+made by, or connected to, Razer.
