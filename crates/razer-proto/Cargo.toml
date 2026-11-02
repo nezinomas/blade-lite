@@ -1,0 +1,10 @@
+[package]
+name = "razer-proto"
+description = "Builds and parses the Blade 18 controller's HID reports. No I/O."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[lints]
+workspace = true
