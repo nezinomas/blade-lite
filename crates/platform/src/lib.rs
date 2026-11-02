@@ -86,7 +86,7 @@ pub struct Display {
     pub modes: Vec<DisplayMode>,
 }
 
-/// Reads the active displays and their modes.
+/// Reads the active displays and their modes, and changes a display's mode.
 pub trait DisplayApi {
     /// The active displays, in no set order.
     ///
@@ -94,6 +94,13 @@ pub trait DisplayApi {
     ///
     /// The Windows error if the displays could not be read.
     fn displays(&self) -> io::Result<Vec<Display>>;
+
+    /// Switches the display named `name` to `mode`, and keeps it after a restart.
+    ///
+    /// # Errors
+    ///
+    /// The Windows error if the display did not take the mode.
+    fn set_mode(&mut self, name: &str, mode: DisplayMode) -> io::Result<()>;
 }
 
 /// The Windows error for a status code that a call returned.

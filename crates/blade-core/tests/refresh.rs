@@ -150,7 +150,7 @@ fn an_unsupported_rate_is_an_error_and_sets_nothing() {
         result,
         Err(DisplayError::Unsupported(RefreshRate(440)))
     ));
-    assert!(api.set.is_empty());
+    assert_eq!(api.set, []);
 }
 
 #[test]
@@ -161,5 +161,5 @@ fn setting_a_rate_without_the_panel_is_an_error() {
         set_refresh_rate(&mut api, RefreshRate(60)),
         Err(DisplayError::NoInternalPanel)
     ));
-    assert!(api.set.is_empty());
+    assert_eq!(api.set, []);
 }
