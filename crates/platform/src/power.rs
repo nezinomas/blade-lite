@@ -102,14 +102,36 @@ unsafe extern "system" fn on_power_event(
 
 #[cfg(test)]
 mod tests {
-    use windows_sys::Win32::UI::WindowsAndMessaging::{PBT_APMRESUMESUSPEND, PBT_APMSUSPEND};
+    use windows_sys::Win32::System::SystemServices::GUID_ACDC_POWER_SOURCE;
+    use windows_sys::Win32::UI::WindowsAndMessaging::{
+        PBT_APMRESUMESUSPEND, PBT_APMSUSPEND, PBT_POWERSETTINGCHANGE,
+    };
+    use windows_sys::core::GUID;
 
     use super::*;
 
-    fn call(sender: &Sender<PowerEvent>, kind: u32) {
+    /// A power setting change as Windows lays it out: a DWORD after the header.
+    #[repr(C)]
+    struct SettingChange {
+        setting: GUID,
+        length: u32,
+        value: u32,
+    }
+
+    fn power_source(value: u32) -> SettingChange {
+        SettingChange {
+            setting: GUID_ACDC_POWER_SOURCE,
+            length: 4,
+            value,
+        }
+    }
+
+    fn call(sender: &Sender<PowerEvent>, kind: u32, setting: Option<&SettingChange>) {
         let context = ptr::from_ref(sender).cast();
-        // SAFETY: the context is a live sender, as Windows would pass it.
-        unsafe { on_power_event(context, kind, ptr::null()) };
+        let setting = setting.map_or(ptr::null(), |setting| ptr::from_ref(setting).cast());
+        // SAFETY: the context is a live sender and the setting a whole
+        // change, as Windows would pass them.
+        unsafe { on_power_event(context, kind, setting) };
     }
 
     #[test]
@@ -117,9 +139,41 @@ mod tests {
         let (sender, events) = mpsc::channel();
 
         for kind in [PBT_APMSUSPEND, PBT_APMRESUMEAUTOMATIC, PBT_APMRESUMESUSPEND] {
-            call(&sender, kind);
+            call(&sender, kind, None);
         }
 
         assert_eq!(events.try_iter().collect::<Vec<_>>(), [PowerEvent::Resumed]);
+    }
+
+    #[test]
+    fn the_power_source_is_passed_on() {
+        let (sender, events) = mpsc::channel();
+
+        // 0 is AC, 1 is the battery, 2 is a short-term source such as a UPS.
+        for value in [1, 0, 2] {
+            call(&sender, PBT_POWERSETTINGCHANGE, Some(&power_source(value)));
+        }
+
+        assert_eq!(
+            events.try_iter().collect::<Vec<_>>(),
+            [
+                PowerEvent::OnBattery,
+                PowerEvent::OnAc,
+                PowerEvent::OnBattery
+            ]
+        );
+    }
+
+    #[test]
+    fn other_settings_are_ignored() {
+        let (sender, events) = mpsc::channel();
+        let other = SettingChange {
+            setting: GUID::from_u128(1),
+            ..power_source(1)
+        };
+
+        call(&sender, PBT_POWERSETTINGCHANGE, Some(&other));
+
+        assert_eq!(events.try_iter().count(), 0);
     }
 }
