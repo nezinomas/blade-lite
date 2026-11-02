@@ -1,5 +1,7 @@
 //! Static keyboard colour, painted key by key as Synapse paints it.
 
+use std::str::FromStr;
+
 use crate::{Command, ModelProfile};
 
 /// Set the keyboard effect. Args `[05, 00]` pick the custom frame.
@@ -24,6 +26,26 @@ impl Rgb {
     #[must_use]
     pub const fn new(red: u8, green: u8, blue: u8) -> Self {
         Self { red, green, blue }
+    }
+}
+
+/// The text is not a colour in `#RRGGBB` form.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ParseRgbError;
+
+impl FromStr for Rgb {
+    type Err = ParseRgbError;
+
+    /// Reads `#RRGGBB`, in upper or lower case hex.
+    fn from_str(text: &str) -> Result<Self, Self::Err> {
+        let hex = text
+            .strip_prefix('#')
+            .filter(|hex| hex.len() == 6 && hex.bytes().all(|byte| byte.is_ascii_hexdigit()))
+            .ok_or(ParseRgbError)?;
+        let channel = |start: usize| {
+            u8::from_str_radix(&hex[start..start + 2], 16).map_err(|_| ParseRgbError)
+        };
+        Ok(Self::new(channel(0)?, channel(2)?, channel(4)?))
     }
 }
 
