@@ -19,12 +19,13 @@ drivers, so our app can talk to MI_02 with no Razer software.
 1. Settings > Apps > Installed apps. Uninstall Razer Synapse, Razer Chroma,
    RazerXTU and Razer IntelOverClock. Restart.
 2. In an admin PowerShell, in the repo folder:
-   `.\tools\Remove-RazerDriver.ps1 -Apply`.
+   `powershell -ExecutionPolicy Bypass -File .\tools\Remove-RazerDriver.ps1 -Apply`.
    It makes a restore point, removes every Razer driver package with
    `pnputil /delete-driver <oem#.inf> /uninstall`, and turns off
    "Automatically get manufacturers' apps and custom icons".
 3. Restart.
-4. In a normal PowerShell: `.\tools\Remove-RazerDriver.ps1`.
+4. In a normal PowerShell:
+   `powershell -ExecutionPolicy Bypass -File .\tools\Remove-RazerDriver.ps1`.
    It must say `Result: DONE`.
 5. Check by hand: typing, the touchpad, the touchpad key, Fn + keyboard
    brightness, Fn + volume, and the lid logo.
