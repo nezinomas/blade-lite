@@ -161,7 +161,8 @@ fn fan_slider(model: &ModelProfile, rpm: Option<u16>) -> Slider {
     let (position, text) = match rpm {
         None => (0, AUTO.to_owned()),
         Some(rpm) => (
-            usize::from((rpm - range.min) / RPM_STEP) + 1,
+            // A hand-edited config may hold a speed off the range.
+            usize::from((rpm.clamp(range.min, range.max) - range.min) / RPM_STEP) + 1,
             format!("{rpm} rpm"),
         ),
     };

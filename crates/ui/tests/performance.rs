@@ -160,3 +160,14 @@ fn with_the_sliders_hidden_a_move_does_nothing() {
 
     assert_eq!(view.move_slider(0, 3), None);
 }
+
+#[test]
+fn a_saved_speed_outside_the_range_sits_at_the_nearest_end() {
+    let mut low = state(Preset::Custom);
+    low.custom.fan_rpm = Some(900);
+    let mut high = state(Preset::Custom);
+    high.custom.fan_rpm = Some(9900);
+
+    assert_eq!(slider(&PerformanceView::new(&low), "Fan").position, 1);
+    assert_eq!(slider(&PerformanceView::new(&high), "Fan").position, 30);
+}
