@@ -6,10 +6,13 @@
 
 mod keys;
 mod power;
+mod registry;
 
 use std::io;
 
+pub use keys::WindowsKeys;
 pub use power::WindowsPowerEvents;
+pub use registry::WindowsRegistry;
 
 /// Something Windows tells us about power.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -50,4 +53,9 @@ pub trait KeyInjector {
     ///
     /// The Windows error if the presses could not be sent.
     fn press(&mut self, keys: &[Key]) -> io::Result<()>;
+}
+
+/// The Windows error for a status code that a call returned.
+fn windows_error(status: u32) -> io::Error {
+    io::Error::from_raw_os_error(i32::try_from(status).unwrap_or(i32::MAX))
 }
