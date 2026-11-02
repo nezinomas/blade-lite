@@ -4,6 +4,7 @@
 
 #![allow(unsafe_code)]
 
+mod backdrop;
 mod display;
 mod keys;
 mod power;
@@ -12,6 +13,7 @@ mod sensors;
 
 use std::io;
 
+pub use backdrop::set_mica;
 pub use display::WindowsDisplays;
 pub use keys::WindowsKeys;
 pub use power::WindowsPowerEvents;
