@@ -34,7 +34,7 @@ https://claude.ai/artifact/JSzNYRpwZJyywztJtBSk2P
 ## Sensors
 - [x] 19 Controller readings
 - [x] 20 Windows readings
-- [ ] 21 Poll schedule
+- [x] 21 Poll schedule
 
 ## UI
 - [ ] 22 Mica spike
