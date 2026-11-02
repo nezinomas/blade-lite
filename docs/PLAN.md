@@ -42,7 +42,7 @@ https://claude.ai/artifact/JSzNYRpwZJyywztJtBSk2P
 - [x] 24 Display view model
 - [x] 25 Performance view model
 - [x] 26 Keyboard and touchpad view model
-- [ ] 27 Window shell
+- [x] 27 Window shell
 - [ ] 28 Tray flyout
 - [ ] 29 Single instance and autostart
 

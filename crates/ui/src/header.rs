@@ -15,8 +15,8 @@ pub struct HeaderState<'a> {
     pub readings: Readings,
     /// `None` when the controller does not report it.
     pub cpu_celsius: Option<Celsius>,
-    /// One per fan, in the model's fan order.
-    pub fans: Vec<FanRpm>,
+    /// One per fan, in the model's fan order. `None` if it could not be read.
+    pub fans: Vec<Option<FanRpm>>,
 }
 
 /// Whether the laptop runs on the charger or the battery.
@@ -99,10 +99,10 @@ fn processor_stats(state: &HeaderState) -> Vec<Stat> {
     ]
 }
 
-fn fan_stats(fans: &[FanRpm]) -> impl Iterator<Item = Stat> {
+fn fan_stats(fans: &[Option<FanRpm>]) -> impl Iterator<Item = Stat> {
     fans.iter().enumerate().map(|(index, rpm)| {
         let label = format!("Fan {}", index + 1);
-        stat(&label, Some(format!("{} rpm", rpm.0)))
+        stat(&label, rpm.map(|rpm| format!("{} rpm", rpm.0)))
     })
 }
 

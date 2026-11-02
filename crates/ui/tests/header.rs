@@ -24,7 +24,7 @@ fn state() -> HeaderState<'static> {
         on_battery: false,
         readings: readings(),
         cpu_celsius: Some(Celsius(66)),
-        fans: vec![FanRpm(3100), FanRpm(3300)],
+        fans: vec![Some(FanRpm(3100)), Some(FanRpm(3300))],
     }
 }
 
@@ -113,12 +113,23 @@ fn every_failed_windows_reading_shows_a_dash() {
 #[test]
 fn each_fan_gets_a_stat() {
     let header = Header::new(&HeaderState {
-        fans: vec![FanRpm(1300)],
+        fans: vec![Some(FanRpm(1300))],
         ..state()
     });
 
     assert_eq!(value(&header, "Fan 1"), "1300 rpm");
     assert!(header.stats.iter().all(|stat| stat.label != "Fan 2"));
+}
+
+#[test]
+fn a_fan_that_could_not_be_read_shows_a_dash() {
+    let header = Header::new(&HeaderState {
+        fans: vec![None, Some(FanRpm(1800))],
+        ..state()
+    });
+
+    assert_eq!(value(&header, "Fan 1"), "—");
+    assert_eq!(value(&header, "Fan 2"), "1800 rpm");
 }
 
 #[test]
