@@ -92,22 +92,44 @@ MI_00 to MI_03.
 | Lights always on | On | OK |
 | LED 4 / LED 5 RGB, LED 5 effect, underside RGB | Not supported | Same as r-helper's notes |
 
-So every getter r-helper uses works on this laptop too. Setters were not
-tried. They change the hardware state and wait for the owner's OK.
+So every getter r-helper uses works on this laptop too.
+
+## Setter test on this laptop (2026-11-02)
+
+The owner approved it. On AC, battery at 80%, Synapse installed. Ran
+`rhelper-diagnostics --validate-batch`. It saves a recovery record first, then
+sets each value, reads it back and restores the original after each case.
+
+**23 of 23 cases passed**, and the original state was restored:
+
+| Group | Cases |
+| --- | --- |
+| Logo | Off, Static, Breathing |
+| Battery care | On, Off |
+| Presets | Balanced, Silent, Performance, Custom |
+| CPU × GPU boost | CPU Low/Medium/High/Boost × GPU Low/Medium/High (12) |
+| Manual fan | 4000 and 4500 RPM (target and manual flag read back) |
+
+Original and restored state: brightness 32, logo Static, battery care on,
+Balanced, fans Auto, fan targets 2000 / 2000, CPU Medium, GPU Low.
+
+Limits: readback proves the controller stored the value. It does not prove the
+real fan speed, the 80% cutoff, or thermal effect. Keyboard brightness and
+static colour were not in this batch.
 
 ## Plan features vs r-helper
 
 | Plan feature | r-helper | Status |
 | --- | --- | --- |
-| Presets Silent, Balanced, Performance | Set and read back, tested | Works (their tests) |
-| Custom: CPU and GPU boost | All 12 pairs tested | Works (their tests) |
+| Presets Silent, Balanced, Performance | Set and read back, tested | Works (their tests and ours) |
+| Custom: CPU and GPU boost | All 12 pairs tested | Works (their tests and ours) |
 | Manual fan | Only 4000–4500 RPM, Balanced mode, AC only | Partly. Real fans reached 2900–4300 RPM, not the target |
-| Keyboard brightness | Tested round trip | Works (their tests) |
-| Static keyboard colour | Tested red, green, blue | Works (their tests) |
-| Lid logo on/off | Tested | Works (their tests) |
+| Keyboard brightness | Tested round trip | Works (their tests; read works here) |
+| Static keyboard colour | Tested red, green, blue | Works (their tests only) |
+| Lid logo on/off | Tested | Works (their tests and ours) |
 | Battery charge limit | On/off at 80% only | Partly. Cutoff at 80% not proven. No other limits seen |
 | Red touchpad key | Per-key frame exists (`030B`) | Lead only. Key position and how Synapse does it are unknown |
-| Fan RPM reading | `0D88`, both zones, plus a third channel | Works (their tests) |
+| Fan RPM reading | `0D88`, both zones, plus a third channel | Works (their tests and ours) |
 | CPU temperature | `0D85` field A | Lead. Accuracy not proven |
 | GPU mode (MUX) | Getter only | Gap. No setter |
 | Native display mode | Getter only | Gap. No setter |
