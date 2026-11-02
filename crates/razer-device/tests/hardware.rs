@@ -23,16 +23,11 @@ fn the_firmware_version_is_read() {
     assert!(version.major >= 1, "{version:?}");
 }
 
-/// Counts the sleeps and does not wait. Each read sleeps once, each Busy retry once more.
-#[derive(Default)]
-struct NoPause {
-    sleeps: Cell<usize>,
-}
+/// Does not wait.
+struct NoPause;
 
-impl Clock for &NoPause {
-    fn sleep(&self, _: Duration) {
-        self.sleeps.set(self.sleeps.get() + 1);
-    }
+impl Clock for NoPause {
+    fn sleep(&self, _: Duration) {}
 }
 
 /// Counts the sleeps and waits for real.
@@ -48,21 +43,18 @@ impl Clock for &CountedPause {
     }
 }
 
-/// Busy retries in `READS` firmware reads: the sleeps past one per read.
-fn busy_retries<C: Clock>(clock: C, sleeps: impl Fn() -> usize) -> usize {
-    let mut device = Device::new(HidTransport::open().unwrap(), clock);
-    for _ in 0..READS {
-        device.firmware_version().unwrap();
-    }
-    sleeps() - READS
-}
-
 #[test]
 #[ignore = "needs the Blade 18"]
 fn the_pause_leaves_no_busy_replies() {
     let clock = CountedPause::default();
+    let mut device = Device::new(HidTransport::open().unwrap(), &clock);
 
-    let retries = busy_retries(&clock, || clock.sleeps.get());
+    for _ in 0..READS {
+        device.firmware_version().unwrap();
+    }
+
+    // Each read sleeps once, and each Busy retry once more.
+    let retries = clock.sleeps.get() - READS;
 
     eprintln!("{PAUSE:?} pause: {retries} busy retries in {READS} reads");
     assert_eq!(retries, 0);
@@ -70,10 +62,17 @@ fn the_pause_leaves_no_busy_replies() {
 
 #[test]
 #[ignore = "needs the Blade 18"]
-fn busy_replies_without_a_pause_are_counted() {
-    let clock = NoPause::default();
+fn reads_without_a_pause_fail() {
+    let mut device = Device::new(HidTransport::open().unwrap(), NoPause);
 
-    let retries = busy_retries(&clock, || clock.sleeps.get());
+    let errors: Vec<_> = (0..READS)
+        .filter_map(|_| device.firmware_version().err())
+        .collect();
 
-    eprintln!("no pause: {retries} busy retries in {READS} reads");
+    eprintln!(
+        "no pause: {} of {READS} reads failed, first: {:?}",
+        errors.len(),
+        errors.first()
+    );
+    assert!(!errors.is_empty(), "the pause is not needed");
 }
