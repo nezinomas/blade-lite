@@ -20,6 +20,7 @@
 - One copy runs at a time on the PC, by the mutex `Global\blade-lite`. A copy in another user's session should get "access denied" and end (not checked with two users yet). A second start sets the event `Local\blade-lite-open`, and the first copy opens its window. With `--tray` (the autostart start) the second copy ends without that. Checked on the laptop 2026-11-06.
 - Autostart is the value "Blade Lite" in `HKCU\...\CurrentVersion\Run`: the quoted exe path, then `--tray`.
 - `blade-dev` and the `cargo hw` tests take the one-copy lock. They refuse to touch the controller while the app runs, so quit it first.
+- The lid logo is LED 4. `0300 [00, 04, on]` sets it, as Synapse does. `0380 [00, 04, 00]` reads back the state just set. `0380 [01, 04, 00]` reads another stored value, which the set does not change (checked 2026-11-06). Whether the logo stays off after a reboot or sleep is not checked yet.
 - `0D8E` reads back the native mode chosen with `0D0E` at once. The panel stays as it booted.
 
 ## Progress

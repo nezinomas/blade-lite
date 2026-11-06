@@ -93,6 +93,8 @@ pub fn keyboard(window: &MainWindow, view: &KeyboardView) {
     let Rgb { red, green, blue } = view.custom_colour;
     window.set_custom_hex(format!("#{red:02X}{green:02X}{blue:02X}").into());
     window.set_touchpad_on(view.touchpad_on);
+    window.set_logo_shown(view.logo_on.is_some());
+    window.set_logo_on(view.logo_on == Some(true));
 }
 
 fn int(value: usize) -> i32 {
@@ -253,4 +255,13 @@ fn window_callbacks(shell: &Rc<Shell>) {
     });
     let s = Rc::downgrade(shell);
     window.on_toggle_touchpad(move || on(&s, toggle_touchpad));
+    let s = Rc::downgrade(shell);
+    window.on_toggle_logo(move || {
+        on(&s, |shell| {
+            shell.act(|app| match app.keyboard_view()?.toggle_logo() {
+                Some(command) => app.on_keyboard(command),
+                None => Ok(()),
+            });
+        });
+    });
 }

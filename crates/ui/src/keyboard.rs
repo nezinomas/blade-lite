@@ -60,9 +60,8 @@ pub struct KeyboardView {
     /// True when the colour is none of the swatches.
     pub custom_selected: bool,
     pub touchpad_on: bool,
-    /// `false` hides the lid logo switch: no logo, or its state is unknown.
-    pub logo_shown: bool,
-    pub logo_on: bool,
+    /// `None` hides the lid logo switch: no logo, or its state is unknown.
+    pub logo_on: Option<bool>,
 }
 
 impl KeyboardView {
@@ -80,8 +79,7 @@ impl KeyboardView {
             swatches,
             custom_colour: state.colour,
             touchpad_on: state.touchpad_on,
-            logo_shown: state.logo_on.is_some(),
-            logo_on: state.logo_on.unwrap_or(false),
+            logo_on: state.logo_on,
         }
     }
 
@@ -122,8 +120,7 @@ impl KeyboardView {
     /// The command that flips the lid logo switch, unless it is hidden.
     #[must_use]
     pub fn toggle_logo(&self) -> Option<KeyboardCommand> {
-        self.logo_shown
-            .then_some(KeyboardCommand::SetLogo(!self.logo_on))
+        self.logo_on.map(|on| KeyboardCommand::SetLogo(!on))
     }
 
     fn set_colour(&self, colour: Rgb) -> Option<KeyboardCommand> {

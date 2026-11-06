@@ -246,10 +246,7 @@ fn the_keyboard_view_shows_the_logo_state_the_controller_reports() {
     let (mut app, _dir, _) = app();
     app.machine_mut().controller.logo_reply = Some(vec![0, 4, 0]);
 
-    let view = app.keyboard_view().unwrap();
-
-    assert!(view.logo_shown);
-    assert!(!view.logo_on);
+    assert_eq!(app.keyboard_view().unwrap().logo_on, Some(false));
 }
 
 #[test]
@@ -258,7 +255,7 @@ fn a_failed_logo_read_hides_the_switch_and_keeps_the_rest() {
 
     let view = app.keyboard_view().unwrap();
 
-    assert!(!view.logo_shown);
+    assert_eq!(view.logo_on, None);
     assert!(view.touchpad_on);
 }
 

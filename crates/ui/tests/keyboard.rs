@@ -168,11 +168,8 @@ fn flipping_the_touchpad_switch_asks_for_the_other_state() {
 
 #[test]
 fn the_lid_logo_switch_shows_the_current_state() {
-    let on = with_logo(Some(true));
-    let off = with_logo(Some(false));
-
-    assert!(on.logo_shown && on.logo_on);
-    assert!(off.logo_shown && !off.logo_on);
+    assert_eq!(with_logo(Some(true)).logo_on, Some(true));
+    assert_eq!(with_logo(Some(false)).logo_on, Some(false));
 }
 
 #[test]
@@ -191,6 +188,6 @@ fn flipping_the_lid_logo_switch_asks_for_the_other_state() {
 fn an_unknown_lid_logo_state_hides_the_switch_and_sends_nothing() {
     let unknown = with_logo(None);
 
-    assert!(!unknown.logo_shown);
+    assert_eq!(unknown.logo_on, None);
     assert_eq!(unknown.toggle_logo(), None);
 }
