@@ -38,7 +38,9 @@ impl Drop for Handle {
     }
 }
 
-/// The lock for one app name, in this user's session only.
+/// The lock for one app name, across all sessions on this PC, so a copy
+/// in another user's session can't drive the controller too. The wake
+/// stays in this session.
 pub struct WindowsInstance {
     mutex_name: Vec<u16>,
     event_name: Vec<u16>,
@@ -56,7 +58,7 @@ impl WindowsInstance {
     pub fn new(app: &str) -> io::Result<Self> {
         let event_name = wide(&format!(r"Local\{app}-open"));
         Ok(Self {
-            mutex_name: wide(&format!(r"Local\{app}")),
+            mutex_name: wide(&format!(r"Global\{app}")),
             event: open_event(&event_name)?,
             event_name,
             mutex: None,
@@ -121,4 +123,26 @@ impl WakeListener {
 fn open_event(name: &[u16]) -> io::Result<Handle> {
     // SAFETY: the name ends in a nul. No attributes, auto-reset, not set.
     Handle::new(unsafe { CreateEventW(ptr::null(), 0, 0, name.as_ptr()) })
+}
+
+#[cfg(test)]
+mod tests {
+    use windows_sys::Win32::System::Threading::{OpenMutexW, SYNCHRONIZATION_SYNCHRONIZE};
+
+    use super::*;
+
+    #[test]
+    fn the_claim_holds_across_all_sessions() {
+        let app = format!("blade-lite-test-global-{}", std::process::id());
+        let mut instance = WindowsInstance::new(&app).unwrap();
+        assert!(instance.claim().unwrap());
+
+        let global = wide(&format!(r"Global\{app}"));
+        // SAFETY: the name ends in a nul. The handle is closed on drop.
+        let opened = Handle::new(unsafe {
+            OpenMutexW(SYNCHRONIZATION_SYNCHRONIZE, 0, global.as_ptr())
+        });
+
+        assert!(opened.is_ok(), "the mutex is not global");
+    }
 }
