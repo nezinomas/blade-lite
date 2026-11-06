@@ -8,10 +8,10 @@ const SET_LOGO: u16 = 0x0300;
 const GET_LOGO: u16 = 0x0380;
 /// Set the logo effect. Args are `[storage, led, effect]`.
 const SET_LOGO_EFFECT: u16 = 0x0302;
-/// Synapse sends 0 for the logo, not the 1 it sends for the keyboard.
-const SET_STORAGE: u8 = 0x00;
-/// The read r-helper made on this laptop.
-const GET_STORAGE: u8 = 0x01;
+/// Synapse sends 0 for the logo, not the 1 it sends for the keyboard. On
+/// the laptop a read with 0 gives the state just set; a read with 1 gives
+/// another stored value that the set does not change.
+const STORAGE: u8 = 0x00;
 const STATIC: u8 = 0x00;
 const OFF: u8 = 0x00;
 const ON: u8 = 0x01;
@@ -30,11 +30,11 @@ impl Logo {
         vec![
             Command {
                 id: SET_LOGO_EFFECT,
-                args: vec![SET_STORAGE, self.led, STATIC],
+                args: vec![STORAGE, self.led, STATIC],
             },
             Command {
                 id: SET_LOGO,
-                args: vec![SET_STORAGE, self.led, if on { ON } else { OFF }],
+                args: vec![STORAGE, self.led, if on { ON } else { OFF }],
             },
         ]
     }
@@ -44,7 +44,7 @@ impl Logo {
     pub fn query(self) -> Command {
         Command {
             id: GET_LOGO,
-            args: vec![GET_STORAGE, self.led, OFF],
+            args: vec![STORAGE, self.led, OFF],
         }
     }
 
