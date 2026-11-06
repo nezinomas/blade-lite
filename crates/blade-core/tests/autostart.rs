@@ -223,3 +223,12 @@ fn an_argument_that_is_not_unicode_is_no_crash() {
 
     assert!(!starts_in_tray([broken]));
 }
+
+#[test]
+fn turning_off_clears_the_task_manager_flag_too() {
+    let mut registry = FakeRegistry::with_run_value(COMMAND).with_approved(0x02);
+
+    set_autostart(false, &mut registry, exe()).unwrap();
+
+    assert_eq!(registry.approved(), None);
+}

@@ -71,21 +71,22 @@ fn approved(registry: &impl UserBytes) -> Result<bool, AutostartError> {
 /// # Errors
 ///
 /// See [`AutostartError`]. Nothing is written for a relative path.
-/// Turning on also clears a Task Manager off flag, so the tick is kept.
+/// Both ways also clear Task Manager's flag: turning on so the tick is
+/// kept, turning off so no flag is left behind. The Run value goes first,
+/// so a failed write changes nothing.
 pub fn set_autostart(
     on: bool,
     registry: &mut impl UserStrings,
     exe: &Path,
 ) -> Result<(), AutostartError> {
     let written = if on {
-        let command = command(exe)?;
-        registry
-            .delete_user_value(APPROVED_KEY, RUN_VALUE)
-            .and_then(|()| registry.write_user_string(RUN_KEY, RUN_VALUE, &command))
+        registry.write_user_string(RUN_KEY, RUN_VALUE, &command(exe)?)
     } else {
         registry.delete_user_value(RUN_KEY, RUN_VALUE)
     };
-    written.map_err(AutostartError::Registry)
+    written
+        .and_then(|()| registry.delete_user_value(APPROVED_KEY, RUN_VALUE))
+        .map_err(AutostartError::Registry)
 }
 
 /// The quoted exe path and the tray flag, as Windows runs it.
