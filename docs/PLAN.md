@@ -1,4 +1,4 @@
-﻿# Stage plan
+# Stage plan
 
 One stage is one branch. Tick a stage (`[x]`) in the same branch that finishes it.
 Each stage's red and green tests and the open questions are in the full plan:
@@ -6,8 +6,18 @@ https://claude.ai/artifact/JSzNYRpwZJyywztJtBSk2P
 
 Before a stage merges, review its diff and hunt for bugs. The app drives
 real hardware, so add every guard that fits: validate input, clamp to safe
-ranges, and fail safe (do nothing rather than guess). List the findings in
-the stage report.
+ranges, and fail safe (do nothing rather than guess).
+
+Two separate subagents do the review, not the stage author:
+1. Informed reviewer: gets the stage brief, the plan and the repo. It checks
+   the diff for bugs and missing guards, and hunts edge cases and paths that
+   are unsafe for the hardware.
+2. Fresh reviewer: gets only the diff, the repo and the open-source protocol
+   findings (https://claude.ai/artifact/W9Z1Dxcp4Agbxd3r2tEtwX). It checks the
+   code against them.
+
+Fix what they find, or add it to the plan as a new stage. The stage report
+lists each reviewer's findings on its own.
 
 ## Before code
 - [x] 0 Try r-helper and read its 02C7 code
@@ -63,6 +73,9 @@ the stage report.
 - [x] 36 Only Silent or Balanced on battery
 - [ ] 37 Fans stay loud after Performance to Silent
 - [ ] 38 Keyboard colour input needs guards
+- [x] 41 `cargo hw` takes the one-copy lock, so it can't run beside the app
+- [ ] 42 A log file, since a release build shows no error text
+- [ ] 43 Autostart tick: re-read it when the menu opens, and warn if the Run key names another exe (such as `target\debug`)
 
 ## Publishing on GitHub
 - [ ] 39 Release and installer

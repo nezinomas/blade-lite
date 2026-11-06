@@ -551,6 +551,8 @@ dependencies = [
 name = "blade-dev"
 version = "0.1.0"
 dependencies = [
+ "blade-core",
+ "platform",
  "razer-device",
  "razer-proto",
 ]
@@ -4145,6 +4147,7 @@ name = "razer-device"
 version = "0.1.0"
 dependencies = [
  "hidapi",
+ "platform",
  "razer-proto",
 ]
 

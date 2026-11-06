@@ -1,9 +1,35 @@
 //! Tests on the real laptop. Run with `cargo hw`.
 
 use std::cell::Cell;
+use std::sync::{Mutex, PoisonError};
 use std::time::Duration;
 
+use platform::{InstanceLock, WindowsInstance};
 use razer_device::{Clock, Device, HidTransport, PAUSE, SystemClock};
+
+/// The name the app locks, as `blade_core::APP_NAME` has it.
+const APP: &str = "blade-lite";
+
+/// Takes the app's one-copy lock for this test run, so the tests can't drive
+/// the controller while Blade Lite runs. It is held until the run ends.
+fn hold_lock() {
+    static LOCK: Mutex<Option<WindowsInstance>> = Mutex::new(None);
+    let mut held = LOCK.lock().unwrap_or_else(PoisonError::into_inner);
+    if held.is_none() {
+        let mut instance = WindowsInstance::new(APP).unwrap();
+        assert!(
+            instance.claim().unwrap(),
+            "Blade Lite is running. Quit it from the tray first."
+        );
+        *held = Some(instance);
+    }
+}
+
+/// Opens the controller, once the lock is held.
+fn open() -> HidTransport {
+    hold_lock();
+    HidTransport::open(&razer_proto::BLADE_18).unwrap()
+}
 
 /// How many reads the pause tests make.
 const READS: usize = 100;
@@ -11,7 +37,7 @@ const READS: usize = 100;
 #[test]
 #[ignore = "needs the Blade 18"]
 fn the_firmware_version_is_read() {
-    let transport = HidTransport::open(&razer_proto::BLADE_18).unwrap();
+    let transport = open();
     eprintln!("opened {:?}", transport.info());
 
     let version = Device::new(transport, SystemClock)
@@ -46,7 +72,7 @@ impl Clock for &CountedPause {
 #[ignore = "needs the Blade 18"]
 fn the_pause_leaves_no_busy_replies() {
     let clock = CountedPause::default();
-    let mut device = Device::new(HidTransport::open(&razer_proto::BLADE_18).unwrap(), &clock);
+    let mut device = Device::new(open(), &clock);
 
     for _ in 0..READS {
         device.firmware_version().unwrap();
@@ -62,7 +88,7 @@ fn the_pause_leaves_no_busy_replies() {
 #[test]
 #[ignore = "needs the Blade 18"]
 fn reads_without_a_pause_fail() {
-    let mut device = Device::new(HidTransport::open(&razer_proto::BLADE_18).unwrap(), NoPause);
+    let mut device = Device::new(open(), NoPause);
 
     let errors: Vec<_> = (0..READS)
         .filter_map(|_| device.firmware_version().err())
@@ -90,10 +116,7 @@ fn levels<C: Clock>(device: &mut Device<HidTransport, C>) -> Vec<u8> {
 #[test]
 #[ignore = "needs the Blade 18"]
 fn brightness_is_set_and_read_back() {
-    let mut device = Device::new(
-        HidTransport::open(&razer_proto::BLADE_18).unwrap(),
-        SystemClock,
-    );
+    let mut device = Device::new(open(), SystemClock);
     let before = levels(&mut device);
 
     device
@@ -120,10 +143,7 @@ const EFFECT_ARGS: usize = 12;
 #[test]
 #[ignore = "needs the Blade 18"]
 fn static_colour_is_painted_and_the_effect_restored() {
-    let mut device = Device::new(
-        HidTransport::open(&razer_proto::BLADE_18).unwrap(),
-        SystemClock,
-    );
+    let mut device = Device::new(open(), SystemClock);
     let mut query = [0; EFFECT_ARGS];
     query[..2].copy_from_slice(&[1, 5]);
     let before = device.send(GET_EFFECT, &query).unwrap().args().to_vec();
@@ -158,10 +178,7 @@ fn preset_args<C: Clock>(device: &mut Device<HidTransport, C>) -> Vec<Vec<u8>> {
 fn each_preset_is_set_and_read_back_and_the_old_one_restored() {
     use razer_proto::PerfMode;
 
-    let mut device = Device::new(
-        HidTransport::open(&razer_proto::BLADE_18).unwrap(),
-        SystemClock,
-    );
+    let mut device = Device::new(open(), SystemClock);
     let before = preset_args(&mut device);
 
     let read_back: Vec<_> = [PerfMode::Silent, PerfMode::Balanced, PerfMode::Performance]
@@ -225,7 +242,7 @@ fn custom_state<C: Clock>(device: &mut Device<HidTransport, C>) -> Vec<Vec<u8>> 
 fn custom_is_set_and_read_back_and_the_old_preset_restored() {
     use razer_proto::{BLADE_18, CpuBoost, Custom, FanMode, GpuBoost, Rpm};
 
-    let mut device = Device::new(HidTransport::open(&BLADE_18).unwrap(), SystemClock);
+    let mut device = Device::new(open(), SystemClock);
     let before = custom_state(&mut device);
 
     // Safe values: middle boosts, and a fan above what auto runs at idle.
@@ -267,7 +284,7 @@ fn custom_is_set_and_read_back_and_the_old_preset_restored() {
 fn both_fans_and_the_cpu_temperature_are_read() {
     use razer_proto::{BLADE_18, Celsius, FanRpm};
 
-    let mut device = Device::new(HidTransport::open(&BLADE_18).unwrap(), SystemClock);
+    let mut device = Device::new(open(), SystemClock);
     let fans: Vec<_> = FanRpm::queries(&BLADE_18)
         .iter()
         .map(|query| {

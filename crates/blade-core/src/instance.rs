@@ -1,8 +1,12 @@
-﻿//! One running copy: a second start opens the first copy's window and ends.
+//! One running copy: a second start opens the first copy's window and ends.
 
 use std::io;
 
 use platform::InstanceLock;
+
+/// The name that keeps the app, and the dev tools, to one copy that
+/// drives the controller.
+pub const APP_NAME: &str = "blade-lite";
 
 /// What this start of the app should do.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

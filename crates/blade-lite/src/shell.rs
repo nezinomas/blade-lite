@@ -93,7 +93,15 @@ impl Shell {
         }
         self.once_shown(
             |shell| shell.window.window(),
-            |_, hwnd| put_backdrop(hwnd, false),
+            |shell, hwnd| {
+                put_backdrop(hwnd, false);
+                // A window that is open but minimised or behind others comes
+                // to the front, so a second start shows it.
+                shell.window.window().with_winit_window(|window| {
+                    window.set_minimized(false);
+                    window.focus_window();
+                });
+            },
         );
         self.schedule
             .borrow_mut()

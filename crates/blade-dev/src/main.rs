@@ -2,7 +2,9 @@
 
 use std::process::ExitCode;
 
+use blade_core::{APP_NAME, Start, start_instance};
 use blade_dev::Command;
+use platform::WindowsInstance;
 use razer_device::{Device, HidTransport, SystemClock};
 use razer_proto::BLADE_18;
 
@@ -18,6 +20,25 @@ fn main() -> ExitCode {
 }
 
 fn probe() -> ExitCode {
+    // Held until the probe ends, so the app can't drive the controller too.
+    let mut instance = match WindowsInstance::new(APP_NAME) {
+        Ok(instance) => instance,
+        Err(error) => {
+            eprintln!("cannot take the one-copy lock: {error}");
+            return ExitCode::FAILURE;
+        }
+    };
+    match start_instance(&mut instance, false) {
+        Ok(Start::First) => {}
+        Ok(Start::Second) => {
+            eprintln!("Blade Lite is running. Quit it from the tray first.");
+            return ExitCode::FAILURE;
+        }
+        Err(error) => {
+            eprintln!("cannot take the one-copy lock: {error}");
+            return ExitCode::FAILURE;
+        }
+    }
     let transport = match HidTransport::open(&BLADE_18) {
         Ok(transport) => transport,
         Err(error) => {
