@@ -10,6 +10,7 @@ pub const MISSING: &str = "—";
 #[derive(Debug, Clone)]
 pub struct HeaderState<'a> {
     pub model: &'a ModelProfile,
+    /// The saved preset. On battery it may run as another.
     pub preset: Preset,
     pub on_battery: bool,
     pub readings: Readings,
@@ -60,7 +61,7 @@ impl Header {
     pub fn new(state: &HeaderState) -> Self {
         Self {
             title: state.model.name.to_owned(),
-            preset: preset_label(state.preset),
+            preset: preset_label(state.preset.running(state.on_battery)),
             power: if state.on_battery {
                 PowerPill::OnBattery
             } else {

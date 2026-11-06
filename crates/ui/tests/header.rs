@@ -61,6 +61,17 @@ fn the_subtitle_is_the_preset() {
 }
 
 #[test]
+fn on_battery_a_saved_performance_shows_as_balanced() {
+    let header = Header::new(&HeaderState {
+        preset: Preset::Performance,
+        on_battery: true,
+        ..state()
+    });
+
+    assert_eq!(header.preset, "Balanced");
+}
+
+#[test]
 fn readings_become_the_stats_in_order() {
     assert_eq!(
         Header::new(&state()).stats,

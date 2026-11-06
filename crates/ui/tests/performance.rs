@@ -8,6 +8,7 @@ fn state(preset: Preset) -> PerformanceState<'static> {
     PerformanceState {
         model: &BLADE_18,
         preset,
+        on_battery: false,
         custom: CustomSettings {
             cpu_boost: 2,
             gpu_boost: 1,
@@ -57,6 +58,50 @@ fn picking_another_preset_sets_it() {
     );
     assert_eq!(view.pick_preset(1), None);
     assert_eq!(view.pick_preset(4), None);
+}
+
+fn on_battery(preset: Preset) -> PerformanceView {
+    PerformanceView::new(&PerformanceState {
+        on_battery: true,
+        ..state(preset)
+    })
+}
+
+#[test]
+fn on_ac_every_preset_can_be_picked() {
+    let view = PerformanceView::new(&state(Preset::Balanced));
+
+    assert!(view.presets.iter().all(|option| option.enabled));
+}
+
+#[test]
+fn on_battery_only_silent_and_balanced_can_be_picked() {
+    let view = on_battery(Preset::Balanced);
+
+    let enabled: Vec<bool> = view.presets.iter().map(|option| option.enabled).collect();
+    assert_eq!(enabled, [true, true, false, false]);
+    assert_eq!(
+        view.pick_preset(0),
+        Some(PerformanceCommand::SetPreset(Preset::Silent))
+    );
+    assert_eq!(view.pick_preset(2), None);
+    assert_eq!(view.pick_preset(3), None);
+}
+
+#[test]
+fn on_battery_a_saved_performance_shows_as_balanced_without_sliders() {
+    for preset in [Preset::Performance, Preset::Custom] {
+        let view = on_battery(preset);
+
+        let selected: Vec<&str> = view
+            .presets
+            .iter()
+            .filter(|option| option.selected)
+            .map(|option| option.label)
+            .collect();
+        assert_eq!(selected, ["Balanced"], "{preset:?}");
+        assert!(view.sliders.is_empty(), "{preset:?}");
+    }
 }
 
 #[test]

@@ -11,6 +11,7 @@ fn performance(preset: Preset) -> PerformanceView {
     PerformanceView::new(&PerformanceState {
         model: &BLADE_18,
         preset,
+        on_battery: false,
         custom: CustomSettings::default(),
     })
 }
