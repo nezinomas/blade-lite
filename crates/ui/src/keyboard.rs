@@ -1,4 +1,5 @@
-//! The Keyboard and touchpad group: brightness, static colour, and the touchpad.
+//! The Keyboard and touchpad group: brightness, static colour, the touchpad
+//! and the lid logo.
 
 use razer_proto::{Brightness, Rgb};
 
@@ -24,6 +25,8 @@ pub struct KeyboardState {
     pub brightness: Brightness,
     pub colour: Rgb,
     pub touchpad_on: bool,
+    /// `None` if the model has no logo or its state is unknown.
+    pub logo_on: Option<bool>,
 }
 
 /// A change the user asked for.
@@ -32,6 +35,7 @@ pub enum KeyboardCommand {
     SetBrightness(Brightness),
     SetColour(Rgb),
     SetTouchpad(bool),
+    SetLogo(bool),
 }
 
 /// One colour swatch.
@@ -56,6 +60,9 @@ pub struct KeyboardView {
     /// True when the colour is none of the swatches.
     pub custom_selected: bool,
     pub touchpad_on: bool,
+    /// `false` hides the lid logo switch: no logo, or its state is unknown.
+    pub logo_shown: bool,
+    pub logo_on: bool,
 }
 
 impl KeyboardView {
@@ -73,6 +80,8 @@ impl KeyboardView {
             swatches,
             custom_colour: state.colour,
             touchpad_on: state.touchpad_on,
+            logo_shown: state.logo_on.is_some(),
+            logo_on: state.logo_on.unwrap_or(false),
         }
     }
 
@@ -108,6 +117,13 @@ impl KeyboardView {
     #[must_use]
     pub fn toggle_touchpad(&self) -> KeyboardCommand {
         KeyboardCommand::SetTouchpad(!self.touchpad_on)
+    }
+
+    /// The command that flips the lid logo switch, unless it is hidden.
+    #[must_use]
+    pub fn toggle_logo(&self) -> Option<KeyboardCommand> {
+        self.logo_shown
+            .then_some(KeyboardCommand::SetLogo(!self.logo_on))
     }
 
     fn set_colour(&self, colour: Rgb) -> Option<KeyboardCommand> {
