@@ -6,8 +6,18 @@ https://claude.ai/artifact/JSzNYRpwZJyywztJtBSk2P
 
 Before a stage merges, review its diff and hunt for bugs. The app drives
 real hardware, so add every guard that fits: validate input, clamp to safe
-ranges, and fail safe (do nothing rather than guess). List the findings in
-the stage report.
+ranges, and fail safe (do nothing rather than guess).
+
+Two separate subagents do the review, not the stage author:
+1. Informed reviewer: gets the stage brief, the plan and the repo. It checks
+   the diff for bugs and missing guards, and hunts edge cases and paths that
+   are unsafe for the hardware.
+2. Fresh reviewer: gets only the diff, the repo and the open-source protocol
+   findings (https://claude.ai/artifact/W9Z1Dxcp4Agbxd3r2tEtwX). It checks the
+   code against them.
+
+Fix what they find, or add it to the plan as a new stage. The stage report
+lists each reviewer's findings on its own.
 
 ## Before code
 - [x] 0 Try r-helper and read its 02C7 code
