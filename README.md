@@ -29,7 +29,7 @@ Only one model is supported. Other Razer laptops and devices are out of scope.
 
 | Field | Value |
 | --- | --- |
-| Model | Razer Blade 18, RZ09-0529 (SKU RZ09-05299ER4) |
+| Model | Razer Blade 18 2025, RZ09-0529 (SKU RZ09-05299ER4) |
 | Controller | USB HID, vendor `1532`, product `02C7`, interfaces MI_00 to MI_03 |
 | Tested BIOS | 2.01 (2025-08-04) |
 | OS | Windows 11 Home 26H2 (build 26300). Mica needs 22H2 or newer |
