@@ -1,7 +1,7 @@
 //! What differs between laptop models, kept as data.
 //! Adding a model means adding a profile, not changing the code.
 
-use crate::{CustomLimits, NativeMode, PerfMode, RpmRange};
+use crate::{CustomLimits, Logo, NativeMode, PerfMode, RpmRange};
 
 /// How the controller shows up on USB.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -48,6 +48,8 @@ pub struct ModelProfile {
     pub custom: CustomLimits,
     /// The panel's native modes. Empty if the panel has only one.
     pub native_modes: &'static [NativeMode],
+    /// The lid logo light, or `None` if the model has none.
+    pub logo: Option<Logo>,
 }
 
 /// The Blade 18 (RZ09-0529), from the stage 1 capture.
@@ -117,4 +119,6 @@ pub const BLADE_18: ModelProfile = ModelProfile {
             hz: 440,
         },
     ],
+    // The capture's logo LED.
+    logo: Some(Logo { led: 0x04 }),
 };

@@ -148,6 +148,8 @@ export component MainWindow inherits Window {
     in property <bool> custom-selected;
     in property <string> custom-hex;
     in property <bool> touchpad-on;
+    in property <bool> logo-shown;
+    in property <bool> logo-on;
     // Everywhere
     in property <color> accent: #0078d4;
     in property <string> error;
@@ -161,6 +163,7 @@ export component MainWindow inherits Window {
     callback pick-swatch(int);
     callback pick-custom(string);
     callback toggle-touchpad();
+    callback toggle-logo();
 
     title: "Blade Lite";
     preferred-width: 760px;
@@ -384,6 +387,14 @@ export component MainWindow inherits Window {
                 Switch {
                     checked: root.touchpad-on;
                     toggled => { root.toggle-touchpad(); }
+                }
+            }
+            if root.logo-shown: Row {
+                title: "Lid logo";
+                note: root.logo-on ? "On" : "Off";
+                Switch {
+                    checked: root.logo-on;
+                    toggled => { root.toggle-logo(); }
                 }
             }
             // Takes the spare height, so the groups keep their own.

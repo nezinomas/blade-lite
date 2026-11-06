@@ -5,8 +5,8 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use blade_core::{
-    APP_NAME, BatteryRate, Config, NativeModeState, RefreshRate, native_mode_state, refresh_rates,
-    set_native_mode, set_refresh_rate, set_touchpad, touchpad_on,
+    APP_NAME, BatteryRate, Config, NativeModeState, RefreshRate, logo_on, native_mode_state,
+    refresh_rates, set_logo, set_native_mode, set_refresh_rate, set_touchpad, touchpad_on,
 };
 use platform::{
     DisplayApi, InstanceLock, OutputTechnology, PowerEvent, PowerEvents, WindowsDisplays,
@@ -133,6 +133,25 @@ fn the_native_mode_is_chosen_for_the_next_boot_and_put_back() {
 
     assert_eq!(chosen, NativeModeState::AppliesAfterRestart(other));
     assert_eq!(restored, NativeModeState::Active(before));
+}
+
+#[test]
+#[ignore = "needs the Blade 18; flips the lid logo, then puts it back (as static)"]
+fn the_lid_logo_is_flipped_and_put_back() {
+    let transport = open();
+    let mut device = Device::new(transport, SystemClock);
+    let before = logo_on(&mut device, &BLADE_18)
+        .unwrap()
+        .expect("the logo reads on or off");
+    eprintln!("logo on before: {before}");
+
+    set_logo(!before, &mut device, &BLADE_18).unwrap();
+    let flipped = logo_on(&mut device, &BLADE_18).unwrap();
+    set_logo(before, &mut device, &BLADE_18).unwrap();
+    let restored = logo_on(&mut device, &BLADE_18).unwrap();
+
+    assert_eq!(flipped, Some(!before));
+    assert_eq!(restored, Some(before));
 }
 
 /// How long the unplug check waits for the charger to go back in.

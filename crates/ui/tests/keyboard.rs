@@ -11,13 +11,18 @@ fn brightness(percent: u8) -> Brightness {
     Brightness::new(percent).expect("0 to 100")
 }
 
-/// Lit at 70% in teal, with the touchpad on.
+/// Lit at 70% in teal, with the touchpad and the lid logo on.
 fn state() -> KeyboardState {
     KeyboardState {
         brightness: brightness(70),
         colour: TEAL,
         touchpad_on: true,
+        logo_on: Some(true),
     }
+}
+
+fn with_logo(logo_on: Option<bool>) -> KeyboardView {
+    KeyboardView::new(&KeyboardState { logo_on, ..state() })
 }
 
 fn view() -> KeyboardView {
@@ -159,4 +164,30 @@ fn flipping_the_touchpad_switch_asks_for_the_other_state() {
         KeyboardCommand::SetTouchpad(false)
     );
     assert_eq!(off.toggle_touchpad(), KeyboardCommand::SetTouchpad(true));
+}
+
+#[test]
+fn the_lid_logo_switch_shows_the_current_state() {
+    assert_eq!(with_logo(Some(true)).logo_on, Some(true));
+    assert_eq!(with_logo(Some(false)).logo_on, Some(false));
+}
+
+#[test]
+fn flipping_the_lid_logo_switch_asks_for_the_other_state() {
+    assert_eq!(
+        with_logo(Some(true)).toggle_logo(),
+        Some(KeyboardCommand::SetLogo(false))
+    );
+    assert_eq!(
+        with_logo(Some(false)).toggle_logo(),
+        Some(KeyboardCommand::SetLogo(true))
+    );
+}
+
+#[test]
+fn an_unknown_lid_logo_state_hides_the_switch_and_sends_nothing() {
+    let unknown = with_logo(None);
+
+    assert_eq!(unknown.logo_on, None);
+    assert_eq!(unknown.toggle_logo(), None);
 }

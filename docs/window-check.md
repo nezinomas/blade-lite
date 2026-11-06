@@ -21,7 +21,8 @@ Each step says what to put back after.
 7. **Brightness.** Drag the slider to 50%. The keyboard dims. Drag it to 0%. The keyboard goes dark and the colours grey out.
 8. **Colour.** Set brightness back up. Click the red swatch. The keys turn red. Type `#00B7C3` in the Custom box and press Enter. The keys turn teal. Click the white swatch to put it back.
 9. **Touchpad.** Flip the switch. The touchpad turns on or off. Flip it back.
-10. **Close and open again.** The preset and the lighting you left are still set.
+10. **Lid logo (stage 30).** Flip the Lid logo switch. The logo on the lid goes off or on. Flip it back.
+11. **Close and open again.** The preset and the lighting you left are still set.
 
 The app now remembers the lighting in `%APPDATA%\blade-lite\config.toml`. The controller can't report it, so the window shows 100% white until you set it once.
 

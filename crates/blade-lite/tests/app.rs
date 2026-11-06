@@ -9,19 +9,26 @@ use platform::{
     Display, DisplayApi, DisplayMode, Key, KeyInjector, OutputTechnology, PowerEvent, Registry,
 };
 use razer_device::DeviceError;
-use razer_proto::{BLADE_18, Brightness, Command, NativeMode, PerfMode, Rgb, static_colour};
+use razer_proto::{BLADE_18, Brightness, Command, Logo, NativeMode, PerfMode, Rgb, static_colour};
 use tempfile::TempDir;
 use ui::{DisplayCommand, KeyboardCommand, PerformanceCommand, PowerPill};
 
 const FHD: NativeMode = BLADE_18.native_modes[1];
 const WHITE: Rgb = Rgb::new(0xFF, 0xFF, 0xFF);
 
+fn logo() -> Logo {
+    BLADE_18.logo.unwrap()
+}
+
 /// Records the commands it runs. It answers the native mode query with
-/// mode 0, and fails everything while `fails` is set.
+/// mode 0 and the logo query with `logo_reply`, and fails everything while
+/// `fails` is set.
 #[derive(Default)]
 struct FakeController {
     sent: Vec<Command>,
     fails: bool,
+    /// `None` fails the logo query.
+    logo_reply: Option<Vec<u8>>,
 }
 
 impl Controller for FakeController {
@@ -38,6 +45,8 @@ impl Query for FakeController {
     fn query(&mut self, command: &Command) -> Result<Vec<u8>, DeviceError> {
         if *command == NativeMode::query() {
             Ok(vec![0])
+        } else if *command == logo().query() {
+            self.logo_reply.clone().ok_or(DeviceError::Busy)
         } else {
             Err(DeviceError::Busy)
         }
@@ -230,6 +239,82 @@ fn the_keyboard_view_shows_the_touchpad_state() {
     let (app, _dir, _) = app();
 
     assert!(app.keyboard_view().unwrap().touchpad_on);
+}
+
+#[test]
+fn start_reads_the_logo_state_for_the_keyboard_view() {
+    let (mut app, _dir, _) = app();
+    app.machine_mut().controller.logo_reply = Some(vec![0, 4, 0]);
+
+    app.start().unwrap();
+
+    assert_eq!(app.keyboard_view().unwrap().logo_on, Some(false));
+}
+
+#[test]
+fn the_keyboard_view_does_not_ask_the_controller_for_the_logo() {
+    let (mut app, _dir, _) = app();
+    app.machine_mut().controller.logo_reply = Some(vec![0, 4, 1]);
+    app.start().unwrap();
+    // A later read would now fail, and the view would hide the switch.
+    app.machine_mut().controller.logo_reply = None;
+
+    assert_eq!(app.keyboard_view().unwrap().logo_on, Some(true));
+}
+
+#[test]
+fn a_failed_logo_read_hides_the_switch_and_keeps_the_rest() {
+    let (mut app, _dir, _) = app();
+
+    app.start().unwrap();
+    let view = app.keyboard_view().unwrap();
+
+    assert_eq!(view.logo_on, None);
+    assert!(view.touchpad_on);
+}
+
+#[test]
+fn a_resume_reads_the_logo_state_again() {
+    let (mut app, _dir, _) = app();
+    app.machine_mut().controller.logo_reply = Some(vec![0, 4, 0]);
+    app.start().unwrap();
+    app.machine_mut().controller.logo_reply = Some(vec![0, 4, 1]);
+
+    app.on_power(PowerEvent::Resumed).unwrap();
+
+    assert_eq!(app.keyboard_view().unwrap().logo_on, Some(true));
+}
+
+#[test]
+fn the_logo_switch_shows_the_new_state() {
+    let (mut app, _dir, _) = app();
+    app.machine_mut().controller.logo_reply = Some(vec![0, 4, 1]);
+    app.start().unwrap();
+
+    app.on_keyboard(KeyboardCommand::SetLogo(false)).unwrap();
+
+    assert_eq!(app.keyboard_view().unwrap().logo_on, Some(false));
+}
+
+#[test]
+fn a_failed_logo_switch_keeps_the_old_state() {
+    let (mut app, _dir, _) = app();
+    app.machine_mut().controller.logo_reply = Some(vec![0, 4, 1]);
+    app.start().unwrap();
+    app.machine_mut().controller.fails = true;
+
+    assert!(app.on_keyboard(KeyboardCommand::SetLogo(false)).is_err());
+    assert_eq!(app.keyboard_view().unwrap().logo_on, Some(true));
+}
+
+#[test]
+fn the_logo_switch_sends_the_logo_commands_and_saves_nothing() {
+    let (mut app, _dir, path) = app();
+
+    app.on_keyboard(KeyboardCommand::SetLogo(false)).unwrap();
+
+    assert_eq!(sent(&app), logo().commands(false));
+    assert!(!path.exists());
 }
 
 #[test]

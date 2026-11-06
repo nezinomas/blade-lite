@@ -3,10 +3,10 @@
 use std::path::PathBuf;
 
 use blade_core::{
-    ApplyError, BatteryRate, Config, ConfigError, Controller, DisplayError, Lighting, Preset,
-    Query, Readings, TouchpadError, apply, apply_lighting, apply_performance, chosen_native_mode,
-    current_rate, native_mode_state, read_controller, refresh_rates, set_native_mode,
-    set_refresh_rate, set_touchpad, touchpad_on,
+    ApplyError, BatteryRate, Config, ConfigError, Controller, DisplayError, Lighting, LogoError,
+    Preset, Query, Readings, TouchpadError, apply, apply_lighting, apply_performance,
+    chosen_native_mode, current_rate, logo_on, native_mode_state, read_controller, refresh_rates,
+    set_logo, set_native_mode, set_refresh_rate, set_touchpad, touchpad_on,
 };
 use platform::{DisplayApi, KeyInjector, PowerEvent, Registry};
 use razer_device::DeviceError;
@@ -33,6 +33,8 @@ pub enum AppError {
     Display(#[from] DisplayError),
     #[error(transparent)]
     Touchpad(#[from] TouchpadError),
+    #[error(transparent)]
+    Logo(#[from] LogoError),
     #[error("the controller did not answer: {0:?}")]
     Device(DeviceError),
     #[error("the controller chose a native mode the model lacks")]
@@ -64,6 +66,9 @@ pub struct App<C, D, R, K> {
     machine: Machine<C, D, R, K>,
     battery_rate: BatteryRate,
     on_battery: bool,
+    /// The lid logo state, read at start and after each resume. `None` if
+    /// the model has none or it could not be read.
+    logo_on: Option<bool>,
 }
 
 impl<C, D, R, K> App<C, D, R, K>
@@ -87,6 +92,7 @@ where
             machine,
             battery_rate: BatteryRate::default(),
             on_battery: false,
+            logo_on: None,
         }
     }
 
@@ -104,13 +110,16 @@ where
         &mut self.machine
     }
 
-    /// Sends the saved settings, with the preset that runs in place of the
-    /// saved one on battery.
+    /// Reads the logo state, then sends the saved settings, with the preset
+    /// that runs in place of the saved one on battery.
     ///
     /// # Errors
     ///
     /// See [`AppError`].
     pub fn start(&mut self) -> Result<(), AppError> {
+        self.logo_on = logo_on(&mut self.machine.controller, self.model)
+            .ok()
+            .flatten();
         let config = self.running(self.config);
         Ok(apply(&config, self.model, &mut self.machine.controller)?)
     }
@@ -155,6 +164,8 @@ where
         }))
     }
 
+    /// The logo switch is hidden if its state could not be read.
+    ///
     /// # Errors
     ///
     /// See [`AppError`].
@@ -165,6 +176,7 @@ where
             brightness,
             colour: lighting.colour,
             touchpad_on: touchpad_on(&self.machine.registry)?,
+            logo_on: self.logo_on,
         }))
     }
 
@@ -202,6 +214,12 @@ where
             KeyboardCommand::SetTouchpad(on) => {
                 let machine = &mut self.machine;
                 return Ok(set_touchpad(on, &machine.registry, &mut machine.keys)?);
+            }
+            // The controller keeps the logo state, so nothing is saved.
+            KeyboardCommand::SetLogo(on) => {
+                set_logo(on, &mut self.machine.controller, self.model)?;
+                self.logo_on = Some(on);
+                return Ok(());
             }
         }
         apply_lighting(lighting, self.model, &mut self.machine.controller)?;
