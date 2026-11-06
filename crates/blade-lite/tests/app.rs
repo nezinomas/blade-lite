@@ -10,7 +10,8 @@ use platform::{
 };
 use razer_device::DeviceError;
 use razer_proto::{
-    BLADE_18, Brightness, ChargeLimit, Command, Logo, NativeMode, PerfMode, Rgb, static_colour,
+    BLADE_18, Brightness, ChargeLimit, Command, Logo, NativeMode, PerfMode, Rgb, TouchpadKey,
+    static_colour,
 };
 use tempfile::TempDir;
 use ui::{DisplayCommand, KeyboardCommand, PerformanceCommand, PowerPill};
@@ -34,6 +35,10 @@ fn logo() -> Logo {
     BLADE_18.logo.unwrap()
 }
 
+fn touchpad_key() -> TouchpadKey {
+    BLADE_18.touchpad_key.unwrap()
+}
+
 /// Records the commands it runs. It answers the native mode query with
 /// mode 0, the logo query with `logo_reply` and the charge limit query with
 /// `charge`, and fails every run while `fails` is set.
@@ -47,6 +52,9 @@ struct FakeController {
     /// `charge_stuck` is set. `None` fails the query.
     charge: Option<u8>,
     charge_stuck: bool,
+    /// Whether the touchpad key is lit. A key command changes it. `None`
+    /// fails the query.
+    key_lit: Option<bool>,
 }
 
 impl Controller for FakeController {
@@ -57,6 +65,11 @@ impl Controller for FakeController {
         for command in commands {
             if command.id == SET_CHARGE_LIMIT && !self.charge_stuck {
                 self.charge = Some(command.args[0]);
+            }
+            if *command == touchpad_key().command(true) {
+                self.key_lit = Some(true);
+            } else if *command == touchpad_key().command(false) {
+                self.key_lit = Some(false);
             }
         }
         self.sent.extend_from_slice(commands);
@@ -72,6 +85,9 @@ impl Query for FakeController {
             self.logo_reply.clone().ok_or(DeviceError::Busy)
         } else if *command == ChargeLimit::query() {
             self.charge.map(|byte| vec![byte]).ok_or(DeviceError::Busy)
+        } else if *command == touchpad_key().query() {
+            let lit = self.key_lit.ok_or(DeviceError::Busy)?;
+            Ok(vec![0x00, touchpad_key().led, u8::from(lit)])
         } else {
             Err(DeviceError::Busy)
         }
@@ -108,12 +124,21 @@ impl DisplayApi for FakeDisplays {
     }
 }
 
-/// The touchpad is on.
-struct FakeRegistry;
+/// The touchpad state: 1 is on. `None` fails the read.
+struct FakeRegistry {
+    touchpad: Option<u32>,
+}
+
+impl Default for FakeRegistry {
+    fn default() -> Self {
+        Self { touchpad: Some(1) }
+    }
+}
 
 impl Registry for FakeRegistry {
     fn read_user_dword(&self, _key: &str, _name: &str) -> io::Result<u32> {
-        Ok(1)
+        self.touchpad
+            .ok_or_else(|| io::Error::from(io::ErrorKind::NotFound))
     }
 }
 
@@ -133,9 +158,13 @@ fn app_with(config: Config) -> (TestApp, TempDir, PathBuf) {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("config.toml");
     let machine = Machine {
-        controller: FakeController::default(),
+        // The touchpad is on, and its key is dark as it should be.
+        controller: FakeController {
+            key_lit: Some(false),
+            ..FakeController::default()
+        },
         displays: FakeDisplays::default(),
-        registry: FakeRegistry,
+        registry: FakeRegistry::default(),
         keys: FakeKeys::default(),
     };
     (
@@ -257,6 +286,69 @@ fn the_touchpad_switch_sends_the_shortcut() {
         .unwrap();
 
     assert_eq!(app.machine().keys.0, [Key::Win, Key::Ctrl, Key::F24]);
+}
+
+#[test]
+fn start_lights_the_touchpad_key_if_the_touchpad_is_off() {
+    let (mut app, _dir, _) = app();
+    app.machine_mut().registry.touchpad = Some(0);
+
+    app.start().unwrap();
+
+    assert_eq!(app.machine().controller.key_lit, Some(true));
+    assert_eq!(sent(&app).last(), Some(&touchpad_key().command(true)));
+}
+
+#[test]
+fn a_touchpad_change_lights_the_key_or_turns_it_off() {
+    let (mut app, _dir, _) = app();
+    app.start().unwrap();
+
+    app.machine_mut().registry.touchpad = Some(0);
+    app.on_touchpad_changed().unwrap();
+    assert_eq!(app.machine().controller.key_lit, Some(true));
+
+    app.machine_mut().registry.touchpad = Some(1);
+    app.on_touchpad_changed().unwrap();
+    assert_eq!(app.machine().controller.key_lit, Some(false));
+}
+
+#[test]
+fn a_resume_lights_the_touchpad_key_again() {
+    let (mut app, _dir, _) = app();
+    app.machine_mut().registry.touchpad = Some(0);
+    app.start().unwrap();
+    // The controller lost the light while asleep.
+    app.machine_mut().controller.key_lit = Some(false);
+
+    app.on_power(PowerEvent::Resumed).unwrap();
+
+    assert_eq!(app.machine().controller.key_lit, Some(true));
+}
+
+#[test]
+fn an_unreadable_touchpad_state_leaves_the_key_and_the_start_alone() {
+    let (mut app, _dir, _) = app();
+    app.machine_mut().registry.touchpad = None;
+
+    app.start().unwrap();
+    assert!(app.on_touchpad_changed().is_err());
+
+    assert_eq!(sent(&app), PerfMode::Balanced.commands(&BLADE_18).unwrap());
+}
+
+#[test]
+fn a_failed_key_light_keeps_the_start() {
+    let (mut app, _dir, _) = app();
+    app.machine_mut().registry.touchpad = Some(0);
+    app.machine_mut().controller.key_lit = None;
+
+    app.start().unwrap();
+
+    assert_eq!(
+        sent(&app)[..PerfMode::Balanced.commands(&BLADE_18).unwrap().len()],
+        PerfMode::Balanced.commands(&BLADE_18).unwrap()
+    );
 }
 
 #[test]

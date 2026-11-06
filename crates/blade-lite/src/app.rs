@@ -4,10 +4,10 @@ use std::path::PathBuf;
 
 use blade_core::{
     ApplyError, BatteryRate, ChargeError, Config, ConfigError, Controller, DisplayError, Lighting,
-    LogoError, Preset, Query, Readings, TouchpadError, apply, apply_lighting, apply_performance,
-    charge_limit_on, chosen_native_mode, current_rate, logo_on, native_mode_state, read_controller,
-    refresh_rates, set_charge_limit, set_logo, set_native_mode, set_refresh_rate, set_touchpad,
-    touchpad_on,
+    LogoError, Preset, Query, Readings, TouchpadError, TouchpadKeyError, apply, apply_lighting,
+    apply_performance, charge_limit_on, chosen_native_mode, current_rate, light_touchpad_key,
+    logo_on, native_mode_state, read_controller, refresh_rates, set_charge_limit, set_logo,
+    set_native_mode, set_refresh_rate, set_touchpad, touchpad_on,
 };
 use platform::{DisplayApi, KeyInjector, PowerEvent, Registry};
 use razer_device::DeviceError;
@@ -34,6 +34,8 @@ pub enum AppError {
     Display(#[from] DisplayError),
     #[error(transparent)]
     Touchpad(#[from] TouchpadError),
+    #[error(transparent)]
+    TouchpadKey(#[from] TouchpadKeyError),
     #[error(transparent)]
     Logo(#[from] LogoError),
     #[error(transparent)]
@@ -118,18 +120,36 @@ where
 
     /// Reads the logo and charge limit states, then sends the saved
     /// settings, with the preset that runs in place of the saved one on
-    /// battery.
+    /// battery. Last, the touchpad key shows the touchpad state.
     ///
     /// # Errors
     ///
-    /// See [`AppError`].
+    /// See [`AppError`]. A key light that fails does not fail the start.
     pub fn start(&mut self) -> Result<(), AppError> {
         self.logo_on = logo_on(&mut self.machine.controller, self.model)
             .ok()
             .flatten();
         self.read_charge_limit();
         let config = self.running(self.config);
-        Ok(apply(&config, self.model, &mut self.machine.controller)?)
+        let applied = apply(&config, self.model, &mut self.machine.controller);
+        let _ = self.on_touchpad_changed();
+        Ok(applied?)
+    }
+
+    /// Lights the touchpad key if the touchpad is now off, or turns the
+    /// light off if it is on.
+    ///
+    /// # Errors
+    ///
+    /// See [`TouchpadKeyError`]. Nothing is sent if the touchpad state
+    /// can't be read.
+    pub fn on_touchpad_changed(&mut self) -> Result<(), AppError> {
+        let machine = &mut self.machine;
+        Ok(light_touchpad_key(
+            &machine.registry,
+            &mut machine.controller,
+            self.model,
+        )?)
     }
 
     /// The header, with the controller's readings added to `readings`.
