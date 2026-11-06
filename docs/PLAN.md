@@ -62,7 +62,7 @@ lists each reviewer's findings on its own.
 - [x] 29 Single instance and autostart
 
 ## Extras
-- [ ] 30 Lid logo
+- [x] 30 Lid logo
 - [ ] 31 Battery charge limit
 - 32 GPU mode: dropped (no switch on this model)
 - [ ] 33 Red touchpad key
@@ -76,6 +76,7 @@ lists each reviewer's findings on its own.
 - [x] 41 `cargo hw` takes the one-copy lock, so it can't run beside the app
 - [ ] 42 A log file, since a release build shows no error text
 - [ ] 43 Autostart tick: re-read it when the menu opens, and warn if the Run key names another exe (such as `target\debug`)
+- [ ] 44 Lid logo off after a reboot and a sleep: check it stays off. If it comes back on, save it in the config and send it at start and resume
 
 ## Publishing on GitHub
 - [ ] 39 Release and installer
