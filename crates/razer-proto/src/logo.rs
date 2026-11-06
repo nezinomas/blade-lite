@@ -49,12 +49,12 @@ impl Logo {
     }
 
     /// Whether it is on, from a query's reply args. `None` if the reply is
-    /// for another LED or holds a value other than on or off.
+    /// for another storage or LED, or holds a value other than on or off.
     #[must_use]
     pub fn from_reply(self, args: &[u8]) -> Option<bool> {
         match args {
-            [_, led, OFF, ..] if *led == self.led => Some(false),
-            [_, led, ON, ..] if *led == self.led => Some(true),
+            [STORAGE, led, OFF, ..] if *led == self.led => Some(false),
+            [STORAGE, led, ON, ..] if *led == self.led => Some(true),
             _ => None,
         }
     }

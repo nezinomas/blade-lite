@@ -28,6 +28,7 @@ fn logo() -> Logo {
 fn on_and_off_match_their_golden_bytes() {
     for (fixture, on) in STEPS {
         let golden = captured_logo(fixture);
+        assert_eq!(golden.len(), 2, "{fixture}");
         let commands = logo().commands(on);
 
         let built: Vec<_> = commands
@@ -64,5 +65,7 @@ fn a_reply_for_another_led_or_an_odd_value_is_not_read() {
     assert_eq!(logo().from_reply(&[0x00, 0x05, 0x01]), None);
     assert_eq!(logo().from_reply(&[0x00, 0x04, 0x02]), None);
     assert_eq!(logo().from_reply(&[0x00, 0x04]), None);
+    // Storage 1 holds another value, so its echo is not the state.
+    assert_eq!(logo().from_reply(&[0x01, 0x04, 0x01]), None);
     assert_eq!(logo().from_reply(&[]), None);
 }
