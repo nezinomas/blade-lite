@@ -1,6 +1,7 @@
 //! Decides what to apply to the Blade 18 and keeps the user's settings.
 
 mod apply;
+mod battery_preset;
 mod battery_rate;
 mod config;
 mod native_mode;
