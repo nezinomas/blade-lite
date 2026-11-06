@@ -358,7 +358,7 @@ fn a_power_event_that_keeps_the_running_preset_sends_nothing() {
 
     app.on_power(PowerEvent::OnAc).unwrap();
 
-    assert!(sent(&app).is_empty());
+    assert_eq!(sent(&app), []);
 }
 
 #[test]
@@ -369,7 +369,7 @@ fn performance_is_refused_on_battery() {
     let result = app.on_performance(PerformanceCommand::SetPreset(Preset::Performance));
 
     assert!(result.is_err());
-    assert!(sent(&app).is_empty());
+    assert_eq!(sent(&app), []);
     assert!(!path.exists());
 }
 
