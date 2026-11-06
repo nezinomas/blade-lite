@@ -49,7 +49,7 @@ the stage report.
 - [x] 26 Keyboard and touchpad view model
 - [x] 27 Window shell
 - [x] 28 Tray flyout
-- [ ] 29 Single instance and autostart
+- [x] 29 Single instance and autostart
 
 ## Extras
 - [ ] 30 Lid logo
