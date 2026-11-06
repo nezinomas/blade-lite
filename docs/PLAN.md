@@ -1,4 +1,4 @@
-﻿# Stage plan
+# Stage plan
 
 One stage is one branch. Tick a stage (`[x]`) in the same branch that finishes it.
 Each stage's red and green tests and the open questions are in the full plan:
@@ -73,6 +73,9 @@ lists each reviewer's findings on its own.
 - [x] 36 Only Silent or Balanced on battery
 - [ ] 37 Fans stay loud after Performance to Silent
 - [ ] 38 Keyboard colour input needs guards
+- [ ] 41 `cargo hw` takes the one-copy lock, so it can't run beside the app
+- [ ] 42 A log file, since a release build shows no error text
+- [ ] 43 Autostart tick: re-read it when the menu opens, and warn if the Run key names another exe (such as `target\debug`)
 
 ## Publishing on GitHub
 - [ ] 39 Release and installer
