@@ -12,6 +12,7 @@ mod native_mode;
 mod preset;
 mod profile;
 mod readings;
+mod touchpad_key;
 
 pub use brightness::{Brightness, BrightnessError};
 pub use charge::{ChargeLimit, ChargeLimitError};
@@ -23,6 +24,7 @@ pub use native_mode::NativeMode;
 pub use preset::{PerfMode, PresetError};
 pub use profile::{BLADE_18, KeyGrid, ModelProfile, UsbId};
 pub use readings::{Celsius, FanRpm};
+pub use touchpad_key::TouchpadKey;
 
 /// Size of every feature report, sent and received.
 pub const REPORT_LEN: usize = 90;

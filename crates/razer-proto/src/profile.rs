@@ -1,7 +1,7 @@
 //! What differs between laptop models, kept as data.
 //! Adding a model means adding a profile, not changing the code.
 
-use crate::{ChargeLimit, CustomLimits, Logo, NativeMode, PerfMode, RpmRange};
+use crate::{ChargeLimit, CustomLimits, Logo, NativeMode, PerfMode, RpmRange, TouchpadKey};
 
 /// How the controller shows up on USB.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -52,6 +52,9 @@ pub struct ModelProfile {
     pub logo: Option<Logo>,
     /// The battery charge limit, or `None` if the model has none.
     pub charge_limit: Option<ChargeLimit>,
+    /// The key that lights while the touchpad is off, or `None` if the
+    /// model has none.
+    pub touchpad_key: Option<TouchpadKey>,
 }
 
 /// The Blade 18 (RZ09-0529), from the stage 1 capture.
@@ -125,4 +128,6 @@ pub const BLADE_18: ModelProfile = ModelProfile {
     logo: Some(Logo { led: 0x04 }),
     // Synapse offers only 80% on this model.
     charge_limit: Some(ChargeLimit { percent: 80 }),
+    // The capture's `0059` LED: numpad ".", with a touchpad icon.
+    touchpad_key: Some(TouchpadKey { led: 0x01 }),
 };
