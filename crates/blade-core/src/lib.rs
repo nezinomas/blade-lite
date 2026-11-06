@@ -22,7 +22,7 @@ pub use autostart::{
 };
 pub use battery_rate::{BATTERY_RATE, BatteryRate};
 pub use config::{Config, ConfigError, CustomSettings, Lighting, Preset};
-pub use instance::{Start, start_instance};
+pub use instance::{APP_NAME, Start, start_instance};
 pub use native_mode::{NativeModeState, native_mode_state, set_native_mode};
 pub use poll::{POLL_INTERVAL, PollSchedule, View};
 pub use query::{ControllerReadings, Query, chosen_native_mode, read_controller};

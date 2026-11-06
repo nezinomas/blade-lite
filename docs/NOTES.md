@@ -19,7 +19,7 @@
 - Windows has its own power mode. On AC it was "Best performance", on battery "Best power efficiency". The app does not change it. A USB capture cannot show if Synapse did.
 - One copy runs at a time on the PC, by the mutex `Global\blade-lite`. A copy in another user's session should get "access denied" and end (not checked with two users yet). A second start sets the event `Local\blade-lite-open`, and the first copy opens its window. With `--tray` (the autostart start) the second copy ends without that. Checked on the laptop 2026-11-06.
 - Autostart is the value "Blade Lite" in `HKCU\...\CurrentVersion\Run`: the quoted exe path, then `--tray`.
-- `blade-dev` and `cargo hw` do not take the one-copy lock, so they can drive the controller while the app runs. Close the app first.
+- `blade-dev` takes the one-copy lock and refuses to run while the app runs. `cargo hw` does not take it yet, so close the app first.
 - `0D8E` reads back the native mode chosen with `0D0E` at once. The panel stays as it booted.
 
 ## Progress

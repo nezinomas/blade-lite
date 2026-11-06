@@ -14,7 +14,8 @@ use std::sync::mpsc::{self, Receiver};
 use std::time::Duration;
 
 use blade_core::{
-    Config, POLL_INTERVAL, Start, TRAY_FLAG, autostart_on, set_autostart, start_instance,
+    APP_NAME, Config, POLL_INTERVAL, Start, TRAY_FLAG, autostart_on, set_autostart,
+    start_instance,
 };
 use blade_lite::{App, Machine, accent_colour};
 use platform::{
@@ -32,9 +33,6 @@ slint::include_modules!();
 
 /// The Windows default, for when the accent can't be read.
 const DEFAULT_ACCENT: Rgb = Rgb::new(0x00, 0x78, 0xD4);
-
-/// The name that keeps the app to one running copy.
-const APP_NAME: &str = "blade-lite";
 
 thread_local! {
     /// The shell, for the tray's handlers on the event-loop thread.

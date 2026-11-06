@@ -7,6 +7,8 @@ license.workspace = true
 rust-version.workspace = true
 
 [dependencies]
+blade-core = { path = "../blade-core" }
+platform = { path = "../platform" }
 razer-device = { path = "../razer-device" }
 razer-proto = { path = "../razer-proto" }
 
