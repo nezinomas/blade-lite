@@ -17,7 +17,7 @@
 - Silent works on the CPU (checked 2026-11-06, CPU on full load, on AC). On Performance the CPU ran at 176% speed and 100 °C, fans 3200 RPM. After Silent it fell to 94% and 60 °C at once. The fans took about 45 s to slow to 1600 RPM.
 - Silent and Balanced do not change the CPU and GPU boost values (`0D87`) or the fan target (`0D81`). They stay as Custom left them. The controller seems to use them only in Custom.
 - Windows has its own power mode. On AC it was "Best performance", on battery "Best power efficiency". The app does not change it. A USB capture cannot show if Synapse did.
-- One copy runs at a time, by the mutex `Local\blade-lite`. A second start sets the event `Local\blade-lite-open`, and the first copy opens its window. With `--tray` (the autostart start) the second copy ends without that. Checked on the laptop 2026-11-06.
+- One copy runs at a time on the PC, by the mutex `Global\blade-lite`. A copy in another user's session should get "access denied" and end (not checked with two users yet). A second start sets the event `Local\blade-lite-open`, and the first copy opens its window. With `--tray` (the autostart start) the second copy ends without that. Checked on the laptop 2026-11-06.
 - Autostart is the value "Blade Lite" in `HKCU\...\CurrentVersion\Run`: the quoted exe path, then `--tray`.
 - `blade-dev` and `cargo hw` do not take the one-copy lock, so they can drive the controller while the app runs. Close the app first.
 - `0D8E` reads back the native mode chosen with `0D0E` at once. The panel stays as it booted.
