@@ -14,13 +14,13 @@ use std::sync::mpsc::{self, Receiver};
 use std::time::Duration;
 
 use blade_core::{
-    APP_NAME, Config, POLL_INTERVAL, Start, autostart_on, set_autostart, start_instance,
-    starts_in_tray,
+    APP_NAME, Config, POLL_INTERVAL, Start, TOUCHPAD_KEY, autostart_on, set_autostart,
+    start_instance, starts_in_tray,
 };
 use blade_lite::{App, Machine, accent_colour};
 use platform::{
-    PowerEvent, PowerEvents, WakeListener, WindowsDisplays, WindowsInstance, WindowsKeys,
-    WindowsPowerEvents, WindowsRegistry,
+    PowerEvent, PowerEvents, RegistryWatch, WakeListener, WindowsDisplays, WindowsInstance,
+    WindowsKeys, WindowsPowerEvents, WindowsRegistry,
 };
 use razer_device::{Device, HidTransport, SystemClock};
 use razer_proto::{BLADE_18, Rgb};
@@ -93,6 +93,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     tray.on_action(on_tray);
     TRAY.with(|cell| cell.replace(Some(Rc::clone(&tray))));
     open_window_on_wake(instance.listener()?);
+    follow_the_touchpad();
 
     let power = power_events();
     let poll = Timer::default();
@@ -131,6 +132,40 @@ fn open_window_on_wake(listener: WakeListener) {
             });
             // The event loop has ended, so the app is quitting.
             if shown.is_err() {
+                return;
+            }
+        }
+    });
+}
+
+/// Lights the touchpad key each time the touchpad state changes, however
+/// it was switched, from a thread that waits. If Windows can't watch the
+/// state, the key follows it only at start and resume.
+fn follow_the_touchpad() {
+    let watch = match RegistryWatch::open(TOUCHPAD_KEY) {
+        Ok(watch) => watch,
+        Err(error) => {
+            eprintln!("blade-lite: the touchpad key can't follow the touchpad: {error}");
+            return;
+        }
+    };
+    std::thread::spawn(move || {
+        loop {
+            match watch.wait(Duration::MAX) {
+                Ok(true) => {}
+                Ok(false) => continue,
+                Err(error) => {
+                    eprintln!("blade-lite: the touchpad key stops following the touchpad: {error}");
+                    return;
+                }
+            }
+            let followed = slint::invoke_from_event_loop(|| {
+                if let Some(shell) = SHELL.with(|cell| cell.borrow().clone()) {
+                    shell.act(blade_lite::App::on_touchpad_changed);
+                }
+            });
+            // The event loop has ended, so the app is quitting.
+            if followed.is_err() {
                 return;
             }
         }
