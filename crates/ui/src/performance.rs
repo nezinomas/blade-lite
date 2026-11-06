@@ -14,7 +14,10 @@ const AUTO: &str = "Auto";
 #[derive(Debug, Clone)]
 pub struct PerformanceState<'a> {
     pub model: &'a ModelProfile,
+    /// The saved preset. On battery a preset not offered there shows as
+    /// the one that runs in its place.
     pub preset: Preset,
+    pub on_battery: bool,
     pub custom: CustomSettings,
 }
 
@@ -34,6 +37,8 @@ pub struct PresetOption {
     pub preset: Preset,
     pub label: &'static str,
     pub selected: bool,
+    /// `false` on battery for a preset not offered there.
+    pub enabled: bool,
 }
 
 /// What a slider sets.
@@ -68,22 +73,27 @@ impl PerformanceView {
     /// Builds the group from the state.
     #[must_use]
     pub fn new(state: &PerformanceState) -> Self {
-        let sliders = if state.preset == Preset::Custom {
+        let running = state.preset.running(state.on_battery);
+        let sliders = if running == Preset::Custom {
             sliders(state.model, state.custom)
         } else {
             Vec::new()
         };
         Self {
-            presets: preset_options(state.model, state.preset),
+            presets: preset_options(state.model, running, state.on_battery),
             sliders,
             fan_min: state.model.custom.fan_rpm.min,
         }
     }
 
-    /// The command for the preset at `index`, unless it is already chosen.
+    /// The command for the preset at `index`, unless it is already chosen
+    /// or cannot be picked.
     #[must_use]
     pub fn pick_preset(&self, index: usize) -> Option<PerformanceCommand> {
-        let option = self.presets.get(index).filter(|o| !o.selected)?;
+        let option = self
+            .presets
+            .get(index)
+            .filter(|o| o.enabled && !o.selected)?;
         Some(PerformanceCommand::SetPreset(option.preset))
     }
 
@@ -103,7 +113,7 @@ impl PerformanceView {
     }
 }
 
-fn preset_options(model: &ModelProfile, current: Preset) -> Vec<PresetOption> {
+fn preset_options(model: &ModelProfile, current: Preset, on_battery: bool) -> Vec<PresetOption> {
     model
         .presets
         .iter()
@@ -113,6 +123,7 @@ fn preset_options(model: &ModelProfile, current: Preset) -> Vec<PresetOption> {
             preset,
             label: preset_label(preset),
             selected: preset == current,
+            enabled: !on_battery || preset.offered_on_battery(),
         })
         .collect()
 }

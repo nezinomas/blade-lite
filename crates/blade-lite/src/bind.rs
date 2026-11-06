@@ -5,7 +5,7 @@ use std::rc::{Rc, Weak};
 
 use razer_proto::Rgb;
 use slint::{ModelRc, SharedString, VecModel};
-use ui::{DisplayView, FlyoutView, Header, KeyboardView, PerformanceView};
+use ui::{DisplayView, FlyoutView, Header, KeyboardView, PerformanceView, PresetOption};
 
 use crate::shell::Shell;
 use crate::{Choice, FlyoutWindow, MainWindow, SliderRow, Stat, SwatchItem};
@@ -22,7 +22,15 @@ fn choice(label: &str, selected: bool) -> Choice {
     Choice {
         label: label.into(),
         selected,
+        enabled: true,
     }
+}
+
+fn preset_choices(presets: &[PresetOption]) -> ModelRc<Choice> {
+    model(presets.iter().map(|p| Choice {
+        enabled: p.enabled,
+        ..choice(p.label, p.selected)
+    }))
 }
 
 fn text(value: &str) -> SharedString {
@@ -64,9 +72,7 @@ pub fn display(window: &MainWindow, view: &DisplayView) {
 }
 
 pub fn performance(window: &MainWindow, view: &PerformanceView) {
-    window.set_presets(model(
-        view.presets.iter().map(|p| choice(p.label, p.selected)),
-    ));
+    window.set_presets(preset_choices(&view.presets));
     window.set_sliders(model(view.sliders.iter().map(|slider| SliderRow {
         label: text(slider.label),
         stops: int(slider.stops),
@@ -100,9 +106,7 @@ fn index(value: i32) -> usize {
 pub fn flyout(window: &FlyoutWindow, view: &FlyoutView, header: &Header) {
     window.set_device(text(&header.title));
     window.set_power(text(header.power.label()));
-    window.set_presets(model(
-        view.presets.iter().map(|p| choice(p.label, p.selected)),
-    ));
+    window.set_presets(preset_choices(&view.presets));
     window.set_rates(model(
         view.rates.iter().map(|r| choice(&r.label, r.selected)),
     ));

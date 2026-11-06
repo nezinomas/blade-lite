@@ -36,3 +36,11 @@ Start the app as above. A blue bolt icon shows in the tray. It may hide under th
 5. **Reset to Balanced.** With Silent set, click it. The preset goes back to Balanced, and the button greys out.
 6. **Open window.** Click it. The settings window opens and shows the same state.
 7. **Menu.** Right-click the icon. "Open window" opens the window. "Quit" ends the app, and the icon goes away.
+
+# Battery presets check (stage 36)
+
+Start the app on the charger, with Performance set.
+
+1. **Unplug.** The header and the buttons say Balanced. Performance and Custom grey out, in the window and the flyout. Clicking them does nothing.
+2. **Pick Silent.** It works on battery.
+3. **Plug in.** The preset you picked last comes back. If you picked nothing on battery, Performance comes back.

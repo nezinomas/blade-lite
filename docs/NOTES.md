@@ -14,11 +14,14 @@
 - `UISettings` gives the accent colour as RGB 0, 120, 212.
 - The accent colour is also in the registry, `Explorer\Accent\AccentColorMenu`, as ABGR (`FFD47800`). The app reads it there, so it needs no WinRT.
 - The window (stage 27) is checked by hand with `docs/window-check.md`.
+- Silent works on the CPU (checked 2026-11-06, CPU on full load, on AC). On Performance the CPU ran at 176% speed and 100 °C, fans 3200 RPM. After Silent it fell to 94% and 60 °C at once. The fans took about 45 s to slow to 1600 RPM.
+- Silent and Balanced do not change the CPU and GPU boost values (`0D87`) or the fan target (`0D81`). They stay as Custom left them. The controller seems to use them only in Custom.
+- Windows has its own power mode. On AC it was "Best performance", on battery "Best power efficiency". The app does not change it. A USB capture cannot show if Synapse did.
 - `0D8E` reads back the native mode chosen with `0D0E` at once. The panel stays as it booted.
 
 ## Progress
 
-- Stages 0–28 are done. See `docs/PLAN.md`.
+- Stages 0–28 and 36 are done. See `docs/PLAN.md`.
 - Retros ran after stages 5 and 14.
 
 ## Working style

@@ -52,6 +52,10 @@ https://claude.ai/artifact/JSzNYRpwZJyywztJtBSk2P
 - 32 GPU mode: dropped (no switch on this model)
 - [ ] 33 Red touchpad key
 
+## Bug fixes
+- [x] 36 Only Silent or Balanced on battery
+- [ ] 37 Fans stay loud after Performance to Silent
+
 ## Publishing on GitHub
 - [ ] 34 Release and installer
 - [ ] 35 Signing
