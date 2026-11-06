@@ -66,6 +66,9 @@ pub struct App<C, D, R, K> {
     machine: Machine<C, D, R, K>,
     battery_rate: BatteryRate,
     on_battery: bool,
+    /// The lid logo state, read at start and after each resume. `None` if
+    /// the model has none or it could not be read.
+    logo_on: Option<bool>,
 }
 
 impl<C, D, R, K> App<C, D, R, K>
@@ -89,6 +92,7 @@ where
             machine,
             battery_rate: BatteryRate::default(),
             on_battery: false,
+            logo_on: None,
         }
     }
 
@@ -106,13 +110,16 @@ where
         &mut self.machine
     }
 
-    /// Sends the saved settings, with the preset that runs in place of the
-    /// saved one on battery.
+    /// Reads the logo state, then sends the saved settings, with the preset
+    /// that runs in place of the saved one on battery.
     ///
     /// # Errors
     ///
     /// See [`AppError`].
     pub fn start(&mut self) -> Result<(), AppError> {
+        self.logo_on = logo_on(&mut self.machine.controller, self.model)
+            .ok()
+            .flatten();
         let config = self.running(self.config);
         Ok(apply(&config, self.model, &mut self.machine.controller)?)
     }
@@ -157,21 +164,19 @@ where
         }))
     }
 
-    /// The logo switch is hidden if its state can't be read.
+    /// The logo switch is hidden if its state could not be read.
     ///
     /// # Errors
     ///
     /// See [`AppError`].
-    pub fn keyboard_view(&mut self) -> Result<KeyboardView, AppError> {
+    pub fn keyboard_view(&self) -> Result<KeyboardView, AppError> {
         let lighting = self.lighting();
         let brightness = Brightness::new(lighting.brightness).map_err(ApplyError::Brightness)?;
         Ok(KeyboardView::new(&KeyboardState {
             brightness,
             colour: lighting.colour,
             touchpad_on: touchpad_on(&self.machine.registry)?,
-            logo_on: logo_on(&mut self.machine.controller, self.model)
-                .ok()
-                .flatten(),
+            logo_on: self.logo_on,
         }))
     }
 
@@ -212,7 +217,9 @@ where
             }
             // The controller keeps the logo state, so nothing is saved.
             KeyboardCommand::SetLogo(on) => {
-                return Ok(set_logo(on, &mut self.machine.controller, self.model)?);
+                set_logo(on, &mut self.machine.controller, self.model)?;
+                self.logo_on = Some(on);
+                return Ok(());
             }
         }
         apply_lighting(lighting, self.model, &mut self.machine.controller)?;

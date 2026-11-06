@@ -236,27 +236,75 @@ fn the_touchpad_switch_sends_the_shortcut() {
 
 #[test]
 fn the_keyboard_view_shows_the_touchpad_state() {
-    let (mut app, _dir, _) = app();
+    let (app, _dir, _) = app();
 
     assert!(app.keyboard_view().unwrap().touchpad_on);
 }
 
 #[test]
-fn the_keyboard_view_shows_the_logo_state_the_controller_reports() {
+fn start_reads_the_logo_state_for_the_keyboard_view() {
     let (mut app, _dir, _) = app();
     app.machine_mut().controller.logo_reply = Some(vec![0, 4, 0]);
 
+    app.start().unwrap();
+
     assert_eq!(app.keyboard_view().unwrap().logo_on, Some(false));
+}
+
+#[test]
+fn the_keyboard_view_does_not_ask_the_controller_for_the_logo() {
+    let (mut app, _dir, _) = app();
+    app.machine_mut().controller.logo_reply = Some(vec![0, 4, 1]);
+    app.start().unwrap();
+    // A later read would now fail, and the view would hide the switch.
+    app.machine_mut().controller.logo_reply = None;
+
+    assert_eq!(app.keyboard_view().unwrap().logo_on, Some(true));
 }
 
 #[test]
 fn a_failed_logo_read_hides_the_switch_and_keeps_the_rest() {
     let (mut app, _dir, _) = app();
 
+    app.start().unwrap();
     let view = app.keyboard_view().unwrap();
 
     assert_eq!(view.logo_on, None);
     assert!(view.touchpad_on);
+}
+
+#[test]
+fn a_resume_reads_the_logo_state_again() {
+    let (mut app, _dir, _) = app();
+    app.machine_mut().controller.logo_reply = Some(vec![0, 4, 0]);
+    app.start().unwrap();
+    app.machine_mut().controller.logo_reply = Some(vec![0, 4, 1]);
+
+    app.on_power(PowerEvent::Resumed).unwrap();
+
+    assert_eq!(app.keyboard_view().unwrap().logo_on, Some(true));
+}
+
+#[test]
+fn the_logo_switch_shows_the_new_state() {
+    let (mut app, _dir, _) = app();
+    app.machine_mut().controller.logo_reply = Some(vec![0, 4, 1]);
+    app.start().unwrap();
+
+    app.on_keyboard(KeyboardCommand::SetLogo(false)).unwrap();
+
+    assert_eq!(app.keyboard_view().unwrap().logo_on, Some(false));
+}
+
+#[test]
+fn a_failed_logo_switch_keeps_the_old_state() {
+    let (mut app, _dir, _) = app();
+    app.machine_mut().controller.logo_reply = Some(vec![0, 4, 1]);
+    app.start().unwrap();
+    app.machine_mut().controller.fails = true;
+
+    assert!(app.on_keyboard(KeyboardCommand::SetLogo(false)).is_err());
+    assert_eq!(app.keyboard_view().unwrap().logo_on, Some(true));
 }
 
 #[test]
