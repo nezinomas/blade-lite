@@ -49,6 +49,30 @@ pub trait Registry {
     fn read_user_dword(&self, key: &str, name: &str) -> io::Result<u32>;
 }
 
+/// Reads, writes and removes text values under `HKEY_CURRENT_USER`.
+pub trait UserStrings {
+    /// Reads the text `name` in `key`.
+    ///
+    /// # Errors
+    ///
+    /// The Windows error if the value is missing or is not text.
+    fn read_user_string(&self, key: &str, name: &str) -> io::Result<String>;
+
+    /// Writes the text `name` in `key`, making the key if needed.
+    ///
+    /// # Errors
+    ///
+    /// The Windows error if the value could not be written.
+    fn write_user_string(&mut self, key: &str, name: &str, value: &str) -> io::Result<()>;
+
+    /// Removes `name` from `key`. A value that is already gone is no error.
+    ///
+    /// # Errors
+    ///
+    /// The Windows error if the value could not be removed.
+    fn delete_user_value(&mut self, key: &str, name: &str) -> io::Result<()>;
+}
+
 /// Keeps the app to one running copy.
 pub trait InstanceLock {
     /// Claims the app for this copy. `false` means another copy has it.
