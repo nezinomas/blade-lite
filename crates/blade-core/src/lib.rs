@@ -17,9 +17,7 @@ pub use apply::{
     ApplyError, Controller, RESUME_PAUSE, apply, apply_lighting, apply_performance,
     reapply_on_resume,
 };
-pub use autostart::{
-    AutostartError, RUN_KEY, RUN_VALUE, TRAY_FLAG, autostart_on, set_autostart,
-};
+pub use autostart::{AutostartError, RUN_KEY, RUN_VALUE, TRAY_FLAG, autostart_on, set_autostart};
 pub use battery_rate::{BATTERY_RATE, BatteryRate};
 pub use config::{Config, ConfigError, CustomSettings, Lighting, Preset};
 pub use instance::{Start, start_instance};

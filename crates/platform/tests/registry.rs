@@ -104,8 +104,12 @@ fn a_deleted_value_is_gone_and_deleting_it_again_is_fine() {
     let key = TestKey::new("string-delete");
     key.add("Command", "REG_SZ", "x");
 
-    WindowsRegistry.delete_user_value(&key.0, "Command").unwrap();
-    WindowsRegistry.delete_user_value(&key.0, "Command").unwrap();
+    WindowsRegistry
+        .delete_user_value(&key.0, "Command")
+        .unwrap();
+    WindowsRegistry
+        .delete_user_value(&key.0, "Command")
+        .unwrap();
 
     let error = WindowsRegistry
         .read_user_string(&key.0, "Command")

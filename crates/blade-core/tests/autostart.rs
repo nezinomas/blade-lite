@@ -4,9 +4,7 @@ use std::collections::HashMap;
 use std::io;
 use std::path::Path;
 
-use blade_core::{
-    AutostartError, RUN_KEY, RUN_VALUE, TRAY_FLAG, autostart_on, set_autostart,
-};
+use blade_core::{AutostartError, RUN_KEY, RUN_VALUE, TRAY_FLAG, autostart_on, set_autostart};
 use platform::UserStrings;
 
 const EXE: &str = r"C:\Apps\Blade Lite\blade-lite.exe";
@@ -22,10 +20,9 @@ struct FakeRegistry {
 impl FakeRegistry {
     fn with_run_value(value: &str) -> Self {
         let mut registry = Self::default();
-        registry.values.insert(
-            (RUN_KEY.to_owned(), RUN_VALUE.to_owned()),
-            value.to_owned(),
-        );
+        registry
+            .values
+            .insert((RUN_KEY.to_owned(), RUN_VALUE.to_owned()), value.to_owned());
         registry
     }
 
@@ -108,7 +105,8 @@ fn a_run_key_for_another_exe_is_off_and_turning_on_points_it_here() {
 
 #[test]
 fn the_path_case_does_not_matter() {
-    let registry = FakeRegistry::with_run_value(&COMMAND.to_uppercase().replace("--TRAY", "--tray"));
+    let registry =
+        FakeRegistry::with_run_value(&COMMAND.to_uppercase().replace("--TRAY", "--tray"));
 
     assert!(autostart_on(&registry, exe()).unwrap());
 }
