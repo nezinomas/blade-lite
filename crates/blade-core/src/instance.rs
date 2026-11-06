@@ -9,20 +9,23 @@ use platform::InstanceLock;
 pub enum Start {
     /// No other copy runs, so this one runs.
     First,
-    /// Another copy runs and was told to open its window, so this one ends.
+    /// Another copy runs, so this one ends.
     Second,
 }
 
-/// Claims the app, or wakes the copy that has it.
+/// Claims the app. If another copy has it, that copy is told to open its
+/// window, but only if `open_window` (a start in the tray leaves it alone).
 ///
 /// # Errors
 ///
 /// The Windows error if the claim or the wake failed. The caller should
 /// then end, since a second copy must never drive the controller.
-pub fn start_instance(lock: &mut impl InstanceLock) -> io::Result<Start> {
+pub fn start_instance(lock: &mut impl InstanceLock, open_window: bool) -> io::Result<Start> {
     if lock.claim()? {
         return Ok(Start::First);
     }
-    lock.wake_first()?;
+    if open_window {
+        lock.wake_first()?;
+    }
     Ok(Start::Second)
 }

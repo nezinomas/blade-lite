@@ -55,11 +55,11 @@ fn main() -> ExitCode {
 
 fn run() -> Result<(), Box<dyn std::error::Error>> {
     // Before the controller is opened: a second copy must never drive it.
+    let in_tray = std::env::args().skip(1).any(|arg| arg == TRAY_FLAG);
     let mut instance = WindowsInstance::new(APP_NAME)?;
-    if start_instance(&mut instance)? == Start::Second {
+    if start_instance(&mut instance, !in_tray)? == Start::Second {
         return Ok(());
     }
-    let in_tray = std::env::args().skip(1).any(|arg| arg == TRAY_FLAG);
 
     slint::BackendSelector::new()
         .backend_name("winit".into())
