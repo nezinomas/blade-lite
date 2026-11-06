@@ -3,6 +3,7 @@
 use std::ops::Range;
 
 mod brightness;
+mod charge;
 mod colour;
 mod command;
 mod custom;
@@ -13,6 +14,7 @@ mod profile;
 mod readings;
 
 pub use brightness::{Brightness, BrightnessError};
+pub use charge::{ChargeLimit, ChargeLimitError};
 pub use colour::{ParseRgbError, Rgb, static_colour};
 pub use command::Command;
 pub use custom::{CpuBoost, Custom, CustomError, CustomLimits, FanMode, GpuBoost, Rpm, RpmRange};

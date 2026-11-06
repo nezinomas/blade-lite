@@ -9,32 +9,55 @@ use platform::{
     Display, DisplayApi, DisplayMode, Key, KeyInjector, OutputTechnology, PowerEvent, Registry,
 };
 use razer_device::DeviceError;
-use razer_proto::{BLADE_18, Brightness, Command, Logo, NativeMode, PerfMode, Rgb, static_colour};
+use razer_proto::{
+    BLADE_18, Brightness, ChargeLimit, Command, Logo, NativeMode, PerfMode, Rgb, static_colour,
+};
 use tempfile::TempDir;
 use ui::{DisplayCommand, KeyboardCommand, PerformanceCommand, PowerPill};
 
 const FHD: NativeMode = BLADE_18.native_modes[1];
 const WHITE: Rgb = Rgb::new(0xFF, 0xFF, 0xFF);
 
+const SET_CHARGE_LIMIT: u16 = 0x0712;
+const LIMIT_ON: u8 = 0xD0;
+const LIMIT_OFF: u8 = 0x50;
+
+fn charge_limit() -> ChargeLimit {
+    BLADE_18.charge_limit.unwrap()
+}
+
+fn charge_limit_on(app: &TestApp) -> Option<bool> {
+    app.performance_view().charge_limit.map(|switch| switch.on)
+}
+
 fn logo() -> Logo {
     BLADE_18.logo.unwrap()
 }
 
 /// Records the commands it runs. It answers the native mode query with
-/// mode 0 and the logo query with `logo_reply`, and fails everything while
-/// `fails` is set.
+/// mode 0, the logo query with `logo_reply` and the charge limit query with
+/// `charge`, and fails every run while `fails` is set.
 #[derive(Default)]
 struct FakeController {
     sent: Vec<Command>,
     fails: bool,
     /// `None` fails the logo query.
     logo_reply: Option<Vec<u8>>,
+    /// The charge limit byte. A charge limit command changes it, unless
+    /// `charge_stuck` is set. `None` fails the query.
+    charge: Option<u8>,
+    charge_stuck: bool,
 }
 
 impl Controller for FakeController {
     fn run(&mut self, commands: &[Command]) -> Result<(), DeviceError> {
         if self.fails {
             return Err(DeviceError::Busy);
+        }
+        for command in commands {
+            if command.id == SET_CHARGE_LIMIT && !self.charge_stuck {
+                self.charge = Some(command.args[0]);
+            }
         }
         self.sent.extend_from_slice(commands);
         Ok(())
@@ -47,6 +70,8 @@ impl Query for FakeController {
             Ok(vec![0])
         } else if *command == logo().query() {
             self.logo_reply.clone().ok_or(DeviceError::Busy)
+        } else if *command == ChargeLimit::query() {
+            self.charge.map(|byte| vec![byte]).ok_or(DeviceError::Busy)
         } else {
             Err(DeviceError::Busy)
         }
@@ -467,4 +492,94 @@ fn a_resume_on_battery_applies_balanced_for_a_saved_performance() {
     app.on_power(PowerEvent::Resumed).unwrap();
 
     assert_eq!(sent(&app), PerfMode::Balanced.commands(&BLADE_18).unwrap());
+}
+
+#[test]
+fn start_reads_the_charge_limit_for_the_performance_view() {
+    let (mut app, _dir, _) = app();
+    app.machine_mut().controller.charge = Some(LIMIT_ON);
+
+    app.start().unwrap();
+
+    assert_eq!(charge_limit_on(&app), Some(true));
+}
+
+#[test]
+fn a_failed_charge_limit_read_hides_the_switch_and_keeps_the_start() {
+    let (mut app, _dir, _) = app();
+
+    app.start().unwrap();
+
+    assert_eq!(charge_limit_on(&app), None);
+    assert_ne!(sent(&app), []);
+}
+
+#[test]
+fn a_resume_reads_the_charge_limit_again() {
+    let (mut app, _dir, _) = app();
+    app.machine_mut().controller.charge = Some(LIMIT_ON);
+    app.start().unwrap();
+    app.machine_mut().controller.charge = Some(LIMIT_OFF);
+
+    app.on_power(PowerEvent::Resumed).unwrap();
+
+    assert_eq!(charge_limit_on(&app), Some(false));
+}
+
+#[test]
+fn the_charge_limit_switch_sends_its_command_and_saves_nothing() {
+    let (mut app, _dir, path) = app();
+    app.machine_mut().controller.charge = Some(LIMIT_ON);
+    app.start().unwrap();
+    app.machine_mut().controller.sent.clear();
+
+    app.on_performance(PerformanceCommand::SetChargeLimit(false))
+        .unwrap();
+
+    assert_eq!(sent(&app), [charge_limit().command(false).unwrap()]);
+    assert_eq!(charge_limit_on(&app), Some(false));
+    assert!(!path.exists());
+}
+
+#[test]
+fn a_failed_charge_limit_switch_shows_the_state_read_back() {
+    let (mut app, _dir, _) = app();
+    app.machine_mut().controller.charge = Some(LIMIT_ON);
+    app.start().unwrap();
+    app.machine_mut().controller.fails = true;
+
+    assert!(
+        app.on_performance(PerformanceCommand::SetChargeLimit(false))
+            .is_err()
+    );
+    assert_eq!(charge_limit_on(&app), Some(true));
+}
+
+#[test]
+fn a_charge_limit_that_does_not_take_shows_the_state_read_back() {
+    let (mut app, _dir, _) = app();
+    app.machine_mut().controller.charge = Some(LIMIT_ON);
+    app.machine_mut().controller.charge_stuck = true;
+    app.start().unwrap();
+
+    assert!(
+        app.on_performance(PerformanceCommand::SetChargeLimit(false))
+            .is_err()
+    );
+    assert_eq!(charge_limit_on(&app), Some(true));
+}
+
+#[test]
+fn a_charge_limit_switch_does_not_touch_the_preset() {
+    let (mut app, _dir, _) = app();
+    app.machine_mut().controller.charge = Some(LIMIT_OFF);
+    app.start().unwrap();
+    let before = *app.config();
+    app.machine_mut().controller.sent.clear();
+
+    app.on_performance(PerformanceCommand::SetChargeLimit(true))
+        .unwrap();
+
+    assert!(sent(&app).iter().all(|c| c.id == SET_CHARGE_LIMIT));
+    assert_eq!(*app.config(), before);
 }

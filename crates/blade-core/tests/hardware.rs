@@ -5,15 +5,16 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use blade_core::{
-    APP_NAME, BatteryRate, Config, NativeModeState, RefreshRate, logo_on, native_mode_state,
-    refresh_rates, set_logo, set_native_mode, set_refresh_rate, set_touchpad, touchpad_on,
+    APP_NAME, BatteryRate, Config, NativeModeState, Query, RefreshRate, charge_limit_on, logo_on,
+    native_mode_state, refresh_rates, set_charge_limit, set_logo, set_native_mode,
+    set_refresh_rate, set_touchpad, touchpad_on,
 };
 use platform::{
     DisplayApi, InstanceLock, OutputTechnology, PowerEvent, PowerEvents, WindowsDisplays,
     WindowsInstance, WindowsKeys, WindowsPowerEvents, WindowsRegistry,
 };
 use razer_device::{Device, HidTransport, SystemClock};
-use razer_proto::{BLADE_18, NativeMode};
+use razer_proto::{BLADE_18, Command, NativeMode};
 
 /// Takes the app's one-copy lock for this test run, so the tests can't drive
 /// the controller while Blade Lite runs. It is held until the run ends.
@@ -152,6 +153,41 @@ fn the_lid_logo_is_flipped_and_put_back() {
 
     assert_eq!(flipped, Some(!before));
     assert_eq!(restored, Some(before));
+}
+
+#[test]
+#[ignore = "needs the Blade 18; flips the battery charge limit, then puts it back"]
+fn the_charge_limit_is_flipped_and_put_back() {
+    let transport = open();
+    let mut device = Device::new(transport, SystemClock);
+    let before = charge_limit_on(&mut device, &BLADE_18)
+        .unwrap()
+        .expect("the limit reads on or off at 80%");
+    let flags = device.query(&power_flags()).unwrap();
+    eprintln!("charge limit on before: {before}, power flags {flags:02x?}");
+
+    // The set reads the limit back, so Ok means the controller took it.
+    let flipped = set_charge_limit(!before, &mut device, &BLADE_18);
+    // Put it back even if the flip failed.
+    let restored = set_charge_limit(before, &mut device, &BLADE_18);
+
+    flipped.unwrap();
+    restored.unwrap();
+    assert_eq!(
+        charge_limit_on(&mut device, &BLADE_18).unwrap(),
+        Some(before)
+    );
+    // Synapse writes these flags back after a change. The app does not, so
+    // check that the limit leaves them as they were.
+    assert_eq!(device.query(&power_flags()).unwrap(), flags);
+}
+
+/// Reads the power flags (`078F [00]`), as Synapse does after a limit change.
+fn power_flags() -> Command {
+    Command {
+        id: 0x078F,
+        args: vec![0x00],
+    }
 }
 
 /// How long the unplug check waits for the charger to go back in.

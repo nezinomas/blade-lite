@@ -3,10 +3,11 @@
 use std::path::PathBuf;
 
 use blade_core::{
-    ApplyError, BatteryRate, Config, ConfigError, Controller, DisplayError, Lighting, LogoError,
-    Preset, Query, Readings, TouchpadError, apply, apply_lighting, apply_performance,
-    chosen_native_mode, current_rate, logo_on, native_mode_state, read_controller, refresh_rates,
-    set_logo, set_native_mode, set_refresh_rate, set_touchpad, touchpad_on,
+    ApplyError, BatteryRate, ChargeError, Config, ConfigError, Controller, DisplayError, Lighting,
+    LogoError, Preset, Query, Readings, TouchpadError, apply, apply_lighting, apply_performance,
+    charge_limit_on, chosen_native_mode, current_rate, logo_on, native_mode_state, read_controller,
+    refresh_rates, set_charge_limit, set_logo, set_native_mode, set_refresh_rate, set_touchpad,
+    touchpad_on,
 };
 use platform::{DisplayApi, KeyInjector, PowerEvent, Registry};
 use razer_device::DeviceError;
@@ -35,6 +36,8 @@ pub enum AppError {
     Touchpad(#[from] TouchpadError),
     #[error(transparent)]
     Logo(#[from] LogoError),
+    #[error(transparent)]
+    Charge(#[from] ChargeError),
     #[error("the controller did not answer: {0:?}")]
     Device(DeviceError),
     #[error("the controller chose a native mode the model lacks")]
@@ -69,6 +72,8 @@ pub struct App<C, D, R, K> {
     /// The lid logo state, read at start and after each resume. `None` if
     /// the model has none or it could not be read.
     logo_on: Option<bool>,
+    /// The battery charge limit state, read like the logo's.
+    charge_limit_on: Option<bool>,
 }
 
 impl<C, D, R, K> App<C, D, R, K>
@@ -93,6 +98,7 @@ where
             battery_rate: BatteryRate::default(),
             on_battery: false,
             logo_on: None,
+            charge_limit_on: None,
         }
     }
 
@@ -110,8 +116,9 @@ where
         &mut self.machine
     }
 
-    /// Reads the logo state, then sends the saved settings, with the preset
-    /// that runs in place of the saved one on battery.
+    /// Reads the logo and charge limit states, then sends the saved
+    /// settings, with the preset that runs in place of the saved one on
+    /// battery.
     ///
     /// # Errors
     ///
@@ -120,6 +127,7 @@ where
         self.logo_on = logo_on(&mut self.machine.controller, self.model)
             .ok()
             .flatten();
+        self.read_charge_limit();
         let config = self.running(self.config);
         Ok(apply(&config, self.model, &mut self.machine.controller)?)
     }
@@ -144,6 +152,7 @@ where
             preset: self.config.preset,
             on_battery: self.on_battery,
             custom: self.config.custom,
+            charge_limit_on: self.charge_limit_on,
         })
     }
 
@@ -195,6 +204,8 @@ where
             PerformanceCommand::SetCpuBoost(level) => config.custom.cpu_boost = level,
             PerformanceCommand::SetGpuBoost(level) => config.custom.gpu_boost = level,
             PerformanceCommand::SetFanRpm(rpm) => config.custom.fan_rpm = rpm,
+            // The controller keeps the limit, so nothing is saved.
+            PerformanceCommand::SetChargeLimit(on) => return self.set_charge_limit(on),
         }
         let running = self.running(config);
         apply_performance(&running, self.model, &mut self.machine.controller)?;
@@ -275,6 +286,23 @@ where
                 self.follow_power(event)
             }
         }
+    }
+
+    /// Sets the charge limit. If that fails, the switch shows what the
+    /// controller reads back, or hides if that read fails too.
+    fn set_charge_limit(&mut self, on: bool) -> Result<(), AppError> {
+        let result = set_charge_limit(on, &mut self.machine.controller, self.model);
+        match result {
+            Ok(()) => self.charge_limit_on = Some(on),
+            Err(_) => self.read_charge_limit(),
+        }
+        Ok(result?)
+    }
+
+    fn read_charge_limit(&mut self) {
+        self.charge_limit_on = charge_limit_on(&mut self.machine.controller, self.model)
+            .ok()
+            .flatten();
     }
 
     /// Sends the preset again if the power source changes the one that runs.

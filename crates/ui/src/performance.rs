@@ -1,4 +1,5 @@
-//! The Performance group: the preset and, in Custom, its three sliders.
+//! The Performance group: the preset, in Custom its three sliders, and the
+//! battery charge limit.
 
 use blade_core::{CustomSettings, Preset};
 use razer_proto::{ModelProfile, PerfMode};
@@ -19,6 +20,8 @@ pub struct PerformanceState<'a> {
     pub preset: Preset,
     pub on_battery: bool,
     pub custom: CustomSettings,
+    /// `None` if the model has no charge limit or its state is unknown.
+    pub charge_limit_on: Option<bool>,
 }
 
 /// A change the user asked for.
@@ -29,6 +32,15 @@ pub enum PerformanceCommand {
     SetGpuBoost(u8),
     /// `None` puts the fans on auto.
     SetFanRpm(Option<u16>),
+    SetChargeLimit(bool),
+}
+
+/// The charge limit switch.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ChargeLimitSwitch {
+    pub on: bool,
+    /// Where charging stops while it is on.
+    pub percent: u8,
 }
 
 /// One preset choice.
@@ -66,6 +78,8 @@ pub struct PerformanceView {
     pub presets: Vec<PresetOption>,
     /// Empty unless the preset is Custom.
     pub sliders: Vec<Slider>,
+    /// `None` hides the switch: no limit, or its state is unknown.
+    pub charge_limit: Option<ChargeLimitSwitch>,
     fan_min: u16,
 }
 
@@ -82,6 +96,7 @@ impl PerformanceView {
         Self {
             presets: preset_options(state.model, running, state.on_battery),
             sliders,
+            charge_limit: charge_limit(state),
             fan_min: state.model.custom.fan_rpm.min,
         }
     }
@@ -111,6 +126,20 @@ impl PerformanceView {
             SliderKind::Fan => PerformanceCommand::SetFanRpm(fan_rpm(position, self.fan_min)),
         })
     }
+
+    /// The command that flips the charge limit switch, unless it is hidden.
+    #[must_use]
+    pub fn toggle_charge_limit(&self) -> Option<PerformanceCommand> {
+        self.charge_limit
+            .map(|switch| PerformanceCommand::SetChargeLimit(!switch.on))
+    }
+}
+
+fn charge_limit(state: &PerformanceState) -> Option<ChargeLimitSwitch> {
+    Some(ChargeLimitSwitch {
+        on: state.charge_limit_on?,
+        percent: state.model.charge_limit?.percent,
+    })
 }
 
 fn preset_options(model: &ModelProfile, current: Preset, on_battery: bool) -> Vec<PresetOption> {
