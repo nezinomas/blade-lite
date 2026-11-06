@@ -3,10 +3,10 @@
 use std::path::PathBuf;
 
 use blade_core::{
-    ApplyError, BatteryRate, Config, ConfigError, Controller, DisplayError, Lighting, Preset,
-    Query, Readings, TouchpadError, apply, apply_lighting, apply_performance, chosen_native_mode,
-    current_rate, native_mode_state, read_controller, refresh_rates, set_native_mode,
-    set_refresh_rate, set_touchpad, touchpad_on,
+    ApplyError, BatteryRate, Config, ConfigError, Controller, DisplayError, Lighting, LogoError,
+    Preset, Query, Readings, TouchpadError, apply, apply_lighting, apply_performance,
+    chosen_native_mode, current_rate, logo_on, native_mode_state, read_controller, refresh_rates,
+    set_logo, set_native_mode, set_refresh_rate, set_touchpad, touchpad_on,
 };
 use platform::{DisplayApi, KeyInjector, PowerEvent, Registry};
 use razer_device::DeviceError;
@@ -33,6 +33,8 @@ pub enum AppError {
     Display(#[from] DisplayError),
     #[error(transparent)]
     Touchpad(#[from] TouchpadError),
+    #[error(transparent)]
+    Logo(#[from] LogoError),
     #[error("the controller did not answer: {0:?}")]
     Device(DeviceError),
     #[error("the controller chose a native mode the model lacks")]
@@ -155,16 +157,21 @@ where
         }))
     }
 
+    /// The logo switch is hidden if its state can't be read.
+    ///
     /// # Errors
     ///
     /// See [`AppError`].
-    pub fn keyboard_view(&self) -> Result<KeyboardView, AppError> {
+    pub fn keyboard_view(&mut self) -> Result<KeyboardView, AppError> {
         let lighting = self.lighting();
         let brightness = Brightness::new(lighting.brightness).map_err(ApplyError::Brightness)?;
         Ok(KeyboardView::new(&KeyboardState {
             brightness,
             colour: lighting.colour,
             touchpad_on: touchpad_on(&self.machine.registry)?,
+            logo_on: logo_on(&mut self.machine.controller, self.model)
+                .ok()
+                .flatten(),
         }))
     }
 
@@ -202,6 +209,10 @@ where
             KeyboardCommand::SetTouchpad(on) => {
                 let machine = &mut self.machine;
                 return Ok(set_touchpad(on, &machine.registry, &mut machine.keys)?);
+            }
+            // The controller keeps the logo state, so nothing is saved.
+            KeyboardCommand::SetLogo(on) => {
+                return Ok(set_logo(on, &mut self.machine.controller, self.model)?);
             }
         }
         apply_lighting(lighting, self.model, &mut self.machine.controller)?;

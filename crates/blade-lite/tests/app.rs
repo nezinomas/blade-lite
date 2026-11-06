@@ -9,19 +9,26 @@ use platform::{
     Display, DisplayApi, DisplayMode, Key, KeyInjector, OutputTechnology, PowerEvent, Registry,
 };
 use razer_device::DeviceError;
-use razer_proto::{BLADE_18, Brightness, Command, NativeMode, PerfMode, Rgb, static_colour};
+use razer_proto::{BLADE_18, Brightness, Command, Logo, NativeMode, PerfMode, Rgb, static_colour};
 use tempfile::TempDir;
 use ui::{DisplayCommand, KeyboardCommand, PerformanceCommand, PowerPill};
 
 const FHD: NativeMode = BLADE_18.native_modes[1];
 const WHITE: Rgb = Rgb::new(0xFF, 0xFF, 0xFF);
 
+fn logo() -> Logo {
+    BLADE_18.logo.unwrap()
+}
+
 /// Records the commands it runs. It answers the native mode query with
-/// mode 0, and fails everything while `fails` is set.
+/// mode 0 and the logo query with `logo_reply`, and fails everything while
+/// `fails` is set.
 #[derive(Default)]
 struct FakeController {
     sent: Vec<Command>,
     fails: bool,
+    /// `None` fails the logo query.
+    logo_reply: Option<Vec<u8>>,
 }
 
 impl Controller for FakeController {
@@ -38,6 +45,8 @@ impl Query for FakeController {
     fn query(&mut self, command: &Command) -> Result<Vec<u8>, DeviceError> {
         if *command == NativeMode::query() {
             Ok(vec![0])
+        } else if *command == logo().query() {
+            self.logo_reply.clone().ok_or(DeviceError::Busy)
         } else {
             Err(DeviceError::Busy)
         }
@@ -227,9 +236,40 @@ fn the_touchpad_switch_sends_the_shortcut() {
 
 #[test]
 fn the_keyboard_view_shows_the_touchpad_state() {
-    let (app, _dir, _) = app();
+    let (mut app, _dir, _) = app();
 
     assert!(app.keyboard_view().unwrap().touchpad_on);
+}
+
+#[test]
+fn the_keyboard_view_shows_the_logo_state_the_controller_reports() {
+    let (mut app, _dir, _) = app();
+    app.machine_mut().controller.logo_reply = Some(vec![0, 4, 0]);
+
+    let view = app.keyboard_view().unwrap();
+
+    assert!(view.logo_shown);
+    assert!(!view.logo_on);
+}
+
+#[test]
+fn a_failed_logo_read_hides_the_switch_and_keeps_the_rest() {
+    let (mut app, _dir, _) = app();
+
+    let view = app.keyboard_view().unwrap();
+
+    assert!(!view.logo_shown);
+    assert!(view.touchpad_on);
+}
+
+#[test]
+fn the_logo_switch_sends_the_logo_commands_and_saves_nothing() {
+    let (mut app, _dir, path) = app();
+
+    app.on_keyboard(KeyboardCommand::SetLogo(false)).unwrap();
+
+    assert_eq!(sent(&app), logo().commands(false));
+    assert!(!path.exists());
 }
 
 #[test]
