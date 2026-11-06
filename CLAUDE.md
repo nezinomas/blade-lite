@@ -14,6 +14,6 @@ Project notes (laptop facts, working style, lessons): `docs/NOTES.md`.
 - Design so other Razer laptop models can be added later.
 - Protocol code stays model-agnostic.
 - Everything model-specific lives in one model profile (`crates/razer-proto/src/profile.rs`), as data, not branches in code: USB PID/interface, key grid rows/cols and key positions, which features exist, fan range, display modes.
-- 02C7 / Blade 18 2026 is the only profile for now.
+- 02C7 / Blade 18 2025 (RZ09-05299ER4) is the only profile for now. OpenRazer lists 02E1 as the 2026 model.
 - Adding a model should mean adding a profile, not editing core code.
 - Don't build speculative features for other models (YAGNI).
