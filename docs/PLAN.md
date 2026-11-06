@@ -63,7 +63,7 @@ lists each reviewer's findings on its own.
 
 ## Extras
 - [x] 30 Lid logo
-- [ ] 31 Battery charge limit
+- [x] 31 Battery charge limit
 - 32 GPU mode: dropped (no switch on this model)
 - [ ] 33 Red touchpad key
 - [ ] 34 Power-mode key (numpad Enter)
@@ -77,6 +77,8 @@ lists each reviewer's findings on its own.
 - [ ] 42 A log file, since a release build shows no error text
 - [ ] 43 Autostart tick: re-read it when the menu opens, and warn if the Run key names another exe (such as `target\debug`)
 - [ ] 44 Lid logo off after a reboot and a sleep: check it stays off. If it comes back on, save it in the config and send it at start and resume
+- [ ] 45 Check that each reply belongs to its request: compare the command id and transaction id in `Device::send`, then run all of `cargo hw`. Some tools accept a `0792` reply whatever its status; this model replied Success
+- [ ] 46 Charge limit: on AC with the battery above 80% and the limit on, check Windows says "not charging". If it still charges, try sending `070F` after the limit as Synapse does
 
 ## Publishing on GitHub
 - [ ] 39 Release and installer

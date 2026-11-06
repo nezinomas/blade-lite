@@ -23,6 +23,7 @@
 - Autostart is the value "Blade Lite" in `HKCU\...\CurrentVersion\Run`: the quoted exe path, then `--tray`.
 - `blade-dev` and the `cargo hw` tests take the one-copy lock. They refuse to touch the controller while the app runs, so quit it first.
 - The lid logo is LED 4. `0300 [00, 04, on]` sets it, as Synapse does. `0380 [00, 04, 00]` reads back the state just set. `0380 [01, 04, 00]` reads another stored value, which the set does not change (checked 2026-11-06). The `0380` read is not in the capture: it rests on that check and the `cargo hw` logo test. Each switch also sets the effect to static, as Synapse does. The app reads the state at start and after resume, not on each poll. Whether the logo stays off after a reboot or sleep is not checked yet.
+- The charge limit is `0712 [v]`: bit 7 on, low 7 bits the percent. Synapse sends `D0` (on, 80%) or `50` (off), and offers only 80%. `0792 [00]` reads it back with the same layout and the same command id (checked 2026-11-06, it replied `D0`). Synapse then reads `078F` and writes the same flags back with `070F [08]`. The app skips that; the `cargo hw` test checks `078F` stays `08`. The app reads the limit at start and after resume, and reads it back after each set. Whether charging really stops at 80% is not checked yet.
 - `0D8E` reads back the native mode chosen with `0D0E` at once. The panel stays as it booted.
 
 ## Progress
