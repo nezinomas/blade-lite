@@ -10,5 +10,8 @@ rust-version.workspace = true
 hidapi = { version = "2.6", default-features = false, features = ["windows-native"] }
 razer-proto = { path = "../razer-proto" }
 
+[dev-dependencies]
+platform = { path = "../platform" }
+
 [lints]
 workspace = true

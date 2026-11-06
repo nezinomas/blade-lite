@@ -4147,6 +4147,7 @@ name = "razer-device"
 version = "0.1.0"
 dependencies = [
  "hidapi",
+ "platform",
  "razer-proto",
 ]
 

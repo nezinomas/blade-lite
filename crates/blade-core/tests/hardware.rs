@@ -1,18 +1,40 @@
 //! Checks on the real laptop. Run with `cargo hw`.
 
+use std::sync::{Mutex, PoisonError};
 use std::thread;
 use std::time::{Duration, Instant};
 
 use blade_core::{
-    BatteryRate, Config, NativeModeState, RefreshRate, native_mode_state, refresh_rates,
+    APP_NAME, BatteryRate, Config, NativeModeState, RefreshRate, native_mode_state, refresh_rates,
     set_native_mode, set_refresh_rate, set_touchpad, touchpad_on,
 };
 use platform::{
-    DisplayApi, OutputTechnology, PowerEvent, PowerEvents, WindowsDisplays, WindowsKeys,
-    WindowsPowerEvents, WindowsRegistry,
+    DisplayApi, InstanceLock, OutputTechnology, PowerEvent, PowerEvents, WindowsDisplays,
+    WindowsInstance, WindowsKeys, WindowsPowerEvents, WindowsRegistry,
 };
 use razer_device::{Device, HidTransport, SystemClock};
 use razer_proto::{BLADE_18, NativeMode};
+
+/// Takes the app's one-copy lock for this test run, so the tests can't drive
+/// the controller while Blade Lite runs. It is held until the run ends.
+fn hold_lock() {
+    static LOCK: Mutex<Option<WindowsInstance>> = Mutex::new(None);
+    let mut held = LOCK.lock().unwrap_or_else(PoisonError::into_inner);
+    if held.is_none() {
+        let mut instance = WindowsInstance::new(APP_NAME).unwrap();
+        assert!(
+            instance.claim().unwrap(),
+            "Blade Lite is running. Quit it from the tray first."
+        );
+        *held = Some(instance);
+    }
+}
+
+/// Opens the controller, once the lock is held.
+fn open() -> HidTransport {
+    hold_lock();
+    HidTransport::open(&BLADE_18).unwrap()
+}
 
 /// Waits until Windows reports the touchpad state, or gives up.
 fn wait_for_touchpad(on: bool) -> bool {
@@ -92,7 +114,7 @@ fn native_state(device: &mut Device<HidTransport, SystemClock>) -> NativeModeSta
 #[test]
 #[ignore = "needs the Blade 18; chooses the other native mode, then puts it back"]
 fn the_native_mode_is_chosen_for_the_next_boot_and_put_back() {
-    let transport = HidTransport::open(&BLADE_18).unwrap();
+    let transport = open();
     let mut device = Device::new(transport, SystemClock);
     let NativeModeState::Active(before) = native_state(&mut device) else {
         panic!("a mode change already waits for a restart");

@@ -73,7 +73,7 @@ lists each reviewer's findings on its own.
 - [x] 36 Only Silent or Balanced on battery
 - [ ] 37 Fans stay loud after Performance to Silent
 - [ ] 38 Keyboard colour input needs guards
-- [ ] 41 `cargo hw` takes the one-copy lock, so it can't run beside the app
+- [x] 41 `cargo hw` takes the one-copy lock, so it can't run beside the app
 - [ ] 42 A log file, since a release build shows no error text
 - [ ] 43 Autostart tick: re-read it when the menu opens, and warn if the Run key names another exe (such as `target\debug`)
 
