@@ -43,7 +43,7 @@ impl InstanceLock for FakeLock {
 fn the_first_start_runs_and_wakes_nobody() {
     let mut lock = FakeLock::new(false);
 
-    assert_eq!(start_instance(&mut lock).unwrap(), Start::First);
+    assert_eq!(start_instance(&mut lock, true).unwrap(), Start::First);
     assert_eq!(lock.woken.get(), 0);
 }
 
@@ -51,7 +51,7 @@ fn the_first_start_runs_and_wakes_nobody() {
 fn a_second_start_tells_the_first_to_open_its_window() {
     let mut lock = FakeLock::new(true);
 
-    assert_eq!(start_instance(&mut lock).unwrap(), Start::Second);
+    assert_eq!(start_instance(&mut lock, true).unwrap(), Start::Second);
     assert_eq!(lock.woken.get(), 1);
 }
 
@@ -60,6 +60,14 @@ fn a_failed_claim_is_an_error_so_no_second_copy_runs() {
     let mut lock = FakeLock::new(false);
     lock.fails = true;
 
-    assert!(start_instance(&mut lock).is_err());
+    assert!(start_instance(&mut lock, true).is_err());
+    assert_eq!(lock.woken.get(), 0);
+}
+
+#[test]
+fn a_second_start_in_the_tray_ends_and_leaves_the_window_alone() {
+    let mut lock = FakeLock::new(true);
+
+    assert_eq!(start_instance(&mut lock, false).unwrap(), Start::Second);
     assert_eq!(lock.woken.get(), 0);
 }
