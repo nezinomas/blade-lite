@@ -47,6 +47,23 @@ pub trait Registry {
     fn read_user_dword(&self, key: &str, name: &str) -> io::Result<u32>;
 }
 
+/// Keeps the app to one running copy.
+pub trait InstanceLock {
+    /// Claims the app for this copy. `false` means another copy has it.
+    ///
+    /// # Errors
+    ///
+    /// The Windows error if the claim could not be made.
+    fn claim(&mut self) -> io::Result<bool>;
+
+    /// Asks the copy that has the app to open its window.
+    ///
+    /// # Errors
+    ///
+    /// The Windows error if the other copy could not be told.
+    fn wake_first(&self) -> io::Result<()>;
+}
+
 /// A key that the app may send. The app never sends any other key.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Key {
