@@ -330,3 +330,56 @@ fn readings_the_controller_cannot_give_show_dashes() {
     let fan = header.stats.iter().find(|s| s.label == "Fan 1").unwrap();
     assert_eq!(fan.value, ui::MISSING);
 }
+
+fn performance_app() -> (TestApp, TempDir, PathBuf) {
+    app_with(Config {
+        preset: Preset::Performance,
+        ..Config::default()
+    })
+}
+
+#[test]
+fn on_battery_performance_runs_as_balanced_and_comes_back_on_ac() {
+    let (mut app, _dir, _) = performance_app();
+
+    app.on_power(PowerEvent::OnBattery).unwrap();
+    assert_eq!(sent(&app), PerfMode::Balanced.commands(&BLADE_18).unwrap());
+    assert_eq!(app.config().preset, Preset::Performance);
+
+    app.on_power(PowerEvent::OnAc).unwrap();
+    let mut expected = PerfMode::Balanced.commands(&BLADE_18).unwrap();
+    expected.extend(PerfMode::Performance.commands(&BLADE_18).unwrap());
+    assert_eq!(sent(&app), expected);
+}
+
+#[test]
+fn a_power_event_that_keeps_the_running_preset_sends_nothing() {
+    let (mut app, _dir, _) = performance_app();
+
+    app.on_power(PowerEvent::OnAc).unwrap();
+
+    assert!(sent(&app).is_empty());
+}
+
+#[test]
+fn performance_is_refused_on_battery() {
+    let (mut app, _dir, path) = app();
+    app.on_power(PowerEvent::OnBattery).unwrap();
+
+    let result = app.on_performance(PerformanceCommand::SetPreset(Preset::Performance));
+
+    assert!(result.is_err());
+    assert!(sent(&app).is_empty());
+    assert!(!path.exists());
+}
+
+#[test]
+fn a_resume_on_battery_applies_balanced_for_a_saved_performance() {
+    let (mut app, _dir, _) = performance_app();
+    app.on_power(PowerEvent::OnBattery).unwrap();
+    app.machine_mut().controller.sent.clear();
+
+    app.on_power(PowerEvent::Resumed).unwrap();
+
+    assert_eq!(sent(&app), PerfMode::Balanced.commands(&BLADE_18).unwrap());
+}

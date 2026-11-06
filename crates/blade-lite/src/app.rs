@@ -3,8 +3,8 @@
 use std::path::PathBuf;
 
 use blade_core::{
-    ApplyError, BatteryRate, Config, ConfigError, Controller, DisplayError, Lighting, Query,
-    Readings, TouchpadError, apply, apply_lighting, apply_performance, chosen_native_mode,
+    ApplyError, BatteryRate, Config, ConfigError, Controller, DisplayError, Lighting, Preset,
+    Query, Readings, TouchpadError, apply, apply_lighting, apply_performance, chosen_native_mode,
     current_rate, native_mode_state, read_controller, refresh_rates, set_native_mode,
     set_refresh_rate, set_touchpad, touchpad_on,
 };
@@ -37,6 +37,8 @@ pub enum AppError {
     Device(DeviceError),
     #[error("the controller chose a native mode the model lacks")]
     UnknownNativeMode,
+    #[error("this preset is not offered on battery: {0:?}")]
+    NotOnBattery(Preset),
 }
 
 impl From<DeviceError> for AppError {
@@ -102,17 +104,15 @@ where
         &mut self.machine
     }
 
-    /// Sends the saved settings.
+    /// Sends the saved settings, with the preset that runs in place of the
+    /// saved one on battery.
     ///
     /// # Errors
     ///
     /// See [`AppError`].
     pub fn start(&mut self) -> Result<(), AppError> {
-        Ok(apply(
-            &self.config,
-            self.model,
-            &mut self.machine.controller,
-        )?)
+        let config = self.running(self.config);
+        Ok(apply(&config, self.model, &mut self.machine.controller)?)
     }
 
     /// The header, with the controller's readings added to `readings`.
@@ -133,6 +133,7 @@ where
         PerformanceView::new(&PerformanceState {
             model: self.model,
             preset: self.config.preset,
+            on_battery: self.on_battery,
             custom: self.config.custom,
         })
     }
@@ -173,12 +174,18 @@ where
     pub fn on_performance(&mut self, command: PerformanceCommand) -> Result<(), AppError> {
         let mut config = self.config;
         match command {
-            PerformanceCommand::SetPreset(preset) => config.preset = preset,
+            PerformanceCommand::SetPreset(preset) => {
+                if self.on_battery && !preset.offered_on_battery() {
+                    return Err(AppError::NotOnBattery(preset));
+                }
+                config.preset = preset;
+            }
             PerformanceCommand::SetCpuBoost(level) => config.custom.cpu_boost = level,
             PerformanceCommand::SetGpuBoost(level) => config.custom.gpu_boost = level,
             PerformanceCommand::SetFanRpm(rpm) => config.custom.fan_rpm = rpm,
         }
-        apply_performance(&config, self.model, &mut self.machine.controller)?;
+        let running = self.running(config);
+        apply_performance(&running, self.model, &mut self.machine.controller)?;
         self.commit(config)
     }
 
@@ -235,8 +242,9 @@ where
     }
 
     /// Follows the power source, and applies everything again after a
-    /// resume. The caller waits [`blade_core::RESUME_PAUSE`] before passing
-    /// on a resume.
+    /// resume. On battery only Silent or Balanced runs; the saved preset
+    /// comes back on AC. The caller waits [`blade_core::RESUME_PAUSE`]
+    /// before passing on a resume.
     ///
     /// # Errors
     ///
@@ -245,9 +253,28 @@ where
         match event {
             PowerEvent::Resumed => self.start(),
             PowerEvent::OnBattery | PowerEvent::OnAc => {
-                self.on_battery = event == PowerEvent::OnBattery;
+                self.set_on_battery(event == PowerEvent::OnBattery)?;
                 self.follow_power(event)
             }
+        }
+    }
+
+    /// Sends the preset again if the power source changes the one that runs.
+    fn set_on_battery(&mut self, on_battery: bool) -> Result<(), AppError> {
+        let before = self.running(self.config).preset;
+        self.on_battery = on_battery;
+        let config = self.running(self.config);
+        if config.preset != before {
+            apply_performance(&config, self.model, &mut self.machine.controller)?;
+        }
+        Ok(())
+    }
+
+    /// The config with the preset that runs in place of its saved one.
+    fn running(&self, config: Config) -> Config {
+        Config {
+            preset: config.preset.running(self.on_battery),
+            ..config
         }
     }
 
