@@ -133,7 +133,7 @@ export component MainWindow inherits Window {
     in property <[Choice]> rates;
     in property <bool> rates-enabled;
     in property <string> rate-note;
-    in property <bool> sixty-hz-on-battery;
+    in-out property <bool> sixty-hz-on-battery;
     in property <[Choice]> native-modes;
     in property <string> native-note;
     in property <bool> restart-infobar;
@@ -141,7 +141,7 @@ export component MainWindow inherits Window {
     in property <[Choice]> presets;
     in property <[SliderRow]> sliders;
     in property <bool> charge-limit-shown;
-    in property <bool> charge-limit-on;
+    in-out property <bool> charge-limit-on;
     in property <string> charge-limit-note;
     // Keyboard and touchpad
     in property <int> brightness;
@@ -150,9 +150,9 @@ export component MainWindow inherits Window {
     in property <[SwatchItem]> swatches;
     in property <bool> custom-selected;
     in property <string> custom-hex;
-    in property <bool> touchpad-on;
+    in-out property <bool> touchpad-on;
     in property <bool> logo-shown;
-    in property <bool> logo-on;
+    in-out property <bool> logo-on;
     // Everywhere
     in property <color> accent: #0078d4;
     in property <string> error;
@@ -263,7 +263,7 @@ export component MainWindow inherits Window {
                 title: "Switch to 60 Hz on battery";
                 note: "Goes back to your rate when you plug in";
                 Switch {
-                    checked: root.sixty-hz-on-battery;
+                    checked <=> root.sixty-hz-on-battery;
                     toggled => { root.toggle-sixty-hz(); }
                 }
             }
@@ -329,7 +329,7 @@ export component MainWindow inherits Window {
                 title: "Battery charge limit";
                 note: root.charge-limit-note;
                 Switch {
-                    checked: root.charge-limit-on;
+                    checked <=> root.charge-limit-on;
                     toggled => { root.toggle-charge-limit(); }
                 }
             }
@@ -397,7 +397,7 @@ export component MainWindow inherits Window {
                 title: "Touchpad";
                 note: root.touchpad-on ? "Turn off when you use a mouse" : "Off";
                 Switch {
-                    checked: root.touchpad-on;
+                    checked <=> root.touchpad-on;
                     toggled => { root.toggle-touchpad(); }
                 }
             }
@@ -405,7 +405,7 @@ export component MainWindow inherits Window {
                 title: "Lid logo";
                 note: root.logo-on ? "On" : "Off";
                 Switch {
-                    checked: root.logo-on;
+                    checked <=> root.logo-on;
                     toggled => { root.toggle-logo(); }
                 }
             }
@@ -424,7 +424,7 @@ export component FlyoutWindow inherits Window {
     in property <bool> rates-enabled;
     in property <int> brightness;
     in property <string> brightness-text;
-    in property <bool> touchpad-on;
+    in-out property <bool> touchpad-on;
     in property <bool> reset-enabled;
     in property <color> accent: #0078d4;
 
@@ -508,7 +508,7 @@ export component FlyoutWindow inherits Window {
                 vertical-alignment: center;
             }
             Switch {
-                checked: root.touchpad-on;
+                checked <=> root.touchpad-on;
                 toggled => { root.toggle-touchpad(); }
             }
         }
