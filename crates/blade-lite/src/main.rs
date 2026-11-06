@@ -14,8 +14,8 @@ use std::sync::mpsc::{self, Receiver};
 use std::time::Duration;
 
 use blade_core::{
-    APP_NAME, Config, POLL_INTERVAL, Start, TRAY_FLAG, autostart_on, set_autostart,
-    start_instance,
+    APP_NAME, Config, POLL_INTERVAL, Start, autostart_on, set_autostart, start_instance,
+    starts_in_tray,
 };
 use blade_lite::{App, Machine, accent_colour};
 use platform::{
@@ -53,9 +53,10 @@ fn main() -> ExitCode {
 
 fn run() -> Result<(), Box<dyn std::error::Error>> {
     // Before the controller is opened: a second copy must never drive it.
-    let in_tray = std::env::args().skip(1).any(|arg| arg == TRAY_FLAG);
+    let in_tray = starts_in_tray(std::env::args_os().skip(1));
     let mut instance = WindowsInstance::new(APP_NAME)?;
     if start_instance(&mut instance, !in_tray)? == Start::Second {
+        eprintln!("blade-lite: another copy runs, so this one ends");
         return Ok(());
     }
 
@@ -114,12 +115,24 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
 /// Opens the window each time a second copy asks, from a thread that waits.
 fn open_window_on_wake(listener: WakeListener) {
     std::thread::spawn(move || {
-        while let Ok(true) = listener.wait(Duration::MAX) {
-            let _ = slint::invoke_from_event_loop(|| {
+        loop {
+            match listener.wait(Duration::MAX) {
+                Ok(true) => {}
+                Ok(false) => continue,
+                Err(error) => {
+                    eprintln!("blade-lite: a second start can't open the window now: {error}");
+                    return;
+                }
+            }
+            let shown = slint::invoke_from_event_loop(|| {
                 if let Some(shell) = SHELL.with(|cell| cell.borrow().clone()) {
                     shell.show_window();
                 }
             });
+            // The event loop has ended, so the app is quitting.
+            if shown.is_err() {
+                return;
+            }
         }
     });
 }

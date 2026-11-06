@@ -19,6 +19,7 @@ pub use apply::{
 };
 pub use autostart::{
     APPROVED_KEY, AutostartError, RUN_KEY, RUN_VALUE, TRAY_FLAG, autostart_on, set_autostart,
+    starts_in_tray,
 };
 pub use battery_rate::{BATTERY_RATE, BatteryRate};
 pub use config::{Config, ConfigError, CustomSettings, Lighting, Preset};

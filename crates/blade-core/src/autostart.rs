@@ -1,6 +1,7 @@
 //! Autostart at login, through the user's Run key. The app then starts in
 //! the tray and re-applies the saved settings.
 
+use std::ffi::OsString;
 use std::io;
 use std::path::{Path, PathBuf};
 
@@ -19,6 +20,12 @@ pub const RUN_VALUE: &str = "Blade Lite";
 
 /// The argument that starts the app in the tray, with no window.
 pub const TRAY_FLAG: &str = "--tray";
+
+/// Whether the app was started with [`TRAY_FLAG`], as autostart does. Only
+/// the exact flag counts, and an argument that is not text is no crash.
+pub fn starts_in_tray(args: impl IntoIterator<Item = OsString>) -> bool {
+    args.into_iter().any(|arg| arg == TRAY_FLAG)
+}
 
 /// Why autostart could not be read or set.
 #[derive(Debug, thiserror::Error)]

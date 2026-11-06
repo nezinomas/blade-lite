@@ -145,9 +145,8 @@ mod tests {
 
         let global = wide(&format!(r"Global\{app}"));
         // SAFETY: the name ends in a nul. The handle is closed on drop.
-        let opened = Handle::new(unsafe {
-            OpenMutexW(SYNCHRONIZATION_SYNCHRONIZE, 0, global.as_ptr())
-        });
+        let opened =
+            Handle::new(unsafe { OpenMutexW(SYNCHRONIZATION_SYNCHRONIZE, 0, global.as_ptr()) });
 
         assert!(opened.is_ok(), "the mutex is not global");
     }
