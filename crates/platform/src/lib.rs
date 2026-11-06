@@ -6,6 +6,7 @@
 
 mod backdrop;
 mod display;
+mod instance;
 mod keys;
 mod power;
 mod registry;
@@ -15,6 +16,7 @@ use std::io;
 
 pub use backdrop::{round_corners, set_mica};
 pub use display::WindowsDisplays;
+pub use instance::{WakeListener, WindowsInstance};
 pub use keys::WindowsKeys;
 pub use power::WindowsPowerEvents;
 pub use registry::WindowsRegistry;
