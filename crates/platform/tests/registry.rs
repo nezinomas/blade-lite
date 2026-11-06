@@ -3,7 +3,7 @@
 use std::io;
 use std::process::Command;
 
-use platform::{Registry, UserStrings, WindowsRegistry};
+use platform::{Registry, UserBytes, UserStrings, WindowsRegistry};
 
 /// A key under `HKEY_CURRENT_USER` that lives as long as the test.
 struct TestKey(String);
@@ -115,4 +115,34 @@ fn a_deleted_value_is_gone_and_deleting_it_again_is_fine() {
         .read_user_string(&key.0, "Command")
         .unwrap_err();
     assert_eq!(error.kind(), io::ErrorKind::NotFound);
+}
+
+#[test]
+fn reads_binary_bytes() {
+    let key = TestKey::new("binary");
+    key.add("Flag", "REG_BINARY", "030000000000");
+
+    assert_eq!(
+        WindowsRegistry.read_user_bytes(&key.0, "Flag").unwrap(),
+        [3, 0, 0, 0, 0, 0]
+    );
+}
+
+#[test]
+fn text_is_not_read_as_bytes() {
+    let key = TestKey::new("not-binary");
+    key.add("Flag", "REG_SZ", "on");
+
+    assert!(WindowsRegistry.read_user_bytes(&key.0, "Flag").is_err());
+}
+
+#[test]
+fn text_too_long_is_refused() {
+    let key = TestKey::new("too-long");
+
+    let error = WindowsRegistry
+        .write_user_string(&key.0, "Long", &"x".repeat(40 * 1024))
+        .unwrap_err();
+
+    assert_eq!(error.kind(), io::ErrorKind::InvalidInput);
 }

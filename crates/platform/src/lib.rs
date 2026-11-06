@@ -73,6 +73,16 @@ pub trait UserStrings {
     fn delete_user_value(&mut self, key: &str, name: &str) -> io::Result<()>;
 }
 
+/// Reads binary values under `HKEY_CURRENT_USER`.
+pub trait UserBytes {
+    /// Reads the binary value `name` in `key`.
+    ///
+    /// # Errors
+    ///
+    /// The Windows error if the value is missing or is not binary.
+    fn read_user_bytes(&self, key: &str, name: &str) -> io::Result<Vec<u8>>;
+}
+
 /// Keeps the app to one running copy.
 pub trait InstanceLock {
     /// Claims the app for this copy. `false` means another copy has it.
