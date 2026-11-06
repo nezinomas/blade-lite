@@ -50,6 +50,8 @@ Start the app on the charger, with Performance set.
 Start with the app closed.
 
 1. **Second copy.** Start the app, close its window, then start it again. No second icon appears. The first copy opens its window.
-2. **Start with Windows.** Right-click the icon. Tick "Start with Windows".
-3. **Sign out and in.** The icon appears in the tray. No window opens. The saved preset and lighting are back.
-4. **Turn it off.** Untick "Start with Windows". Sign out and in. The app does not start.
+2. **Window behind others.** Open the window, then minimise it, or put another window over it. Start the app again. The window comes to the front.
+3. **Start with Windows.** Right-click the icon. Tick "Start with Windows".
+4. **Sign out and in.** The icon appears in the tray. No window opens. The saved preset and lighting are back.
+5. **Task Manager.** In Task Manager, Startup apps, disable Blade Lite. Quit the app and start it again. "Start with Windows" is not ticked. Tick it. Task Manager shows it enabled again.
+6. **Turn it off.** Untick "Start with Windows". Sign out and in. The app does not start.

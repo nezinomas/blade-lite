@@ -12,6 +12,7 @@ use windows_sys::Win32::Foundation::{
 use windows_sys::Win32::System::Threading::{
     CreateEventW, CreateMutexW, INFINITE, SetEvent, WaitForSingleObject,
 };
+use windows_sys::Win32::UI::WindowsAndMessaging::{ASFW_ANY, AllowSetForegroundWindow};
 
 use crate::{InstanceLock, wide};
 
@@ -90,6 +91,11 @@ impl InstanceLock for WindowsInstance {
     }
 
     fn wake_first(&self) -> io::Result<()> {
+        // This copy was started by the user, so it may bring a window to the
+        // front. It hands that right on, or the first copy's window could
+        // open behind others. If that fails, the wake still goes.
+        // SAFETY: no pointers; ASFW_ANY is a plain process id value.
+        unsafe { AllowSetForegroundWindow(ASFW_ANY) };
         // SAFETY: the event handle is open until drop.
         if unsafe { SetEvent(self.event.0) } == 0 {
             return Err(io::Error::last_os_error());
