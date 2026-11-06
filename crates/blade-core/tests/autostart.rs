@@ -4,16 +4,20 @@ use std::collections::HashMap;
 use std::io;
 use std::path::Path;
 
-use blade_core::{AutostartError, RUN_KEY, RUN_VALUE, TRAY_FLAG, autostart_on, set_autostart};
-use platform::UserStrings;
+use blade_core::{
+    APPROVED_KEY, AutostartError, RUN_KEY, RUN_VALUE, TRAY_FLAG, autostart_on, set_autostart,
+};
+use platform::{UserBytes, UserStrings};
 
 const EXE: &str = r"C:\Apps\Blade Lite\blade-lite.exe";
 const COMMAND: &str = r#""C:\Apps\Blade Lite\blade-lite.exe" --tray"#;
 
-/// Text values by key and name. A broken registry fails every call.
+/// Text and binary values by key and name. A broken registry fails every
+/// call.
 #[derive(Default)]
 struct FakeRegistry {
     values: HashMap<(String, String), String>,
+    bytes: HashMap<(String, String), Vec<u8>>,
     broken: bool,
 }
 
@@ -24,6 +28,20 @@ impl FakeRegistry {
             .values
             .insert((RUN_KEY.to_owned(), RUN_VALUE.to_owned()), value.to_owned());
         registry
+    }
+
+    /// Task Manager's flag for the app: an odd first byte is disabled.
+    fn with_approved(mut self, flag: u8) -> Self {
+        self.bytes.insert(
+            (APPROVED_KEY.to_owned(), RUN_VALUE.to_owned()),
+            vec![flag, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+        );
+        self
+    }
+
+    fn approved(&self) -> Option<&Vec<u8>> {
+        self.bytes
+            .get(&(APPROVED_KEY.to_owned(), RUN_VALUE.to_owned()))
     }
 
     fn run_value(&self) -> Option<&str> {
@@ -58,8 +76,20 @@ impl UserStrings for FakeRegistry {
 
     fn delete_user_value(&mut self, key: &str, name: &str) -> io::Result<()> {
         self.check()?;
-        self.values.remove(&(key.to_owned(), name.to_owned()));
+        let id = (key.to_owned(), name.to_owned());
+        self.values.remove(&id);
+        self.bytes.remove(&id);
         Ok(())
+    }
+}
+
+impl UserBytes for FakeRegistry {
+    fn read_user_bytes(&self, key: &str, name: &str) -> io::Result<Vec<u8>> {
+        self.check()?;
+        self.bytes
+            .get(&(key.to_owned(), name.to_owned()))
+            .cloned()
+            .ok_or(io::ErrorKind::NotFound.into())
     }
 }
 
@@ -137,4 +167,38 @@ fn a_broken_registry_is_an_error_not_a_guess() {
         set_autostart(true, &mut registry, exe()),
         Err(AutostartError::Registry(_))
     ));
+}
+
+#[test]
+fn disabled_in_task_manager_is_off() {
+    let registry = FakeRegistry::with_run_value(COMMAND).with_approved(0x03);
+
+    assert!(!autostart_on(&registry, exe()).unwrap());
+}
+
+#[test]
+fn enabled_in_task_manager_is_on() {
+    let registry = FakeRegistry::with_run_value(COMMAND).with_approved(0x02);
+
+    assert!(autostart_on(&registry, exe()).unwrap());
+}
+
+#[test]
+fn an_empty_task_manager_flag_is_off() {
+    let mut registry = FakeRegistry::with_run_value(COMMAND);
+    registry
+        .bytes
+        .insert((APPROVED_KEY.to_owned(), RUN_VALUE.to_owned()), Vec::new());
+
+    assert!(!autostart_on(&registry, exe()).unwrap());
+}
+
+#[test]
+fn turning_on_clears_the_task_manager_flag() {
+    let mut registry = FakeRegistry::with_run_value(COMMAND).with_approved(0x03);
+
+    set_autostart(true, &mut registry, exe()).unwrap();
+
+    assert_eq!(registry.approved(), None);
+    assert!(autostart_on(&registry, exe()).unwrap());
 }
