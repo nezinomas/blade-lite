@@ -12,6 +12,7 @@ export struct Stat {
 export struct Choice {
     label: string,
     selected: bool,
+    enabled: bool,
 }
 
 export struct SliderRow {
@@ -79,17 +80,18 @@ component Segments inherits Rectangle {
         padding: 2px;
         spacing: 2px;
         for item[index] in root.items: Rectangle {
+            property <bool> on: root.enabled && item.enabled;
             min-width: 64px;
             height: 28px;
             border-radius: 3px;
-            background: item.selected ? root.accent : (touch.has-hover && root.enabled ? #0000000a : transparent);
+            background: item.selected ? root.accent : (touch.has-hover && self.on ? #0000000a : transparent);
             Text {
                 text: item.label;
-                color: item.selected ? white : (root.enabled ? Palette.foreground : Theme.secondary);
+                color: item.selected ? white : (parent.on ? Palette.foreground : Theme.secondary);
                 horizontal-alignment: center;
             }
             touch := TouchArea {
-                enabled: root.enabled;
+                enabled: parent.on;
                 clicked => { root.picked(index); }
             }
         }
