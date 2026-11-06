@@ -14,9 +14,12 @@ pub enum ChargeError {
     /// The model's percent is outside the safe range.
     #[error("the charge limit is not safe: {0:?}")]
     Unsafe(ChargeLimitError),
-    /// The controller did not take the command, or did not answer the read.
+    /// The controller did not take the command.
     #[error("the controller did not take the charge limit: {0:?}")]
     Device(DeviceError),
+    /// The command was sent, but the read back failed.
+    #[error("the charge limit was sent, but the read back failed: {0:?}")]
+    ReadBack(DeviceError),
     /// The controller took the command, but reads back another state.
     #[error("the charge limit reads back {read:?}, not {wanted}")]
     NotConfirmed { wanted: bool, read: Option<bool> },
@@ -55,7 +58,7 @@ pub fn set_charge_limit<C: Controller + Query>(
     controller
         .run(std::slice::from_ref(&command))
         .map_err(ChargeError::Device)?;
-    let read = charge_limit_on(controller, model).map_err(ChargeError::Device)?;
+    let read = charge_limit_on(controller, model).map_err(ChargeError::ReadBack)?;
     if read == Some(on) {
         Ok(())
     } else {

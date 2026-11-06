@@ -116,8 +116,9 @@ where
         &mut self.machine
     }
 
-    /// Reads the logo and charge limit states, then sends the saved settings, with the preset
-    /// that runs in place of the saved one on battery.
+    /// Reads the logo and charge limit states, then sends the saved
+    /// settings, with the preset that runs in place of the saved one on
+    /// battery.
     ///
     /// # Errors
     ///

@@ -10,7 +10,9 @@ const SET_CHARGE_LIMIT: u16 = 0x0712;
 const GET_CHARGE_LIMIT: u16 = 0x0792;
 const ON: u8 = 0x80;
 const PERCENT_MASK: u8 = 0x7F;
-/// The limits Synapse offers on Razer laptops. Anything else is refused.
+/// A safe range from the open-source tools (Synapse offers 50 to 80 on
+/// other Blades). The capture of this model saw only 80. Anything else is
+/// refused.
 const SAFE_PERCENT: RangeInclusive<u8> = 50..=80;
 
 /// Why a charge-limit command was not built.

@@ -14,11 +14,17 @@ struct FakeController {
     ran: RefCell<Vec<Command>>,
     fails: bool,
     stuck: bool,
+    read_fails: bool,
+    /// What a set stores in place of its own byte, if any.
+    stores: Option<u8>,
 }
 
 impl Query for FakeController {
     fn query(&mut self, command: &Command) -> Result<Vec<u8>, DeviceError> {
         assert_eq!(*command, ChargeLimit::query());
+        if self.read_fails {
+            return Err(DeviceError::Busy);
+        }
         self.stored.map(|byte| vec![byte]).ok_or(DeviceError::Busy)
     }
 }
@@ -29,7 +35,9 @@ impl Controller for FakeController {
             return Err(DeviceError::Busy);
         }
         if !self.stuck {
-            self.stored = commands.last().map(|command| command.args[0]);
+            self.stored = self
+                .stores
+                .or_else(|| commands.last().map(|command| command.args[0]));
         }
         self.ran.borrow_mut().extend_from_slice(commands);
         Ok(())
@@ -157,4 +165,48 @@ fn a_limit_that_does_not_read_back_is_an_error() {
             read: Some(false)
         })
     ));
+}
+
+#[test]
+fn turning_the_limit_off_sends_80_without_the_on_bit() {
+    let mut controller = storing(0xD0);
+
+    set_charge_limit(false, &mut controller, &BLADE_18).unwrap();
+
+    assert_eq!(*controller.ran.borrow(), [limit().command(false).unwrap()]);
+    assert_eq!(controller.stored, Some(0x50));
+}
+
+#[test]
+fn a_read_back_at_another_percent_is_not_confirmed() {
+    let mut controller = FakeController {
+        stores: Some(0xBC),
+        ..storing(0x50)
+    };
+
+    let result = set_charge_limit(true, &mut controller, &BLADE_18);
+
+    assert!(matches!(
+        result,
+        Err(ChargeError::NotConfirmed {
+            wanted: true,
+            read: None
+        })
+    ));
+}
+
+#[test]
+fn a_failed_read_back_says_the_command_was_sent() {
+    let mut controller = FakeController {
+        read_fails: true,
+        ..storing(0x50)
+    };
+
+    let result = set_charge_limit(true, &mut controller, &BLADE_18);
+
+    assert!(matches!(
+        result,
+        Err(ChargeError::ReadBack(DeviceError::Busy))
+    ));
+    assert_eq!(controller.ran.borrow().len(), 1);
 }
