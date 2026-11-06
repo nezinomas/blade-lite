@@ -5,8 +5,9 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use blade_core::{
-    APP_NAME, BatteryRate, Config, NativeModeState, RefreshRate, logo_on, native_mode_state,
-    refresh_rates, set_logo, set_native_mode, set_refresh_rate, set_touchpad, touchpad_on,
+    APP_NAME, BatteryRate, Config, NativeModeState, RefreshRate, charge_limit_on, logo_on,
+    native_mode_state, refresh_rates, set_charge_limit, set_logo, set_native_mode,
+    set_refresh_rate, set_touchpad, touchpad_on,
 };
 use platform::{
     DisplayApi, InstanceLock, OutputTechnology, PowerEvent, PowerEvents, WindowsDisplays,
@@ -152,6 +153,29 @@ fn the_lid_logo_is_flipped_and_put_back() {
 
     assert_eq!(flipped, Some(!before));
     assert_eq!(restored, Some(before));
+}
+
+#[test]
+#[ignore = "needs the Blade 18; flips the battery charge limit, then puts it back"]
+fn the_charge_limit_is_flipped_and_put_back() {
+    let transport = open();
+    let mut device = Device::new(transport, SystemClock);
+    let before = charge_limit_on(&mut device, &BLADE_18)
+        .unwrap()
+        .expect("the limit reads on or off at 80%");
+    eprintln!("charge limit on before: {before}");
+
+    // The set reads the limit back, so Ok means the controller took it.
+    let flipped = set_charge_limit(!before, &mut device, &BLADE_18);
+    // Put it back even if the flip failed.
+    let restored = set_charge_limit(before, &mut device, &BLADE_18);
+
+    flipped.unwrap();
+    restored.unwrap();
+    assert_eq!(
+        charge_limit_on(&mut device, &BLADE_18).unwrap(),
+        Some(before)
+    );
 }
 
 /// How long the unplug check waits for the charger to go back in.

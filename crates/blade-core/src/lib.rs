@@ -4,6 +4,7 @@ mod apply;
 mod autostart;
 mod battery_preset;
 mod battery_rate;
+mod charge;
 mod config;
 mod instance;
 mod logo;
@@ -23,6 +24,7 @@ pub use autostart::{
     starts_in_tray,
 };
 pub use battery_rate::{BATTERY_RATE, BatteryRate};
+pub use charge::{ChargeError, charge_limit_on, set_charge_limit};
 pub use config::{Config, ConfigError, CustomSettings, Lighting, Preset};
 pub use instance::{APP_NAME, Start, start_instance};
 pub use logo::{LogoError, logo_on, set_logo};
