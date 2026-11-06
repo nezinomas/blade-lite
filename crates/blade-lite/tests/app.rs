@@ -511,7 +511,7 @@ fn a_failed_charge_limit_read_hides_the_switch_and_keeps_the_start() {
     app.start().unwrap();
 
     assert_eq!(charge_limit_on(&app), None);
-    assert!(!sent(&app).is_empty());
+    assert_ne!(sent(&app), []);
 }
 
 #[test]

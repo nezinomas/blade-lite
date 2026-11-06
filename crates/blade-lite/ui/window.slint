@@ -140,6 +140,9 @@ export component MainWindow inherits Window {
     // Performance
     in property <[Choice]> presets;
     in property <[SliderRow]> sliders;
+    in property <bool> charge-limit-shown;
+    in property <bool> charge-limit-on;
+    in property <string> charge-limit-note;
     // Keyboard and touchpad
     in property <int> brightness;
     in property <string> brightness-text;
@@ -159,6 +162,7 @@ export component MainWindow inherits Window {
     callback pick-native(int);
     callback pick-preset(int);
     callback move-slider(int, int);
+    callback toggle-charge-limit();
     callback move-brightness(int);
     callback pick-swatch(int);
     callback pick-custom(string);
@@ -319,6 +323,14 @@ export component MainWindow inherits Window {
                             color: Theme.secondary;
                         }
                     }
+                }
+            }
+            if root.charge-limit-shown: Row {
+                title: "Battery charge limit";
+                note: root.charge-limit-note;
+                Switch {
+                    checked: root.charge-limit-on;
+                    toggled => { root.toggle-charge-limit(); }
                 }
             }
 

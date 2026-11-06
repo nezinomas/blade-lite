@@ -79,6 +79,14 @@ pub fn performance(window: &MainWindow, view: &PerformanceView) {
         position: int(slider.position),
         text: text(&slider.text),
     })));
+    let limit = view.charge_limit;
+    window.set_charge_limit_shown(limit.is_some());
+    window.set_charge_limit_on(limit.is_some_and(|switch| switch.on));
+    window.set_charge_limit_note(match limit {
+        Some(switch) if switch.on => format!("Stops charging at {}%", switch.percent).into(),
+        Some(switch) => format!("Off. Turn on to stop at {}%", switch.percent).into(),
+        None => "".into(),
+    });
 }
 
 pub fn keyboard(window: &MainWindow, view: &KeyboardView) {
@@ -206,6 +214,15 @@ fn window_callbacks(shell: &Rc<Shell>) {
                     Some(command) => app.on_performance(command),
                     None => Ok(()),
                 }
+            });
+        });
+    });
+    let s = Rc::downgrade(shell);
+    window.on_toggle_charge_limit(move || {
+        on(&s, |shell| {
+            shell.act(|app| match app.performance_view().toggle_charge_limit() {
+                Some(command) => app.on_performance(command),
+                None => Ok(()),
             });
         });
     });
