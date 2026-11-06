@@ -6,6 +6,7 @@
 
 mod backdrop;
 mod display;
+mod instance;
 mod keys;
 mod power;
 mod registry;
@@ -15,6 +16,7 @@ use std::io;
 
 pub use backdrop::{round_corners, set_mica};
 pub use display::WindowsDisplays;
+pub use instance::{WakeListener, WindowsInstance};
 pub use keys::WindowsKeys;
 pub use power::WindowsPowerEvents;
 pub use registry::WindowsRegistry;
@@ -45,6 +47,47 @@ pub trait Registry {
     ///
     /// The Windows error if the value is missing or is not a DWORD.
     fn read_user_dword(&self, key: &str, name: &str) -> io::Result<u32>;
+}
+
+/// Reads, writes and removes text values under `HKEY_CURRENT_USER`.
+pub trait UserStrings {
+    /// Reads the text `name` in `key`.
+    ///
+    /// # Errors
+    ///
+    /// The Windows error if the value is missing or is not text.
+    fn read_user_string(&self, key: &str, name: &str) -> io::Result<String>;
+
+    /// Writes the text `name` in `key`, making the key if needed.
+    ///
+    /// # Errors
+    ///
+    /// The Windows error if the value could not be written.
+    fn write_user_string(&mut self, key: &str, name: &str, value: &str) -> io::Result<()>;
+
+    /// Removes `name` from `key`. A value that is already gone is no error.
+    ///
+    /// # Errors
+    ///
+    /// The Windows error if the value could not be removed.
+    fn delete_user_value(&mut self, key: &str, name: &str) -> io::Result<()>;
+}
+
+/// Keeps the app to one running copy.
+pub trait InstanceLock {
+    /// Claims the app for this copy. `false` means another copy has it.
+    ///
+    /// # Errors
+    ///
+    /// The Windows error if the claim could not be made.
+    fn claim(&mut self) -> io::Result<bool>;
+
+    /// Asks the copy that has the app to open its window.
+    ///
+    /// # Errors
+    ///
+    /// The Windows error if the other copy could not be told.
+    fn wake_first(&self) -> io::Result<()>;
 }
 
 /// A key that the app may send. The app never sends any other key.

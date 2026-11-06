@@ -44,3 +44,12 @@ Start the app on the charger, with Performance set.
 1. **Unplug.** The header and the buttons say Balanced. Performance and Custom grey out, in the window and the flyout. Clicking them does nothing.
 2. **Pick Silent.** It works on battery.
 3. **Plug in.** The preset you picked last comes back. If you picked nothing on battery, Performance comes back.
+
+# One copy and autostart check (stage 29)
+
+Start with the app closed.
+
+1. **Second copy.** Start the app, close its window, then start it again. No second icon appears. The first copy opens its window.
+2. **Start with Windows.** Right-click the icon. Tick "Start with Windows".
+3. **Sign out and in.** The icon appears in the tray. No window opens. The saved preset and lighting are back.
+4. **Turn it off.** Untick "Start with Windows". Sign out and in. The app does not start.

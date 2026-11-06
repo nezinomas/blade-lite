@@ -1,8 +1,8 @@
-//! The tray icon: a click opens the flyout, the menu opens the window or
-//! quits.
+//! The tray icon: a click opens the flyout, the menu opens the window,
+//! turns autostart on or off, or quits.
 
 use razer_proto::Rgb;
-use tray_icon::menu::{Menu, MenuEvent, MenuId, MenuItem};
+use tray_icon::menu::{CheckMenuItem, Menu, MenuEvent, MenuId, MenuItem};
 use tray_icon::{Icon, MouseButton, MouseButtonState, TrayIcon, TrayIconBuilder, TrayIconEvent};
 
 use blade_lite::Rect;
@@ -16,6 +16,8 @@ pub enum TrayAction {
     /// A left click on the icon, which sits at this rectangle.
     Clicked(Rect),
     OpenWindow,
+    /// A click on "Start with Windows", which has already flipped its tick.
+    Autostart,
     Quit,
 }
 
@@ -23,20 +25,24 @@ pub enum TrayAction {
 pub struct Tray {
     _icon: TrayIcon,
     open: MenuId,
+    autostart: CheckMenuItem,
     quit: MenuId,
 }
 
 impl Tray {
-    /// Shows the icon, drawn in the accent colour.
+    /// Shows the icon, drawn in the accent colour, with "Start with Windows"
+    /// ticked if `autostart` is on.
     ///
     /// # Errors
     ///
     /// If Windows refuses the icon.
-    pub fn new(accent: Rgb) -> Result<Self, Box<dyn std::error::Error>> {
+    pub fn new(accent: Rgb, autostart: bool) -> Result<Self, Box<dyn std::error::Error>> {
         let open = MenuItem::new("Open window", true, None);
+        let autostart = CheckMenuItem::new("Start with Windows", true, autostart, None);
         let quit = MenuItem::new("Quit", true, None);
         let menu = Menu::new();
         menu.append(&open)?;
+        menu.append(&autostart)?;
         menu.append(&quit)?;
         let icon = TrayIconBuilder::new()
             .with_tooltip("Blade Lite")
@@ -51,6 +57,7 @@ impl Tray {
         Ok(Self {
             _icon: icon,
             open: open.id().clone(),
+            autostart,
             quit: quit.id().clone(),
         })
     }
@@ -75,13 +82,26 @@ impl Tray {
             }
         }));
         let (open, quit) = (self.open.clone(), self.quit.clone());
+        let autostart = self.autostart.id().clone();
         MenuEvent::set_event_handler(Some(move |event: MenuEvent| {
             if event.id == open {
                 post(handle, TrayAction::OpenWindow);
+            } else if event.id == autostart {
+                post(handle, TrayAction::Autostart);
             } else if event.id == quit {
                 post(handle, TrayAction::Quit);
             }
         }));
+    }
+
+    /// Whether "Start with Windows" is ticked.
+    pub fn autostart_ticked(&self) -> bool {
+        self.autostart.is_checked()
+    }
+
+    /// Ticks "Start with Windows", or clears it.
+    pub fn tick_autostart(&self, on: bool) {
+        self.autostart.set_checked(on);
     }
 }
 

@@ -1,9 +1,11 @@
 //! Decides what to apply to the Blade 18 and keeps the user's settings.
 
 mod apply;
+mod autostart;
 mod battery_preset;
 mod battery_rate;
 mod config;
+mod instance;
 mod native_mode;
 mod poll;
 mod query;
@@ -15,8 +17,10 @@ pub use apply::{
     ApplyError, Controller, RESUME_PAUSE, apply, apply_lighting, apply_performance,
     reapply_on_resume,
 };
+pub use autostart::{AutostartError, RUN_KEY, RUN_VALUE, TRAY_FLAG, autostart_on, set_autostart};
 pub use battery_rate::{BATTERY_RATE, BatteryRate};
 pub use config::{Config, ConfigError, CustomSettings, Lighting, Preset};
+pub use instance::{Start, start_instance};
 pub use native_mode::{NativeModeState, native_mode_state, set_native_mode};
 pub use poll::{POLL_INTERVAL, PollSchedule, View};
 pub use query::{ControllerReadings, Query, chosen_native_mode, read_controller};
