@@ -11,5 +11,6 @@ pub use flyout::FlyoutView;
 pub use header::{Header, HeaderState, MISSING, PowerPill, Stat};
 pub use keyboard::{KeyboardCommand, KeyboardState, KeyboardView, Swatch};
 pub use performance::{
-    PerformanceCommand, PerformanceState, PerformanceView, PresetOption, Slider, SliderKind,
+    ChargeLimitSwitch, PerformanceCommand, PerformanceState, PerformanceView, PresetOption, Slider,
+    SliderKind,
 };

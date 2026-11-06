@@ -13,6 +13,7 @@ fn performance(preset: Preset) -> PerformanceView {
         preset,
         on_battery: false,
         custom: CustomSettings::default(),
+        charge_limit_on: None,
     })
 }
 

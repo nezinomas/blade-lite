@@ -2,7 +2,7 @@
 
 use blade_core::{CustomSettings, Preset};
 use razer_proto::BLADE_18;
-use ui::{PerformanceCommand, PerformanceState, PerformanceView, Slider};
+use ui::{ChargeLimitSwitch, PerformanceCommand, PerformanceState, PerformanceView, Slider};
 
 fn state(preset: Preset) -> PerformanceState<'static> {
     PerformanceState {
@@ -14,6 +14,7 @@ fn state(preset: Preset) -> PerformanceState<'static> {
             gpu_boost: 1,
             fan_rpm: None,
         },
+        charge_limit_on: Some(true),
     }
 }
 
@@ -215,4 +216,69 @@ fn a_saved_speed_outside_the_range_sits_at_the_nearest_end() {
 
     assert_eq!(slider(&PerformanceView::new(&low), "Fan").position, 1);
     assert_eq!(slider(&PerformanceView::new(&high), "Fan").position, 30);
+}
+
+fn with_charge_limit(charge_limit_on: Option<bool>) -> PerformanceView {
+    PerformanceView::new(&PerformanceState {
+        charge_limit_on,
+        ..state(Preset::Balanced)
+    })
+}
+
+#[test]
+fn the_charge_limit_switch_shows_the_state_and_the_models_percent() {
+    assert_eq!(
+        with_charge_limit(Some(true)).charge_limit,
+        Some(ChargeLimitSwitch {
+            on: true,
+            percent: 80
+        })
+    );
+    assert_eq!(
+        with_charge_limit(Some(false)).charge_limit,
+        Some(ChargeLimitSwitch {
+            on: false,
+            percent: 80
+        })
+    );
+}
+
+#[test]
+fn flipping_the_charge_limit_switch_asks_for_the_other_state() {
+    assert_eq!(
+        with_charge_limit(Some(true)).toggle_charge_limit(),
+        Some(PerformanceCommand::SetChargeLimit(false))
+    );
+    assert_eq!(
+        with_charge_limit(Some(false)).toggle_charge_limit(),
+        Some(PerformanceCommand::SetChargeLimit(true))
+    );
+}
+
+#[test]
+fn an_unknown_charge_limit_hides_the_switch_and_sends_nothing() {
+    let unknown = with_charge_limit(None);
+
+    assert_eq!(unknown.charge_limit, None);
+    assert_eq!(unknown.toggle_charge_limit(), None);
+}
+
+#[test]
+fn a_model_without_a_charge_limit_hides_the_switch() {
+    const NO_LIMIT: razer_proto::ModelProfile = razer_proto::ModelProfile {
+        charge_limit: None,
+        ..BLADE_18
+    };
+    let view = PerformanceView::new(&PerformanceState {
+        model: &NO_LIMIT,
+        ..state(Preset::Balanced)
+    });
+
+    assert_eq!(view.charge_limit, None);
+    assert_eq!(view.toggle_charge_limit(), None);
+}
+
+#[test]
+fn the_charge_limit_switch_shows_on_battery_too() {
+    assert!(on_battery(Preset::Balanced).charge_limit.is_some());
 }
