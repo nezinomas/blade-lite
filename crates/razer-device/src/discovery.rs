@@ -2,7 +2,7 @@
 
 use std::ffi::CString;
 
-use razer_proto::UsbId;
+use razer_proto::{PowerKey, UsbId};
 
 /// What the HID layer tells about one device collection.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -19,6 +19,25 @@ pub struct HidInfo {
 #[must_use]
 pub fn find_controller<'a>(devices: &'a [HidInfo], usb: &UsbId) -> Option<&'a HidInfo> {
     devices.iter().find(|device| matches(device, usb))
+}
+
+/// The collections that send the model's key reports, in `devices` order.
+#[must_use]
+pub fn find_key_collections<'a>(
+    devices: &'a [HidInfo],
+    usb: &UsbId,
+    key: &PowerKey,
+) -> Vec<&'a HidInfo> {
+    devices
+        .iter()
+        .filter(|device| {
+            device.vendor_id == usb.vendor_id
+                && device.product_id == usb.product_id
+                && device.interface_number == key.interface_number
+                && device.usage_page == key.usage_page
+                && device.usage == key.usage
+        })
+        .collect()
 }
 
 fn matches(device: &HidInfo, usb: &UsbId) -> bool {

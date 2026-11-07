@@ -8,7 +8,7 @@ use razer_proto::{BuildError, Command, ParseError, REPORT_LEN, Report, Request, 
 mod discovery;
 mod hid;
 
-pub use discovery::{HidInfo, find_controller};
+pub use discovery::{HidInfo, find_controller, find_key_collections};
 pub use hid::HidTransport;
 
 /// Sends and reads the controller's feature reports.
