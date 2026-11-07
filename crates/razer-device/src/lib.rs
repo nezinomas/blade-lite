@@ -9,7 +9,7 @@ mod discovery;
 mod hid;
 
 pub use discovery::{HidInfo, find_controller, find_key_collections};
-pub use hid::HidTransport;
+pub use hid::{HidKeyReports, HidTransport};
 
 /// Sends and reads the controller's feature reports.
 pub trait Transport {
