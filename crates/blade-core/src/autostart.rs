@@ -38,22 +38,55 @@ pub enum AutostartError {
     Registry(io::Error),
 }
 
-/// Whether the Run key starts this exe at login.
+/// The most characters of another copy's command that [`Autostart::Other`]
+/// keeps, so a long Run value can't flood the log.
+pub const SHOWN_COMMAND_CHARS: usize = 200;
+
+/// What the Run key starts at login.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Autostart {
+    /// Nothing starts: no Run value, or Task Manager turned it off.
+    Off,
+    /// This exe starts in the tray.
+    On,
+    /// Another command starts, such as a copy in `target\debug`. It holds
+    /// that command, cut to [`SHOWN_COMMAND_CHARS`], with no control
+    /// characters.
+    Other(String),
+}
+
+/// What the Run key starts at login, seen from this exe.
 ///
 /// # Errors
 ///
 /// See [`AutostartError`]. A missing value is off, not an error. A Run
 /// value that Task Manager turned off is off too.
-pub fn autostart_on(
+pub fn autostart(
     registry: &(impl UserStrings + UserBytes),
     exe: &Path,
-) -> Result<bool, AutostartError> {
-    let runs = match registry.read_user_string(RUN_KEY, RUN_VALUE) {
-        Ok(value) => value.eq_ignore_ascii_case(&command(exe)?),
-        Err(error) if error.kind() == io::ErrorKind::NotFound => false,
+) -> Result<Autostart, AutostartError> {
+    let value = match registry.read_user_string(RUN_KEY, RUN_VALUE) {
+        Ok(value) => value,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(Autostart::Off),
         Err(error) => return Err(AutostartError::Registry(error)),
     };
-    Ok(runs && approved(registry)?)
+    if !approved(registry)? {
+        return Ok(Autostart::Off);
+    }
+    if value.eq_ignore_ascii_case(&command(exe)?) {
+        return Ok(Autostart::On);
+    }
+    Ok(Autostart::Other(shown(&value)))
+}
+
+/// `command` safe to show: no control characters, at most
+/// [`SHOWN_COMMAND_CHARS`] long.
+fn shown(command: &str) -> String {
+    command
+        .chars()
+        .filter(|c| !c.is_control())
+        .take(SHOWN_COMMAND_CHARS)
+        .collect()
 }
 
 /// Whether Task Manager lets the Run value start. No flag means it does.
