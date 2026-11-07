@@ -102,7 +102,7 @@ impl KeyboardView {
     }
 
     /// The command for the text typed in the custom colour field. Only
-    /// `#RRGGBB` counts, with outer spaces ignored. Other text, or the
+    /// `#RRGGBB` counts, with outer whitespace ignored. Other text, or the
     /// current colour, gives no command, so the last good colour stays.
     #[must_use]
     pub fn pick_custom(&self, text: &str) -> Option<KeyboardCommand> {

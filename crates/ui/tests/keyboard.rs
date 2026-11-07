@@ -138,7 +138,9 @@ fn picking_a_custom_colour_sets_it_unless_it_is_the_current_one() {
         view.pick_custom("#FF69B4"),
         Some(KeyboardCommand::SetColour(PINK))
     );
-    assert_eq!(view.pick_custom("#00B7C3"), None);
+    for current in ["#00B7C3", "#00b7c3", " #00B7C3 "] {
+        assert_eq!(view.pick_custom(current), None, "{current:?}");
+    }
 }
 
 #[test]
