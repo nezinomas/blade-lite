@@ -31,8 +31,7 @@ pub fn find_key_collections<'a>(
     devices
         .iter()
         .filter(|device| {
-            device.vendor_id == usb.vendor_id
-                && device.product_id == usb.product_id
+            same_usb(device, usb)
                 && device.interface_number == key.interface_number
                 && device.usage_page == key.usage_page
                 && device.usage == key.usage
@@ -41,9 +40,13 @@ pub fn find_key_collections<'a>(
 }
 
 fn matches(device: &HidInfo, usb: &UsbId) -> bool {
-    device.vendor_id == usb.vendor_id
-        && device.product_id == usb.product_id
+    same_usb(device, usb)
         && device.interface_number == usb.interface_number
         && device.usage_page == usb.usage_page
         && device.usage == usb.usage
+}
+
+/// Whether the device has the model's vendor and product id.
+fn same_usb(device: &HidInfo, usb: &UsbId) -> bool {
+    device.vendor_id == usb.vendor_id && device.product_id == usb.product_id
 }
