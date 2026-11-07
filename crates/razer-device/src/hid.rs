@@ -53,6 +53,9 @@ const KEY_REPORT_ROOM: usize = 64;
 /// hidapi. They are only read: nothing is sent to them.
 pub struct HidKeyReports {
     devices: Vec<HidDevice>,
+    /// The collection that sent the first report. Only that one is read
+    /// from then on, so a press can't come in twice or out of order.
+    source: Option<usize>,
 }
 
 impl HidKeyReports {
@@ -80,23 +83,31 @@ impl HidKeyReports {
         if devices.is_empty() {
             return Err(not_found());
         }
-        Ok(Self { devices })
+        Ok(Self {
+            devices,
+            source: None,
+        })
     }
 
-    /// Waits up to `wait` on each collection in turn, and gives the first
-    /// report that comes. `None` if none came.
+    /// Waits up to `wait` for a report: on each collection in turn until
+    /// one sends, then on that one alone. `None` if none came.
     ///
     /// # Errors
     ///
     /// Any hidapi error, such as the keyboard going away.
-    pub fn read(&self, wait: Duration) -> io::Result<Option<Vec<u8>>> {
+    pub fn read(&mut self, wait: Duration) -> io::Result<Option<Vec<u8>>> {
         let millis = i32::try_from(wait.as_millis()).unwrap_or(i32::MAX);
         let mut buffer = [0; KEY_REPORT_ROOM];
-        for device in &self.devices {
-            let read = device
+        let indexes = match self.source {
+            Some(index) => index..index + 1,
+            None => 0..self.devices.len(),
+        };
+        for index in indexes {
+            let read = self.devices[index]
                 .read_timeout(&mut buffer, millis)
                 .map_err(io::Error::other)?;
             if read > 0 {
+                self.source = Some(index);
                 return Ok(Some(buffer[..read].to_vec()));
             }
         }

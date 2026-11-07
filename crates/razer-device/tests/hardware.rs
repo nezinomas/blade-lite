@@ -310,7 +310,7 @@ fn both_fans_and_the_cpu_temperature_are_read() {
 #[ignore = "needs the Blade 18"]
 fn the_key_reports_open_and_wait_quietly() {
     // Only read, so the one-copy lock is not needed.
-    let reports = HidKeyReports::open(&razer_proto::BLADE_18).unwrap();
+    let mut reports = HidKeyReports::open(&razer_proto::BLADE_18).unwrap();
 
     // No key is pressed, so nothing comes, or only a key-up report.
     let report = reports.read(Duration::from_millis(100)).unwrap();
