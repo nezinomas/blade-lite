@@ -30,11 +30,12 @@
 - The app steps the presets in the profile order Silent, Balanced, Performance, then wraps. Synapse's order is not known (no capture). Custom is never stepped to, since it may hold a manual fan; from Custom the key goes to Silent. On battery it steps Silent and Balanced only, from the preset that runs, and saves the new one, as a click does. A press within 300 ms of the last step is dropped. The reader opens the reports again after a read error or a minute with no report, so a handle gone stale over a sleep comes back.
 - The "Switch to 60 Hz on battery" switch is in the window and the flyout. It flips the saved value, so it works while the controller can't be read. On battery it acts at once. If 60 Hz can't be set, it saves the switch off again, so the rate buttons don't lock at another rate. Both switches are set from the config after each click, even after an error.
 - The app writes its errors to `%APPDATA%\blade-lite\blade-lite.log`, as well as stderr. Each line starts with the UTC time. A file moves to `.log.1` at 1 MB; 5 files are kept, so the log never passes 5 MB. A window error is written once, not on each refresh. A panic is written too. If the files can't be moved aside (another program holds one open), the log starts again with a note. A line can hold local paths, such as the user folder. On a full disk a line may be cut. Nothing is sent off the PC. Checked with a release build 2026-11-07.
+- Each reply echoes the transaction ID (byte 1) and the command (bytes 6 and 7) of its request. That holds for every reply in the Synapse capture and in the `cargo hw` tests that send commands (checked 2026-11-07). `Device::send` refuses a reply that does not match, even a Busy one, and does not send again, since what the controller did is not known. Bytes 2 and 3 are not compared: some replies set them (`078C` gives `00 02`). Without the 1 ms pause, about a third of the reads came back as an older reply (an older transaction ID), which was taken as good before; Busy replies there echoed the request.
 - `0D8E` reads back the native mode chosen with `0D0E` at once. The panel stays as it booted.
 
 ## Progress
 
-- Stages 0–31, 33–36, 38, 41, 42 and 43 are done. See `docs/PLAN.md`.
+- Stages 0–31, 33–36, 38, 41, 42, 43 and 45 are done. See `docs/PLAN.md`.
 - Retros ran after stages 5 and 14.
 
 ## Working style
