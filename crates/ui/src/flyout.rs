@@ -11,6 +11,7 @@ use crate::{
 /// The flyout, ready to show. Clicks on its preset and rate buttons go to
 /// the window's group views, whose buttons are in the same order.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[allow(clippy::struct_excessive_bools)] // Each is its own switch or button.
 pub struct FlyoutView {
     pub presets: Vec<PresetOption>,
     pub rates: Vec<RateSegment>,
