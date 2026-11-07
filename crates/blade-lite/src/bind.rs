@@ -7,7 +7,7 @@ use razer_proto::Rgb;
 use slint::{ModelRc, SharedString, VecModel};
 use ui::{DisplayView, FlyoutView, Header, KeyboardView, PerformanceView, PresetOption};
 
-use crate::shell::Shell;
+use crate::shell::{RealApp, Shell};
 use crate::{Choice, FlyoutWindow, MainWindow, SliderRow, Stat, SwatchItem};
 
 pub fn colour(rgb: Rgb) -> slint::Color {
@@ -158,10 +158,7 @@ fn move_brightness(shell: &Shell, percent: i32) {
 }
 
 fn toggle_sixty_hz(shell: &Shell) {
-    shell.act(|app| {
-        let command = app.display_view()?.toggle_sixty_hz_on_battery();
-        app.on_display(command)
-    });
+    shell.act(RealApp::toggle_sixty_hz_on_battery);
 }
 
 fn toggle_touchpad(shell: &Shell) {

@@ -239,6 +239,11 @@ impl Shell {
             let flyout = FlyoutView::new(&performance, display, keyboard);
             bind::flyout(&self.flyout, &flyout, &header);
         }
+        // A switch flips itself on a click. Set it from the config even when
+        // a view failed, so it never shows a value that isn't saved.
+        let sixty_hz = app.config().sixty_hz_on_battery;
+        self.window.set_sixty_hz_on_battery(sixty_hz);
+        self.flyout.set_sixty_hz_on_battery(sixty_hz);
         self.window.set_error(errors.join("\n").into());
     }
 
