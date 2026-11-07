@@ -173,6 +173,13 @@ fn lighting_commands(percent: u8, colour: Rgb) -> Vec<Command> {
     commands
 }
 
+/// As [`lighting_commands`], with the touchpad key red.
+fn red_lighting_commands(percent: u8, colour: Rgb) -> Vec<Command> {
+    let mut commands = Brightness::new(percent).unwrap().commands(&BLADE_18);
+    commands.extend(static_colour_touchpad_off(colour, &BLADE_18));
+    commands
+}
+
 #[test]
 fn start_applies_the_saved_settings() {
     let (mut app, _dir, _) = app();
@@ -304,8 +311,7 @@ fn start_paints_the_touchpad_key_red_if_the_touchpad_is_off() {
     app.start().unwrap();
 
     let mut expected = PerfMode::Balanced.commands(&BLADE_18).unwrap();
-    expected.extend(lighting_commands(36, GREEN));
-    expected.extend(red_key());
+    expected.extend(red_lighting_commands(36, GREEN));
     assert_eq!(sent(&app), expected);
 }
 
@@ -357,9 +363,7 @@ fn a_new_colour_keeps_the_touchpad_key_red() {
 
     app.on_keyboard(KeyboardCommand::SetColour(WHITE)).unwrap();
 
-    let mut expected = lighting_commands(36, WHITE);
-    expected.extend(static_colour_touchpad_off(WHITE, &BLADE_18));
-    assert_eq!(sent_after(&app, started), expected);
+    assert_eq!(sent_after(&app, started), red_lighting_commands(36, WHITE));
 }
 
 #[test]
@@ -387,6 +391,20 @@ fn an_unreadable_touchpad_state_leaves_the_key_and_the_start_alone() {
     expected.extend(lighting_commands(36, GREEN));
     assert_eq!(sent(&app), expected);
     assert_eq!(sent(&app).len(), started);
+}
+
+#[test]
+fn after_a_failed_lighting_send_the_next_change_paints_the_key() {
+    let (mut app, _dir, _) = touchpad_off_app();
+    app.start().unwrap();
+    app.machine_mut().controller.fails = true;
+    assert!(app.on_keyboard(KeyboardCommand::SetColour(WHITE)).is_err());
+    app.machine_mut().controller.fails = false;
+    let before = sent(&app).len();
+
+    app.on_touchpad_changed().unwrap();
+
+    assert_eq!(sent_after(&app, before), red_key());
 }
 
 #[test]

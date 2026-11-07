@@ -75,7 +75,9 @@ pub struct App<C, D, R, K> {
     /// The battery charge limit state, read like the logo's.
     charge_limit_on: Option<bool>,
     /// Whether the frame the app last painted has the touchpad key red.
-    key_red: bool,
+    /// `None` if unknown, such as after a failed send: the next change
+    /// then paints it.
+    key_red: Option<bool>,
 }
 
 impl<C, D, R, K> App<C, D, R, K>
@@ -101,7 +103,7 @@ where
             on_battery: false,
             logo_on: None,
             charge_limit_on: None,
-            key_red: false,
+            key_red: None,
         }
     }
 
@@ -121,21 +123,20 @@ where
 
     /// Reads the logo and charge limit states, then sends the saved
     /// settings, with the preset that runs in place of the saved one on
-    /// battery. Last, the touchpad key turns red if the touchpad is off.
+    /// battery. The touchpad key is red in that frame if the touchpad is off.
     ///
     /// # Errors
     ///
-    /// See [`AppError`]. A touchpad key that fails does not fail the start.
+    /// See [`AppError`].
     pub fn start(&mut self) -> Result<(), AppError> {
         self.logo_on = logo_on(&mut self.machine.controller, self.model)
             .ok()
             .flatten();
         self.read_charge_limit();
         let config = self.running(self.config);
-        let applied = apply(&config, self.model, &mut self.machine.controller);
-        // The frame just sent, if any, has the key in the plain colour.
-        self.key_red = false;
-        self.follow_touchpad();
+        let red = self.touchpad_off();
+        let applied = apply(&config, self.model, &mut self.machine.controller, red);
+        self.key_red = applied.is_ok().then_some(red);
         Ok(applied?)
     }
 
@@ -149,16 +150,16 @@ where
     /// See [`AppError`]. Nothing is sent if the touchpad state can't be
     /// read.
     pub fn on_touchpad_changed(&mut self) -> Result<(), AppError> {
-        let red = !touchpad_on(&self.machine.registry)?;
         let Some(lighting) = self.config.lighting else {
             return Ok(());
         };
-        if red == self.key_red {
+        let red = !touchpad_on(&self.machine.registry)?;
+        if self.key_red == Some(red) {
             return Ok(());
         }
-        paint_touchpad_key(red, lighting, self.model, &mut self.machine.controller)?;
-        self.key_red = red;
-        Ok(())
+        let painted = paint_touchpad_key(red, lighting, self.model, &mut self.machine.controller);
+        self.key_red = painted.is_ok().then_some(red);
+        Ok(painted?)
     }
 
     /// The header, with the controller's readings added to `readings`.
@@ -262,14 +263,14 @@ where
                 return Ok(());
             }
         }
-        apply_lighting(lighting, self.model, &mut self.machine.controller)?;
-        self.key_red = false;
-        let committed = self.commit(Config {
+        let red = self.touchpad_off();
+        let applied = apply_lighting(lighting, self.model, &mut self.machine.controller, red);
+        self.key_red = applied.is_ok().then_some(red);
+        applied?;
+        self.commit(Config {
             lighting: Some(lighting),
             ..self.config
-        });
-        self.follow_touchpad();
-        committed
+        })
     }
 
     /// # Errors
@@ -331,12 +332,16 @@ where
         Ok(result?)
     }
 
-    /// Paints the touchpad key for the touchpad state. A failure is only
-    /// logged: the key is not worth failing the rest for.
-    fn follow_touchpad(&mut self) {
-        if let Err(error) = self.on_touchpad_changed() {
-            eprintln!("blade-lite: the touchpad key can't follow the touchpad: {error}");
-        }
+    /// Whether the touchpad key should be red. If the touchpad state can't
+    /// be read, the key keeps the plain colour.
+    fn touchpad_off(&self) -> bool {
+        touchpad_on(&self.machine.registry).map_or_else(
+            |error| {
+                eprintln!("blade-lite: the touchpad key stays plain: {error}");
+                false
+            },
+            |on| !on,
+        )
     }
 
     fn read_charge_limit(&mut self) {
