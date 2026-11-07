@@ -15,6 +15,9 @@ pub struct PowerKey {
     pub usage: u16,
     /// The first byte of each key report.
     pub report_id: u8,
+    /// The size of each key report, with its id. A report of another size
+    /// is not a key report.
+    pub report_len: usize,
     /// The key's code in the list of held keys.
     pub code: u8,
 }
@@ -24,8 +27,11 @@ impl PowerKey {
     /// is not a key report, so the caller ignores it.
     #[must_use]
     pub fn held(&self, report: &[u8]) -> Option<bool> {
+        if report.len() != self.report_len {
+            return None;
+        }
         let (&id, held) = report.split_first()?;
-        if id != self.report_id || held.is_empty() {
+        if id != self.report_id {
             return None;
         }
         // Code 0 ends the list; nothing after it counts.
@@ -43,6 +49,7 @@ mod tests {
         usage_page: 0x01,
         usage: 0x00,
         report_id: 0x04,
+        report_len: 16,
         code: 0xD3,
     };
 
@@ -90,8 +97,22 @@ mod tests {
     }
 
     #[test]
-    fn a_report_too_short_to_list_keys_is_ignored() {
-        assert_eq!(KEY.held(&[0x04]), None);
+    fn a_report_of_another_size_is_ignored() {
+        assert_eq!(KEY.held(&report(&[0x04, 0xD3])[..15]), None);
+        let mut long = [0; 17];
+        long[..2].copy_from_slice(&[0x04, 0xD3]);
+        assert_eq!(KEY.held(&long), None);
+        assert_eq!(KEY.held(&[0x04, 0xD3]), None);
         assert_eq!(KEY.held(&[]), None);
+    }
+
+    #[test]
+    fn a_key_of_no_size_reads_nothing() {
+        let none = PowerKey {
+            report_len: 0,
+            ..KEY
+        };
+
+        assert_eq!(none.held(&[]), None);
     }
 }

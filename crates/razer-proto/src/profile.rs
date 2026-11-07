@@ -142,6 +142,7 @@ pub const BLADE_18: ModelProfile = ModelProfile {
         usage_page: 0x01,
         usage: 0x00,
         report_id: 0x04,
+        report_len: 16,
         code: 0xD3,
     }),
 };
