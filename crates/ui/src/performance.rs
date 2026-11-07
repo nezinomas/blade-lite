@@ -2,7 +2,7 @@
 //! battery charge limit.
 
 use blade_core::{CustomSettings, Preset};
-use razer_proto::{ModelProfile, PerfMode};
+use razer_proto::ModelProfile;
 
 use crate::header::preset_label;
 
@@ -146,7 +146,7 @@ fn preset_options(model: &ModelProfile, current: Preset, on_battery: bool) -> Ve
     model
         .presets
         .iter()
-        .map(|&mode| preset(mode))
+        .map(|&mode| Preset::from(mode))
         .chain([Preset::Custom])
         .map(|preset| PresetOption {
             preset,
@@ -155,14 +155,6 @@ fn preset_options(model: &ModelProfile, current: Preset, on_battery: bool) -> Ve
             enabled: !on_battery || preset.offered_on_battery(),
         })
         .collect()
-}
-
-fn preset(mode: PerfMode) -> Preset {
-    match mode {
-        PerfMode::Silent => Preset::Silent,
-        PerfMode::Balanced => Preset::Balanced,
-        PerfMode::Performance => Preset::Performance,
-    }
 }
 
 fn sliders(model: &ModelProfile, custom: CustomSettings) -> Vec<Slider> {
