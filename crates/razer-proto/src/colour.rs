@@ -2,7 +2,7 @@
 
 use std::str::FromStr;
 
-use crate::{Command, ModelProfile};
+use crate::{Command, ModelProfile, TOUCHPAD_OFF};
 
 /// Set the keyboard effect. Args `[05, 00]` pick the custom frame.
 const SET_EFFECT: u16 = 0x030A;
@@ -53,20 +53,42 @@ impl FromStr for Rgb {
 /// then one frame row per row of the model's key grid.
 #[must_use]
 pub fn static_colour(colour: Rgb, model: &ModelProfile) -> Vec<Command> {
+    frame(colour, None, model)
+}
+
+/// As [`static_colour`], with the model's touchpad key red, as it shows
+/// while the touchpad is off. The same as [`static_colour`] if the model
+/// has no touchpad key, or its key is not in the grid.
+#[must_use]
+pub fn static_colour_touchpad_off(colour: Rgb, model: &ModelProfile) -> Vec<Command> {
+    let key = model
+        .touchpad_key
+        .map(|key| (key.row, key.column))
+        .filter(|&(row, column)| {
+            row < model.keys.rows && column < model.keys.columns && model.keys.has_key(row, column)
+        });
+    frame(colour, key, model)
+}
+
+/// The custom frame effect, then one frame row per row of the key grid,
+/// with `red` painted [`TOUCHPAD_OFF`].
+fn frame(colour: Rgb, red: Option<(u8, u8)>, model: &ModelProfile) -> Vec<Command> {
     let effect = Command {
         id: SET_EFFECT,
         args: CUSTOM_FRAME.to_vec(),
     };
-    let rows = (0..model.keys.rows).map(|row| frame_row(row, colour, model));
+    let rows = (0..model.keys.rows).map(|row| frame_row(row, colour, red, model));
     std::iter::once(effect).chain(rows).collect()
 }
 
 /// One frame row: the colour on each key, black where there is no key.
-fn frame_row(row: u8, colour: Rgb, model: &ModelProfile) -> Command {
+fn frame_row(row: u8, colour: Rgb, red: Option<(u8, u8)>, model: &ModelProfile) -> Command {
     let grid = &model.keys;
     let mut args = vec![FRAME_ROW_MARKER, row, FIRST_COLUMN, grid.columns - 1];
     for column in 0..grid.columns {
-        let rgb = if grid.has_key(row, column) {
+        let rgb = if red == Some((row, column)) {
+            TOUCHPAD_OFF
+        } else if grid.has_key(row, column) {
             colour
         } else {
             BLACK

@@ -16,7 +16,7 @@ mod touchpad_key;
 
 pub use brightness::{Brightness, BrightnessError};
 pub use charge::{ChargeLimit, ChargeLimitError};
-pub use colour::{ParseRgbError, Rgb, static_colour};
+pub use colour::{ParseRgbError, Rgb, static_colour, static_colour_touchpad_off};
 pub use command::Command;
 pub use custom::{CpuBoost, Custom, CustomError, CustomLimits, FanMode, GpuBoost, Rpm, RpmRange};
 pub use logo::Logo;
@@ -24,7 +24,7 @@ pub use native_mode::NativeMode;
 pub use preset::{PerfMode, PresetError};
 pub use profile::{BLADE_18, KeyGrid, ModelProfile, UsbId};
 pub use readings::{Celsius, FanRpm};
-pub use touchpad_key::TouchpadKey;
+pub use touchpad_key::{TOUCHPAD_OFF, TouchpadKey};
 
 /// Size of every feature report, sent and received.
 pub const REPORT_LEN: usize = 90;

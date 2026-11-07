@@ -52,8 +52,8 @@ pub struct ModelProfile {
     pub logo: Option<Logo>,
     /// The battery charge limit, or `None` if the model has none.
     pub charge_limit: Option<ChargeLimit>,
-    /// The key that lights while the touchpad is off, or `None` if the
-    /// model has none.
+    /// The key painted red while the touchpad is off, or `None` if the
+    /// model has none. It must be a key of [`ModelProfile::keys`].
     pub touchpad_key: Option<TouchpadKey>,
 }
 
@@ -128,6 +128,6 @@ pub const BLADE_18: ModelProfile = ModelProfile {
     logo: Some(Logo { led: 0x04 }),
     // Synapse offers only 80% on this model.
     charge_limit: Some(ChargeLimit { percent: 80 }),
-    // The capture's `0059` LED: numpad ".", with a touchpad icon.
-    touchpad_key: Some(TouchpadKey { led: 0x01 }),
+    // Numpad ".", with a touchpad icon. Found by eye on the laptop.
+    touchpad_key: Some(TouchpadKey { row: 5, column: 17 }),
 };
