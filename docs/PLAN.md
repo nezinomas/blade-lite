@@ -67,7 +67,7 @@ lists each reviewer's findings on its own.
 - 32 GPU mode: dropped (no switch on this model)
 - [x] 33 Red touchpad key (follows the Windows touchpad switch; the physical key is 47)
 - [x] 34 Power-mode key (Fn + numpad Enter steps Silent, Balanced, Performance; read from the keyboard's key report, no hook; checked on the laptop)
-- [ ] 35 60 Hz on battery toggle
+- [x] 35 60 Hz on battery toggle (in the Display group and the flyout; a failed 60 Hz set saves the switch off again)
 
 ## Bug fixes
 - [x] 36 Only Silent or Balanced on battery
