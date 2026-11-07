@@ -304,6 +304,10 @@ where
                 set_native_mode(mode, &mut self.machine.controller)?;
             }
             DisplayCommand::SetSixtyHzOnBattery(on) => {
+                // Nothing to save, and the panel is already where it should be.
+                if on == self.config.sixty_hz_on_battery {
+                    return Ok(());
+                }
                 self.commit(Config {
                     sixty_hz_on_battery: on,
                     ..self.config

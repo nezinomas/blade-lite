@@ -563,6 +563,42 @@ fn turning_it_off_on_battery_puts_the_rate_back() {
 }
 
 #[test]
+fn setting_sixty_hz_on_battery_to_what_it_is_saves_nothing() {
+    let (mut app, _dir, path) = app();
+
+    app.on_display(DisplayCommand::SetSixtyHzOnBattery(false))
+        .unwrap();
+
+    assert!(!path.exists());
+}
+
+#[test]
+fn turning_it_on_twice_on_battery_keeps_the_rate_to_put_back() {
+    let (mut app, _dir, _) = app();
+    app.on_power(PowerEvent::OnBattery).unwrap();
+    app.on_display(DisplayCommand::SetSixtyHzOnBattery(true))
+        .unwrap();
+
+    app.on_display(DisplayCommand::SetSixtyHzOnBattery(true))
+        .unwrap();
+    app.on_power(PowerEvent::OnAc).unwrap();
+
+    assert_eq!(panel_hz(&app), 240);
+}
+
+#[test]
+fn turning_it_on_or_off_on_ac_leaves_the_rate() {
+    let (mut app, _dir, _) = app();
+
+    app.on_display(DisplayCommand::SetSixtyHzOnBattery(true))
+        .unwrap();
+    assert_eq!(panel_hz(&app), 240);
+    app.on_display(DisplayCommand::SetSixtyHzOnBattery(false))
+        .unwrap();
+    assert_eq!(panel_hz(&app), 240);
+}
+
+#[test]
 fn the_power_source_drives_the_rate_and_the_pill() {
     let (mut app, _dir, _) = app_with(Config {
         sixty_hz_on_battery: true,
