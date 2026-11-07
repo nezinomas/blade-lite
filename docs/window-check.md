@@ -35,6 +35,7 @@ Start the app as above. A blue bolt icon shows in the tray. It may hide under th
 2. **Open the flyout.** Left-click the icon. A small panel with round corners and Mica opens just above the icon.
 3. **Close the flyout.** Click the icon again, or click anywhere else. The panel closes.
 4. **Flyout controls.** Click Silent. Click your old rate, or another rate and then your old one. Drag Keyboard light, then put it back. Flip Touchpad twice.
+   **60 Hz on battery (stage 35).** Flip "Switch to 60 Hz on battery". Open the window: its switch shows the same state. Flip it in the window, and the flyout follows. Put it back as it was.
 5. **Reset to Balanced.** With Silent set, click it. The preset goes back to Balanced, and the button greys out.
 6. **Open window.** Click it. The settings window opens and shows the same state.
 7. **Menu.** Right-click the icon. "Open window" opens the window. "Quit" ends the app, and the icon goes away.
