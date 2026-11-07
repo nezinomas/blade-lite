@@ -143,6 +143,8 @@ pub enum ParseError {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Report {
     status: Status,
+    transaction_id: u8,
+    command: u16,
     args: [u8; MAX_ARGS],
     data_size: usize,
 }
@@ -170,6 +172,8 @@ impl Report {
         args.copy_from_slice(&bytes[ARGS_INDEX..CHECKSUM_INDEX]);
         Ok(Self {
             status,
+            transaction_id: bytes[TRANSACTION_ID_INDEX],
+            command: u16::from_be_bytes([bytes[COMMAND_INDEX], bytes[COMMAND_INDEX + 1]]),
             args,
             data_size: usize::from(data_size),
         })
@@ -179,6 +183,18 @@ impl Report {
     #[must_use]
     pub fn status(&self) -> Status {
         self.status
+    }
+
+    /// The transaction ID the controller echoed back.
+    #[must_use]
+    pub fn transaction_id(&self) -> u8 {
+        self.transaction_id
+    }
+
+    /// The command the controller echoed back. The high byte is the class.
+    #[must_use]
+    pub fn command(&self) -> u16 {
+        self.command
     }
 
     /// The args the controller sent back: as many bytes as the data size says.

@@ -85,3 +85,53 @@ fn data_size_past_the_args_is_an_error() {
 
     assert_eq!(Report::parse(&bytes), Err(ParseError::BadDataSize(size)));
 }
+
+#[test]
+fn a_reply_reads_its_transaction_id_and_command() {
+    let mut bytes = [0; REPORT_LEN];
+    bytes[0] = SUCCESS;
+    bytes[1] = 0x1A;
+    bytes[6..8].copy_from_slice(&[0x0D, 0x82]);
+    bytes[CHECKSUM_INDEX] = checksum(&bytes);
+
+    let report = Report::parse(&bytes).unwrap();
+
+    assert_eq!(report.transaction_id(), 0x1A);
+    assert_eq!(report.command(), 0x0D82);
+}
+
+/// Each captured reply echoes the transaction ID and command of the request
+/// just before it in the same fixture, so the device can check that a reply
+/// is for its request.
+#[test]
+fn every_captured_reply_echoes_its_request() {
+    let mut last_request: Option<common::Captured> = None;
+    for report in common::captured_reports() {
+        if last_request
+            .as_ref()
+            .is_some_and(|request| request.fixture != report.fixture)
+        {
+            last_request = None;
+        }
+        if report.direction == common::Direction::Sent {
+            last_request = Some(report);
+            continue;
+        }
+        let request = last_request
+            .take()
+            .unwrap_or_else(|| panic!("{}: a reply with no request", report.fixture));
+        let reply = Report::parse(&report.bytes).unwrap();
+        assert_eq!(
+            reply.transaction_id(),
+            request.bytes[1],
+            "{}",
+            report.fixture
+        );
+        assert_eq!(
+            reply.command().to_be_bytes(),
+            request.bytes[6..8],
+            "{}",
+            report.fixture
+        );
+    }
+}

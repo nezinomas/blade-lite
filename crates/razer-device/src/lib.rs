@@ -66,6 +66,10 @@ pub enum DeviceError {
     Rejected(Status),
     /// The reply has fewer args than the command needs.
     ShortReply,
+    /// The reply is for another request: it echoes another transaction ID or
+    /// command. Holds what the reply echoed. Not retried, since it is not known
+    /// what the controller did.
+    WrongReply { transaction_id: u8, command: u16 },
 }
 
 /// Get firmware version. Args are `[0, 0]`, the reply args are `[major, minor]`.
@@ -101,11 +105,13 @@ impl<T: Transport, C: Clock> Device<T, C> {
     ///
     /// See [`DeviceError`].
     pub fn send(&mut self, command: u16, args: &[u8]) -> Result<Report, DeviceError> {
-        let request = Request::new(self.next_transaction_id(), command, args)
+        let transaction_id = self.next_transaction_id();
+        let request = Request::new(transaction_id, command, args)
             .map_err(DeviceError::Build)?
             .to_bytes();
         for _ in 0..MAX_ATTEMPTS {
             let report = self.exchange(&request)?;
+            ensure_matches(&report, transaction_id, command)?;
             match report.status() {
                 Status::Success => return Ok(report),
                 Status::Busy => self.clock.sleep(PAUSE),
@@ -154,5 +160,19 @@ impl<T: Transport, C: Clock> Device<T, C> {
         let id = self.transaction_id;
         self.transaction_id = (id + 1) % TRANSACTION_IDS;
         id
+    }
+}
+
+/// Checks that `report` echoes the transaction ID and command it was sent for.
+/// Bytes 2 and 3 (remaining packets) are not compared: this model sets them in
+/// some replies, such as `00 02` for `078C`, though the request had `00 00`.
+fn ensure_matches(report: &Report, transaction_id: u8, command: u16) -> Result<(), DeviceError> {
+    if report.transaction_id() == transaction_id && report.command() == command {
+        Ok(())
+    } else {
+        Err(DeviceError::WrongReply {
+            transaction_id: report.transaction_id(),
+            command: report.command(),
+        })
     }
 }

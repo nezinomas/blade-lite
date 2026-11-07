@@ -82,3 +82,93 @@ fn transaction_ids_count_0_to_31_then_wrap() {
     let expected: Vec<u8> = (0..32).chain([0]).collect();
     assert_eq!(ids, expected);
 }
+
+#[test]
+fn a_reply_with_another_transaction_id_is_an_error() {
+    let (transport, clock, log) = fakes(vec![reply(SUCCESS, 7, COMMAND)]);
+
+    let result = Device::new(transport, clock).send(COMMAND, &[]);
+
+    assert!(
+        matches!(
+            result,
+            Err(DeviceError::WrongReply {
+                transaction_id: 7,
+                command: COMMAND
+            })
+        ),
+        "{result:?}"
+    );
+    assert_eq!(sent(&log).len(), 1);
+}
+
+#[test]
+fn a_reply_to_another_command_is_an_error() {
+    let (transport, clock, log) = fakes(vec![reply(SUCCESS, 0, 0x0D82)]);
+
+    let result = Device::new(transport, clock).send(COMMAND, &[]);
+
+    assert!(
+        matches!(
+            result,
+            Err(DeviceError::WrongReply {
+                transaction_id: 0,
+                command: 0x0D82
+            })
+        ),
+        "{result:?}"
+    );
+    assert_eq!(sent(&log).len(), 1);
+}
+
+#[test]
+fn a_busy_reply_to_another_request_is_not_retried() {
+    let (transport, clock, log) = fakes(vec![reply(BUSY, 3, COMMAND), reply(SUCCESS, 0, COMMAND)]);
+
+    let result = Device::new(transport, clock).send(COMMAND, &[]);
+
+    assert!(
+        matches!(result, Err(DeviceError::WrongReply { .. })),
+        "{result:?}"
+    );
+    assert_eq!(sent(&log).len(), 1);
+}
+
+#[test]
+fn a_failure_reply_to_another_request_is_a_wrong_reply() {
+    let (transport, clock, log) = fakes(vec![reply(FAILURE, 0, 0x0D82)]);
+
+    let result = Device::new(transport, clock).send(COMMAND, &[]);
+
+    assert!(
+        matches!(result, Err(DeviceError::WrongReply { .. })),
+        "{result:?}"
+    );
+    assert_eq!(sent(&log).len(), 1);
+}
+
+#[test]
+fn a_busy_retry_must_still_match() {
+    let (transport, clock, _) = fakes(vec![reply(BUSY, 0, COMMAND), reply(SUCCESS, 1, COMMAND)]);
+
+    let result = Device::new(transport, clock).send(COMMAND, &[]);
+
+    assert!(
+        matches!(result, Err(DeviceError::WrongReply { .. })),
+        "{result:?}"
+    );
+}
+
+/// This model sets the remaining packets (bytes 2 and 3) in some replies,
+/// such as `00 02` for `078C`, so they must not be compared.
+#[test]
+fn remaining_packets_in_a_reply_are_not_compared() {
+    let mut bytes = reply(SUCCESS, 0, COMMAND);
+    bytes[2..4].copy_from_slice(&[0x00, 0x02]);
+    bytes[razer_proto::CHECKSUM_INDEX] = razer_proto::checksum(&bytes);
+    let (transport, clock, _) = fakes(vec![bytes]);
+
+    let result = Device::new(transport, clock).send(COMMAND, &[]);
+
+    assert!(result.is_ok(), "{result:?}");
+}
