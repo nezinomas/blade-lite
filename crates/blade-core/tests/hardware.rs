@@ -5,16 +5,16 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use blade_core::{
-    APP_NAME, BatteryRate, Config, NativeModeState, Query, RefreshRate, TOUCHPAD_KEY,
-    charge_limit_on, logo_on, native_mode_state, refresh_rates, set_charge_limit, set_logo,
-    set_native_mode, set_refresh_rate, set_touchpad, touchpad_on,
+    APP_NAME, BatteryRate, Config, NativeModeState, PowerKeyPresses, Query, RefreshRate,
+    TOUCHPAD_KEY, charge_limit_on, logo_on, native_mode_state, refresh_rates, set_charge_limit,
+    set_logo, set_native_mode, set_refresh_rate, set_touchpad, touchpad_on,
 };
 use platform::{
     DisplayApi, InstanceLock, OutputTechnology, PowerEvent, PowerEvents, RegistryWatch,
     WindowsDisplays, WindowsInstance, WindowsKeys, WindowsPowerEvents, WindowsRegistry,
 };
-use razer_device::{Device, HidTransport, SystemClock};
-use razer_proto::{BLADE_18, Command, NativeMode};
+use razer_device::{Device, HidKeyReports, HidTransport, SystemClock};
+use razer_proto::{BLADE_18, Command, NativeMode, PerfMode};
 
 /// Takes the app's one-copy lock for this test run, so the tests can't drive
 /// the controller while Blade Lite runs. It is held until the run ends.
@@ -257,4 +257,47 @@ fn battery_drops_to_60_hz_and_ac_puts_the_rate_back() {
 
     assert_eq!(on_battery, Some(RefreshRate(60)), "no 60 Hz on battery");
     assert_eq!(after_ac, Some(before), "the rate was not put back on AC");
+}
+
+/// How long the power-mode key test waits for the press.
+const KEY_PRESS_WAIT: Duration = Duration::from_secs(30);
+
+/// The raw preset replies, one per zone.
+fn preset_replies(device: &mut Device<HidTransport, SystemClock>) -> Vec<Vec<u8>> {
+    PerfMode::queries(&BLADE_18)
+        .iter()
+        .map(|query| device.query(query).unwrap())
+        .collect()
+}
+
+/// Waits for one power-mode key press, or gives up.
+fn wait_for_power_key() -> bool {
+    let key = BLADE_18.power_key.unwrap();
+    let mut reports = HidKeyReports::open(&BLADE_18).unwrap();
+    let mut presses = PowerKeyPresses::new(key);
+    let end = Instant::now() + KEY_PRESS_WAIT;
+    while Instant::now() < end {
+        if let Some(report) = reports.read(Duration::from_millis(100)).unwrap() {
+            eprintln!("key report: {report:02X?}");
+            if presses.on_report(&report, Instant::now()) {
+                return true;
+            }
+        }
+    }
+    false
+}
+
+#[test]
+#[ignore = "press Fn + numpad Enter once within 30 s; checks the keyboard leaves the preset alone"]
+fn the_power_key_leaves_the_preset_to_the_app() {
+    let mut device = Device::new(open(), SystemClock);
+    let before = preset_replies(&mut device);
+    eprintln!("press Fn + numpad Enter once now");
+
+    let pressed = wait_for_power_key();
+    thread::sleep(Duration::from_secs(1));
+    let after = preset_replies(&mut device);
+
+    assert!(pressed, "no power-mode key press came");
+    assert_eq!(after, before, "the keyboard changed the preset by itself");
 }
