@@ -11,6 +11,7 @@ mod keys;
 mod power;
 mod registry;
 mod sensors;
+mod watch;
 
 use std::io;
 
@@ -21,6 +22,7 @@ pub use keys::WindowsKeys;
 pub use power::WindowsPowerEvents;
 pub use registry::WindowsRegistry;
 pub use sensors::WindowsSensors;
+pub use watch::RegistryWatch;
 
 /// Something Windows tells us about power.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

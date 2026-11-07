@@ -14,13 +14,13 @@ use std::sync::mpsc::{self, Receiver};
 use std::time::Duration;
 
 use blade_core::{
-    APP_NAME, Config, POLL_INTERVAL, Start, autostart_on, set_autostart, start_instance,
-    starts_in_tray,
+    APP_NAME, Config, POLL_INTERVAL, Start, TOUCHPAD_KEY, autostart_on, set_autostart,
+    start_instance, starts_in_tray,
 };
 use blade_lite::{App, Machine, accent_colour};
 use platform::{
-    PowerEvent, PowerEvents, WakeListener, WindowsDisplays, WindowsInstance, WindowsKeys,
-    WindowsPowerEvents, WindowsRegistry,
+    PowerEvent, PowerEvents, RegistryWatch, WakeListener, WindowsDisplays, WindowsInstance,
+    WindowsKeys, WindowsPowerEvents, WindowsRegistry,
 };
 use razer_device::{Device, HidTransport, SystemClock};
 use razer_proto::{BLADE_18, Rgb};
@@ -76,6 +76,8 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         keys: WindowsKeys,
     };
     let mut app = App::new(&BLADE_18, config, config_path, machine);
+    // Before the start reads the touchpad, so no switch is missed.
+    let touchpad = watch_touchpad();
     let started = app.start();
 
     let accent = accent_colour(&WindowsRegistry).unwrap_or(DEFAULT_ACCENT);
@@ -93,6 +95,9 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     tray.on_action(on_tray);
     TRAY.with(|cell| cell.replace(Some(Rc::clone(&tray))));
     open_window_on_wake(instance.listener()?);
+    if let Some(watch) = touchpad {
+        follow_the_touchpad(watch);
+    }
 
     let power = power_events();
     let poll = Timer::default();
@@ -135,6 +140,56 @@ fn open_window_on_wake(listener: WakeListener) {
             }
         }
     });
+}
+
+/// How long the touchpad state must stay quiet before the key follows it,
+/// so a burst of registry writes paints the key once.
+const TOUCHPAD_QUIET: Duration = Duration::from_millis(100);
+
+/// A watch on the touchpad state. `None` if Windows can't watch it: the key
+/// then follows the touchpad only at start and resume.
+fn watch_touchpad() -> Option<RegistryWatch> {
+    RegistryWatch::open(TOUCHPAD_KEY)
+        .map_err(|error| {
+            eprintln!("blade-lite: the touchpad key can't follow the touchpad: {error}");
+        })
+        .ok()
+}
+
+/// Paints the touchpad key each time the touchpad state changes, however
+/// it was switched, from a thread that waits.
+fn follow_the_touchpad(watch: RegistryWatch) {
+    std::thread::spawn(move || {
+        loop {
+            match wait_for_quiet_change(&watch) {
+                Ok(true) => {}
+                Ok(false) => continue,
+                Err(error) => {
+                    eprintln!("blade-lite: the touchpad key stops following the touchpad: {error}");
+                    return;
+                }
+            }
+            let followed = slint::invoke_from_event_loop(|| {
+                if let Some(shell) = SHELL.with(|cell| cell.borrow().clone()) {
+                    shell.act(blade_lite::App::on_touchpad_changed);
+                }
+            });
+            // The event loop has ended, so the app is quitting.
+            if followed.is_err() {
+                return;
+            }
+        }
+    });
+}
+
+/// Waits for a change, then until the state has been quiet for
+/// [`TOUCHPAD_QUIET`].
+fn wait_for_quiet_change(watch: &RegistryWatch) -> std::io::Result<bool> {
+    if !watch.wait(Duration::MAX)? {
+        return Ok(false);
+    }
+    while watch.wait(TOUCHPAD_QUIET)? {}
+    Ok(true)
 }
 
 /// Whether autostart is on for this exe. Off if it can't be read.

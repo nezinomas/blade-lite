@@ -115,6 +115,7 @@ fn each_preset_sends_its_mode_to_every_zone() {
             &config(preset, CustomSettings::default()),
             &BLADE_18,
             &mut controller,
+            false,
         )
         .unwrap();
 
@@ -127,7 +128,7 @@ fn custom_with_a_manual_fan_sends_mode_then_boosts_then_fans() {
     let (mut controller, _, log) = fakes();
 
     let saved = config(Preset::Custom, custom(2, 3, Some(3000)));
-    apply(&saved, &BLADE_18, &mut controller).unwrap();
+    apply(&saved, &BLADE_18, &mut controller, false).unwrap();
 
     let mut expected: Vec<Step> = (1..=4).map(|zone| sent(0x0D02, &[1, zone, 4, 1])).collect();
     expected.extend([
@@ -147,6 +148,7 @@ fn custom_with_fans_on_auto_sends_no_fan_target() {
         &config(Preset::Custom, custom(1, 1, None)),
         &BLADE_18,
         &mut controller,
+        false,
     )
     .unwrap();
 
@@ -165,7 +167,12 @@ fn custom_values_the_model_does_not_take_send_nothing() {
     ] {
         let (mut controller, _, log) = fakes();
 
-        let result = apply(&config(Preset::Custom, bad), &BLADE_18, &mut controller);
+        let result = apply(
+            &config(Preset::Custom, bad),
+            &BLADE_18,
+            &mut controller,
+            false,
+        );
 
         assert!(
             matches!(result, Err(ApplyError::Custom(found)) if found == error),
@@ -180,7 +187,7 @@ fn bad_custom_values_do_not_matter_while_another_preset_is_active() {
     let (mut controller, _, log) = fakes();
 
     let saved = config(Preset::Balanced, custom(9, 9, Some(1)));
-    apply(&saved, &BLADE_18, &mut controller).unwrap();
+    apply(&saved, &BLADE_18, &mut controller, false).unwrap();
 
     assert_eq!(*log.borrow(), preset_steps(0x00));
 }
@@ -197,7 +204,7 @@ fn saved_lighting_is_sent_after_the_preset() {
         ..Config::default()
     };
 
-    apply(&saved, &BLADE_18, &mut controller).unwrap();
+    apply(&saved, &BLADE_18, &mut controller, false).unwrap();
 
     let mut expected = preset_steps(0x00);
     let lighting = Brightness::new(50).unwrap().commands(&BLADE_18);
@@ -231,7 +238,7 @@ fn applying_the_lighting_sends_brightness_then_colour() {
         colour,
     };
 
-    apply_lighting(lighting, &BLADE_18, &mut controller).unwrap();
+    apply_lighting(lighting, &BLADE_18, &mut controller, false).unwrap();
 
     let brightness = Brightness::new(20).unwrap().commands(&BLADE_18);
     let expected: Vec<Step> = brightness
@@ -253,7 +260,7 @@ fn a_brightness_over_100_sends_nothing() {
         ..Config::default()
     };
 
-    let result = apply(&saved, &BLADE_18, &mut controller);
+    let result = apply(&saved, &BLADE_18, &mut controller, false);
 
     assert!(matches!(
         result,
@@ -267,7 +274,7 @@ fn a_device_error_is_returned() {
     let (mut controller, _, _) = fakes();
     controller.fails = true;
 
-    let result = apply(&Config::default(), &BLADE_18, &mut controller);
+    let result = apply(&Config::default(), &BLADE_18, &mut controller, false);
 
     assert!(matches!(result, Err(ApplyError::Device(DeviceError::Busy))));
 }
@@ -343,4 +350,27 @@ fn a_failed_re_apply_stops_and_is_returned() {
 
     assert!(matches!(result, Err(ApplyError::Device(DeviceError::Busy))));
     assert_eq!(events.next_event(), Some(PowerEvent::Resumed), "it went on");
+}
+
+#[test]
+fn the_touchpad_key_is_red_in_the_one_frame_sent() {
+    let (mut controller, _, log) = fakes();
+    let lighting = Lighting {
+        brightness: 50,
+        colour: Rgb::new(0x44, 0xD6, 0x2C),
+    };
+
+    apply_lighting(lighting, &BLADE_18, &mut controller, true).unwrap();
+
+    let expected: Vec<Step> = Brightness::new(50)
+        .unwrap()
+        .commands(&BLADE_18)
+        .into_iter()
+        .chain(razer_proto::static_colour_touchpad_off(
+            lighting.colour,
+            &BLADE_18,
+        ))
+        .map(|command| sent(command.id, &command.args))
+        .collect();
+    assert_eq!(*log.borrow(), expected);
 }

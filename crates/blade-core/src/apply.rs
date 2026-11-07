@@ -6,7 +6,7 @@ use platform::{PowerEvent, PowerEvents};
 use razer_device::{Clock, Device, DeviceError, Transport};
 use razer_proto::{
     Brightness, BrightnessError, Command, CpuBoost, Custom, CustomError, FanMode, GpuBoost,
-    ModelProfile, PerfMode, PresetError, Rpm, static_colour,
+    ModelProfile, PerfMode, PresetError, Rpm, static_colour, static_colour_touchpad_off,
 };
 
 use crate::{Config, CustomSettings, Lighting, Preset};
@@ -48,8 +48,9 @@ impl<T: Transport, C: Clock> Controller for Device<T, C> {
     }
 }
 
-/// Sends the saved settings to the controller. Nothing is sent if a value
-/// is outside what the model takes.
+/// Sends the saved settings to the controller, with the touchpad key red
+/// if `touchpad_off`. Nothing is sent if a value is outside what the model
+/// takes.
 ///
 /// # Errors
 ///
@@ -58,8 +59,9 @@ pub fn apply(
     config: &Config,
     model: &ModelProfile,
     controller: &mut impl Controller,
+    touchpad_off: bool,
 ) -> Result<(), ApplyError> {
-    let commands = commands(*config, model)?;
+    let commands = commands(*config, model, touchpad_off)?;
     controller.run(&commands).map_err(ApplyError::Device)
 }
 
@@ -77,7 +79,8 @@ pub fn apply_performance(
     controller.run(&commands).map_err(ApplyError::Device)
 }
 
-/// Sends only the lighting: the brightness, then the colour on every key.
+/// Sends only the lighting: the brightness, then the colour on every key,
+/// with the touchpad key red if `touchpad_off`.
 ///
 /// # Errors
 ///
@@ -86,13 +89,15 @@ pub fn apply_lighting(
     lighting: Lighting,
     model: &ModelProfile,
     controller: &mut impl Controller,
+    touchpad_off: bool,
 ) -> Result<(), ApplyError> {
-    let commands = lighting_commands(lighting, model)?;
+    let commands = lighting_commands(lighting, model, touchpad_off)?;
     controller.run(&commands).map_err(ApplyError::Device)
 }
 
 /// Applies the settings again after each resume, once [`RESUME_PAUSE`] has
-/// passed. Returns when no more events will come.
+/// passed, with the touchpad key in the plain colour. Returns when no more
+/// events will come.
 ///
 /// # Errors
 ///
@@ -107,26 +112,38 @@ pub fn reapply_on_resume(
     while let Some(event) = events.next_event() {
         if event == PowerEvent::Resumed {
             clock.sleep(RESUME_PAUSE);
-            apply(config, model, controller)?;
+            apply(config, model, controller, false)?;
         }
     }
     Ok(())
 }
 
 /// The commands that set the saved preset, then the saved lighting.
-fn commands(config: Config, model: &ModelProfile) -> Result<Vec<Command>, ApplyError> {
+fn commands(
+    config: Config,
+    model: &ModelProfile,
+    touchpad_off: bool,
+) -> Result<Vec<Command>, ApplyError> {
     let mut commands = preset_commands(config, model)?;
     if let Some(lighting) = config.lighting {
-        commands.extend(lighting_commands(lighting, model)?);
+        commands.extend(lighting_commands(lighting, model, touchpad_off)?);
     }
     Ok(commands)
 }
 
 /// The brightness, then the colour on every key.
-fn lighting_commands(lighting: Lighting, model: &ModelProfile) -> Result<Vec<Command>, ApplyError> {
+fn lighting_commands(
+    lighting: Lighting,
+    model: &ModelProfile,
+    touchpad_off: bool,
+) -> Result<Vec<Command>, ApplyError> {
     let brightness = Brightness::new(lighting.brightness).map_err(ApplyError::Brightness)?;
     let mut commands = brightness.commands(model);
-    commands.extend(static_colour(lighting.colour, model));
+    commands.extend(if touchpad_off {
+        static_colour_touchpad_off(lighting.colour, model)
+    } else {
+        static_colour(lighting.colour, model)
+    });
     Ok(commands)
 }
 

@@ -17,14 +17,14 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{ASFW_ANY, AllowSetForegroundWi
 use crate::{InstanceLock, wide};
 
 /// A Windows handle, closed on drop.
-struct Handle(*mut c_void);
+pub(crate) struct Handle(pub(crate) *mut c_void);
 
 // SAFETY: a mutex or event handle is a plain value that any thread may use.
 unsafe impl Send for Handle {}
 
 impl Handle {
     /// Takes the handle a create call returned, or its error if it failed.
-    fn new(raw: *mut c_void) -> io::Result<Self> {
+    pub(crate) fn new(raw: *mut c_void) -> io::Result<Self> {
         if raw.is_null() {
             return Err(io::Error::last_os_error());
         }

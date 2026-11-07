@@ -14,6 +14,7 @@ mod query;
 mod readings;
 mod refresh;
 mod touchpad;
+mod touchpad_key;
 
 pub use apply::{
     ApplyError, Controller, RESUME_PAUSE, apply, apply_lighting, apply_performance,
@@ -34,3 +35,4 @@ pub use query::{ControllerReadings, Query, chosen_native_mode, read_controller};
 pub use readings::{Readings, ReadingsSampler};
 pub use refresh::{DisplayError, RefreshRate, current_rate, refresh_rates, set_refresh_rate};
 pub use touchpad::{TOUCHPAD_KEY, TOUCHPAD_VALUE, TouchpadError, set_touchpad, touchpad_on};
+pub use touchpad_key::paint_touchpad_key;

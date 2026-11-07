@@ -5,9 +5,9 @@ use std::path::PathBuf;
 use blade_core::{
     ApplyError, BatteryRate, ChargeError, Config, ConfigError, Controller, DisplayError, Lighting,
     LogoError, Preset, Query, Readings, TouchpadError, apply, apply_lighting, apply_performance,
-    charge_limit_on, chosen_native_mode, current_rate, logo_on, native_mode_state, read_controller,
-    refresh_rates, set_charge_limit, set_logo, set_native_mode, set_refresh_rate, set_touchpad,
-    touchpad_on,
+    charge_limit_on, chosen_native_mode, current_rate, logo_on, native_mode_state,
+    paint_touchpad_key, read_controller, refresh_rates, set_charge_limit, set_logo,
+    set_native_mode, set_refresh_rate, set_touchpad, touchpad_on,
 };
 use platform::{DisplayApi, KeyInjector, PowerEvent, Registry};
 use razer_device::DeviceError;
@@ -74,6 +74,10 @@ pub struct App<C, D, R, K> {
     logo_on: Option<bool>,
     /// The battery charge limit state, read like the logo's.
     charge_limit_on: Option<bool>,
+    /// Whether the frame the app last painted has the touchpad key red.
+    /// `None` if unknown, such as after a failed send: the next change
+    /// then paints it.
+    key_red: Option<bool>,
 }
 
 impl<C, D, R, K> App<C, D, R, K>
@@ -99,6 +103,7 @@ where
             on_battery: false,
             logo_on: None,
             charge_limit_on: None,
+            key_red: None,
         }
     }
 
@@ -118,7 +123,7 @@ where
 
     /// Reads the logo and charge limit states, then sends the saved
     /// settings, with the preset that runs in place of the saved one on
-    /// battery.
+    /// battery. The touchpad key is red in that frame if the touchpad is off.
     ///
     /// # Errors
     ///
@@ -129,7 +134,32 @@ where
             .flatten();
         self.read_charge_limit();
         let config = self.running(self.config);
-        Ok(apply(&config, self.model, &mut self.machine.controller)?)
+        let red = self.touchpad_off();
+        let applied = apply(&config, self.model, &mut self.machine.controller, red);
+        self.key_red = applied.is_ok().then_some(red);
+        Ok(applied?)
+    }
+
+    /// Paints the touchpad key red if the touchpad is now off, or back in
+    /// the lighting colour if it is on. Nothing is sent if the key already
+    /// shows the state, or the user has not set the lighting, since the
+    /// app then leaves the keyboard's own effect alone.
+    ///
+    /// # Errors
+    ///
+    /// See [`AppError`]. Nothing is sent if the touchpad state can't be
+    /// read.
+    pub fn on_touchpad_changed(&mut self) -> Result<(), AppError> {
+        let Some(lighting) = self.config.lighting else {
+            return Ok(());
+        };
+        let red = !touchpad_on(&self.machine.registry)?;
+        if self.key_red == Some(red) {
+            return Ok(());
+        }
+        let painted = paint_touchpad_key(red, lighting, self.model, &mut self.machine.controller);
+        self.key_red = painted.is_ok().then_some(red);
+        Ok(painted?)
     }
 
     /// The header, with the controller's readings added to `readings`.
@@ -233,7 +263,10 @@ where
                 return Ok(());
             }
         }
-        apply_lighting(lighting, self.model, &mut self.machine.controller)?;
+        let red = self.touchpad_off();
+        let applied = apply_lighting(lighting, self.model, &mut self.machine.controller, red);
+        self.key_red = applied.is_ok().then_some(red);
+        applied?;
         self.commit(Config {
             lighting: Some(lighting),
             ..self.config
@@ -297,6 +330,18 @@ where
             Err(_) => self.read_charge_limit(),
         }
         Ok(result?)
+    }
+
+    /// Whether the touchpad key should be red. If the touchpad state can't
+    /// be read, the key keeps the plain colour.
+    fn touchpad_off(&self) -> bool {
+        touchpad_on(&self.machine.registry).map_or_else(
+            |error| {
+                eprintln!("blade-lite: the touchpad key stays plain: {error}");
+                false
+            },
+            |on| !on,
+        )
     }
 
     fn read_charge_limit(&mut self) {
