@@ -279,3 +279,60 @@ fn control_characters_in_another_command_are_not_shown() {
     };
     assert!(!shown.chars().any(char::is_control));
 }
+
+#[test]
+fn format_characters_in_another_command_are_not_shown() {
+    let registry =
+        FakeRegistry::with_run_value("\"D:\u{202E}exe.a\u{200B}\u{FEFF}\u{2028}\u{2066}\" --tray");
+
+    let Autostart::Other(shown) = autostart(&registry, exe()).unwrap() else {
+        panic!("expected another command");
+    };
+    assert_eq!(shown, r#""D:exe.a" --tray"#);
+}
+
+#[test]
+fn an_empty_run_value_starts_nothing_so_it_is_off() {
+    let registry = FakeRegistry::with_run_value("  ");
+
+    assert_eq!(autostart(&registry, exe()).unwrap(), Autostart::Off);
+}
+
+#[test]
+fn extra_spaces_around_the_tray_flag_still_match() {
+    let registry = FakeRegistry::with_run_value(&format!("  \"{EXE}\"   {TRAY_FLAG} "));
+
+    assert_eq!(autostart(&registry, exe()).unwrap(), Autostart::On);
+}
+
+#[test]
+fn this_exe_with_other_arguments_is_another_command() {
+    let registry = FakeRegistry::with_run_value(&format!("\"{EXE}\" --tray --other"));
+
+    assert!(matches!(
+        autostart(&registry, exe()).unwrap(),
+        Autostart::Other(_)
+    ));
+}
+
+#[test]
+fn the_same_file_by_another_path_is_this_exe() {
+    let dir = tempfile::tempdir().unwrap();
+    let real = dir.path().join("blade-lite.exe");
+    std::fs::write(&real, b"").unwrap();
+    let other_way = dir.path().join(".").join("blade-lite.exe");
+    let registry = FakeRegistry::with_run_value(&format!("\"{}\" --tray", other_way.display()));
+
+    assert_eq!(autostart(&registry, &real).unwrap(), Autostart::On);
+}
+
+#[test]
+fn the_case_of_letters_outside_ascii_does_not_matter() {
+    let mut registry = FakeRegistry::default();
+    let exe = Path::new(r"C:\Programos\Žalia\blade-lite.exe");
+    set_autostart(true, &mut registry, exe).unwrap();
+    let upper = registry.run_value().unwrap().replace('Ž', "ž");
+    let registry = FakeRegistry::with_run_value(&upper);
+
+    assert_eq!(autostart(&registry, exe).unwrap(), Autostart::On);
+}

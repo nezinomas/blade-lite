@@ -70,23 +70,71 @@ pub fn autostart(
         Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(Autostart::Off),
         Err(error) => return Err(AutostartError::Registry(error)),
     };
-    if !approved(registry)? {
+    // A blank value starts nothing.
+    if value.trim().is_empty() || !approved(registry)? {
         return Ok(Autostart::Off);
     }
-    if value.eq_ignore_ascii_case(&command(exe)?) {
+    // Refuses a relative exe before any compare.
+    command(exe)?;
+    if starts_this(&value, exe) {
         return Ok(Autostart::On);
     }
     Ok(Autostart::Other(shown(&value)))
 }
 
-/// `command` safe to show: no control characters, at most
+/// Whether the Run value `value` is this exe, quoted, then only
+/// [`TRAY_FLAG`]. Spaces around them don't count.
+fn starts_this(value: &str, exe: &Path) -> bool {
+    let Some((path, args)) = value
+        .trim()
+        .strip_prefix('"')
+        .and_then(|rest| rest.split_once('"'))
+    else {
+        return false;
+    };
+    args.trim() == TRAY_FLAG && same_file(Path::new(path), exe)
+}
+
+/// Whether two paths name the same file. Case doesn't count, as on
+/// Windows; another way to the same file (`.`, a short name, a link)
+/// counts too when both paths exist.
+fn same_file(a: &Path, b: &Path) -> bool {
+    let lower = |path: &Path| path.to_string_lossy().to_lowercase();
+    if lower(a) == lower(b) {
+        return true;
+    }
+    matches!(
+        (std::fs::canonicalize(a), std::fs::canonicalize(b)),
+        (Ok(a), Ok(b)) if a == b
+    )
+}
+
+/// `command` safe to show: no control characters, no characters that
+/// hide or reorder text (zero-width, bidi, line separators), at most
 /// [`SHOWN_COMMAND_CHARS`] long.
 fn shown(command: &str) -> String {
     command
         .chars()
-        .filter(|c| !c.is_control())
+        .filter(|&c| !hides_text(c))
         .take(SHOWN_COMMAND_CHARS)
         .collect()
+}
+
+/// A control character, or a format character that can hide or reorder
+/// the text around it.
+fn hides_text(c: char) -> bool {
+    c.is_control()
+        || matches!(
+            c,
+            '\u{00AD}'
+                | '\u{061C}'
+                | '\u{180E}'
+                | '\u{200B}'..='\u{200F}'
+                | '\u{2028}'..='\u{202E}'
+                | '\u{2060}'..='\u{206F}'
+                | '\u{FEFF}'
+                | '\u{FFF9}'..='\u{FFFB}'
+        )
 }
 
 /// Whether Task Manager lets the Run value start. No flag means it does.
