@@ -29,12 +29,12 @@
 - The power-mode key is Fn + numpad Enter. Numpad Enter alone is a plain Enter. The keyboard sends 16-byte input reports on interface 1, usage page 1, usage 0 (two such collections; only one sent them in the probe). Each report is `04`, then the codes of the Razer keys held, then zeros: `0A` is Fn, `D3` the power-mode key, `DD` the touchpad key. Fn + numpad Enter gives `04 0A 00…`, `04 0A D3 00…`, `04 0A 00…`, `04 00…` (read on the laptop 2026-11-07). The keyboard does not change the preset by itself: the `cargo hw` key test reads `0D82` before and after a press. These collections can be read without admin; the keyboard collections can't (access denied).
 - The app steps the presets in the profile order Silent, Balanced, Performance, then wraps. Synapse's order is not known (no capture). Custom is never stepped to, since it may hold a manual fan; from Custom the key goes to Silent. On battery it steps Silent and Balanced only, from the preset that runs, and saves the new one, as a click does. A press within 300 ms of the last step is dropped. The reader opens the reports again after a read error or a minute with no report, so a handle gone stale over a sleep comes back.
 - The "Switch to 60 Hz on battery" switch is in the window and the flyout. It flips the saved value, so it works while the controller can't be read. On battery it acts at once. If 60 Hz can't be set, it saves the switch off again, so the rate buttons don't lock at another rate. Both switches are set from the config after each click, even after an error.
-- The app writes its errors to `%APPDATA%\blade-lite\blade-lite.log`, as well as stderr. Each line starts with the UTC time. A file moves to `.log.1` at 1 MB; 5 files are kept, so the log never passes 5 MB. A window error is written once, not on each refresh. Nothing is sent off the PC. Checked with a release build 2026-11-07.
+- The app writes its errors to `%APPDATA%\blade-lite\blade-lite.log`, as well as stderr. Each line starts with the UTC time. A file moves to `.log.1` at 1 MB; 5 files are kept, so the log never passes 5 MB. A window error is written once, not on each refresh. A panic is written too. If the files can't be moved aside (another program holds one open), the log starts again with a note. A line can hold local paths, such as the user folder. On a full disk a line may be cut. Nothing is sent off the PC. Checked with a release build 2026-11-07.
 - `0D8E` reads back the native mode chosen with `0D0E` at once. The panel stays as it booted.
 
 ## Progress
 
-- Stages 0â€“31, 33â€“36 and 41 are done. See `docs/PLAN.md`.
+- Stages 0â€“31, 33â€“36, 38, 41 and 42 are done. See `docs/PLAN.md`.
 - Retros ran after stages 5 and 14.
 
 ## Working style
