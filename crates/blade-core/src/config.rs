@@ -11,7 +11,7 @@ use razer_proto::{PerfMode, Rgb};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 /// The app's folder in `%APPDATA%`.
-const APP_DIR: &str = "blade-lite";
+pub(crate) const APP_DIR: &str = "blade-lite";
 /// The config file's name in the app's folder.
 const FILE_NAME: &str = "config.toml";
 
