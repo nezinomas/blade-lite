@@ -104,7 +104,7 @@ fn a_reply_with_another_transaction_id_is_an_error() {
 
 #[test]
 fn a_reply_to_another_command_is_an_error() {
-    let (transport, clock, _) = fakes(vec![reply(SUCCESS, 0, 0x0D82)]);
+    let (transport, clock, log) = fakes(vec![reply(SUCCESS, 0, 0x0D82)]);
 
     let result = Device::new(transport, clock).send(COMMAND, &[]);
 
@@ -118,6 +118,7 @@ fn a_reply_to_another_command_is_an_error() {
         ),
         "{result:?}"
     );
+    assert_eq!(sent(&log).len(), 1);
 }
 
 #[test]
@@ -135,7 +136,7 @@ fn a_busy_reply_to_another_request_is_not_retried() {
 
 #[test]
 fn a_failure_reply_to_another_request_is_a_wrong_reply() {
-    let (transport, clock, _) = fakes(vec![reply(FAILURE, 0, 0x0D82)]);
+    let (transport, clock, log) = fakes(vec![reply(FAILURE, 0, 0x0D82)]);
 
     let result = Device::new(transport, clock).send(COMMAND, &[]);
 
@@ -143,6 +144,7 @@ fn a_failure_reply_to_another_request_is_a_wrong_reply() {
         matches!(result, Err(DeviceError::WrongReply { .. })),
         "{result:?}"
     );
+    assert_eq!(sent(&log).len(), 1);
 }
 
 #[test]
@@ -155,4 +157,18 @@ fn a_busy_retry_must_still_match() {
         matches!(result, Err(DeviceError::WrongReply { .. })),
         "{result:?}"
     );
+}
+
+/// This model sets the remaining packets (bytes 2 and 3) in some replies,
+/// such as `00 02` for `078C`, so they must not be compared.
+#[test]
+fn remaining_packets_in_a_reply_are_not_compared() {
+    let mut bytes = reply(SUCCESS, 0, COMMAND);
+    bytes[2..4].copy_from_slice(&[0x00, 0x02]);
+    bytes[razer_proto::CHECKSUM_INDEX] = razer_proto::checksum(&bytes);
+    let (transport, clock, _) = fakes(vec![bytes]);
+
+    let result = Device::new(transport, clock).send(COMMAND, &[]);
+
+    assert!(result.is_ok(), "{result:?}");
 }

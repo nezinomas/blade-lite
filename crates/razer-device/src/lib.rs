@@ -164,6 +164,8 @@ impl<T: Transport, C: Clock> Device<T, C> {
 }
 
 /// Checks that `report` echoes the transaction ID and command it was sent for.
+/// Bytes 2 and 3 (remaining packets) are not compared: this model sets them in
+/// some replies, such as `00 02` for `078C`, though the request had `00 00`.
 fn ensure_matches(report: &Report, transaction_id: u8, command: u16) -> Result<(), DeviceError> {
     if report.transaction_id() == transaction_id && report.command() == command {
         Ok(())
