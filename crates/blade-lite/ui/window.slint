@@ -169,6 +169,11 @@ export component MainWindow inherits Window {
     callback toggle-touchpad();
     callback toggle-logo();
 
+    // A swatch, the flyout or a re-apply changed the colour: show it.
+    changed custom-hex => {
+        custom-field.text = root.custom-hex;
+    }
+
     title: "Blade Lite";
     preferred-width: 760px;
     preferred-height: 820px;
@@ -383,16 +388,22 @@ export component MainWindow inherits Window {
                             vertical-alignment: center;
                             color: root.custom-selected ? root.accent : Theme.secondary;
                         }
-                        LineEdit {
+                        custom-field := LineEdit {
                             width: 110px;
                             enabled: root.colours-enabled;
                             text: root.custom-hex;
                             placeholder-text: "#RRGGBB";
-                            // Shows the colour in use again: the new one,
+                            // Typing breaks the text binding, so each handler
+                            // below shows the colour in use again: the new one,
                             // or the last good one if the text was not a colour.
                             accepted(text) => {
                                 root.pick-custom(text);
                                 self.text = root.custom-hex;
+                            }
+                            changed has-focus => {
+                                if !self.has-focus {
+                                    self.text = root.custom-hex;
+                                }
                             }
                         }
                     }
