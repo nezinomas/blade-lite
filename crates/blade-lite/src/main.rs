@@ -14,12 +14,12 @@ use std::sync::mpsc::{self, Receiver};
 use std::time::Duration;
 
 use blade_core::{
-    APP_NAME, Config, Log, POLL_INTERVAL, PowerKeyPresses, Start, TOUCHPAD_KEY, autostart_on,
+    APP_NAME, Config, Log, POLL_INTERVAL, PowerKeyPresses, Start, TOUCHPAD_KEY, autostart,
     set_autostart, start_instance, starts_in_tray,
 };
 use blade_lite::{
-    App, Machine, ReaderEnd, ShownErrors, accent_colour, open_log, report, report_panics,
-    step_on_presses,
+    App, AutostartItem, Machine, ReaderEnd, ShownErrors, accent_colour, autostart_item, open_log,
+    report, report_panics, step_on_presses, takeover_note,
 };
 use platform::{
     PowerEvent, PowerEvents, RegistryWatch, WakeListener, WindowsDisplays, WindowsInstance,
@@ -44,6 +44,9 @@ thread_local! {
     static TRAY: RefCell<Option<Rc<Tray>>> = const { RefCell::new(None) };
     /// The power events, so a key press can see them before it steps.
     static POWER: RefCell<Option<Rc<Receiver<PowerEvent>>>> = const { RefCell::new(None) };
+    /// The last autostart warning, so each one is logged once, not on each
+    /// menu open. No warning clears it, so one that comes back is logged.
+    static AUTOSTART_SAID: RefCell<ShownErrors> = RefCell::new(ShownErrors::default());
 }
 
 fn main() -> ExitCode {
@@ -101,7 +104,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     shell.refresh(started.err().as_ref());
     SHELL.with(|cell| cell.replace(Some(Rc::clone(&shell))));
 
-    let tray = Rc::new(Tray::new(accent, autostart_state())?);
+    let tray = Rc::new(Tray::new(accent, &autostart_shown())?);
     tray.on_action(on_tray);
     TRAY.with(|cell| cell.replace(Some(Rc::clone(&tray))));
     open_window_on_wake(instance.listener()?);
@@ -261,30 +264,41 @@ fn step_the_preset() -> bool {
     .is_ok()
 }
 
-/// Whether autostart is on for this exe. Off if it can't be read.
-fn autostart_state() -> bool {
-    std::env::current_exe()
+/// How "Start with Windows" should show, read from the Run key now. Not
+/// ticked if it can't be read. A warning is logged once, not on each read.
+fn autostart_shown() -> AutostartItem {
+    let read = std::env::current_exe()
         .map_err(|error| error.to_string())
-        .and_then(|exe| autostart_on(&WindowsRegistry, &exe).map_err(|error| error.to_string()))
-        .unwrap_or_else(|error| {
-            report(&format!("autostart unknown: {error}"));
-            false
-        })
+        .and_then(|exe| autostart(&WindowsRegistry, &exe).map_err(|error| error.to_string()));
+    let item = autostart_item(&read);
+    AUTOSTART_SAID.with(|said| {
+        if let Some(text) = said
+            .borrow_mut()
+            .new_text(item.warning.as_deref().unwrap_or_default())
+        {
+            report(text);
+        }
+    });
+    item
 }
 
-/// Turns autostart on or off as the tray tick now says. If that fails, the
-/// tick goes back to what the registry holds.
+/// Turns autostart on or off as the tray tick now says. Either way the
+/// item then shows what the registry holds.
 fn sync_autostart(tray: &Tray) {
     let on = tray.autostart_ticked();
     let set = std::env::current_exe()
         .map_err(|error| error.to_string())
         .and_then(|exe| {
+            let before = autostart(&WindowsRegistry, &exe).map_err(|error| error.to_string());
+            if let Some(note) = takeover_note(&before, on) {
+                report(&note);
+            }
             set_autostart(on, &mut WindowsRegistry, &exe).map_err(|error| error.to_string())
         });
     if let Err(error) = set {
         report(&format!("could not set autostart: {error}"));
-        tray.tick_autostart(autostart_state());
     }
+    tray.show_autostart(&autostart_shown());
 }
 
 fn on_tray(action: TrayAction) {
@@ -299,6 +313,12 @@ fn on_tray(action: TrayAction) {
             }
             return;
         }
+        TrayAction::MenuOpening => {
+            if let Some(tray) = TRAY.with(|cell| cell.borrow().clone()) {
+                tray.show_autostart(&autostart_shown());
+            }
+            return;
+        }
         _ => {}
     }
     let Some(shell) = SHELL.with(|cell| cell.borrow().clone()) else {
@@ -307,7 +327,8 @@ fn on_tray(action: TrayAction) {
     match action {
         TrayAction::Clicked(icon) => shell.toggle_flyout(icon),
         TrayAction::OpenWindow => shell.show_window(),
-        TrayAction::Quit | TrayAction::Autostart => {}
+        // Handled above; listed so the match stays whole.
+        TrayAction::Quit | TrayAction::Autostart | TrayAction::MenuOpening => {}
     }
 }
 

@@ -20,7 +20,7 @@
 - A manual Custom fan never stops: the lowest target is 1600 RPM.
 - Windows has its own power mode. On AC it was "Best performance", on battery "Best power efficiency". The app does not change it. A USB capture cannot show if Synapse did.
 - One copy runs at a time on the PC, by the mutex `Global\blade-lite`. A copy in another user's session should get "access denied" and end (not checked with two users yet). A second start sets the event `Local\blade-lite-open`, and the first copy opens its window. With `--tray` (the autostart start) the second copy ends without that. Checked on the laptop 2026-11-06.
-- Autostart is the value "Blade Lite" in `HKCU\...\CurrentVersion\Run`: the quoted exe path, then `--tray`.
+- Autostart is the value "Blade Lite" in `HKCU\...\CurrentVersion\Run`: the quoted exe path, then `--tray`. The tray reads it again on each right click, before the menu opens (in the same call, not posted, so the menu never shows an old tick), and after each click on the item. Only this exe, quoted, then `--tray`, ticks the item; case, spaces and another path to the same file do not matter. A blank value is off. If the value starts another command (such as a copy in `target\debug`), the item says "(set to another program)" and the log names that command once, without control or bidi characters, cut to 200. A click points it at this copy and logs the command it replaced. If the Run key can't be read, the item says "(unknown)" and is not ticked. A `REG_DWORD` value reads as unknown.
 - `blade-dev` and the `cargo hw` tests take the one-copy lock. They refuse to touch the controller while the app runs, so quit it first.
 - The lid logo is LED 4. `0300 [00, 04, on]` sets it, as Synapse does. `0380 [00, 04, 00]` reads back the state just set. `0380 [01, 04, 00]` reads another stored value, which the set does not change (checked 2026-11-06). The `0380` read is not in the capture: it rests on that check and the `cargo hw` logo test. Each switch also sets the effect to static, as Synapse does. The app reads the state at start and after resume, not on each poll. Whether the logo stays off after a reboot or sleep is not checked yet.
 - The charge limit is `0712 [v]`: bit 7 on, low 7 bits the percent. Synapse sends `D0` (on, 80%) or `50` (off), and offers only 80%. `0792 [00]` reads it back with the same layout and the same command id (checked 2026-11-06, it replied `D0`). Synapse then reads `078F` and writes the same flags back with `070F [08]`. The app skips that; the `cargo hw` test checks `078F` stays `08`. The app reads the limit at start and after resume, and reads it back after each set. Whether charging really stops at 80% is not checked yet.
@@ -34,7 +34,7 @@
 
 ## Progress
 
-- Stages 0–31, 33–36, 38, 41 and 42 are done. See `docs/PLAN.md`.
+- Stages 0–31, 33–36, 38, 41, 42 and 43 are done. See `docs/PLAN.md`.
 - Retros ran after stages 5 and 14.
 
 ## Working style

@@ -38,22 +38,103 @@ pub enum AutostartError {
     Registry(io::Error),
 }
 
-/// Whether the Run key starts this exe at login.
+/// The most characters of another copy's command that [`Autostart::Other`]
+/// keeps, so a long Run value can't flood the log.
+pub const SHOWN_COMMAND_CHARS: usize = 200;
+
+/// What the Run key starts at login.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Autostart {
+    /// Nothing starts: no Run value, or Task Manager turned it off.
+    Off,
+    /// This exe starts in the tray.
+    On,
+    /// Another command starts, such as a copy in `target\debug`. It holds
+    /// that command, cut to [`SHOWN_COMMAND_CHARS`], with no control
+    /// characters.
+    Other(String),
+}
+
+/// What the Run key starts at login, seen from this exe.
 ///
 /// # Errors
 ///
 /// See [`AutostartError`]. A missing value is off, not an error. A Run
 /// value that Task Manager turned off is off too.
-pub fn autostart_on(
+pub fn autostart(
     registry: &(impl UserStrings + UserBytes),
     exe: &Path,
-) -> Result<bool, AutostartError> {
-    let runs = match registry.read_user_string(RUN_KEY, RUN_VALUE) {
-        Ok(value) => value.eq_ignore_ascii_case(&command(exe)?),
-        Err(error) if error.kind() == io::ErrorKind::NotFound => false,
+) -> Result<Autostart, AutostartError> {
+    let value = match registry.read_user_string(RUN_KEY, RUN_VALUE) {
+        Ok(value) => value,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(Autostart::Off),
         Err(error) => return Err(AutostartError::Registry(error)),
     };
-    Ok(runs && approved(registry)?)
+    // A blank value starts nothing.
+    if value.trim().is_empty() || !approved(registry)? {
+        return Ok(Autostart::Off);
+    }
+    // Refuses a relative exe before any compare.
+    command(exe)?;
+    if starts_this(&value, exe) {
+        return Ok(Autostart::On);
+    }
+    Ok(Autostart::Other(shown(&value)))
+}
+
+/// Whether the Run value `value` is this exe, quoted, then only
+/// [`TRAY_FLAG`]. Spaces around them don't count.
+fn starts_this(value: &str, exe: &Path) -> bool {
+    let Some((path, args)) = value
+        .trim()
+        .strip_prefix('"')
+        .and_then(|rest| rest.split_once('"'))
+    else {
+        return false;
+    };
+    args.trim() == TRAY_FLAG && same_file(Path::new(path), exe)
+}
+
+/// Whether two paths name the same file. Case doesn't count, as on
+/// Windows; another way to the same file (`.`, a short name, a link)
+/// counts too when both paths exist.
+fn same_file(a: &Path, b: &Path) -> bool {
+    let lower = |path: &Path| path.to_string_lossy().to_lowercase();
+    if lower(a) == lower(b) {
+        return true;
+    }
+    matches!(
+        (std::fs::canonicalize(a), std::fs::canonicalize(b)),
+        (Ok(a), Ok(b)) if a == b
+    )
+}
+
+/// `command` safe to show: no control characters, no characters that
+/// hide or reorder text (zero-width, bidi, line separators), at most
+/// [`SHOWN_COMMAND_CHARS`] long.
+fn shown(command: &str) -> String {
+    command
+        .chars()
+        .filter(|&c| !hides_text(c))
+        .take(SHOWN_COMMAND_CHARS)
+        .collect()
+}
+
+/// A control character, or a format character that can hide or reorder
+/// the text around it.
+fn hides_text(c: char) -> bool {
+    c.is_control()
+        || matches!(
+            c,
+            '\u{00AD}'
+                | '\u{061C}'
+                | '\u{180E}'
+                | '\u{200B}'..='\u{200F}'
+                | '\u{2028}'..='\u{202E}'
+                | '\u{2060}'..='\u{206F}'
+                | '\u{FEFF}'
+                | '\u{FFF9}'..='\u{FFFB}'
+        )
 }
 
 /// Whether Task Manager lets the Run value start. No flag means it does.

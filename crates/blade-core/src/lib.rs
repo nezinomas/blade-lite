@@ -23,8 +23,8 @@ pub use apply::{
     reapply_on_resume,
 };
 pub use autostart::{
-    APPROVED_KEY, AutostartError, RUN_KEY, RUN_VALUE, TRAY_FLAG, autostart_on, set_autostart,
-    starts_in_tray,
+    APPROVED_KEY, Autostart, AutostartError, RUN_KEY, RUN_VALUE, SHOWN_COMMAND_CHARS, TRAY_FLAG,
+    autostart, set_autostart, starts_in_tray,
 };
 pub use battery_rate::{BATTERY_RATE, BatteryRate};
 pub use charge::{ChargeError, charge_limit_on, set_charge_limit};

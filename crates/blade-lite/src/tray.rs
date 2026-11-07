@@ -5,7 +5,7 @@ use razer_proto::Rgb;
 use tray_icon::menu::{CheckMenuItem, Menu, MenuEvent, MenuId, MenuItem};
 use tray_icon::{Icon, MouseButton, MouseButtonState, TrayIcon, TrayIconBuilder, TrayIconEvent};
 
-use blade_lite::Rect;
+use blade_lite::{AutostartItem, Rect};
 
 /// The icon's size in pixels. Windows scales it for the tray.
 const SIZE: u16 = 32;
@@ -15,6 +15,8 @@ const SIZE: u16 = 32;
 pub enum TrayAction {
     /// A left click on the icon, which sits at this rectangle.
     Clicked(Rect),
+    /// A right click on the icon, just before the menu opens.
+    MenuOpening,
     OpenWindow,
     /// A click on "Start with Windows", which has already flipped its tick.
     Autostart,
@@ -31,14 +33,14 @@ pub struct Tray {
 
 impl Tray {
     /// Shows the icon, drawn in the accent colour, with "Start with Windows"
-    /// ticked if `autostart` is on.
+    /// shown as `autostart` says.
     ///
     /// # Errors
     ///
     /// If Windows refuses the icon.
-    pub fn new(accent: Rgb, autostart: bool) -> Result<Self, Box<dyn std::error::Error>> {
+    pub fn new(accent: Rgb, autostart: &AutostartItem) -> Result<Self, Box<dyn std::error::Error>> {
         let open = MenuItem::new("Open window", true, None);
-        let autostart = CheckMenuItem::new("Start with Windows", true, autostart, None);
+        let autostart = CheckMenuItem::new(autostart.label, true, autostart.ticked, None);
         let quit = MenuItem::new("Quit", true, None);
         let menu = Menu::new();
         menu.append(&open)?;
@@ -65,20 +67,32 @@ impl Tray {
     /// Calls `handle` on the event-loop thread for each thing the user does.
     pub fn on_action(&self, handle: fn(TrayAction)) {
         TrayIconEvent::set_event_handler(Some(move |event| {
-            if let TrayIconEvent::Click {
+            let TrayIconEvent::Click {
                 rect,
-                button: MouseButton::Left,
-                button_state: MouseButtonState::Up,
+                button,
+                button_state,
                 ..
             } = event
-            {
-                let icon = Rect {
-                    x: round(rect.position.x),
-                    y: round(rect.position.y),
-                    width: px(rect.size.width),
-                    height: px(rect.size.height),
-                };
-                post(handle, TrayAction::Clicked(icon));
+            else {
+                return;
+            };
+            match (button, button_state) {
+                (MouseButton::Left, MouseButtonState::Up) => {
+                    let icon = Rect {
+                        x: round(rect.position.x),
+                        y: round(rect.position.y),
+                        width: px(rect.size.width),
+                        height: px(rect.size.height),
+                    };
+                    post(handle, TrayAction::Clicked(icon));
+                }
+                // tray-icon opens the menu right after this call returns,
+                // on this same thread (the event loop's). So the item is
+                // read again now, not posted, or the menu could show first.
+                (MouseButton::Right, MouseButtonState::Up) => {
+                    handle(TrayAction::MenuOpening);
+                }
+                _ => {}
             }
         }));
         let (open, quit) = (self.open.clone(), self.quit.clone());
@@ -87,7 +101,9 @@ impl Tray {
             if event.id == open {
                 post(handle, TrayAction::OpenWindow);
             } else if event.id == autostart {
-                post(handle, TrayAction::Autostart);
+                // Handled now, on this thread (the event loop's), so no
+                // menu refresh can change the tick before it is read.
+                handle(TrayAction::Autostart);
             } else if event.id == quit {
                 post(handle, TrayAction::Quit);
             }
@@ -99,9 +115,10 @@ impl Tray {
         self.autostart.is_checked()
     }
 
-    /// Ticks "Start with Windows", or clears it.
-    pub fn tick_autostart(&self, on: bool) {
-        self.autostart.set_checked(on);
+    /// Shows "Start with Windows" as `item` says.
+    pub fn show_autostart(&self, item: &AutostartItem) {
+        self.autostart.set_checked(item.ticked);
+        self.autostart.set_text(item.label);
     }
 }
 
