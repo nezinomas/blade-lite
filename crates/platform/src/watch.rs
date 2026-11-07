@@ -4,7 +4,7 @@ use std::io;
 use std::ptr;
 use std::time::Duration;
 
-use windows_sys::Win32::Foundation::{WAIT_OBJECT_0, WAIT_TIMEOUT};
+use windows_sys::Win32::Foundation::{WAIT_FAILED, WAIT_OBJECT_0, WAIT_TIMEOUT};
 use windows_sys::Win32::System::Registry::{
     HKEY, HKEY_CURRENT_USER, KEY_NOTIFY, REG_NOTIFY_CHANGE_LAST_SET, REG_NOTIFY_THREAD_AGNOSTIC,
     RegCloseKey, RegNotifyChangeKeyValue, RegOpenKeyExW,
@@ -78,7 +78,8 @@ impl RegistryWatch {
                 Ok(true)
             }
             WAIT_TIMEOUT => Ok(false),
-            _ => Err(io::Error::last_os_error()),
+            WAIT_FAILED => Err(io::Error::last_os_error()),
+            other => Err(io::Error::other(format!("unexpected wait result {other}"))),
         }
     }
 
