@@ -4,9 +4,9 @@ use std::path::PathBuf;
 
 use blade_core::{
     ApplyError, BatteryRate, ChargeError, Config, ConfigError, Controller, DisplayError, Lighting,
-    LogoError, Preset, Query, Readings, TouchpadError, TouchpadKeyError, apply, apply_lighting,
-    apply_performance, charge_limit_on, chosen_native_mode, current_rate, light_touchpad_key,
-    logo_on, native_mode_state, read_controller, refresh_rates, set_charge_limit, set_logo,
+    LogoError, Preset, Query, Readings, TouchpadError, apply, apply_lighting, apply_performance,
+    charge_limit_on, chosen_native_mode, current_rate, logo_on, native_mode_state,
+    paint_touchpad_key, read_controller, refresh_rates, set_charge_limit, set_logo,
     set_native_mode, set_refresh_rate, set_touchpad, touchpad_on,
 };
 use platform::{DisplayApi, KeyInjector, PowerEvent, Registry};
@@ -34,8 +34,6 @@ pub enum AppError {
     Display(#[from] DisplayError),
     #[error(transparent)]
     Touchpad(#[from] TouchpadError),
-    #[error(transparent)]
-    TouchpadKey(#[from] TouchpadKeyError),
     #[error(transparent)]
     Logo(#[from] LogoError),
     #[error(transparent)]
@@ -76,6 +74,8 @@ pub struct App<C, D, R, K> {
     logo_on: Option<bool>,
     /// The battery charge limit state, read like the logo's.
     charge_limit_on: Option<bool>,
+    /// Whether the frame the app last painted has the touchpad key red.
+    key_red: bool,
 }
 
 impl<C, D, R, K> App<C, D, R, K>
@@ -101,6 +101,7 @@ where
             on_battery: false,
             logo_on: None,
             charge_limit_on: None,
+            key_red: false,
         }
     }
 
@@ -120,11 +121,11 @@ where
 
     /// Reads the logo and charge limit states, then sends the saved
     /// settings, with the preset that runs in place of the saved one on
-    /// battery. Last, the touchpad key shows the touchpad state.
+    /// battery. Last, the touchpad key turns red if the touchpad is off.
     ///
     /// # Errors
     ///
-    /// See [`AppError`]. A key light that fails does not fail the start.
+    /// See [`AppError`]. A touchpad key that fails does not fail the start.
     pub fn start(&mut self) -> Result<(), AppError> {
         self.logo_on = logo_on(&mut self.machine.controller, self.model)
             .ok()
@@ -132,24 +133,32 @@ where
         self.read_charge_limit();
         let config = self.running(self.config);
         let applied = apply(&config, self.model, &mut self.machine.controller);
-        let _ = self.on_touchpad_changed();
+        // The frame just sent, if any, has the key in the plain colour.
+        self.key_red = false;
+        self.follow_touchpad();
         Ok(applied?)
     }
 
-    /// Lights the touchpad key if the touchpad is now off, or turns the
-    /// light off if it is on.
+    /// Paints the touchpad key red if the touchpad is now off, or back in
+    /// the lighting colour if it is on. Nothing is sent if the key already
+    /// shows the state, or the user has not set the lighting, since the
+    /// app then leaves the keyboard's own effect alone.
     ///
     /// # Errors
     ///
-    /// See [`TouchpadKeyError`]. Nothing is sent if the touchpad state
-    /// can't be read.
+    /// See [`AppError`]. Nothing is sent if the touchpad state can't be
+    /// read.
     pub fn on_touchpad_changed(&mut self) -> Result<(), AppError> {
-        let machine = &mut self.machine;
-        Ok(light_touchpad_key(
-            &machine.registry,
-            &mut machine.controller,
-            self.model,
-        )?)
+        let red = !touchpad_on(&self.machine.registry)?;
+        let Some(lighting) = self.config.lighting else {
+            return Ok(());
+        };
+        if red == self.key_red {
+            return Ok(());
+        }
+        paint_touchpad_key(red, lighting, self.model, &mut self.machine.controller)?;
+        self.key_red = red;
+        Ok(())
     }
 
     /// The header, with the controller's readings added to `readings`.
@@ -254,10 +263,13 @@ where
             }
         }
         apply_lighting(lighting, self.model, &mut self.machine.controller)?;
-        self.commit(Config {
+        self.key_red = false;
+        let committed = self.commit(Config {
             lighting: Some(lighting),
             ..self.config
-        })
+        });
+        self.follow_touchpad();
+        committed
     }
 
     /// # Errors
@@ -317,6 +329,14 @@ where
             Err(_) => self.read_charge_limit(),
         }
         Ok(result?)
+    }
+
+    /// Paints the touchpad key for the touchpad state. A failure is only
+    /// logged: the key is not worth failing the rest for.
+    fn follow_touchpad(&mut self) {
+        if let Err(error) = self.on_touchpad_changed() {
+            eprintln!("blade-lite: the touchpad key can't follow the touchpad: {error}");
+        }
     }
 
     fn read_charge_limit(&mut self) {

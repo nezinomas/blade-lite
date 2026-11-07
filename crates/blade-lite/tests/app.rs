@@ -10,8 +10,8 @@ use platform::{
 };
 use razer_device::DeviceError;
 use razer_proto::{
-    BLADE_18, Brightness, ChargeLimit, Command, Logo, NativeMode, PerfMode, Rgb, TouchpadKey,
-    static_colour,
+    BLADE_18, Brightness, ChargeLimit, Command, Logo, NativeMode, PerfMode, Rgb, static_colour,
+    static_colour_touchpad_off,
 };
 use tempfile::TempDir;
 use ui::{DisplayCommand, KeyboardCommand, PerformanceCommand, PowerPill};
@@ -35,10 +35,6 @@ fn logo() -> Logo {
     BLADE_18.logo.unwrap()
 }
 
-fn touchpad_key() -> TouchpadKey {
-    BLADE_18.touchpad_key.unwrap()
-}
-
 /// Records the commands it runs. It answers the native mode query with
 /// mode 0, the logo query with `logo_reply` and the charge limit query with
 /// `charge`, and fails every run while `fails` is set.
@@ -52,9 +48,6 @@ struct FakeController {
     /// `charge_stuck` is set. `None` fails the query.
     charge: Option<u8>,
     charge_stuck: bool,
-    /// Whether the touchpad key is lit. A key command changes it. `None`
-    /// fails the query.
-    key_lit: Option<bool>,
 }
 
 impl Controller for FakeController {
@@ -65,11 +58,6 @@ impl Controller for FakeController {
         for command in commands {
             if command.id == SET_CHARGE_LIMIT && !self.charge_stuck {
                 self.charge = Some(command.args[0]);
-            }
-            if *command == touchpad_key().command(true) {
-                self.key_lit = Some(true);
-            } else if *command == touchpad_key().command(false) {
-                self.key_lit = Some(false);
             }
         }
         self.sent.extend_from_slice(commands);
@@ -85,9 +73,6 @@ impl Query for FakeController {
             self.logo_reply.clone().ok_or(DeviceError::Busy)
         } else if *command == ChargeLimit::query() {
             self.charge.map(|byte| vec![byte]).ok_or(DeviceError::Busy)
-        } else if *command == touchpad_key().query() {
-            let lit = self.key_lit.ok_or(DeviceError::Busy)?;
-            Ok(vec![0x00, touchpad_key().led, u8::from(lit)])
         } else {
             Err(DeviceError::Busy)
         }
@@ -158,11 +143,7 @@ fn app_with(config: Config) -> (TestApp, TempDir, PathBuf) {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("config.toml");
     let machine = Machine {
-        // The touchpad is on, and its key is dark as it should be.
-        controller: FakeController {
-            key_lit: Some(false),
-            ..FakeController::default()
-        },
+        controller: FakeController::default(),
         displays: FakeDisplays::default(),
         registry: FakeRegistry::default(),
         keys: FakeKeys::default(),
@@ -288,67 +269,140 @@ fn the_touchpad_switch_sends_the_shortcut() {
     assert_eq!(app.machine().keys.0, [Key::Win, Key::Ctrl, Key::F24]);
 }
 
-#[test]
-fn start_lights_the_touchpad_key_if_the_touchpad_is_off() {
-    let (mut app, _dir, _) = app();
+const GREEN: Rgb = Rgb::new(0x44, 0xD6, 0x2C);
+
+/// An app with the lighting set and the touchpad off.
+fn touchpad_off_app() -> (TestApp, TempDir, PathBuf) {
+    let (mut app, dir, path) = app_with(Config {
+        lighting: Some(Lighting {
+            brightness: 36,
+            colour: GREEN,
+        }),
+        ..Config::default()
+    });
     app.machine_mut().registry.touchpad = Some(0);
+    (app, dir, path)
+}
 
-    app.start().unwrap();
+fn red_key() -> Vec<Command> {
+    static_colour_touchpad_off(GREEN, &BLADE_18)
+}
 
-    assert_eq!(app.machine().controller.key_lit, Some(true));
-    assert_eq!(sent(&app).last(), Some(&touchpad_key().command(true)));
+fn plain_key() -> Vec<Command> {
+    static_colour(GREEN, &BLADE_18)
+}
+
+/// The commands sent after the first `count`.
+fn sent_after(app: &TestApp, count: usize) -> &[Command] {
+    &sent(app)[count..]
 }
 
 #[test]
-fn a_touchpad_change_lights_the_key_or_turns_it_off() {
-    let (mut app, _dir, _) = app();
+fn start_paints_the_touchpad_key_red_if_the_touchpad_is_off() {
+    let (mut app, _dir, _) = touchpad_off_app();
+
     app.start().unwrap();
 
+    let mut expected = PerfMode::Balanced.commands(&BLADE_18).unwrap();
+    expected.extend(lighting_commands(36, GREEN));
+    expected.extend(red_key());
+    assert_eq!(sent(&app), expected);
+}
+
+#[test]
+fn without_saved_lighting_the_keyboard_effect_is_left_alone() {
+    let (mut app, _dir, _) = app();
     app.machine_mut().registry.touchpad = Some(0);
+
+    app.start().unwrap();
     app.on_touchpad_changed().unwrap();
-    assert_eq!(app.machine().controller.key_lit, Some(true));
-
-    app.machine_mut().registry.touchpad = Some(1);
-    app.on_touchpad_changed().unwrap();
-    assert_eq!(app.machine().controller.key_lit, Some(false));
-}
-
-#[test]
-fn a_resume_lights_the_touchpad_key_again() {
-    let (mut app, _dir, _) = app();
-    app.machine_mut().registry.touchpad = Some(0);
-    app.start().unwrap();
-    // The controller lost the light while asleep.
-    app.machine_mut().controller.key_lit = Some(false);
-
-    app.on_power(PowerEvent::Resumed).unwrap();
-
-    assert_eq!(app.machine().controller.key_lit, Some(true));
-}
-
-#[test]
-fn an_unreadable_touchpad_state_leaves_the_key_and_the_start_alone() {
-    let (mut app, _dir, _) = app();
-    app.machine_mut().registry.touchpad = None;
-
-    app.start().unwrap();
-    assert!(app.on_touchpad_changed().is_err());
 
     assert_eq!(sent(&app), PerfMode::Balanced.commands(&BLADE_18).unwrap());
 }
 
 #[test]
-fn a_failed_key_light_keeps_the_start() {
-    let (mut app, _dir, _) = app();
+fn a_touchpad_change_paints_the_key_red_or_back() {
+    let (mut app, _dir, _) = touchpad_off_app();
+    app.machine_mut().registry.touchpad = Some(1);
+    app.start().unwrap();
+    let started = sent(&app).len();
+
     app.machine_mut().registry.touchpad = Some(0);
-    app.machine_mut().controller.key_lit = None;
+    app.on_touchpad_changed().unwrap();
+    app.machine_mut().registry.touchpad = Some(1);
+    app.on_touchpad_changed().unwrap();
+
+    let mut expected = red_key();
+    expected.extend(plain_key());
+    assert_eq!(sent_after(&app, started), expected);
+}
+
+#[test]
+fn a_change_that_keeps_the_touchpad_state_sends_nothing() {
+    let (mut app, _dir, _) = touchpad_off_app();
+    app.start().unwrap();
+    let started = sent(&app).len();
+
+    app.on_touchpad_changed().unwrap();
+    app.on_touchpad_changed().unwrap();
+
+    assert_eq!(sent_after(&app, started), []);
+}
+
+#[test]
+fn a_new_colour_keeps_the_touchpad_key_red() {
+    let (mut app, _dir, _) = touchpad_off_app();
+    app.start().unwrap();
+    let started = sent(&app).len();
+
+    app.on_keyboard(KeyboardCommand::SetColour(WHITE)).unwrap();
+
+    let mut expected = lighting_commands(36, WHITE);
+    expected.extend(static_colour_touchpad_off(WHITE, &BLADE_18));
+    assert_eq!(sent_after(&app, started), expected);
+}
+
+#[test]
+fn a_resume_paints_the_touchpad_key_red_again() {
+    let (mut app, _dir, _) = touchpad_off_app();
+    app.start().unwrap();
+    let started = sent(&app).len();
+
+    app.on_power(PowerEvent::Resumed).unwrap();
+
+    assert_eq!(sent_after(&app, started).last(), red_key().last());
+    assert_eq!(sent(&app).len(), 2 * started);
+}
+
+#[test]
+fn an_unreadable_touchpad_state_leaves_the_key_and_the_start_alone() {
+    let (mut app, _dir, _) = touchpad_off_app();
+    app.machine_mut().registry.touchpad = None;
 
     app.start().unwrap();
+    let started = sent(&app).len();
+    assert!(app.on_touchpad_changed().is_err());
 
-    assert_eq!(
-        sent(&app)[..PerfMode::Balanced.commands(&BLADE_18).unwrap().len()],
-        PerfMode::Balanced.commands(&BLADE_18).unwrap()
-    );
+    let mut expected = PerfMode::Balanced.commands(&BLADE_18).unwrap();
+    expected.extend(lighting_commands(36, GREEN));
+    assert_eq!(sent(&app), expected);
+    assert_eq!(sent(&app).len(), started);
+}
+
+#[test]
+fn a_failed_key_paint_is_tried_again_on_the_next_change() {
+    let (mut app, _dir, _) = touchpad_off_app();
+    app.machine_mut().registry.touchpad = Some(1);
+    app.start().unwrap();
+    app.machine_mut().registry.touchpad = Some(0);
+    app.machine_mut().controller.fails = true;
+    assert!(app.on_touchpad_changed().is_err());
+    app.machine_mut().controller.fails = false;
+    let before = sent(&app).len();
+
+    app.on_touchpad_changed().unwrap();
+
+    assert_eq!(sent_after(&app, before), red_key());
 }
 
 #[test]
