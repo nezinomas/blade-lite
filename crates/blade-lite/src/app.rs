@@ -5,7 +5,7 @@ use std::path::PathBuf;
 use blade_core::{
     ApplyError, BatteryRate, ChargeError, Config, ConfigError, Controller, DisplayError, Lighting,
     LogoError, Preset, Query, Readings, TouchpadError, apply, apply_lighting, apply_performance,
-    charge_limit_on, chosen_native_mode, current_rate, logo_on, native_mode_state,
+    charge_limit_on, chosen_native_mode, current_rate, logo_on, native_mode_state, next_preset,
     paint_touchpad_key, read_controller, refresh_rates, set_charge_limit, set_logo,
     set_native_mode, set_refresh_rate, set_touchpad, touchpad_on,
 };
@@ -240,6 +240,25 @@ where
         let running = self.running(config);
         apply_performance(&running, self.model, &mut self.machine.controller)?;
         self.commit(config)
+    }
+
+    /// Steps to the next preset, as the power-mode key asks.
+    ///
+    /// # Errors
+    ///
+    /// See [`AppError`]. Nothing is sent if the model has no key, or no
+    /// other preset to step to; the config is left as it was.
+    pub fn on_power_key(&mut self) -> Result<(), AppError> {
+        if self.model.power_key.is_none() {
+            return Ok(());
+        }
+        let running = self.config.preset.running(self.on_battery);
+        match next_preset(running, self.model, self.on_battery) {
+            Some(next) if next != running => {
+                self.on_performance(PerformanceCommand::SetPreset(next))
+            }
+            _ => Ok(()),
+        }
     }
 
     /// # Errors

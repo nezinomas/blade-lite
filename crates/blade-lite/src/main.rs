@@ -14,15 +14,15 @@ use std::sync::mpsc::{self, Receiver};
 use std::time::Duration;
 
 use blade_core::{
-    APP_NAME, Config, POLL_INTERVAL, Start, TOUCHPAD_KEY, autostart_on, set_autostart,
-    start_instance, starts_in_tray,
+    APP_NAME, Config, POLL_INTERVAL, PowerKeyPresses, Start, TOUCHPAD_KEY, autostart_on,
+    set_autostart, start_instance, starts_in_tray,
 };
-use blade_lite::{App, Machine, accent_colour};
+use blade_lite::{App, Machine, ReaderEnd, accent_colour, step_on_presses};
 use platform::{
     PowerEvent, PowerEvents, RegistryWatch, WakeListener, WindowsDisplays, WindowsInstance,
     WindowsKeys, WindowsPowerEvents, WindowsRegistry,
 };
-use razer_device::{Device, HidTransport, SystemClock};
+use razer_device::{Device, HidKeyReports, HidTransport, SystemClock};
 use razer_proto::{BLADE_18, Rgb};
 use slint::{Timer, TimerMode};
 
@@ -39,6 +39,8 @@ thread_local! {
     static SHELL: RefCell<Option<Rc<Shell>>> = const { RefCell::new(None) };
     /// The tray, for its own handlers on the event-loop thread.
     static TRAY: RefCell<Option<Rc<Tray>>> = const { RefCell::new(None) };
+    /// The power events, so a key press can see them before it steps.
+    static POWER: RefCell<Option<Rc<Receiver<PowerEvent>>>> = const { RefCell::new(None) };
 }
 
 fn main() -> ExitCode {
@@ -98,8 +100,10 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     if let Some(watch) = touchpad {
         follow_the_touchpad(watch);
     }
+    follow_the_power_key();
 
-    let power = power_events();
+    let power = Rc::new(power_events());
+    POWER.with(|cell| cell.replace(Some(Rc::clone(&power))));
     let poll = Timer::default();
     let ticking = Rc::clone(&shell);
     poll.start(TimerMode::Repeated, POLL_INTERVAL, move || {
@@ -114,6 +118,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     slint::run_event_loop_until_quit()?;
     SHELL.with(RefCell::take);
     TRAY.with(RefCell::take);
+    POWER.with(RefCell::take);
     Ok(())
 }
 
@@ -190,6 +195,58 @@ fn wait_for_quiet_change(watch: &RegistryWatch) -> std::io::Result<bool> {
     }
     while watch.wait(TOUCHPAD_QUIET)? {}
     Ok(true)
+}
+
+/// How long to wait before opening the key reports again, after they
+/// fail or stay quiet too long.
+const KEY_REOPEN_PAUSE: Duration = Duration::from_secs(5);
+
+/// Steps the preset each time the power-mode key is pressed, from a thread
+/// that reads the keyboard's key reports. Nothing if the model has no key.
+fn follow_the_power_key() {
+    let Some(key) = BLADE_18.power_key else {
+        return;
+    };
+    std::thread::spawn(move || {
+        let mut last_error = None;
+        loop {
+            match HidKeyReports::open(&BLADE_18) {
+                Ok(mut reports) => {
+                    last_error = None;
+                    let presses = PowerKeyPresses::new(key);
+                    if step_on_presses(&mut reports, presses, step_the_preset) == ReaderEnd::Quit {
+                        return;
+                    }
+                }
+                Err(error) => {
+                    // Said once, not each time it is tried again.
+                    let text = error.to_string();
+                    if last_error.as_ref() != Some(&text) {
+                        eprintln!("blade-lite: no power-mode key for now: {text}");
+                        last_error = Some(text);
+                    }
+                }
+            }
+            std::thread::sleep(KEY_REOPEN_PAUSE);
+        }
+    });
+}
+
+/// Steps the preset on the event-loop thread. False once the app is
+/// quitting.
+fn step_the_preset() -> bool {
+    slint::invoke_from_event_loop(|| {
+        let Some(shell) = SHELL.with(|cell| cell.borrow().clone()) else {
+            return;
+        };
+        // A power source change not yet seen would let a preset run that
+        // the new source does not offer.
+        if let Some(power) = POWER.with(|cell| cell.borrow().clone()) {
+            shell.follow_power(&power);
+        }
+        shell.act(blade_lite::App::on_power_key);
+    })
+    .is_ok()
 }
 
 /// Whether autostart is on for this exe. Off if it can't be read.

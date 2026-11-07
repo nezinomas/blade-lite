@@ -1,7 +1,9 @@
 //! What differs between laptop models, kept as data.
 //! Adding a model means adding a profile, not changing the code.
 
-use crate::{ChargeLimit, CustomLimits, Logo, NativeMode, PerfMode, RpmRange, TouchpadKey};
+use crate::{
+    ChargeLimit, CustomLimits, Logo, NativeMode, PerfMode, PowerKey, RpmRange, TouchpadKey,
+};
 
 /// How the controller shows up on USB.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -55,6 +57,9 @@ pub struct ModelProfile {
     /// The key painted red while the touchpad is off, or `None` if the
     /// model has none. It must be a key of [`ModelProfile::keys`].
     pub touchpad_key: Option<TouchpadKey>,
+    /// The key that steps through [`ModelProfile::presets`], or `None` if
+    /// the model has none.
+    pub power_key: Option<PowerKey>,
 }
 
 /// The Blade 18 (RZ09-0529), from the stage 1 capture.
@@ -130,4 +135,14 @@ pub const BLADE_18: ModelProfile = ModelProfile {
     charge_limit: Some(ChargeLimit { percent: 80 }),
     // Numpad ".", with a touchpad icon. Found by eye on the laptop.
     touchpad_key: Some(TouchpadKey { row: 5, column: 17 }),
+    // Fn + numpad Enter, with a power-mode icon. Read on the laptop
+    // (2026-11-07): `04 0A D3` while held, `04 00` on release.
+    power_key: Some(PowerKey {
+        interface_number: 1,
+        usage_page: 0x01,
+        usage: 0x00,
+        report_id: 0x04,
+        report_len: 16,
+        code: 0xD3,
+    }),
 };

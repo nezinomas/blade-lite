@@ -7,7 +7,7 @@ use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 use std::{fs, io};
 
-use razer_proto::Rgb;
+use razer_proto::{PerfMode, Rgb};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 /// The app's folder in `%APPDATA%`.
@@ -38,6 +38,16 @@ pub enum Preset {
     Balanced,
     Performance,
     Custom,
+}
+
+impl From<PerfMode> for Preset {
+    fn from(mode: PerfMode) -> Self {
+        match mode {
+            PerfMode::Silent => Self::Silent,
+            PerfMode::Balanced => Self::Balanced,
+            PerfMode::Performance => Self::Performance,
+        }
+    }
 }
 
 /// The Custom values. They are kept while another preset is active.

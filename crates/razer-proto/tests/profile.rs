@@ -59,3 +59,19 @@ fn positions_without_a_key_are_always_black() {
 fn the_blade_18_has_7_rows_of_19_columns() {
     assert_eq!((BLADE_18.keys.rows, BLADE_18.keys.columns), (7, 19));
 }
+
+#[test]
+fn the_power_key_is_read_off_another_interface_than_the_controller() {
+    let key = BLADE_18.power_key.unwrap();
+
+    assert_ne!(key.interface_number, BLADE_18.usb.interface_number);
+}
+
+#[test]
+fn the_power_key_is_held_in_the_report_read_on_the_laptop() {
+    let key = BLADE_18.power_key.unwrap();
+    let mut report = [0; 16];
+    report[..3].copy_from_slice(&[0x04, 0x0A, 0xD3]);
+
+    assert_eq!(key.held(&report), Some(true));
+}

@@ -249,11 +249,16 @@ impl Shell {
 
     /// Passes on power events, then reads the sensors if a view shows them.
     pub fn tick(self: &Rc<Self>, power: &Receiver<PowerEvent>) {
-        for event in power.try_iter() {
-            self.power_event(event);
-        }
+        self.follow_power(power);
         if self.schedule.borrow_mut().poll_due(Instant::now()) {
             self.tick_readings();
+        }
+    }
+
+    /// Acts on the power events that came since the last look.
+    pub fn follow_power(self: &Rc<Self>, power: &Receiver<PowerEvent>) {
+        for event in power.try_iter() {
+            self.power_event(event);
         }
     }
 

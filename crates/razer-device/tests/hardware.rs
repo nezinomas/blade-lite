@@ -5,7 +5,7 @@ use std::sync::{Mutex, PoisonError};
 use std::time::Duration;
 
 use platform::{InstanceLock, WindowsInstance};
-use razer_device::{Clock, Device, HidTransport, PAUSE, SystemClock};
+use razer_device::{Clock, Device, HidKeyReports, HidTransport, PAUSE, SystemClock};
 
 /// The name the app locks, as `blade_core::APP_NAME` has it.
 const APP: &str = "blade-lite";
@@ -304,4 +304,19 @@ fn both_fans_and_the_cpu_temperature_are_read() {
     assert!(fans.iter().all(|fan| fan.0 <= 6000), "{fans:?}");
     let cpu = cpu.expect("the controller reports the CPU temperature");
     assert!((20..=105).contains(&cpu.0), "{cpu:?}");
+}
+
+#[test]
+#[ignore = "needs the Blade 18"]
+fn the_key_reports_open_and_wait_quietly() {
+    // Only read, so the one-copy lock is not needed.
+    let mut reports = HidKeyReports::open(&razer_proto::BLADE_18).unwrap();
+
+    // No key is pressed, so nothing comes, or only a key-up report.
+    let report = reports.read(Duration::from_millis(100)).unwrap();
+
+    if let Some(report) = report {
+        let key = razer_proto::BLADE_18.power_key.unwrap();
+        assert_ne!(key.held(&report), Some(true), "{report:02X?}");
+    }
 }
