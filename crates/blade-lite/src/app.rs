@@ -303,27 +303,46 @@ where
             DisplayCommand::SetNativeMode(mode) => {
                 set_native_mode(mode, &mut self.machine.controller)?;
             }
-            DisplayCommand::SetSixtyHzOnBattery(on) => {
-                // Nothing to save, and the panel is already where it should be.
-                if on == self.config.sixty_hz_on_battery {
-                    return Ok(());
-                }
-                self.commit(Config {
-                    sixty_hz_on_battery: on,
-                    ..self.config
-                })?;
-                if self.on_battery {
-                    // As if the laptop had just gone on battery, or back on AC.
-                    let event = if on {
-                        PowerEvent::OnBattery
-                    } else {
-                        PowerEvent::OnAc
-                    };
-                    self.follow_power(event)?;
-                }
-            }
+            DisplayCommand::SetSixtyHzOnBattery(on) => self.set_sixty_hz_on_battery(on)?,
         }
         Ok(())
+    }
+
+    /// Flips the 60 Hz on battery switch. It reads the saved value, so it
+    /// works while the controller or the panel can't be read.
+    ///
+    /// # Errors
+    ///
+    /// See [`AppError`].
+    pub fn toggle_sixty_hz_on_battery(&mut self) -> Result<(), AppError> {
+        self.set_sixty_hz_on_battery(!self.config.sixty_hz_on_battery)
+    }
+
+    /// Saves the switch and acts on it at once. If 60 Hz can't be set on
+    /// battery, the old value is saved again, so the rates don't lock while
+    /// the panel runs another rate.
+    fn set_sixty_hz_on_battery(&mut self, on: bool) -> Result<(), AppError> {
+        let old = self.config;
+        if on == old.sixty_hz_on_battery {
+            return Ok(());
+        }
+        self.commit(Config {
+            sixty_hz_on_battery: on,
+            ..old
+        })?;
+        if !self.on_battery {
+            return Ok(());
+        }
+        // As if the laptop had just gone on battery, or back on AC.
+        if !on {
+            return self.follow_power(PowerEvent::OnAc);
+        }
+        let dropped = self.follow_power(PowerEvent::OnBattery);
+        if dropped.is_err() {
+            // The rate error is the one to show, even if this save fails too.
+            let _ = self.commit(old);
+        }
+        dropped
     }
 
     /// Follows the power source, and applies everything again after a

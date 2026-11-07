@@ -564,12 +564,49 @@ fn turning_it_off_on_battery_puts_the_rate_back() {
 
 #[test]
 fn setting_sixty_hz_on_battery_to_what_it_is_saves_nothing() {
+    for on in [false, true] {
+        let (mut app, _dir, path) = app_with(Config {
+            sixty_hz_on_battery: on,
+            ..Config::default()
+        });
+
+        app.on_display(DisplayCommand::SetSixtyHzOnBattery(on))
+            .unwrap();
+
+        assert!(!path.exists());
+    }
+}
+
+#[test]
+fn turning_it_on_on_battery_when_60_hz_fails_keeps_it_off() {
+    let (mut app, _dir, path) = app();
+    app.on_power(PowerEvent::OnBattery).unwrap();
+    app.machine_mut()
+        .displays
+        .0
+        .modes
+        .retain(|mode| mode.hz != 60);
+
+    assert!(
+        app.on_display(DisplayCommand::SetSixtyHzOnBattery(true))
+            .is_err()
+    );
+
+    assert!(!app.config().sixty_hz_on_battery);
+    assert!(!Config::load(&path).unwrap().sixty_hz_on_battery);
+    assert!(app.display_view().unwrap().rates_enabled);
+    assert_eq!(panel_hz(&app), 240);
+}
+
+#[test]
+fn the_switch_flips_the_saved_value() {
     let (mut app, _dir, path) = app();
 
-    app.on_display(DisplayCommand::SetSixtyHzOnBattery(false))
-        .unwrap();
+    app.toggle_sixty_hz_on_battery().unwrap();
+    assert!(Config::load(&path).unwrap().sixty_hz_on_battery);
 
-    assert!(!path.exists());
+    app.toggle_sixty_hz_on_battery().unwrap();
+    assert!(!Config::load(&path).unwrap().sixty_hz_on_battery);
 }
 
 #[test]
