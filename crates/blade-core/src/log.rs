@@ -14,6 +14,7 @@ use crate::config::APP_DIR;
 /// The log file's name in the app's folder.
 const FILE_NAME: &str = "blade-lite.log";
 /// A file is moved aside once one more line would make it bigger than this.
+/// One line is at most about 4 KB, so only a file of one line can pass it.
 pub const LOG_MAX_BYTES: u64 = 1024 * 1024;
 /// How many files are kept: the log itself, then `.log.1` (the newest old
 /// one) up to `.log.4`.
@@ -65,14 +66,28 @@ impl Log {
         if let Some(dir) = self.path.parent() {
             fs::create_dir_all(dir)?;
         }
-        if self.is_full_for(line.len() as u64)? {
-            self.roll()?;
+        // Two copies of the app could both roll at once. That leaves a gap
+        // in the numbers, never more files, so it is not guarded against.
+        if self.is_full_for(line.len() as u64)?
+            && let Err(error) = self.roll()
+        {
+            // A file another program holds open can stop the roll. Starting
+            // the log again keeps it small and keeps it going.
+            let note = log_line(at, &format!("the log could not be rolled: {error}"));
+            return self.open(true)?.write_all((note + &line).as_bytes());
         }
-        OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(&self.path)?
-            .write_all(line.as_bytes())
+        self.open(false)?.write_all(line.as_bytes())
+    }
+
+    /// Opens the log to add lines, emptied first if `empty`.
+    fn open(&self, empty: bool) -> io::Result<fs::File> {
+        let mut options = OpenOptions::new();
+        if empty {
+            options.write(true).truncate(true);
+        } else {
+            options.append(true);
+        }
+        options.create(true).open(&self.path)
     }
 
     /// Whether the file holds lines and one more of `len` bytes won't fit.
@@ -126,9 +141,15 @@ pub fn log_line(at: SystemTime, text: &str) -> String {
     let body: String = text
         .chars()
         .take(LOG_LINE_MAX)
-        .map(|c| if c.is_control() { ' ' } else { c })
+        .map(|c| if breaks_a_line(c) { ' ' } else { c })
         .collect();
     format!("{} {body}\n", utc_stamp(at))
+}
+
+/// Whether `c` could split a line or turn its text round in a viewer.
+fn breaks_a_line(c: char) -> bool {
+    c.is_control()
+        || matches!(c, '\u{2028}' | '\u{2029}' | '\u{202A}'..='\u{202E}' | '\u{2066}'..='\u{2069}')
 }
 
 /// `at` as `YYYY-MM-DD hh:mm:ssZ`. A time before 1970 shows as 1970.

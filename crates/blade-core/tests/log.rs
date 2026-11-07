@@ -140,3 +140,52 @@ fn a_path_that_is_a_folder_gives_an_error_not_a_panic() {
     let log = Log::new(dir.path().to_path_buf());
     assert!(log.write(at(), "x").is_err());
 }
+
+#[test]
+fn a_century_that_is_not_a_leap_year_is_dated_right() {
+    // 2100-03-01 00:00:00 UTC: 2100 has no 29 February.
+    let march = SystemTime::UNIX_EPOCH + Duration::from_secs(4_107_542_400);
+    assert_eq!(log_line(march, "x"), "2100-03-01 00:00:00Z x\n");
+}
+
+#[test]
+fn the_last_second_of_a_year_is_dated_right() {
+    // 2026-12-31 23:59:59 UTC.
+    let end = SystemTime::UNIX_EPOCH + Duration::from_secs(1_798_761_599);
+    assert_eq!(log_line(end, "x"), "2026-12-31 23:59:59Z x\n");
+}
+
+#[test]
+fn line_and_direction_marks_cannot_break_a_line() {
+    let line = log_line(at(), "a\u{2028}b\u{2029}c\u{202E}d\u{2066}e");
+    assert_eq!(line, "2026-11-07 10:39:38Z a b c d e\n");
+}
+
+#[test]
+fn a_roll_that_fails_starts_the_file_again_with_a_note() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("blade-lite.log");
+    // A folder where the oldest file goes, so the roll can't remove it.
+    fs::create_dir(old(&path, 1)).unwrap();
+    let line_len = log_line(at(), "aaaa").len() as u64;
+    let log = Log::with_limits(path.clone(), line_len, 2);
+    log.write(at(), "aaaa").unwrap();
+    log.write(at(), "bbbb").unwrap();
+    let text = read(&path);
+    assert!(!text.contains("aaaa"), "{text}");
+    assert!(text.contains("the log could not be rolled"), "{text}");
+    assert!(text.ends_with(&log_line(at(), "bbbb")), "{text}");
+}
+
+#[test]
+fn a_roll_that_keeps_failing_keeps_the_file_small() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("blade-lite.log");
+    fs::create_dir(old(&path, 1)).unwrap();
+    let max = 300;
+    let log = Log::with_limits(path.clone(), max, 2);
+    for n in 0..100 {
+        log.write(at(), &format!("line {n}")).unwrap();
+    }
+    assert!(fs::metadata(&path).unwrap().len() <= max);
+}
