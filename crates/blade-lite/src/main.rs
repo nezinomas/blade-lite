@@ -11,18 +11,18 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 use std::rc::Rc;
 use std::sync::mpsc::{self, Receiver};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use blade_core::{
-    APP_NAME, Config, POLL_INTERVAL, Start, TOUCHPAD_KEY, autostart_on, set_autostart,
-    start_instance, starts_in_tray,
+    APP_NAME, Config, POLL_INTERVAL, PowerKeyPresses, Start, TOUCHPAD_KEY, autostart_on,
+    set_autostart, start_instance, starts_in_tray,
 };
 use blade_lite::{App, Machine, accent_colour};
 use platform::{
     PowerEvent, PowerEvents, RegistryWatch, WakeListener, WindowsDisplays, WindowsInstance,
     WindowsKeys, WindowsPowerEvents, WindowsRegistry,
 };
-use razer_device::{Device, HidTransport, SystemClock};
+use razer_device::{Device, HidKeyReports, HidTransport, SystemClock};
 use razer_proto::{BLADE_18, Rgb};
 use slint::{Timer, TimerMode};
 
@@ -98,6 +98,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     if let Some(watch) = touchpad {
         follow_the_touchpad(watch);
     }
+    follow_the_power_key();
 
     let power = power_events();
     let poll = Timer::default();
@@ -190,6 +191,61 @@ fn wait_for_quiet_change(watch: &RegistryWatch) -> std::io::Result<bool> {
     }
     while watch.wait(TOUCHPAD_QUIET)? {}
     Ok(true)
+}
+
+/// How long each key report collection is waited on in turn.
+const KEY_READ_WAIT: Duration = Duration::from_millis(100);
+
+/// How long to wait before opening the key reports again after they fail,
+/// such as when the keyboard goes away for a moment.
+const KEY_REOPEN_PAUSE: Duration = Duration::from_secs(5);
+
+/// Steps the preset each time the power-mode key is pressed, from a thread
+/// that reads the keyboard's key reports. Nothing if the model has no key.
+fn follow_the_power_key() {
+    let Some(key) = BLADE_18.power_key else {
+        return;
+    };
+    std::thread::spawn(move || {
+        loop {
+            match HidKeyReports::open(&BLADE_18) {
+                Ok(reports) => {
+                    if !step_on_presses(&reports, PowerKeyPresses::new(key)) {
+                        return;
+                    }
+                }
+                Err(error) => eprintln!("blade-lite: no power-mode key for now: {error}"),
+            }
+            std::thread::sleep(KEY_REOPEN_PAUSE);
+        }
+    });
+}
+
+/// Reads key reports until a read fails, then returns true so they are
+/// opened again. Returns false once the app is quitting.
+fn step_on_presses(reports: &HidKeyReports, mut presses: PowerKeyPresses) -> bool {
+    loop {
+        let report = match reports.read(KEY_READ_WAIT) {
+            Ok(Some(report)) => report,
+            Ok(None) => continue,
+            Err(error) => {
+                eprintln!("blade-lite: the key reports stopped: {error}");
+                return true;
+            }
+        };
+        if !presses.on_report(&report, Instant::now()) {
+            continue;
+        }
+        let stepped = slint::invoke_from_event_loop(|| {
+            if let Some(shell) = SHELL.with(|cell| cell.borrow().clone()) {
+                shell.act(blade_lite::App::on_power_key);
+            }
+        });
+        // The event loop has ended, so the app is quitting.
+        if stepped.is_err() {
+            return false;
+        }
+    }
 }
 
 /// Whether autostart is on for this exe. Off if it can't be read.
