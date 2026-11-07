@@ -66,7 +66,7 @@ lists each reviewer's findings on its own.
 - [x] 31 Battery charge limit
 - 32 GPU mode: dropped (no switch on this model)
 - [x] 33 Red touchpad key (follows the Windows touchpad switch; the physical key is 47)
-- [ ] 34 Power-mode key (numpad Enter)
+- [x] 34 Power-mode key (Fn + numpad Enter steps Silent, Balanced, Performance; read from the keyboard's key report, no hook; checked on the laptop)
 - [ ] 35 60 Hz on battery toggle
 
 ## Bug fixes
