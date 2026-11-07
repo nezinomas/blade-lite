@@ -7,7 +7,7 @@ use razer_proto::Rgb;
 use slint::{ModelRc, SharedString, VecModel};
 use ui::{DisplayView, FlyoutView, Header, KeyboardView, PerformanceView, PresetOption};
 
-use crate::shell::Shell;
+use crate::shell::{RealApp, Shell};
 use crate::{Choice, FlyoutWindow, MainWindow, SliderRow, Stat, SwatchItem};
 
 pub fn colour(rgb: Rgb) -> slint::Color {
@@ -121,6 +121,7 @@ pub fn flyout(window: &FlyoutWindow, view: &FlyoutView, header: &Header) {
         view.rates.iter().map(|r| choice(&r.label, r.selected)),
     ));
     window.set_rates_enabled(view.rates_enabled);
+    window.set_sixty_hz_on_battery(view.sixty_hz_on_battery);
     window.set_brightness(i32::from(view.brightness));
     window.set_brightness_text(text(&view.brightness_text));
     window.set_touchpad_on(view.touchpad_on);
@@ -156,6 +157,10 @@ fn move_brightness(shell: &Shell, percent: i32) {
     });
 }
 
+fn toggle_sixty_hz(shell: &Shell) {
+    shell.act(RealApp::toggle_sixty_hz_on_battery);
+}
+
 fn toggle_touchpad(shell: &Shell) {
     shell.act(|app| {
         let command = app.keyboard_view()?.toggle_touchpad();
@@ -176,6 +181,8 @@ fn flyout_callbacks(shell: &Rc<Shell>) {
     flyout.on_pick_preset(move |i| on(&s, |shell| pick_preset(shell, i)));
     let s = Rc::downgrade(shell);
     flyout.on_pick_rate(move |i| on(&s, |shell| pick_rate(shell, i)));
+    let s = Rc::downgrade(shell);
+    flyout.on_toggle_sixty_hz(move || on(&s, toggle_sixty_hz));
     let s = Rc::downgrade(shell);
     flyout.on_move_brightness(move |percent| on(&s, |shell| move_brightness(shell, percent)));
     let s = Rc::downgrade(shell);
@@ -229,14 +236,7 @@ fn window_callbacks(shell: &Rc<Shell>) {
     let s = Rc::downgrade(shell);
     window.on_pick_rate(move |i| on(&s, |shell| pick_rate(shell, i)));
     let s = Rc::downgrade(shell);
-    window.on_toggle_sixty_hz(move || {
-        on(&s, |shell| {
-            shell.act(|app| {
-                let command = app.display_view()?.toggle_sixty_hz_on_battery();
-                app.on_display(command)
-            });
-        });
-    });
+    window.on_toggle_sixty_hz(move || on(&s, toggle_sixty_hz));
     let s = Rc::downgrade(shell);
     window.on_pick_native(move |i| {
         on(&s, |shell| {

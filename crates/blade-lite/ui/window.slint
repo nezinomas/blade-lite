@@ -422,6 +422,7 @@ export component FlyoutWindow inherits Window {
     in property <[Choice]> presets;
     in property <[Choice]> rates;
     in property <bool> rates-enabled;
+    in-out property <bool> sixty-hz-on-battery;
     in property <int> brightness;
     in property <string> brightness-text;
     in-out property <bool> touchpad-on;
@@ -430,6 +431,7 @@ export component FlyoutWindow inherits Window {
 
     callback pick-preset(int);
     callback pick-rate(int);
+    callback toggle-sixty-hz();
     callback move-brightness(int);
     callback toggle-touchpad();
     callback reset();
@@ -483,6 +485,17 @@ export component FlyoutWindow inherits Window {
         HorizontalLayout {
             spacing: 12px;
             Text {
+                text: "Switch to 60 Hz on battery";
+                vertical-alignment: center;
+            }
+            Switch {
+                checked <=> root.sixty-hz-on-battery;
+                toggled => { root.toggle-sixty-hz(); }
+            }
+        }
+        HorizontalLayout {
+            spacing: 12px;
+            Text {
                 text: "Keyboard light";
                 width: 110px;
                 vertical-alignment: center;
@@ -503,6 +516,7 @@ export component FlyoutWindow inherits Window {
             }
         }
         HorizontalLayout {
+            spacing: 12px;
             Text {
                 text: "Touchpad";
                 vertical-alignment: center;

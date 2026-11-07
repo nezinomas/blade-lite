@@ -1,5 +1,6 @@
-//! The tray flyout: the preset, the rate, the lighting and the touchpad, as
-//! the window's groups show them, plus "Reset to Balanced" and "Open window".
+//! The tray flyout: the preset, the rate, the 60 Hz on battery switch, the
+//! lighting and the touchpad, as the window's groups show them, plus
+//! "Reset to Balanced" and "Open window".
 
 use blade_core::Preset;
 
@@ -10,10 +11,12 @@ use crate::{
 /// The flyout, ready to show. Clicks on its preset and rate buttons go to
 /// the window's group views, whose buttons are in the same order.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[allow(clippy::struct_excessive_bools)] // Each is its own switch or button.
 pub struct FlyoutView {
     pub presets: Vec<PresetOption>,
     pub rates: Vec<RateSegment>,
     pub rates_enabled: bool,
+    pub sixty_hz_on_battery: bool,
     pub brightness: u8,
     pub brightness_text: String,
     pub touchpad_on: bool,
@@ -37,6 +40,7 @@ impl FlyoutView {
             presets: performance.presets.clone(),
             rates: display.rates.clone(),
             rates_enabled: display.rates_enabled,
+            sixty_hz_on_battery: display.sixty_hz_on_battery,
             brightness: keyboard.brightness,
             brightness_text: keyboard.brightness_text.clone(),
             touchpad_on: keyboard.touchpad_on,

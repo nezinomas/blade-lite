@@ -94,3 +94,21 @@ fn rates_locked_on_battery_stay_locked_in_the_flyout() {
 
     assert!(!flyout.rates_enabled);
 }
+
+#[test]
+fn it_shows_the_sixty_hz_on_battery_switch_as_the_display_group_does() {
+    let on = DisplayView::new(&DisplayState {
+        sixty_hz_on_battery: true,
+        ..DisplayState {
+            model: &BLADE_18,
+            offered: vec![RefreshRate(60), RefreshRate(120), RefreshRate(240)],
+            current: RefreshRate(120),
+            native: NativeModeState::Active(BLADE_18.native_modes[0]),
+            sixty_hz_on_battery: false,
+            on_battery: false,
+        }
+    });
+
+    assert!(FlyoutView::new(&performance(Preset::Balanced), &on, &keyboard()).sixty_hz_on_battery);
+    assert!(!flyout(Preset::Balanced).sixty_hz_on_battery);
+}
