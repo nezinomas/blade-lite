@@ -10,8 +10,8 @@ use platform::{
 };
 use razer_device::DeviceError;
 use razer_proto::{
-    BLADE_18, Brightness, ChargeLimit, Command, Logo, NativeMode, PerfMode, Rgb, static_colour,
-    static_colour_touchpad_off,
+    BLADE_18, Brightness, ChargeLimit, Command, Logo, ModelProfile, NativeMode, PerfMode, Rgb,
+    static_colour, static_colour_touchpad_off,
 };
 use tempfile::TempDir;
 use ui::{DisplayCommand, KeyboardCommand, PerformanceCommand, PowerPill};
@@ -140,6 +140,10 @@ impl KeyInjector for FakeKeys {
 type TestApp = App<FakeController, FakeDisplays, FakeRegistry, FakeKeys>;
 
 fn app_with(config: Config) -> (TestApp, TempDir, PathBuf) {
+    app_on(&BLADE_18, config)
+}
+
+fn app_on(model: &'static ModelProfile, config: Config) -> (TestApp, TempDir, PathBuf) {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("config.toml");
     let machine = Machine {
@@ -148,11 +152,7 @@ fn app_with(config: Config) -> (TestApp, TempDir, PathBuf) {
         registry: FakeRegistry::default(),
         keys: FakeKeys::default(),
     };
-    (
-        App::new(&BLADE_18, config, path.clone(), machine),
-        dir,
-        path,
-    )
+    (App::new(model, config, path.clone(), machine), dir, path)
 }
 
 fn app() -> (TestApp, TempDir, PathBuf) {
@@ -746,4 +746,100 @@ fn a_charge_limit_switch_does_not_touch_the_preset() {
 
     assert!(sent(&app).iter().all(|c| c.id == SET_CHARGE_LIMIT));
     assert_eq!(*app.config(), before);
+}
+
+#[test]
+fn the_power_key_sends_the_next_preset_and_saves_it() {
+    let (mut app, _dir, path) = app();
+
+    app.on_power_key().unwrap();
+
+    assert_eq!(
+        sent(&app),
+        PerfMode::Performance.commands(&BLADE_18).unwrap()
+    );
+    assert_eq!(Config::load(&path).unwrap().preset, Preset::Performance);
+    assert_eq!(
+        app.performance_view()
+            .presets
+            .iter()
+            .find(|o| o.selected)
+            .unwrap()
+            .preset,
+        Preset::Performance
+    );
+}
+
+#[test]
+fn the_power_key_wraps_from_performance_to_silent() {
+    let (mut app, _dir, _) = performance_app();
+
+    app.on_power_key().unwrap();
+
+    assert_eq!(app.config().preset, Preset::Silent);
+}
+
+#[test]
+fn the_power_key_steps_from_custom_to_silent() {
+    let (mut app, _dir, _) = app_with(Config {
+        preset: Preset::Custom,
+        ..Config::default()
+    });
+
+    app.on_power_key().unwrap();
+
+    assert_eq!(sent(&app), PerfMode::Silent.commands(&BLADE_18).unwrap());
+}
+
+#[test]
+fn on_battery_the_power_key_steps_from_the_running_preset() {
+    let (mut app, _dir, _) = performance_app();
+    app.on_power(PowerEvent::OnBattery).unwrap();
+    app.machine_mut().controller.sent.clear();
+
+    // Balanced runs in place of Performance, so Silent is next.
+    app.on_power_key().unwrap();
+
+    assert_eq!(sent(&app), PerfMode::Silent.commands(&BLADE_18).unwrap());
+    assert_eq!(app.config().preset, Preset::Silent);
+}
+
+#[test]
+fn a_power_key_step_the_controller_refuses_is_neither_kept_nor_saved() {
+    let (mut app, _dir, path) = app();
+    app.machine_mut().controller.fails = true;
+
+    assert!(app.on_power_key().is_err());
+    assert_eq!(app.config().preset, Preset::Balanced);
+    assert!(!path.exists());
+}
+
+static NO_POWER_KEY: ModelProfile = ModelProfile {
+    power_key: None,
+    ..BLADE_18
+};
+
+static ONE_PRESET: ModelProfile = ModelProfile {
+    presets: &[PerfMode::Balanced],
+    ..BLADE_18
+};
+
+#[test]
+fn a_model_without_the_power_key_ignores_it() {
+    let (mut app, _dir, path) = app_on(&NO_POWER_KEY, Config::default());
+
+    app.on_power_key().unwrap();
+
+    assert_eq!(sent(&app), []);
+    assert!(!path.exists());
+}
+
+#[test]
+fn a_power_key_with_only_the_running_preset_sends_nothing() {
+    let (mut app, _dir, path) = app_on(&ONE_PRESET, Config::default());
+
+    app.on_power_key().unwrap();
+
+    assert_eq!(sent(&app), []);
+    assert!(!path.exists());
 }
