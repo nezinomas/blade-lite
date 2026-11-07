@@ -17,7 +17,10 @@ use blade_core::{
     APP_NAME, Config, Log, POLL_INTERVAL, PowerKeyPresses, Start, TOUCHPAD_KEY, autostart_on,
     set_autostart, start_instance, starts_in_tray,
 };
-use blade_lite::{App, Machine, ReaderEnd, accent_colour, open_log, report, step_on_presses};
+use blade_lite::{
+    App, Machine, ReaderEnd, ShownErrors, accent_colour, open_log, report, report_panics,
+    step_on_presses,
+};
 use platform::{
     PowerEvent, PowerEvents, RegistryWatch, WakeListener, WindowsDisplays, WindowsInstance,
     WindowsKeys, WindowsPowerEvents, WindowsRegistry,
@@ -54,9 +57,12 @@ fn main() -> ExitCode {
 }
 
 fn run() -> Result<(), Box<dyn std::error::Error>> {
+    // With no APPDATA there is no log: this error goes to stderr only.
     let appdata = PathBuf::from(std::env::var_os("APPDATA").ok_or("no APPDATA")?);
     // First, so even a failed start leaves its reason in the log.
-    open_log(Log::new(Log::path_in(&appdata)));
+    let opened = open_log(Log::new(Log::path_in(&appdata)));
+    debug_assert!(opened, "a report came before the log was opened");
+    report_panics();
     report(concat!("starts, version ", env!("CARGO_PKG_VERSION")));
     // Before the controller is opened: a second copy must never drive it.
     let in_tray = starts_in_tray(std::env::args_os().skip(1));
@@ -216,24 +222,22 @@ fn follow_the_power_key() {
         return;
     };
     std::thread::spawn(move || {
-        let mut last_error = None;
+        // Each problem is said once, not each time it is tried again.
+        let mut said = ShownErrors::default();
         loop {
-            match HidKeyReports::open(&BLADE_18) {
+            let problem = match HidKeyReports::open(&BLADE_18) {
                 Ok(mut reports) => {
-                    last_error = None;
                     let presses = PowerKeyPresses::new(key);
-                    if step_on_presses(&mut reports, presses, step_the_preset) == ReaderEnd::Quit {
-                        return;
+                    match step_on_presses(&mut reports, presses, step_the_preset) {
+                        ReaderEnd::Quit => return,
+                        ReaderEnd::Reopen => String::new(),
+                        ReaderEnd::Failed(error) => format!("the key reports stopped: {error}"),
                     }
                 }
-                Err(error) => {
-                    // Said once, not each time it is tried again.
-                    let text = error.to_string();
-                    if last_error.as_ref() != Some(&text) {
-                        report(&format!("no power-mode key for now: {text}"));
-                        last_error = Some(text);
-                    }
-                }
+                Err(error) => format!("no power-mode key for now: {error}"),
+            };
+            if let Some(text) = said.new_text(&problem) {
+                report(text);
             }
             std::thread::sleep(KEY_REOPEN_PAUSE);
         }

@@ -50,7 +50,7 @@ fn a_press_calls_back_once_then_a_failed_read_reopens() {
     });
 
     assert_eq!(calls, 1);
-    assert_eq!(end, ReaderEnd::Reopen);
+    assert_eq!(end, ReaderEnd::Failed("no more reads".into()));
 }
 
 #[test]
@@ -89,6 +89,6 @@ fn a_report_resets_the_quiet_count() {
     // The source fails after its reads, so the loop reached the end.
     let end = step_on_presses(&mut source, presses(), || true);
 
-    assert_eq!(end, ReaderEnd::Reopen);
+    assert!(matches!(end, ReaderEnd::Failed(_)), "{end:?}");
     assert!(source.0.is_empty());
 }

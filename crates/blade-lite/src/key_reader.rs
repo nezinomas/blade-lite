@@ -31,10 +31,12 @@ impl KeyReportSource for HidKeyReports {
 }
 
 /// Why the reader loop ended.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ReaderEnd {
-    /// A read failed or the reports were quiet too long: open them again.
+    /// The reports were quiet too long: open them again.
     Reopen,
+    /// A read failed, for this reason: open them again.
+    Failed(String),
     /// The app is quitting.
     Quit,
 }
@@ -54,10 +56,7 @@ pub fn step_on_presses(
                 quiet += 1;
                 continue;
             }
-            Err(error) => {
-                crate::report(&format!("the key reports stopped: {error}"));
-                return ReaderEnd::Reopen;
-            }
+            Err(error) => return ReaderEnd::Failed(error.to_string()),
         };
         quiet = 0;
         if presses.on_report(&report, Instant::now()) && !on_press() {
