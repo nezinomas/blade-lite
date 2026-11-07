@@ -247,11 +247,6 @@ impl Shell {
         self.window.set_error(errors.join("\n").into());
     }
 
-    /// Shows an error that did not come from the app, such as bad input.
-    pub fn show_error(&self, error: &str) {
-        self.window.set_error(error.into());
-    }
-
     /// Passes on power events, then reads the sensors if a view shows them.
     pub fn tick(self: &Rc<Self>, power: &Receiver<PowerEvent>) {
         self.follow_power(power);

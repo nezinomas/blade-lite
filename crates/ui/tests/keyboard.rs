@@ -74,7 +74,7 @@ fn at_0_the_lights_are_off_and_the_colour_choice_is_disabled() {
     assert_eq!(view.brightness_text, "Off");
     assert!(!view.colours_enabled);
     assert_eq!(view.pick_swatch(0), None);
-    assert_eq!(view.pick_custom(PINK), None);
+    assert_eq!(view.pick_custom("#FF69B4"), None);
 }
 
 #[test]
@@ -135,10 +135,52 @@ fn picking_a_custom_colour_sets_it_unless_it_is_the_current_one() {
     let view = view();
 
     assert_eq!(
-        view.pick_custom(PINK),
+        view.pick_custom("#FF69B4"),
         Some(KeyboardCommand::SetColour(PINK))
     );
-    assert_eq!(view.pick_custom(TEAL), None);
+    for current in ["#00B7C3", "#00b7c3", " #00B7C3 "] {
+        assert_eq!(view.pick_custom(current), None, "{current:?}");
+    }
+}
+
+#[test]
+fn a_custom_colour_is_read_in_either_case_and_without_outer_spaces() {
+    let view = view();
+
+    for text in ["#ff69b4", " #FF69B4 ", "\t#Ff69B4\n"] {
+        assert_eq!(
+            view.pick_custom(text),
+            Some(KeyboardCommand::SetColour(PINK)),
+            "{text:?}"
+        );
+    }
+}
+
+#[test]
+fn a_custom_colour_that_is_not_hash_rrggbb_sends_nothing() {
+    let view = view();
+    let long = format!("#{}", "F".repeat(10_000));
+
+    for text in [
+        "",
+        " ",
+        "#",
+        "FF69B4",
+        "#FF69B",
+        "#FF69B44",
+        "#FF69BG",
+        "#+F69B4",
+        "# FF69B4",
+        "#FF 69B4",
+        "##FF69B4",
+        "#FFÉ9B",
+        "#FF69B4;",
+        "rgb(255,105,180)",
+        "0xFF69B4",
+        &long,
+    ] {
+        assert_eq!(view.pick_custom(text), None, "{text:?}");
+    }
 }
 
 #[test]

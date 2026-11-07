@@ -101,10 +101,12 @@ impl KeyboardView {
         self.set_colour(swatch.colour)
     }
 
-    /// The command for a colour from the custom picker, unless it is the
-    /// current one.
+    /// The command for the text typed in the custom colour field. Only
+    /// `#RRGGBB` counts, with outer whitespace ignored. Other text, or the
+    /// current colour, gives no command, so the last good colour stays.
     #[must_use]
-    pub fn pick_custom(&self, colour: Rgb) -> Option<KeyboardCommand> {
+    pub fn pick_custom(&self, text: &str) -> Option<KeyboardCommand> {
+        let colour = text.trim().parse::<Rgb>().ok()?;
         if colour == self.custom_colour {
             return None;
         }
