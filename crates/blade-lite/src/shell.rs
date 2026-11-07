@@ -6,7 +6,7 @@ use std::sync::mpsc::Receiver;
 use std::time::{Duration, Instant};
 
 use blade_core::{PollSchedule, RESUME_PAUSE, Readings, ReadingsSampler, View};
-use blade_lite::{App, AppError, Rect, flyout_position};
+use blade_lite::{App, AppError, Rect, ShownErrors, flyout_position, report};
 use platform::{
     PowerEvent, WindowsDisplays, WindowsKeys, WindowsRegistry, WindowsSensors, round_corners,
     set_mica,
@@ -41,6 +41,7 @@ pub struct Shell {
     schedule: RefCell<PollSchedule>,
     flyout_open: Cell<bool>,
     flyout_closed_at: Cell<Option<Instant>>,
+    shown_errors: RefCell<ShownErrors>,
 }
 
 impl Shell {
@@ -54,6 +55,7 @@ impl Shell {
             schedule: RefCell::new(PollSchedule::default()),
             flyout_open: Cell::new(false),
             flyout_closed_at: Cell::new(None),
+            shown_errors: RefCell::new(ShownErrors::default()),
         })
     }
 
@@ -88,7 +90,7 @@ impl Shell {
     pub fn show_window(self: &Rc<Self>) {
         self.hide_flyout();
         if let Err(error) = self.window.show() {
-            eprintln!("blade-lite: cannot show the window: {error}");
+            report(&format!("cannot show the window: {error}"));
             return;
         }
         self.once_shown(
@@ -124,7 +126,7 @@ impl Shell {
         }
         self.refresh(None);
         if let Err(error) = self.flyout.show() {
-            eprintln!("blade-lite: cannot show the flyout: {error}");
+            report(&format!("cannot show the flyout: {error}"));
             return;
         }
         self.flyout_open.set(true);
@@ -165,7 +167,7 @@ impl Shell {
             return;
         }
         if tries == 0 {
-            eprintln!("blade-lite: the window got no handle");
+            report("the window got no handle");
             return;
         }
         let shell = Rc::downgrade(self);
@@ -244,7 +246,11 @@ impl Shell {
         let sixty_hz = app.config().sixty_hz_on_battery;
         self.window.set_sixty_hz_on_battery(sixty_hz);
         self.flyout.set_sixty_hz_on_battery(sixty_hz);
-        self.window.set_error(errors.join("\n").into());
+        let errors = errors.join("\n");
+        if let Some(new) = self.shown_errors.borrow_mut().new_text(&errors) {
+            report(new);
+        }
+        self.window.set_error(errors.into());
     }
 
     /// Passes on power events, then reads the sensors if a view shows them.
@@ -311,6 +317,6 @@ fn put_backdrop(hwnd: isize, frameless: bool) {
         }
     });
     if let Err(error) = result {
-        eprintln!("blade-lite: no Mica: {error}");
+        report(&format!("no Mica: {error}"));
     }
 }
