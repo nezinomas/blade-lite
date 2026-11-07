@@ -14,8 +14,22 @@ const FN_DOWN: [u8; 2] = [0x04, 0x0A];
 const KEY_DOWN: [u8; 3] = [0x04, 0x0A, 0xD3];
 const ALL_UP: [u8; 1] = [0x04];
 
+/// Presses that have seen the key up once, so the next press counts.
 fn presses() -> PowerKeyPresses {
-    PowerKeyPresses::new(BLADE_18.power_key.unwrap())
+    let mut presses = PowerKeyPresses::new(BLADE_18.power_key.unwrap());
+    assert!(!presses.on_report(&report(&ALL_UP), Instant::now()));
+    presses
+}
+
+#[test]
+fn a_key_held_before_the_first_key_up_does_not_count() {
+    let mut presses = PowerKeyPresses::new(BLADE_18.power_key.unwrap());
+    let now = Instant::now();
+
+    // The key may have been held while the reports were opened.
+    assert!(!presses.on_report(&report(&KEY_DOWN), now));
+    assert!(!presses.on_report(&report(&FN_DOWN), now));
+    assert!(presses.on_report(&report(&KEY_DOWN), now));
 }
 
 #[test]

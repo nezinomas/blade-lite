@@ -33,7 +33,9 @@ pub fn next_preset(running: Preset, model: &ModelProfile, on_battery: bool) -> O
 #[derive(Debug, Clone)]
 pub struct PowerKeyPresses {
     key: PowerKey,
-    held: bool,
+    /// `None` until the first key report. A key held before then is not
+    /// a new press: it may have been down while the reports were opened.
+    held: Option<bool>,
     last_step: Option<Instant>,
 }
 
@@ -42,7 +44,7 @@ impl PowerKeyPresses {
     pub fn new(key: PowerKey) -> Self {
         Self {
             key,
-            held: false,
+            held: None,
             last_step: None,
         }
     }
@@ -52,8 +54,8 @@ impl PowerKeyPresses {
         let Some(held) = self.key.held(report) else {
             return false;
         };
-        let pressed = held && !self.held;
-        self.held = held;
+        let pressed = held && self.held == Some(false);
+        self.held = Some(held);
         if !pressed || self.too_soon(now) {
             return false;
         }
