@@ -65,7 +65,7 @@ lists each reviewer's findings on its own.
 - [x] 30 Lid logo
 - [x] 31 Battery charge limit
 - 32 GPU mode: dropped (no switch on this model)
-- [ ] 33 Red touchpad key
+- [x] 33 Red touchpad key (follows the Windows touchpad switch; the physical key is 47)
 - [ ] 34 Power-mode key (numpad Enter)
 - [ ] 35 60 Hz on battery toggle
 
@@ -78,6 +78,7 @@ lists each reviewer's findings on its own.
 - [ ] 43 Autostart tick: re-read it when the menu opens, and warn if the Run key names another exe (such as `target\debug`)
 - [ ] 44 Lid logo off after a reboot and a sleep: check it stays off. If it comes back on, save it in the config and send it at start and resume
 - [ ] 45 Check that each reply belongs to its request: compare the command id and transaction id in `Device::send`, then run all of `cargo hw`. Some tools accept a `0792` reply whatever its status; this model replied Success
+- [ ] 47 Physical touchpad key: it switches the touchpad in the laptop itself, and Windows is not told, so the red key does not follow it. The keyboard sends report `04 DD` on press and `04 00` on release (Synapse capture, steps 23 and 26). Find where the real touchpad state can be read, then read that report (not a keyboard hook) and repaint the key
 - [ ] 46 Charge limit: on AC with the battery above 80% and the limit on, check Windows says "not charging". If it still charges, try sending `070F` after the limit as Synapse does
 
 ## Publishing on GitHub
