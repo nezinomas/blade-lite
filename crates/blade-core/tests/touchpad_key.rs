@@ -1,41 +1,21 @@
-//! The touchpad key: lit while the touchpad is off, as Synapse lit it.
+//! The touchpad key: red in the frame while the touchpad is off.
 
-use std::io;
-
-use blade_core::{Controller, Query, TouchpadKeyError, light_touchpad_key};
-use platform::Registry;
+use blade_core::{Controller, Lighting, paint_touchpad_key};
 use razer_device::DeviceError;
-use razer_proto::{BLADE_18, Command, ModelProfile, TouchpadKey};
+use razer_proto::{
+    BLADE_18, Command, ModelProfile, Rgb, static_colour, static_colour_touchpad_off,
+};
 
-/// The touchpad state as Windows keeps it, or a failed read.
-struct FakeRegistry(Option<u32>);
+const LIGHTING: Lighting = Lighting {
+    brightness: 36,
+    colour: Rgb::new(0x44, 0xD6, 0x2C),
+};
 
-impl Registry for FakeRegistry {
-    fn read_user_dword(&self, _: &str, _: &str) -> io::Result<u32> {
-        self.0
-            .ok_or_else(|| io::Error::from(io::ErrorKind::NotFound))
-    }
-}
-
-/// A controller that keeps the key light it is sent and reads it back.
+/// Keeps what it runs, or fails every run.
 #[derive(Default)]
 struct FakeController {
-    lit: Option<bool>,
     ran: Vec<Command>,
-    /// Reads back this in place of the kept state.
-    reads: Option<Vec<u8>>,
     fails: bool,
-}
-
-impl Query for FakeController {
-    fn query(&mut self, command: &Command) -> Result<Vec<u8>, DeviceError> {
-        assert_eq!(*command, key().query());
-        if let Some(reads) = &self.reads {
-            return Ok(reads.clone());
-        }
-        let lit = self.lit.ok_or(DeviceError::Busy)?;
-        Ok(vec![0x00, key().led, u8::from(lit)])
-    }
 }
 
 impl Controller for FakeController {
@@ -43,103 +23,41 @@ impl Controller for FakeController {
         if self.fails {
             return Err(DeviceError::Busy);
         }
-        for command in commands {
-            self.lit = key().from_reply(&command.args);
-        }
         self.ran.extend_from_slice(commands);
         Ok(())
     }
 }
 
-fn key() -> TouchpadKey {
-    BLADE_18.touchpad_key.unwrap()
-}
-
-const NO_KEY: ModelProfile = ModelProfile {
-    touchpad_key: None,
-    ..BLADE_18
-};
-
-fn showing(lit: bool) -> FakeController {
-    FakeController {
-        lit: Some(lit),
-        ..FakeController::default()
-    }
-}
-
 #[test]
-fn the_key_lights_when_the_touchpad_is_off() {
-    let mut controller = showing(false);
+fn red_paints_the_colour_with_the_key_red_and_no_brightness() {
+    let mut controller = FakeController::default();
 
-    light_touchpad_key(&FakeRegistry(Some(0)), &mut controller, &BLADE_18).unwrap();
+    paint_touchpad_key(true, LIGHTING, &BLADE_18, &mut controller).unwrap();
 
-    assert_eq!(controller.ran, [key().command(true)]);
-    assert_eq!(controller.lit, Some(true));
-}
-
-#[test]
-fn the_key_goes_dark_when_the_touchpad_is_on() {
-    let mut controller = showing(true);
-
-    light_touchpad_key(&FakeRegistry(Some(1)), &mut controller, &BLADE_18).unwrap();
-
-    assert_eq!(controller.ran, [key().command(false)]);
-    assert_eq!(controller.lit, Some(false));
-}
-
-#[test]
-fn nothing_is_sent_if_the_key_already_shows_the_state() {
-    for (touchpad, lit) in [(0, true), (1, false)] {
-        let mut controller = showing(lit);
-
-        light_touchpad_key(&FakeRegistry(Some(touchpad)), &mut controller, &BLADE_18).unwrap();
-
-        assert_eq!(controller.ran, [], "touchpad {touchpad}");
-    }
-}
-
-#[test]
-fn an_unreadable_light_is_set_and_read_back() {
-    let mut controller = FakeController {
-        reads: Some(vec![0x00, key().led, 0x07]),
-        ..FakeController::default()
-    };
-
-    let result = light_touchpad_key(&FakeRegistry(Some(0)), &mut controller, &BLADE_18);
-
-    assert_eq!(controller.ran, [key().command(true)]);
-    assert!(
-        matches!(
-            result,
-            Err(TouchpadKeyError::NotConfirmed {
-                wanted: true,
-                read: None
-            })
-        ),
-        "{result:?}"
+    assert_eq!(
+        controller.ran,
+        static_colour_touchpad_off(LIGHTING.colour, &BLADE_18)
     );
 }
 
 #[test]
-fn nothing_is_sent_if_the_touchpad_state_cant_be_read() {
-    for registry in [FakeRegistry(None), FakeRegistry(Some(2))] {
-        let mut controller = showing(false);
+fn not_red_paints_the_plain_colour() {
+    let mut controller = FakeController::default();
 
-        let result = light_touchpad_key(&registry, &mut controller, &BLADE_18);
+    paint_touchpad_key(false, LIGHTING, &BLADE_18, &mut controller).unwrap();
 
-        assert!(
-            matches!(result, Err(TouchpadKeyError::Touchpad(_))),
-            "{result:?}"
-        );
-        assert_eq!(controller.ran, []);
-    }
+    assert_eq!(controller.ran, static_colour(LIGHTING.colour, &BLADE_18));
 }
 
 #[test]
 fn a_model_without_the_key_is_left_alone() {
-    let mut controller = showing(false);
+    let no_key = ModelProfile {
+        touchpad_key: None,
+        ..BLADE_18
+    };
+    let mut controller = FakeController::default();
 
-    light_touchpad_key(&FakeRegistry(Some(0)), &mut controller, &NO_KEY).unwrap();
+    paint_touchpad_key(true, LIGHTING, &no_key, &mut controller).unwrap();
 
     assert_eq!(controller.ran, []);
 }
@@ -148,24 +66,8 @@ fn a_model_without_the_key_is_left_alone() {
 fn a_failed_send_is_an_error() {
     let mut controller = FakeController {
         fails: true,
-        ..showing(false)
+        ..FakeController::default()
     };
 
-    let result = light_touchpad_key(&FakeRegistry(Some(0)), &mut controller, &BLADE_18);
-
-    assert!(
-        matches!(result, Err(TouchpadKeyError::Device(_))),
-        "{result:?}"
-    );
-}
-
-#[test]
-fn a_failed_first_read_still_sets_the_light() {
-    let mut controller = FakeController::default();
-
-    let result = light_touchpad_key(&FakeRegistry(Some(0)), &mut controller, &BLADE_18);
-
-    // The fake keeps what it was sent, so the read back works.
-    result.unwrap();
-    assert_eq!(controller.ran, [key().command(true)]);
+    assert!(paint_touchpad_key(true, LIGHTING, &BLADE_18, &mut controller).is_err());
 }

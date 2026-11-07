@@ -6,8 +6,8 @@ use std::time::{Duration, Instant};
 
 use blade_core::{
     APP_NAME, BatteryRate, Config, NativeModeState, Query, RefreshRate, TOUCHPAD_KEY,
-    charge_limit_on, light_touchpad_key, logo_on, native_mode_state, refresh_rates,
-    set_charge_limit, set_logo, set_native_mode, set_refresh_rate, set_touchpad, touchpad_on,
+    charge_limit_on, logo_on, native_mode_state, refresh_rates, set_charge_limit, set_logo,
+    set_native_mode, set_refresh_rate, set_touchpad, touchpad_on,
 };
 use platform::{
     DisplayApi, InstanceLock, OutputTechnology, PowerEvent, PowerEvents, RegistryWatch,
@@ -153,27 +153,6 @@ fn the_lid_logo_is_flipped_and_put_back() {
 
     assert_eq!(flipped, Some(!before));
     assert_eq!(restored, Some(before));
-}
-
-#[test]
-#[ignore = "needs the Blade 18; flips the touchpad key light, then lights it as the touchpad says"]
-fn the_touchpad_key_light_follows_the_touchpad() {
-    let key = BLADE_18
-        .touchpad_key
-        .expect("the Blade 18 has a touchpad key");
-    let mut device = Device::new(open(), SystemClock);
-    let wanted = !touchpad_on(&WindowsRegistry).unwrap();
-    let before = key.from_reply(&device.query(&key.query()).unwrap());
-    eprintln!("touchpad key lit before: {before:?}, wanted {wanted}");
-
-    device.run(&[key.command(!wanted)]).unwrap();
-    let flipped = key.from_reply(&device.query(&key.query()).unwrap());
-    let lit = light_touchpad_key(&WindowsRegistry, &mut device, &BLADE_18);
-    let after = key.from_reply(&device.query(&key.query()).unwrap());
-
-    assert_eq!(flipped, Some(!wanted));
-    lit.unwrap();
-    assert_eq!(after, Some(wanted));
 }
 
 #[test]
