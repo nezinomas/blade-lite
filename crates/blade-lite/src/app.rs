@@ -17,6 +17,8 @@ use ui::{
     KeyboardView, PerformanceCommand, PerformanceState, PerformanceView,
 };
 
+use crate::report;
+
 /// What the window shows before the user sets the lighting.
 const DEFAULT_LIGHTING: Lighting = Lighting {
     brightness: 100,
@@ -379,7 +381,7 @@ where
     fn touchpad_off(&self) -> bool {
         touchpad_on(&self.machine.registry).map_or_else(
             |error| {
-                eprintln!("blade-lite: the touchpad key stays plain: {error}");
+                report(&format!("the touchpad key stays plain: {error}"));
                 false
             },
             |on| !on,

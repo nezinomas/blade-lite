@@ -55,7 +55,7 @@ pub fn step_on_presses(
                 continue;
             }
             Err(error) => {
-                eprintln!("blade-lite: the key reports stopped: {error}");
+                crate::report(&format!("the key reports stopped: {error}"));
                 return ReaderEnd::Reopen;
             }
         };

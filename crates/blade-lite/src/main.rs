@@ -14,10 +14,10 @@ use std::sync::mpsc::{self, Receiver};
 use std::time::Duration;
 
 use blade_core::{
-    APP_NAME, Config, POLL_INTERVAL, PowerKeyPresses, Start, TOUCHPAD_KEY, autostart_on,
+    APP_NAME, Config, Log, POLL_INTERVAL, PowerKeyPresses, Start, TOUCHPAD_KEY, autostart_on,
     set_autostart, start_instance, starts_in_tray,
 };
-use blade_lite::{App, Machine, ReaderEnd, accent_colour, step_on_presses};
+use blade_lite::{App, Machine, ReaderEnd, accent_colour, open_log, report, step_on_presses};
 use platform::{
     PowerEvent, PowerEvents, RegistryWatch, WakeListener, WindowsDisplays, WindowsInstance,
     WindowsKeys, WindowsPowerEvents, WindowsRegistry,
@@ -47,18 +47,22 @@ fn main() -> ExitCode {
     match run() {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
-            eprintln!("blade-lite: {error}");
+            report(&error.to_string());
             ExitCode::FAILURE
         }
     }
 }
 
 fn run() -> Result<(), Box<dyn std::error::Error>> {
+    let appdata = PathBuf::from(std::env::var_os("APPDATA").ok_or("no APPDATA")?);
+    // First, so even a failed start leaves its reason in the log.
+    open_log(Log::new(Log::path_in(&appdata)));
+    report(concat!("starts, version ", env!("CARGO_PKG_VERSION")));
     // Before the controller is opened: a second copy must never drive it.
     let in_tray = starts_in_tray(std::env::args_os().skip(1));
     let mut instance = WindowsInstance::new(APP_NAME)?;
     if start_instance(&mut instance, !in_tray)? == Start::Second {
-        eprintln!("blade-lite: another copy runs, so this one ends");
+        report("another copy runs, so this one ends");
         return Ok(());
     }
 
@@ -67,9 +71,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         .with_winit_window_attributes_hook(|attributes| attributes.with_transparent(true))
         .select()?;
 
-    let config_path = Config::path_in(&PathBuf::from(
-        std::env::var_os("APPDATA").ok_or("no APPDATA")?,
-    ));
+    let config_path = Config::path_in(&appdata);
     let config = Config::load(&config_path)?;
     let machine = Machine {
         controller: Device::new(HidTransport::open(&BLADE_18)?, SystemClock),
@@ -130,7 +132,9 @@ fn open_window_on_wake(listener: WakeListener) {
                 Ok(true) => {}
                 Ok(false) => continue,
                 Err(error) => {
-                    eprintln!("blade-lite: a second start can't open the window now: {error}");
+                    report(&format!(
+                        "a second start can't open the window now: {error}"
+                    ));
                     return;
                 }
             }
@@ -156,7 +160,9 @@ const TOUCHPAD_QUIET: Duration = Duration::from_millis(100);
 fn watch_touchpad() -> Option<RegistryWatch> {
     RegistryWatch::open(TOUCHPAD_KEY)
         .map_err(|error| {
-            eprintln!("blade-lite: the touchpad key can't follow the touchpad: {error}");
+            report(&format!(
+                "the touchpad key can't follow the touchpad: {error}"
+            ));
         })
         .ok()
 }
@@ -170,7 +176,9 @@ fn follow_the_touchpad(watch: RegistryWatch) {
                 Ok(true) => {}
                 Ok(false) => continue,
                 Err(error) => {
-                    eprintln!("blade-lite: the touchpad key stops following the touchpad: {error}");
+                    report(&format!(
+                        "the touchpad key stops following the touchpad: {error}"
+                    ));
                     return;
                 }
             }
@@ -222,7 +230,7 @@ fn follow_the_power_key() {
                     // Said once, not each time it is tried again.
                     let text = error.to_string();
                     if last_error.as_ref() != Some(&text) {
-                        eprintln!("blade-lite: no power-mode key for now: {text}");
+                        report(&format!("no power-mode key for now: {text}"));
                         last_error = Some(text);
                     }
                 }
@@ -255,7 +263,7 @@ fn autostart_state() -> bool {
         .map_err(|error| error.to_string())
         .and_then(|exe| autostart_on(&WindowsRegistry, &exe).map_err(|error| error.to_string()))
         .unwrap_or_else(|error| {
-            eprintln!("blade-lite: autostart unknown: {error}");
+            report(&format!("autostart unknown: {error}"));
             false
         })
 }
@@ -270,7 +278,7 @@ fn sync_autostart(tray: &Tray) {
             set_autostart(on, &mut WindowsRegistry, &exe).map_err(|error| error.to_string())
         });
     if let Err(error) = set {
-        eprintln!("blade-lite: could not set autostart: {error}");
+        report(&format!("could not set autostart: {error}"));
         tray.tick_autostart(autostart_state());
     }
 }
@@ -313,7 +321,7 @@ fn power_events() -> Receiver<PowerEvent> {
                 }
             });
         }
-        Err(error) => eprintln!("blade-lite: no power events: {error}"),
+        Err(error) => report(&format!("no power events: {error}")),
     }
     receiver
 }
