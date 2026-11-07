@@ -82,3 +82,77 @@ fn transaction_ids_count_0_to_31_then_wrap() {
     let expected: Vec<u8> = (0..32).chain([0]).collect();
     assert_eq!(ids, expected);
 }
+
+#[test]
+fn a_reply_with_another_transaction_id_is_an_error() {
+    let (transport, clock, log) = fakes(vec![reply(SUCCESS, 7, COMMAND)]);
+
+    let result = Device::new(transport, clock).send(COMMAND, &[]);
+
+    assert!(
+        matches!(
+            result,
+            Err(DeviceError::WrongReply {
+                transaction_id: 7,
+                command: COMMAND
+            })
+        ),
+        "{result:?}"
+    );
+    assert_eq!(sent(&log).len(), 1);
+}
+
+#[test]
+fn a_reply_to_another_command_is_an_error() {
+    let (transport, clock, _) = fakes(vec![reply(SUCCESS, 0, 0x0D82)]);
+
+    let result = Device::new(transport, clock).send(COMMAND, &[]);
+
+    assert!(
+        matches!(
+            result,
+            Err(DeviceError::WrongReply {
+                transaction_id: 0,
+                command: 0x0D82
+            })
+        ),
+        "{result:?}"
+    );
+}
+
+#[test]
+fn a_busy_reply_to_another_request_is_not_retried() {
+    let (transport, clock, log) = fakes(vec![reply(BUSY, 3, COMMAND), reply(SUCCESS, 0, COMMAND)]);
+
+    let result = Device::new(transport, clock).send(COMMAND, &[]);
+
+    assert!(
+        matches!(result, Err(DeviceError::WrongReply { .. })),
+        "{result:?}"
+    );
+    assert_eq!(sent(&log).len(), 1);
+}
+
+#[test]
+fn a_failure_reply_to_another_request_is_a_wrong_reply() {
+    let (transport, clock, _) = fakes(vec![reply(FAILURE, 0, 0x0D82)]);
+
+    let result = Device::new(transport, clock).send(COMMAND, &[]);
+
+    assert!(
+        matches!(result, Err(DeviceError::WrongReply { .. })),
+        "{result:?}"
+    );
+}
+
+#[test]
+fn a_busy_retry_must_still_match() {
+    let (transport, clock, _) = fakes(vec![reply(BUSY, 0, COMMAND), reply(SUCCESS, 1, COMMAND)]);
+
+    let result = Device::new(transport, clock).send(COMMAND, &[]);
+
+    assert!(
+        matches!(result, Err(DeviceError::WrongReply { .. })),
+        "{result:?}"
+    );
+}
