@@ -5,9 +5,13 @@ use blade_core::Autostart;
 /// The item's text.
 pub const AUTOSTART_LABEL: &str = "Start with Windows";
 
-/// The item's text while the Run key starts another copy of the app. A
-/// click points it at this copy.
-pub const AUTOSTART_OTHER_LABEL: &str = "Start with Windows (set for another copy)";
+/// The item's text while the app's Run value starts another command, such
+/// as another copy of the app. A click points it at this copy.
+pub const AUTOSTART_OTHER_LABEL: &str = "Start with Windows (set to another program)";
+
+/// The item's text while the Run key can't be read, so the tick is not
+/// known.
+pub const AUTOSTART_UNKNOWN_LABEL: &str = "Start with Windows (unknown)";
 
 /// How the item shows, and what to log about it.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -26,13 +30,33 @@ pub fn autostart_item(read: &Result<Autostart, String>) -> AutostartItem {
         Ok(Autostart::On | Autostart::Off) => (AUTOSTART_LABEL, None),
         Ok(Autostart::Other(command)) => (
             AUTOSTART_OTHER_LABEL,
-            Some(format!("autostart starts another copy: {command}")),
+            Some(format!("autostart runs another command: {command}")),
         ),
-        Err(error) => (AUTOSTART_LABEL, Some(format!("autostart unknown: {error}"))),
+        Err(error) => (
+            AUTOSTART_UNKNOWN_LABEL,
+            Some(format!("autostart unknown: {error}")),
+        ),
     };
     AutostartItem {
         ticked: matches!(read, Ok(Autostart::On)),
         label,
         warning,
+    }
+}
+
+/// What to log before a click ticks the item over a Run value that is not
+/// this copy's, so the change can be traced. `read` is the state just
+/// before the click; `on` is the new tick.
+#[must_use]
+pub fn takeover_note(read: &Result<Autostart, String>, on: bool) -> Option<String> {
+    if !on {
+        return None;
+    }
+    match read {
+        Ok(Autostart::Other(command)) => {
+            Some(format!("autostart now starts this copy, not: {command}"))
+        }
+        Err(_) => Some("autostart set while the old value was unknown".to_owned()),
+        Ok(Autostart::On | Autostart::Off) => None,
     }
 }

@@ -15,7 +15,7 @@ const SIZE: u16 = 32;
 pub enum TrayAction {
     /// A left click on the icon, which sits at this rectangle.
     Clicked(Rect),
-    /// A right press on the icon, just before the menu opens.
+    /// A right click on the icon, just before the menu opens.
     MenuOpening,
     OpenWindow,
     /// A click on "Start with Windows", which has already flipped its tick.
@@ -86,10 +86,11 @@ impl Tray {
                     };
                     post(handle, TrayAction::Clicked(icon));
                 }
-                // The menu opens on the release, so the tick can be read
-                // again before it shows.
-                (MouseButton::Right, MouseButtonState::Down) => {
-                    post(handle, TrayAction::MenuOpening);
+                // tray-icon opens the menu right after this call returns,
+                // on this same thread (the event loop's). So the item is
+                // read again now, not posted, or the menu could show first.
+                (MouseButton::Right, MouseButtonState::Up) => {
+                    handle(TrayAction::MenuOpening);
                 }
                 _ => {}
             }
@@ -100,7 +101,9 @@ impl Tray {
             if event.id == open {
                 post(handle, TrayAction::OpenWindow);
             } else if event.id == autostart {
-                post(handle, TrayAction::Autostart);
+                // Handled now, on this thread (the event loop's), so no
+                // menu refresh can change the tick before it is read.
+                handle(TrayAction::Autostart);
             } else if event.id == quit {
                 post(handle, TrayAction::Quit);
             }

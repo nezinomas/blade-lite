@@ -19,7 +19,7 @@ use blade_core::{
 };
 use blade_lite::{
     App, AutostartItem, Machine, ReaderEnd, ShownErrors, accent_colour, autostart_item, open_log,
-    report, report_panics, step_on_presses,
+    report, report_panics, step_on_presses, takeover_note,
 };
 use platform::{
     PowerEvent, PowerEvents, RegistryWatch, WakeListener, WindowsDisplays, WindowsInstance,
@@ -44,7 +44,8 @@ thread_local! {
     static TRAY: RefCell<Option<Rc<Tray>>> = const { RefCell::new(None) };
     /// The power events, so a key press can see them before it steps.
     static POWER: RefCell<Option<Rc<Receiver<PowerEvent>>>> = const { RefCell::new(None) };
-    /// The last autostart warning, so each one is logged once.
+    /// The last autostart warning, so each one is logged once, not on each
+    /// menu open. No warning clears it, so one that comes back is logged.
     static AUTOSTART_SAID: RefCell<ShownErrors> = RefCell::new(ShownErrors::default());
 }
 
@@ -288,6 +289,10 @@ fn sync_autostart(tray: &Tray) {
     let set = std::env::current_exe()
         .map_err(|error| error.to_string())
         .and_then(|exe| {
+            let before = autostart(&WindowsRegistry, &exe).map_err(|error| error.to_string());
+            if let Some(note) = takeover_note(&before, on) {
+                report(&note);
+            }
             set_autostart(on, &mut WindowsRegistry, &exe).map_err(|error| error.to_string())
         });
     if let Err(error) = set {
@@ -322,6 +327,7 @@ fn on_tray(action: TrayAction) {
     match action {
         TrayAction::Clicked(icon) => shell.toggle_flyout(icon),
         TrayAction::OpenWindow => shell.show_window(),
+        // Handled above; listed so the match stays whole.
         TrayAction::Quit | TrayAction::Autostart | TrayAction::MenuOpening => {}
     }
 }

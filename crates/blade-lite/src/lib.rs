@@ -9,7 +9,10 @@ mod report;
 
 pub use accent::accent_colour;
 pub use app::{App, AppError, Machine};
-pub use autostart_item::{AUTOSTART_LABEL, AUTOSTART_OTHER_LABEL, AutostartItem, autostart_item};
+pub use autostart_item::{
+    AUTOSTART_LABEL, AUTOSTART_OTHER_LABEL, AUTOSTART_UNKNOWN_LABEL, AutostartItem, autostart_item,
+    takeover_note,
+};
 pub use key_reader::{KEY_IDLE_READS, KEY_READ_WAIT, KeyReportSource, ReaderEnd, step_on_presses};
 pub use placement::{Rect, flyout_position};
 pub use report::{Reporter, ShownErrors, open_log, report, report_panics};
