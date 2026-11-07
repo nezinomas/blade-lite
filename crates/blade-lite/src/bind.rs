@@ -260,11 +260,7 @@ fn window_callbacks(shell: &Rc<Shell>) {
     let s = Rc::downgrade(shell);
     window.on_pick_custom(move |hex| {
         on(&s, |shell| {
-            let Ok(rgb) = hex.trim().parse::<Rgb>() else {
-                shell.show_error(&format!("{hex} is not a colour. Use #RRGGBB."));
-                return;
-            };
-            shell.act(|app| match app.keyboard_view()?.pick_custom(rgb) {
+            shell.act(|app| match app.keyboard_view()?.pick_custom(&hex) {
                 Some(command) => app.on_keyboard(command),
                 None => Ok(()),
             });

@@ -388,7 +388,12 @@ export component MainWindow inherits Window {
                             enabled: root.colours-enabled;
                             text: root.custom-hex;
                             placeholder-text: "#RRGGBB";
-                            accepted(text) => { root.pick-custom(text); }
+                            // Shows the colour in use again: the new one,
+                            // or the last good one if the text was not a colour.
+                            accepted(text) => {
+                                root.pick-custom(text);
+                                self.text = root.custom-hex;
+                            }
                         }
                     }
                 }
