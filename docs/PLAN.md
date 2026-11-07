@@ -79,7 +79,7 @@ lists each reviewer's findings on its own.
 - [ ] 44 Lid logo off after a reboot and a sleep: check it stays off. If it comes back on, save it in the config and send it at start and resume
 - [ ] 45 Check that each reply belongs to its request: compare the command id and transaction id in `Device::send`, then run all of `cargo hw`. Some tools accept a `0792` reply whatever its status; this model replied Success
 - [ ] 47 Physical touchpad key: it switches the touchpad in the laptop itself, and Windows is not told, so the red key does not follow it. The keyboard sends report `04 DD` on press and `04 00` on release (Synapse capture, steps 23 and 26). Find where the real touchpad state can be read, then read that report (not a keyboard hook) and repaint the key
-- [ ] 48 Log the sensor and fan read errors (now shown blank, never logged), and say an error that comes and goes only once in a while, not on each change
+- [ ] 50 Log the sensor and fan read errors (now shown blank, never logged), and say an error that comes and goes only once in a while, not on each change
 - [ ] 46 Charge limit: on AC with the battery above 80% and the limit on, check Windows says "not charging". If it still charges, try sending `070F` after the limit as Synapse does
 
 ## Publishing on GitHub
