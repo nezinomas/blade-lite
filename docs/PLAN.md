@@ -85,6 +85,7 @@ Checks only a person can do on the laptop wait in "Still to check on the laptop"
 - [x] 61 `Config::save` writes a temp file, then renames it over the config
 - [ ] 62 A send that fails part way (such as the zones sent, then a boost Busy) leaves the controller with part of the new state, but the app keeps the old one until the next resume sends it again. Decide whether to read back or say so in the error
 - [ ] 63 The config rename can fail with access denied while another program (such as Defender or the search indexer) holds `config.toml` or its temp file open. The change stays in memory (ticket 57), but the next start sends the old config. Retry only the rename a few times (such as 3 tries, 20 ms apart) on `PermissionDenied`, if the log ever shows it
+- [ ] 64 `cargo test` prints about 600 lines from `crates/blade-lite/tests/report.rs`: `report()` writes to stderr with `writeln!(io::stderr())`, which the test harness does not capture. That costs tokens on every test run. Let a test `Reporter` skip stderr, or capture it, without changing what the app writes
 
 ## Still to check on the laptop
 Do these in one go, on AC, with "Start with Windows" on and Num Lock off (the power-mode key needs it, ticket 59). First note your preset, lid logo and native mode; the last step puts them back.
