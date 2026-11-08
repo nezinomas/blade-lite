@@ -87,7 +87,8 @@ Checks only a person can do on the laptop wait in "Still to check on the laptop"
 - [ ] 63 The config rename can fail with access denied while another program (such as Defender or the search indexer) holds `config.toml` or its temp file open. The change stays in memory (ticket 57), but the next start sends the old config. Retry only the rename a few times (such as 3 tries, 20 ms apart) on `PermissionDenied`, if the log ever shows it
 - [ ] 64 `cargo test` prints about 600 lines from `crates/blade-lite/tests/report.rs`: `report()` writes to stderr with `writeln!(io::stderr())`, which the test harness does not capture. That costs tokens on every test run. Let a test `Reporter` skip stderr, or capture it, without changing what the app writes
 - [ ] 65 Some `cargo hw` tests in `crates/blade-core/tests/hardware.rs` (native mode, lid logo, touchpad) unwrap the "set the other state" step before they put the state back. If that step fails after the controller took it (such as `Busy`), the test panics and leaves the laptop changed: the next boot can start in the other native mode. Keep each `Result`, put the state back, then assert, as the charge-limit and refresh-rate tests do
-- [x] 66 Split by job, code moved only: `app.rs` into `app/` (error, views, clicks, events), `shell.rs` into `shell/` (windows, popup, ticks), `main.rs` threads and tray menu out, `tests/app.rs` into `tests/app/` by topic
+- [x] 66 Split by job, code moved only: `app.rs` into `app/` (error, views, clicks, events), `shell.rs` into `shell/` (windows, popup, ticks), `main.rs` threads and tray menu out, `tests/app.rs` into `tests/app/` by topic. Other long Rust files each do one job, so they stay
+- [ ] 67 `crates/blade-lite/ui/window.slint` (about 620 lines) is edited in most UI tickets. Split the header, performance, display and keyboard groups into their own `.slint` components. Move markup only; bindings and callbacks stay the same, so both reviewers
 
 ## Still to check on the laptop
 Do these in one go, on AC, with "Start with Windows" on and Num Lock off (the power-mode key needs it, ticket 59). First note your preset, keyboard colour, lid logo and native mode; the last step puts them back.
@@ -98,6 +99,7 @@ Do these in one go, on AC, with "Start with Windows" on and Num Lock off (the po
 4. **Restart (44, 18).** Turn the lid logo off. Pick the FHD 440 Hz native mode. Restart. The app starts with Windows, the logo stays off, and the screen starts at FHD 440 Hz.
 5. **Put it back.** Set your native mode, keyboard colour, lid logo and preset back as you noted them. Restart once more for the native mode.
 6. **Busy (55).** Nothing to do now. If the log ever shows a Busy error, check whether the command took effect.
+7. **Split files (66).** Code was moved only. Do all of `docs/window-check.md` once, then click a preset, press the power-mode key and switch the touchpad: each works as before.
 
 ## Publishing on GitHub
 - [ ] 39 Release and installer
