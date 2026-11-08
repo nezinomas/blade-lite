@@ -73,8 +73,10 @@ Checks only a person can do on the laptop wait in "Still to check on the laptop"
 - [ ] 46 Charge limit: on AC with the battery above 80% and the limit on, check Windows says "not charging". If it still charges, try sending `070F` after the limit as Synapse does
 - [ ] 48 Power-mode popup above the taskbar clock: takes no focus, fades out, semi-transparent black like Synapse's
 - [ ] 49 Same popup for touchpad on and off (the physical key needs 47)
+- [x] 52 Vapor-chamber light switch (LED `0x26`, set with `0303` after the keyboard: the keyboard level while on, 0 while off; saved in the config and sent at start and resume. Switch checked on the laptop)
 
 ## Still to check on the laptop
+- Vapor light switch off: the light stays off after a brightness change, and after a real sleep and wake (ticket 52)
 - The power-mode key after a real sleep (in the ticket 45 test the key twice sent only Fn, `04 0A`, without `D3`)
 - The 2 s wait after wake, over a real sleep and wake cycle
 - A restart into the FHD 440 Hz native mode

@@ -1,6 +1,6 @@
 mod common;
 
-use razer_proto::{BLADE_18, Brightness, BrightnessError, ModelProfile, Request};
+use razer_proto::{BLADE_18, Brightness, BrightnessError, ModelProfile, Request, VaporLight};
 
 /// The captured brightness steps: the fixture and the percent Synapse set.
 const STEPS: [(&str, u8); 4] = [
@@ -10,7 +10,7 @@ const STEPS: [(&str, u8); 4] = [
     ("16-brightness-100.txt", 100),
 ];
 
-/// The last two `0303` requests of a fixture: the keyboard, then the underside.
+/// The last two `0303` requests of a fixture: the keyboard, then the vapor light.
 fn captured_brightness(fixture: &str) -> Vec<[u8; razer_proto::REPORT_LEN]> {
     let requests: Vec<_> = common::captured_requests()
         .into_iter()
@@ -24,7 +24,9 @@ fn captured_brightness(fixture: &str) -> Vec<[u8; razer_proto::REPORT_LEN]> {
 fn each_step_matches_its_golden_bytes() {
     for (fixture, percent) in STEPS {
         let golden = captured_brightness(fixture);
-        let commands = Brightness::new(percent).unwrap().commands(&BLADE_18);
+        let brightness = Brightness::new(percent).unwrap();
+        let mut commands = brightness.commands(&BLADE_18);
+        commands.push(BLADE_18.vapor_light.unwrap().command(brightness, true));
 
         let built: Vec<_> = commands
             .iter()
@@ -57,4 +59,23 @@ fn one_command_is_built_per_led_of_the_model() {
 
     assert_eq!(commands.len(), 1);
     assert_eq!(commands[0].args, [0x01, 0x05, 128]);
+}
+
+#[test]
+fn the_vapor_light_gets_the_keyboard_level_while_on() {
+    let light = VaporLight { led: 0x26 };
+
+    let command = light.command(Brightness::new(50).unwrap(), true);
+
+    assert_eq!(command.id, 0x0303);
+    assert_eq!(command.args, [0x01, 0x26, 128]);
+}
+
+#[test]
+fn the_vapor_light_gets_level_0_while_off() {
+    let light = VaporLight { led: 0x26 };
+
+    let command = light.command(Brightness::new(100).unwrap(), false);
+
+    assert_eq!(command.args, [0x01, 0x26, 0]);
 }

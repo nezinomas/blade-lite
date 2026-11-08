@@ -107,32 +107,57 @@ const GET_BRIGHTNESS: u16 = 0x0383;
 const SET_BRIGHTNESS: u16 = 0x0303;
 const LEDS: [u8; 2] = [0x05, 0x26];
 
-fn levels<C: Clock>(device: &mut Device<HidTransport, C>) -> Vec<u8> {
+/// Each LED's level. A reply for another LED is an error.
+fn levels<C: Clock>(device: &mut Device<HidTransport, C>) -> Result<Vec<u8>, String> {
     LEDS.iter()
-        .map(|&led| device.send(GET_BRIGHTNESS, &[1, led, 0]).unwrap().args()[2])
+        .map(|&led| {
+            let reply = device
+                .send(GET_BRIGHTNESS, &[1, led, 0])
+                .map_err(|error| format!("{error:?}"))?;
+            match reply.args() {
+                [1, echoed, level, ..] if *echoed == led => Ok(*level),
+                args => Err(format!("reply for LED {led:02X}: {:02X?}", &args[..3])),
+            }
+        })
         .collect()
+}
+
+/// Sets the keyboard to 50% with the vapor light on or off, reads both
+/// levels, then puts the old levels back.
+fn set_and_read<C: Clock>(device: &mut Device<HidTransport, C>, vapor_on: bool) -> Vec<u8> {
+    let model = &razer_proto::BLADE_18;
+    let before = levels(device).unwrap();
+    let brightness = razer_proto::Brightness::new(50).unwrap();
+    let mut commands = brightness.commands(model);
+    commands.push(model.vapor_light.unwrap().command(brightness, vapor_on));
+
+    // The old levels go back before any error is raised.
+    let after = device
+        .run(&commands)
+        .map_err(|error| format!("{error:?}"))
+        .and_then(|()| levels(device));
+    for (&led, &level) in LEDS.iter().zip(&before) {
+        device.send(SET_BRIGHTNESS, &[1, led, level]).unwrap();
+    }
+    let after = after.unwrap();
+    eprintln!("levels before {before:?}, at 50% with vapor {vapor_on}: {after:?}, restored");
+    after
 }
 
 #[test]
 #[ignore = "needs the Blade 18"]
 fn brightness_is_set_and_read_back() {
     let mut device = Device::new(open(), SystemClock);
-    let before = levels(&mut device);
 
-    device
-        .run(
-            &razer_proto::Brightness::new(50)
-                .unwrap()
-                .commands(&razer_proto::BLADE_18),
-        )
-        .unwrap();
-    let after = levels(&mut device);
+    assert_eq!(set_and_read(&mut device, true), [128, 128]);
+}
 
-    for (&led, &level) in LEDS.iter().zip(&before) {
-        device.send(SET_BRIGHTNESS, &[1, led, level]).unwrap();
-    }
-    eprintln!("levels before {before:?}, at 50%: {after:?}, restored");
-    assert_eq!(after, [128, 128]);
+#[test]
+#[ignore = "needs the Blade 18"]
+fn the_vapor_light_off_reads_back_level_0() {
+    let mut device = Device::new(open(), SystemClock);
+
+    assert_eq!(set_and_read(&mut device, false), [128, 0]);
 }
 
 /// Get and set the keyboard effect. Args start `[1, 5]`: storage, keyboard LED.

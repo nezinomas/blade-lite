@@ -1,4 +1,4 @@
-//! Keyboard brightness, set as Synapse sets it.
+//! Keyboard and vapor-chamber light brightness, set as Synapse sets it.
 
 use crate::{Command, ModelProfile};
 
@@ -55,5 +55,24 @@ impl Brightness {
                 args: vec![VARIABLE_STORAGE, led, self.level()],
             })
             .collect()
+    }
+}
+
+/// The light over the vapor chamber. Synapse sets it with the keyboard
+/// brightness; the app can also keep it at 0.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct VaporLight {
+    pub led: u8,
+}
+
+impl VaporLight {
+    /// The command that sets it: the keyboard's level while on, 0 while off.
+    #[must_use]
+    pub fn command(self, brightness: Brightness, on: bool) -> Command {
+        let level = if on { brightness.level() } else { 0 };
+        Command {
+            id: SET_BRIGHTNESS,
+            args: vec![VARIABLE_STORAGE, self.led, level],
+        }
     }
 }

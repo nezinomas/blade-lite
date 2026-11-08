@@ -80,6 +80,14 @@ pub struct Lighting {
     /// Stored as `#RRGGBB`.
     #[serde(serialize_with = "hex", deserialize_with = "from_hex")]
     pub colour: Rgb,
+    /// The vapor-chamber light at the keyboard's level, or off. A config
+    /// saved before the switch existed keeps it on, as the laptop has it.
+    #[serde(default = "on")]
+    pub vapor_light: bool,
+}
+
+fn on() -> bool {
+    true
 }
 
 /// The user's saved settings.

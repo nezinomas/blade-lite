@@ -15,7 +15,7 @@ mod profile;
 mod readings;
 mod touchpad_key;
 
-pub use brightness::{Brightness, BrightnessError};
+pub use brightness::{Brightness, BrightnessError, VaporLight};
 pub use charge::{ChargeLimit, ChargeLimitError};
 pub use colour::{ParseRgbError, Rgb, static_colour, static_colour_touchpad_off};
 pub use command::Command;

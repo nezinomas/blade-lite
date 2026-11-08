@@ -23,6 +23,7 @@ use crate::report;
 const DEFAULT_LIGHTING: Lighting = Lighting {
     brightness: 100,
     colour: Rgb::new(0xFF, 0xFF, 0xFF),
+    vapor_light: true,
 };
 
 /// Why a click or a view failed.
@@ -205,7 +206,8 @@ where
         }))
     }
 
-    /// The logo switch is hidden if its state could not be read.
+    /// The logo switch is hidden if its state could not be read, the vapor
+    /// light switch if the model has none.
     ///
     /// # Errors
     ///
@@ -218,6 +220,7 @@ where
             colour: lighting.colour,
             touchpad_on: touchpad_on(&self.machine.registry)?,
             logo_on: self.logo_on,
+            vapor_light_on: self.vapor_light_on(),
         }))
     }
 
@@ -273,6 +276,11 @@ where
                 lighting.brightness = brightness.percent();
             }
             KeyboardCommand::SetColour(colour) => lighting.colour = colour,
+            // A model without the light is left alone.
+            KeyboardCommand::SetVaporLight(_) if self.model.vapor_light.is_none() => {
+                return Ok(());
+            }
+            KeyboardCommand::SetVaporLight(on) => lighting.vapor_light = on,
             KeyboardCommand::SetTouchpad(on) => {
                 let machine = &mut self.machine;
                 return Ok(set_touchpad(on, &machine.registry, &mut machine.keys)?);
@@ -416,6 +424,12 @@ where
     fn follow_power(&mut self, event: PowerEvent) -> Result<(), AppError> {
         let displays = &mut self.machine.displays;
         Ok(self.battery_rate.on_event(event, &self.config, displays)?)
+    }
+
+    /// The saved vapor light switch, or `None` if the model has no light.
+    #[must_use]
+    pub fn vapor_light_on(&self) -> Option<bool> {
+        self.model.vapor_light.map(|_| self.lighting().vapor_light)
     }
 
     fn lighting(&self) -> Lighting {

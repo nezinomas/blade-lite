@@ -9,6 +9,7 @@ use razer_proto::{
 const LIGHTING: Lighting = Lighting {
     brightness: 36,
     colour: Rgb::new(0x44, 0xD6, 0x2C),
+    vapor_light: true,
 };
 
 /// Keeps what it runs, or fails every run.

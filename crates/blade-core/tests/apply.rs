@@ -23,6 +23,14 @@ enum Step {
 
 type Log = Rc<RefCell<Vec<Step>>>;
 
+/// The brightness commands: the keyboard, then the vapor light.
+fn brightness_commands(percent: u8, vapor_on: bool) -> Vec<Command> {
+    let brightness = Brightness::new(percent).unwrap();
+    let mut commands = brightness.commands(&BLADE_18);
+    commands.push(BLADE_18.vapor_light.unwrap().command(brightness, vapor_on));
+    commands
+}
+
 /// Records each command it is asked to run, or fails them all.
 struct FakeController {
     log: Log,
@@ -200,6 +208,7 @@ fn saved_lighting_is_sent_after_the_preset() {
         lighting: Some(Lighting {
             brightness: 50,
             colour,
+            vapor_light: true,
         }),
         ..Config::default()
     };
@@ -207,7 +216,7 @@ fn saved_lighting_is_sent_after_the_preset() {
     apply(&saved, &BLADE_18, &mut controller, false).unwrap();
 
     let mut expected = preset_steps(0x00);
-    let lighting = Brightness::new(50).unwrap().commands(&BLADE_18);
+    let lighting = brightness_commands(50, true);
     let lighting = lighting.into_iter().chain(static_colour(colour, &BLADE_18));
     expected.extend(lighting.map(Step::Sent));
     assert_eq!(*log.borrow(), expected);
@@ -220,6 +229,7 @@ fn applying_the_performance_leaves_the_lighting_alone() {
         lighting: Some(Lighting {
             brightness: 50,
             colour: Rgb::new(1, 2, 3),
+            vapor_light: true,
         }),
         ..Config::default()
     };
@@ -236,11 +246,12 @@ fn applying_the_lighting_sends_brightness_then_colour() {
     let lighting = Lighting {
         brightness: 20,
         colour,
+        vapor_light: true,
     };
 
     apply_lighting(lighting, &BLADE_18, &mut controller, false).unwrap();
 
-    let brightness = Brightness::new(20).unwrap().commands(&BLADE_18);
+    let brightness = brightness_commands(20, true);
     let expected: Vec<Step> = brightness
         .into_iter()
         .chain(static_colour(colour, &BLADE_18))
@@ -256,6 +267,7 @@ fn a_brightness_over_100_sends_nothing() {
         lighting: Some(Lighting {
             brightness: 101,
             colour: Rgb::new(0, 0, 0),
+            vapor_light: true,
         }),
         ..Config::default()
     };
@@ -358,19 +370,69 @@ fn the_touchpad_key_is_red_in_the_one_frame_sent() {
     let lighting = Lighting {
         brightness: 50,
         colour: Rgb::new(0x44, 0xD6, 0x2C),
+        vapor_light: true,
     };
 
     apply_lighting(lighting, &BLADE_18, &mut controller, true).unwrap();
 
-    let expected: Vec<Step> = Brightness::new(50)
-        .unwrap()
-        .commands(&BLADE_18)
+    let expected: Vec<Step> = brightness_commands(50, true)
         .into_iter()
         .chain(razer_proto::static_colour_touchpad_off(
             lighting.colour,
             &BLADE_18,
         ))
         .map(|command| sent(command.id, &command.args))
+        .collect();
+    assert_eq!(*log.borrow(), expected);
+}
+
+#[test]
+fn the_vapor_light_off_gets_level_0_after_the_keyboard() {
+    let (mut controller, _, log) = fakes();
+    let colour = Rgb::new(1, 2, 3);
+    let lighting = Lighting {
+        brightness: 80,
+        colour,
+        vapor_light: false,
+    };
+
+    apply_lighting(lighting, &BLADE_18, &mut controller, false).unwrap();
+
+    let expected: Vec<Step> = brightness_commands(80, false)
+        .into_iter()
+        .chain(static_colour(colour, &BLADE_18))
+        .map(Step::Sent)
+        .collect();
+    assert_eq!(*log.borrow(), expected);
+    assert_eq!(
+        log.borrow()[1],
+        Step::Sent(Command {
+            id: 0x0303,
+            args: vec![1, 0x26, 0]
+        })
+    );
+}
+
+#[test]
+fn a_model_without_a_vapor_light_gets_only_the_keyboard() {
+    let (mut controller, _, log) = fakes();
+    let model = razer_proto::ModelProfile {
+        vapor_light: None,
+        ..BLADE_18
+    };
+    let lighting = Lighting {
+        brightness: 80,
+        colour: Rgb::new(1, 2, 3),
+        vapor_light: true,
+    };
+
+    apply_lighting(lighting, &model, &mut controller, false).unwrap();
+
+    let brightness = Brightness::new(80).unwrap().commands(&model);
+    let expected: Vec<Step> = brightness
+        .into_iter()
+        .chain(static_colour(lighting.colour, &model))
+        .map(Step::Sent)
         .collect();
     assert_eq!(*log.borrow(), expected);
 }
