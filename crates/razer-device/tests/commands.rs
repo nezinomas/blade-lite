@@ -16,7 +16,9 @@ fn every_command_is_sent_in_order() {
     let brightness = Brightness::new(50).unwrap();
     let mut commands = brightness.commands(&BLADE_18);
     commands.push(BLADE_18.vapor_light.unwrap().command(brightness, true));
-    Device::new(transport, clock).run(&commands).unwrap();
+    Device::with_first_id(transport, clock, 0)
+        .run(&commands)
+        .unwrap();
 
     assert_eq!(
         sent(&log),
@@ -34,7 +36,7 @@ fn a_failed_command_stops_the_rest() {
     let brightness = Brightness::new(50).unwrap();
     let mut commands = brightness.commands(&BLADE_18);
     commands.push(BLADE_18.vapor_light.unwrap().command(brightness, true));
-    let result = Device::new(transport, clock).run(&commands);
+    let result = Device::with_first_id(transport, clock, 0).run(&commands);
 
     assert!(result.is_err());
     assert_eq!(sent(&log).len(), 1);

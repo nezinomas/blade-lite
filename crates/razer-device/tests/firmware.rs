@@ -10,7 +10,9 @@ const COMMAND: u16 = 0x0081;
 fn the_firmware_version_is_read_from_the_reply_args() {
     let (transport, clock, log) = fakes(vec![reply_with_args(0, COMMAND, &[1, 7])]);
 
-    let version = Device::new(transport, clock).firmware_version().unwrap();
+    let version = Device::with_first_id(transport, clock, 0)
+        .firmware_version()
+        .unwrap();
 
     assert_eq!(version, FirmwareVersion { major: 1, minor: 7 });
     assert_eq!(sent(&log), [request(0, COMMAND, &[0, 0])]);
@@ -20,7 +22,7 @@ fn the_firmware_version_is_read_from_the_reply_args() {
 fn a_reply_without_two_args_is_an_error() {
     let (transport, clock, _) = fakes(vec![reply(SUCCESS, 0, COMMAND)]);
 
-    let error = Device::new(transport, clock)
+    let error = Device::with_first_id(transport, clock, 0)
         .firmware_version()
         .unwrap_err();
 
