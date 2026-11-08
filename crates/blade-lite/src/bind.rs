@@ -103,6 +103,8 @@ pub fn keyboard(window: &MainWindow, view: &KeyboardView) {
     window.set_touchpad_on(view.touchpad_on);
     window.set_logo_shown(view.logo_on.is_some());
     window.set_logo_on(view.logo_on == Some(true));
+    window.set_vapor_light_shown(view.vapor_light_on.is_some());
+    window.set_vapor_light_on(view.vapor_light_on == Some(true));
 }
 
 fn int(value: usize) -> i32 {
@@ -272,6 +274,15 @@ fn window_callbacks(shell: &Rc<Shell>) {
     window.on_toggle_logo(move || {
         on(&s, |shell| {
             shell.act(|app| match app.keyboard_view()?.toggle_logo() {
+                Some(command) => app.on_keyboard(command),
+                None => Ok(()),
+            });
+        });
+    });
+    let s = Rc::downgrade(shell);
+    window.on_toggle_vapor_light(move || {
+        on(&s, |shell| {
+            shell.act(|app| match app.keyboard_view()?.toggle_vapor_light() {
                 Some(command) => app.on_keyboard(command),
                 None => Ok(()),
             });

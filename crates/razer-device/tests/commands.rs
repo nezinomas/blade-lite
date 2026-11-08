@@ -13,9 +13,10 @@ fn every_command_is_sent_in_order() {
         reply(SUCCESS, 1, SET_BRIGHTNESS),
     ]);
 
-    Device::new(transport, clock)
-        .run(&Brightness::new(50).unwrap().commands(&BLADE_18))
-        .unwrap();
+    let brightness = Brightness::new(50).unwrap();
+    let mut commands = brightness.commands(&BLADE_18);
+    commands.push(BLADE_18.vapor_light.unwrap().command(brightness, true));
+    Device::new(transport, clock).run(&commands).unwrap();
 
     assert_eq!(
         sent(&log),
@@ -30,8 +31,10 @@ fn every_command_is_sent_in_order() {
 fn a_failed_command_stops_the_rest() {
     let (transport, clock, log) = fakes(vec![reply(common::FAILURE, 0, SET_BRIGHTNESS)]);
 
-    let result =
-        Device::new(transport, clock).run(&Brightness::new(50).unwrap().commands(&BLADE_18));
+    let brightness = Brightness::new(50).unwrap();
+    let mut commands = brightness.commands(&BLADE_18);
+    commands.push(BLADE_18.vapor_light.unwrap().command(brightness, true));
+    let result = Device::new(transport, clock).run(&commands);
 
     assert!(result.is_err());
     assert_eq!(sent(&log).len(), 1);

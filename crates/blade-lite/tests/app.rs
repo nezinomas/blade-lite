@@ -1007,6 +1007,6 @@ fn a_model_without_a_vapor_light_hides_the_switch_and_ignores_it() {
     app.on_keyboard(KeyboardCommand::SetVaporLight(false))
         .unwrap();
 
-    assert!(sent(&app).is_empty());
+    assert_eq!(sent(&app), []);
     assert!(!path.exists());
 }

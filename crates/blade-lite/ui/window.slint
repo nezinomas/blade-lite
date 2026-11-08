@@ -153,6 +153,8 @@ export component MainWindow inherits Window {
     in-out property <bool> touchpad-on;
     in property <bool> logo-shown;
     in-out property <bool> logo-on;
+    in property <bool> vapor-light-shown;
+    in-out property <bool> vapor-light-on;
     // Everywhere
     in property <color> accent: #0078d4;
     in property <string> error;
@@ -168,6 +170,7 @@ export component MainWindow inherits Window {
     callback pick-custom(string);
     callback toggle-touchpad();
     callback toggle-logo();
+    callback toggle-vapor-light();
 
     // A swatch, the flyout or a re-apply changed the colour: show it.
     changed custom-hex => {
@@ -423,6 +426,14 @@ export component MainWindow inherits Window {
                 Switch {
                     checked <=> root.logo-on;
                     toggled => { root.toggle-logo(); }
+                }
+            }
+            if root.vapor-light-shown: Row {
+                title: "Vapor chamber light";
+                note: root.vapor-light-on ? "Follows the keyboard brightness" : "Off";
+                Switch {
+                    checked <=> root.vapor-light-on;
+                    toggled => { root.toggle-vapor-light(); }
                 }
             }
             // Takes the spare height, so the groups keep their own.
