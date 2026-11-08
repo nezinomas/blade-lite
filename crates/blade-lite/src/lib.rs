@@ -15,4 +15,4 @@ pub use autostart_item::{
 };
 pub use key_reader::{KEY_IDLE_READS, KEY_READ_WAIT, KeyReportSource, ReaderEnd, step_on_presses};
 pub use placement::{Rect, flyout_position};
-pub use report::{Reporter, ShownErrors, open_log, report, report_panics};
+pub use report::{Reporter, SaidLately, ShownErrors, open_log, report, report_panics};

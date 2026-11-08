@@ -6,7 +6,7 @@ use std::sync::mpsc::Receiver;
 use std::time::{Duration, Instant};
 
 use blade_core::{PollSchedule, RESUME_PAUSE, Readings, ReadingsSampler, View};
-use blade_lite::{App, AppError, Rect, ShownErrors, flyout_position, report};
+use blade_lite::{App, AppError, Rect, SaidLately, ShownErrors, flyout_position, report};
 use platform::{
     PowerEvent, WindowsDisplays, WindowsKeys, WindowsRegistry, WindowsSensors, round_corners,
     set_mica,
@@ -32,6 +32,10 @@ const REOPEN_GUARD: Duration = Duration::from_millis(300);
 const SHOW_DELAY: Duration = Duration::from_millis(16);
 const SHOW_TRIES: u32 = 60;
 
+/// A sensor or fan read error is logged once, then not again for this long,
+/// since it can come and go on each read.
+const READ_ERROR_QUIET: Duration = Duration::from_secs(10 * 60);
+
 pub struct Shell {
     window: MainWindow,
     flyout: FlyoutWindow,
@@ -42,6 +46,7 @@ pub struct Shell {
     flyout_open: Cell<bool>,
     flyout_closed_at: Cell<Option<Instant>>,
     shown_errors: RefCell<ShownErrors>,
+    read_errors: RefCell<SaidLately>,
 }
 
 impl Shell {
@@ -56,6 +61,7 @@ impl Shell {
             flyout_open: Cell::new(false),
             flyout_closed_at: Cell::new(None),
             shown_errors: RefCell::new(ShownErrors::default()),
+            read_errors: RefCell::new(SaidLately::new(READ_ERROR_QUIET)),
         })
     }
 
@@ -283,15 +289,24 @@ impl Shell {
     }
 
     /// Reads the sensors, then shows the header and the keyboard group,
-    /// since the touchpad key can change it at any time.
+    /// since the touchpad key can change it at any time. The reads that
+    /// failed are logged once in a while.
     fn tick_readings(&self) {
-        let readings = {
+        let (readings, mut errors) = {
             let (sampler, sensors) = &mut *self.sampler.borrow_mut();
-            sampler.sample(sensors)
+            (sampler.sample(sensors), sampler.errors().to_vec())
         };
         self.readings.set(readings);
         let mut app = self.app.borrow_mut();
         let header = app.header(readings);
+        errors.extend_from_slice(app.read_errors());
+        for error in self
+            .read_errors
+            .borrow_mut()
+            .to_say(&errors, Instant::now())
+        {
+            report(&format!("read failed: {error}"));
+        }
         bind::header(&self.window, &header);
         if let Ok(view) = app.keyboard_view() {
             bind::keyboard(&self.window, &view);

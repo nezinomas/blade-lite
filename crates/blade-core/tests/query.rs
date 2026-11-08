@@ -101,7 +101,10 @@ fn a_reply_that_is_not_understood_is_an_error_too() {
 
     assert_eq!(
         readings.errors,
-        ["CPU temperature: reply not understood", "fan 2: reply not understood"]
+        [
+            "CPU temperature: reply not understood",
+            "fan 2: reply not understood"
+        ]
     );
 }
 
@@ -112,5 +115,7 @@ fn good_reads_have_no_errors() {
         .reply(fan_query(0), &[1, 1, 17])
         .reply(fan_query(1), &[1, 2, 18]);
 
-    assert!(read_controller(&mut controller, &BLADE_18).errors.is_empty());
+    let readings = read_controller(&mut controller, &BLADE_18);
+
+    assert_eq!(readings.errors, [] as [&str; 0]);
 }

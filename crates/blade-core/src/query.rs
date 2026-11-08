@@ -76,5 +76,7 @@ fn read_value<T>(
         Ok(args) => parse(&args).ok_or_else(|| "reply not understood".to_owned()),
         Err(error) => Err(format!("{error:?}")),
     };
-    value.map_err(|error| errors.push(format!("{name}: {error}"))).ok()
+    value
+        .map_err(|error| errors.push(format!("{name}: {error}")))
+        .ok()
 }
