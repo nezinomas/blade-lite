@@ -67,8 +67,9 @@ pub enum DeviceError {
     /// The reply has fewer args than the command needs.
     ShortReply,
     /// The reply is for another request: it echoes another transaction ID or
-    /// command. Holds what the reply echoed. Not retried, since it is not known
-    /// what the controller did.
+    /// command. Holds what the reply echoed. A reply with another transaction ID
+    /// is read once more after the pause. The command is never sent again, since
+    /// it is not known what the controller did.
     WrongReply { transaction_id: u8, command: u16 },
 }
 
@@ -110,7 +111,12 @@ impl<T: Transport, C: Clock> Device<T, C> {
             .map_err(DeviceError::Build)?
             .to_bytes();
         for _ in 0..MAX_ATTEMPTS {
-            let report = self.exchange(&request)?;
+            let mut report = self.exchange(&request)?;
+            if report.transaction_id() != transaction_id {
+                // Read too soon: this is the reply to an earlier request.
+                // Read once more, but do not send again.
+                report = self.read_after_pause()?;
+            }
             ensure_matches(&report, transaction_id, command)?;
             match report.status() {
                 Status::Success => return Ok(report),
@@ -151,6 +157,11 @@ impl<T: Transport, C: Clock> Device<T, C> {
         self.transport
             .send_report(request)
             .map_err(DeviceError::Io)?;
+        self.read_after_pause()
+    }
+
+    /// Pauses, then reads and parses a reply.
+    fn read_after_pause(&mut self) -> Result<Report, DeviceError> {
         self.clock.sleep(PAUSE);
         let reply = self.transport.read_report().map_err(DeviceError::Io)?;
         Report::parse(&reply).map_err(DeviceError::Parse)
