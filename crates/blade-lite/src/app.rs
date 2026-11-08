@@ -63,6 +63,13 @@ impl AppError {
     }
 }
 
+/// Whether the laptop took the change: it worked, or it was sent but not
+/// saved. A new power mode then shows the popup.
+#[must_use]
+pub fn took_effect(result: &Result<(), AppError>) -> bool {
+    result.as_ref().map_or_else(AppError::was_sent, |()| true)
+}
+
 impl From<DeviceError> for AppError {
     fn from(error: DeviceError) -> Self {
         Self::Device(error)
@@ -289,7 +296,8 @@ where
     /// # Errors
     ///
     /// See [`AppError`]. Nothing is sent if the model has no key, or no
-    /// other preset to step to; the config is left as it was.
+    /// other preset to step to. The config is left as it was, except that
+    /// a preset that was sent but not saved is kept in memory.
     pub fn on_power_key(&mut self) -> Result<(), AppError> {
         if self.model.power_key.is_none() {
             return Ok(());

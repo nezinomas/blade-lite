@@ -9,6 +9,7 @@ use std::time::{Duration, Instant};
 use blade_core::{PollSchedule, RESUME_PAUSE, Readings, ReadingsSampler, View};
 use blade_lite::{
     App, AppError, Rect, SaidLately, ShownErrors, flyout_position, popup_position, report,
+    took_effect,
 };
 use platform::{
     PowerEvent, WindowsDisplays, WindowsKeys, WindowsRegistry, WindowsSensors, round_corners,
@@ -249,7 +250,7 @@ impl Shell {
     /// saved), shows the popup.
     pub fn act(self: &Rc<Self>, change: impl FnOnce(&mut RealApp) -> Result<(), AppError>) {
         let result = change(&mut self.app.borrow_mut());
-        let worked = result.as_ref().map_or_else(AppError::was_sent, |()| true);
+        let worked = took_effect(&result);
         self.refresh(result.err().as_ref());
         let mut watch = self.mode_watch.get();
         let changed = watch.changed(self.app.borrow().running_preset(), worked);

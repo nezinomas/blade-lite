@@ -264,7 +264,10 @@ fn a_preset_not_saved_is_sent_again_at_resume_and_back_on_ac() {
     app.on_power(PowerEvent::OnBattery).unwrap();
     app.machine_mut().controller.sent.clear();
     app.on_power(PowerEvent::OnAc).unwrap();
-    assert_eq!(sent(&app), PerfMode::Performance.commands(&BLADE_18).unwrap());
+    assert_eq!(
+        sent(&app),
+        PerfMode::Performance.commands(&BLADE_18).unwrap()
+    );
 }
 
 #[test]
