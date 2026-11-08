@@ -1,4 +1,5 @@
-//! The app's state, the views built from it, and what each click does.
+//! The app's state. The views built from it, what each click does and
+//! what the app does on start and power events are in the submodules.
 
 mod clicks;
 mod error;
