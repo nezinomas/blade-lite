@@ -20,6 +20,7 @@ const FHD: NativeMode = BLADE_18.native_modes[1];
 const WHITE: Rgb = Rgb::new(0xFF, 0xFF, 0xFF);
 
 const SET_CHARGE_LIMIT: u16 = 0x0712;
+const SET_LOGO: u16 = 0x0300;
 const LIMIT_ON: u8 = 0xD0;
 const LIMIT_OFF: u8 = 0x50;
 
@@ -37,7 +38,8 @@ fn logo() -> Logo {
 
 /// Records the commands it runs. It answers the native mode query with
 /// mode 0, the logo query with `logo_reply` and the charge limit query with
-/// `charge`, and fails every run while `fails` is set.
+/// `charge`, and fails every run while `fails` is set. A logo command
+/// changes `logo_reply`.
 #[derive(Default)]
 struct FakeController {
     sent: Vec<Command>,
@@ -58,6 +60,9 @@ impl Controller for FakeController {
         for command in commands {
             if command.id == SET_CHARGE_LIMIT && !self.charge_stuck {
                 self.charge = Some(command.args[0]);
+            }
+            if command.id == SET_LOGO {
+                self.logo_reply = Some(command.args.clone());
             }
         }
         self.sent.extend_from_slice(commands);
@@ -508,13 +513,86 @@ fn a_failed_logo_switch_keeps_the_old_state() {
 }
 
 #[test]
-fn the_logo_switch_sends_the_logo_commands_and_saves_nothing() {
+fn the_logo_switch_sends_the_logo_commands_and_saves_the_state() {
     let (mut app, _dir, path) = app();
 
     app.on_keyboard(KeyboardCommand::SetLogo(false)).unwrap();
 
     assert_eq!(sent(&app), logo().commands(false));
+    let saved = Config {
+        lid_logo: Some(false),
+        ..Config::default()
+    };
+    assert_eq!(Config::load(&path).unwrap(), saved);
+}
+
+#[test]
+fn a_logo_switch_that_cannot_be_saved_is_still_sent_at_resume() {
+    let (mut app, _dir, path) = app_with(Config {
+        lid_logo: Some(true),
+        ..Config::default()
+    });
+    // A folder in the file's place makes the save fail.
+    std::fs::create_dir(&path).unwrap();
+    assert!(app.on_keyboard(KeyboardCommand::SetLogo(false)).is_err());
+    app.machine_mut().controller.sent.clear();
+
+    app.on_power(PowerEvent::Resumed).unwrap();
+
+    assert!(sent(&app).ends_with(&logo().commands(false)));
+}
+
+#[test]
+fn a_failed_logo_switch_saves_nothing() {
+    let (mut app, _dir, path) = app();
+    app.machine_mut().controller.fails = true;
+
+    assert!(app.on_keyboard(KeyboardCommand::SetLogo(false)).is_err());
+
     assert!(!path.exists());
+}
+
+#[test]
+fn a_resume_turns_a_saved_off_logo_off_again() {
+    let (mut app, _dir, _) = app();
+    app.start().unwrap();
+    app.on_keyboard(KeyboardCommand::SetLogo(false)).unwrap();
+    // The laptop turns the logo on again while asleep.
+    app.machine_mut().controller.logo_reply = Some(vec![0, 4, 1]);
+    app.machine_mut().controller.sent.clear();
+
+    app.on_power(PowerEvent::Resumed).unwrap();
+
+    assert!(sent(&app).ends_with(&logo().commands(false)));
+    assert_eq!(app.keyboard_view().unwrap().logo_on, Some(false));
+}
+
+#[test]
+fn a_failed_start_shows_the_logo_state_the_controller_reads() {
+    let (mut app, _dir, _) = app_with(Config {
+        lid_logo: Some(false),
+        ..Config::default()
+    });
+    app.machine_mut().controller.logo_reply = Some(vec![0, 4, 1]);
+    app.machine_mut().controller.fails = true;
+
+    assert!(app.start().is_err());
+
+    assert_eq!(app.keyboard_view().unwrap().logo_on, Some(true));
+}
+
+#[test]
+fn start_sends_the_saved_logo_state() {
+    let (mut app, _dir, _) = app_with(Config {
+        lid_logo: Some(false),
+        ..Config::default()
+    });
+    app.machine_mut().controller.logo_reply = Some(vec![0, 4, 1]);
+
+    app.start().unwrap();
+
+    assert!(sent(&app).ends_with(&logo().commands(false)));
+    assert_eq!(app.keyboard_view().unwrap().logo_on, Some(false));
 }
 
 #[test]

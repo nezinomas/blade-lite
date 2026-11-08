@@ -64,7 +64,8 @@ pub struct Machine<C, D, R, K> {
 }
 
 /// The app's state. Each click becomes a command, and each command is
-/// applied first and saved only when it worked.
+/// applied first and saved only when it worked. A logo switch that worked
+/// is kept in memory even if its save fails.
 pub struct App<C, D, R, K> {
     model: &'static ModelProfile,
     config: Config,
@@ -72,8 +73,9 @@ pub struct App<C, D, R, K> {
     machine: Machine<C, D, R, K>,
     battery_rate: BatteryRate,
     on_battery: bool,
-    /// The lid logo state, read at start and after each resume. `None` if
-    /// the model has none or it could not be read.
+    /// The lid logo state, read after the settings are sent at start and
+    /// after each resume. `None` if the model has none or it could not be
+    /// read.
     logo_on: Option<bool>,
     /// The battery charge limit state, read like the logo's.
     charge_limit_on: Option<bool>,
@@ -124,22 +126,23 @@ where
         &mut self.machine
     }
 
-    /// Reads the logo and charge limit states, then sends the saved
-    /// settings, with the preset that runs in place of the saved one on
-    /// battery. The touchpad key is red in that frame if the touchpad is off.
+    /// Reads the charge limit state, sends the saved settings, then reads
+    /// the logo state they leave. The preset that runs in place of the
+    /// saved one on battery is sent. The touchpad key is red in that frame
+    /// if the touchpad is off.
     ///
     /// # Errors
     ///
     /// See [`AppError`].
     pub fn start(&mut self) -> Result<(), AppError> {
-        self.logo_on = logo_on(&mut self.machine.controller, self.model)
-            .ok()
-            .flatten();
         self.read_charge_limit();
         let config = self.running(self.config);
         let red = self.touchpad_off();
         let applied = apply(&config, self.model, &mut self.machine.controller, red);
         self.key_red = applied.is_ok().then_some(red);
+        self.logo_on = logo_on(&mut self.machine.controller, self.model)
+            .ok()
+            .flatten();
         Ok(applied?)
     }
 
@@ -268,7 +271,8 @@ where
 
     /// # Errors
     ///
-    /// See [`AppError`]. The config is left as it was.
+    /// See [`AppError`]. The config is left as it was, except that a logo
+    /// switch that was sent but not saved is kept in memory.
     pub fn on_keyboard(&mut self, command: KeyboardCommand) -> Result<(), AppError> {
         let mut lighting = self.lighting();
         match command {
@@ -285,11 +289,14 @@ where
                 let machine = &mut self.machine;
                 return Ok(set_touchpad(on, &machine.registry, &mut machine.keys)?);
             }
-            // The controller keeps the logo state, so nothing is saved.
+            // Saved, as the laptop turns the logo on again after a wake.
+            // Kept in memory even if the save fails, so the next resume
+            // sends what the laptop shows now.
             KeyboardCommand::SetLogo(on) => {
                 set_logo(on, &mut self.machine.controller, self.model)?;
                 self.logo_on = Some(on);
-                return Ok(());
+                self.config.lid_logo = Some(on);
+                return Ok(self.config.save(&self.config_path)?);
             }
         }
         let red = self.touchpad_off();
