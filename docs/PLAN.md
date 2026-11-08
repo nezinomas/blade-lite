@@ -79,7 +79,6 @@ Checks only a person can do on the laptop wait in "Still to check on the laptop"
 - The power-mode key after a real sleep (in the ticket 45 test the key twice sent only Fn, `04 0A`, without `D3`)
 - The 2 s wait after wake, over a real sleep and wake cycle
 - A restart into the FHD 440 Hz native mode
-- Ticket 51: with the app closed, `cargo test -p razer-device --test hardware -- --ignored --test-threads=1` passes, and `reads_without_a_pause_fail` still sees errors (the re-read does not hide the need for the pause)
 
 ## Publishing on GitHub
 - [ ] 39 Release and installer
