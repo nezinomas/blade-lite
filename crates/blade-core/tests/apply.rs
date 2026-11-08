@@ -292,6 +292,16 @@ fn a_device_error_is_returned() {
 }
 
 #[test]
+fn a_device_error_is_said_in_plain_text() {
+    let error = ApplyError::Device(DeviceError::Busy);
+
+    assert_eq!(
+        error.to_string(),
+        "the controller did not take a command: the controller stayed busy after 5 reads"
+    );
+}
+
+#[test]
 fn each_resume_waits_the_pause_then_applies_again() {
     let (mut controller, clock, log) = fakes();
     let mut events = FakePowerEvents(vec![PowerEvent::Resumed, PowerEvent::Resumed].into_iter());
