@@ -13,7 +13,7 @@ pub enum LogoError {
     #[error("the model has no lid logo")]
     NoLogo,
     /// The controller did not take a command.
-    #[error("the controller did not take a command: {0:?}")]
+    #[error("the controller did not take a command: {0}")]
     Device(DeviceError),
 }
 

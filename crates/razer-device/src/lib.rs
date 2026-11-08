@@ -91,11 +91,8 @@ impl std::fmt::Display for DeviceError {
                 write!(f, "the command does not fit in a report ({count} args)")
             }
             Self::Io(error) => write!(f, "the HID layer failed ({error})"),
-            Self::Parse(error) => write!(f, "the reply is not valid ({})", parse_text(error)),
-            Self::Busy => write!(
-                f,
-                "the controller stayed busy after {MAX_BUSY_READS} reads"
-            ),
+            Self::Parse(error) => write!(f, "the reply is not valid ({})", parse_text(*error)),
+            Self::Busy => write!(f, "the controller stayed busy after {MAX_BUSY_READS} reads"),
             Self::Rejected(status) => write!(f, "the controller replied {status:?}"),
             Self::ShortReply => write!(f, "the reply has too few args"),
             Self::WrongReply {
@@ -111,7 +108,7 @@ impl std::fmt::Display for DeviceError {
 
 impl std::error::Error for DeviceError {}
 
-fn parse_text(error: &ParseError) -> String {
+fn parse_text(error: ParseError) -> String {
     match error {
         ParseError::BadChecksum { expected, found } => {
             format!("checksum {found:02X}, not {expected:02X}")

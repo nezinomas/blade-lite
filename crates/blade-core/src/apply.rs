@@ -28,7 +28,7 @@ pub enum ApplyError {
     #[error("the saved brightness is over 100 percent: {0:?}")]
     Brightness(BrightnessError),
     /// The controller did not take a command.
-    #[error("the controller did not take a command: {0:?}")]
+    #[error("the controller did not take a command: {0}")]
     Device(DeviceError),
 }
 

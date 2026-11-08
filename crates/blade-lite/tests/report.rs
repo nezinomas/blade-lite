@@ -72,11 +72,11 @@ fn details_that_change_on_each_read_do_not_make_a_new_error() {
     let start = Instant::now();
     let mut said = SaidLately::new(Duration::from_secs(600));
     said.to_say(
-        &lines(&["fan 1: WrongReply { transaction_id: 3, command: 1 }"]),
+        &lines(&["fan 1: the reply is for another request (transaction ID 3, command 0D81)"]),
         start,
     );
 
-    let next = lines(&["fan 1: WrongReply { transaction_id: 4, command: 1 }"]);
+    let next = lines(&["fan 1: the reply is for another request (transaction ID 4, command 0D81)"]);
 
     assert_eq!(said.to_say(&next, start + Duration::from_secs(2)), NOTHING);
 }
