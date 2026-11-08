@@ -270,7 +270,8 @@ where
 
     /// # Errors
     ///
-    /// See [`AppError`]. The config is left as it was.
+    /// See [`AppError`]. The config is left as it was, except that a logo
+    /// switch that was sent but not saved is kept in memory.
     pub fn on_keyboard(&mut self, command: KeyboardCommand) -> Result<(), AppError> {
         let mut lighting = self.lighting();
         match command {
