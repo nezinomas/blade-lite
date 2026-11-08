@@ -78,10 +78,10 @@ fn the_pause_leaves_no_busy_replies() {
         device.firmware_version().unwrap();
     }
 
-    // Each read sleeps once, and each Busy retry or re-read once more.
+    // Each read sleeps once, and each re-read (after Busy or another ID) once more.
     let retries = clock.sleeps.get() - READS;
 
-    eprintln!("{PAUSE:?} pause: {retries} busy retries or re-reads in {READS} reads");
+    eprintln!("{PAUSE:?} pause: {retries} re-reads in {READS} reads");
     assert_eq!(retries, 0);
 }
 

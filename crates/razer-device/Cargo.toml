@@ -1,6 +1,6 @@
 [package]
 name = "razer-device"
-description = "Sends commands to the Blade 18 controller and retries when it is busy."
+description = "Sends commands to the Blade 18 controller and reads again when it is busy."
 version.workspace = true
 edition.workspace = true
 license.workspace = true
