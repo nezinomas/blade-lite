@@ -1,6 +1,6 @@
 mod common;
 
-use common::{BUSY, Event, FAILURE, SUCCESS, fakes, reply, request, sent};
+use common::{BUSY, Event, FAILURE, SUCCESS, fakes, reads, reply, request, sent};
 use razer_device::{Device, DeviceError, MAX_ATTEMPTS, PAUSE};
 use razer_proto::Status;
 
@@ -84,8 +84,8 @@ fn transaction_ids_count_0_to_31_then_wrap() {
 }
 
 #[test]
-fn a_reply_with_another_transaction_id_is_an_error() {
-    let (transport, clock, log) = fakes(vec![reply(SUCCESS, 7, COMMAND)]);
+fn a_reply_with_another_transaction_id_twice_is_an_error() {
+    let (transport, clock, log) = fakes(vec![reply(SUCCESS, 7, COMMAND); 2]);
 
     let result = Device::new(transport, clock).send(COMMAND, &[]);
 
@@ -100,6 +100,7 @@ fn a_reply_with_another_transaction_id_is_an_error() {
         "{result:?}"
     );
     assert_eq!(sent(&log).len(), 1);
+    assert_eq!(reads(&log), 2);
 }
 
 #[test]
@@ -122,8 +123,8 @@ fn a_reply_to_another_command_is_an_error() {
 }
 
 #[test]
-fn a_busy_reply_to_another_request_is_not_retried() {
-    let (transport, clock, log) = fakes(vec![reply(BUSY, 3, COMMAND), reply(SUCCESS, 0, COMMAND)]);
+fn a_busy_reply_to_another_request_is_not_sent_again() {
+    let (transport, clock, log) = fakes(vec![reply(BUSY, 3, COMMAND); 2]);
 
     let result = Device::new(transport, clock).send(COMMAND, &[]);
 
@@ -132,6 +133,58 @@ fn a_busy_reply_to_another_request_is_not_retried() {
         "{result:?}"
     );
     assert_eq!(sent(&log).len(), 1);
+    assert_eq!(reads(&log), 2);
+}
+
+/// A reply read too soon is the one to the request before. The device pauses
+/// and reads once more, and does not send the command again.
+#[test]
+fn an_older_reply_is_read_again_once_after_the_pause() {
+    let (transport, clock, log) =
+        fakes(vec![reply(SUCCESS, 31, 0x0D82), reply(SUCCESS, 0, COMMAND)]);
+
+    let report = Device::new(transport, clock).send(COMMAND, &[]).unwrap();
+
+    assert_eq!(report.transaction_id(), 0);
+    assert_eq!(
+        *log.borrow(),
+        [
+            Event::Sent(request(0, COMMAND, &[])),
+            Event::Slept(PAUSE),
+            Event::Read,
+            Event::Slept(PAUSE),
+            Event::Read
+        ]
+    );
+}
+
+#[test]
+fn a_busy_reply_read_again_is_retried() {
+    let (transport, clock, log) = fakes(vec![
+        reply(SUCCESS, 31, COMMAND),
+        reply(BUSY, 0, COMMAND),
+        reply(SUCCESS, 0, COMMAND),
+    ]);
+
+    let result = Device::new(transport, clock).send(COMMAND, &[]);
+
+    assert!(result.is_ok(), "{result:?}");
+    assert_eq!(sent(&log).len(), 2);
+}
+
+/// The same transaction ID with another command is not a reply read too soon.
+#[test]
+fn a_reply_to_another_command_is_not_read_again() {
+    let (transport, clock, log) =
+        fakes(vec![reply(SUCCESS, 0, 0x0D82), reply(SUCCESS, 0, COMMAND)]);
+
+    let result = Device::new(transport, clock).send(COMMAND, &[]);
+
+    assert!(
+        matches!(result, Err(DeviceError::WrongReply { .. })),
+        "{result:?}"
+    );
+    assert_eq!(reads(&log), 1);
 }
 
 #[test]
@@ -149,7 +202,11 @@ fn a_failure_reply_to_another_request_is_a_wrong_reply() {
 
 #[test]
 fn a_busy_retry_must_still_match() {
-    let (transport, clock, _) = fakes(vec![reply(BUSY, 0, COMMAND), reply(SUCCESS, 1, COMMAND)]);
+    let (transport, clock, log) = fakes(vec![
+        reply(BUSY, 0, COMMAND),
+        reply(SUCCESS, 1, COMMAND),
+        reply(SUCCESS, 1, COMMAND),
+    ]);
 
     let result = Device::new(transport, clock).send(COMMAND, &[]);
 
@@ -157,6 +214,23 @@ fn a_busy_retry_must_still_match() {
         matches!(result, Err(DeviceError::WrongReply { .. })),
         "{result:?}"
     );
+    assert_eq!(sent(&log).len(), 2);
+}
+
+/// The re-read is once per send attempt: a Busy retry may read once more again.
+#[test]
+fn an_older_reply_after_a_busy_retry_is_read_again() {
+    let (transport, clock, log) = fakes(vec![
+        reply(BUSY, 0, COMMAND),
+        reply(SUCCESS, 31, COMMAND),
+        reply(SUCCESS, 0, COMMAND),
+    ]);
+
+    let result = Device::new(transport, clock).send(COMMAND, &[]);
+
+    assert!(result.is_ok(), "{result:?}");
+    assert_eq!(sent(&log).len(), 2);
+    assert_eq!(reads(&log), 3);
 }
 
 /// This model sets the remaining packets (bytes 2 and 3) in some replies,
