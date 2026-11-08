@@ -43,10 +43,11 @@ impl Clock for SystemClock {
     }
 }
 
-/// How long the controller needs between a send and a read, and before a retry.
+/// How long the controller needs between a send and a read, and before a read again.
 pub const PAUSE: Duration = Duration::from_millis(1);
 
-/// How many times a command is sent while the controller replies Busy.
+/// How many replies are read while the controller replies Busy. The command
+/// itself is sent only once.
 pub const MAX_ATTEMPTS: usize = 5;
 
 /// Transaction IDs count from 0 to 31, then start again, as Synapse does.
@@ -61,7 +62,8 @@ pub enum DeviceError {
     Io(io::Error),
     /// The reply could not be parsed.
     Parse(ParseError),
-    /// The controller was still busy after [`MAX_ATTEMPTS`] sends.
+    /// The controller was still busy after [`MAX_ATTEMPTS`] reads. The command
+    /// was sent once and may still run.
     Busy,
     /// The controller replied Failure or `NotSupported`.
     Rejected(Status),
@@ -109,36 +111,35 @@ impl<T: Transport, C: Clock> Device<T, C> {
         }
     }
 
-    /// Sends a command and returns the controller's Success reply.
-    /// While the controller replies Busy, waits and sends the command again,
-    /// each time with a new transaction ID, so a Busy reply read too soon can
-    /// not pass as the retry's reply. A reply with another transaction ID is
-    /// read once more after the pause (once per send attempt), and the command
-    /// is not sent again.
+    /// Sends a command once and returns the controller's Success reply.
+    /// The command is never sent again, since it is not known what the
+    /// controller did with it. A first reply with another transaction ID
+    /// (most likely one read too soon) is read once more after the pause.
+    /// While the controller replies Busy, the reply is read again after the
+    /// pause, up to [`MAX_ATTEMPTS`] Busy reads: Busy may mean the controller
+    /// took the command and is still working on it.
     ///
     /// # Errors
     ///
     /// See [`DeviceError`].
     pub fn send(&mut self, command: u16, args: &[u8]) -> Result<Report, DeviceError> {
-        for _ in 0..MAX_ATTEMPTS {
-            let transaction_id = self.next_transaction_id();
-            let request = Request::new(transaction_id, command, args)
-                .map_err(DeviceError::Build)?
-                .to_bytes();
-            let mut report = self.exchange(&request)?;
-            if report.transaction_id() != transaction_id {
-                // A reply with another transaction ID, most likely one read
-                // too soon. Read once more, but do not send again.
-                report = self.read_after_pause()?;
-            }
-            ensure_matches(&report, transaction_id, command)?;
-            match report.status() {
-                Status::Success => return Ok(report),
-                Status::Busy => self.clock.sleep(PAUSE),
-                rejected => return Err(DeviceError::Rejected(rejected)),
-            }
+        let transaction_id = self.next_transaction_id();
+        let request = Request::new(transaction_id, command, args)
+            .map_err(DeviceError::Build)?
+            .to_bytes();
+        let mut report = self.exchange(&request)?;
+        if report.transaction_id() != transaction_id {
+            report = self.read_after_pause()?;
         }
-        Err(DeviceError::Busy)
+        let mut busy_reads = 0;
+        while is_busy(&report, transaction_id, command)? {
+            busy_reads += 1;
+            if busy_reads == MAX_ATTEMPTS {
+                return Err(DeviceError::Busy);
+            }
+            report = self.read_after_pause()?;
+        }
+        Ok(report)
     }
 
     /// Sends each command in order, and stops at the first that fails.
@@ -199,6 +200,17 @@ fn ensure_matches(report: &Report, transaction_id: u8, command: u16) -> Result<(
             transaction_id: report.transaction_id(),
             command: report.command(),
         })
+    }
+}
+
+/// Whether a reply to the request is Busy. A Success reply is not; any other
+/// status, or a reply to another request, is an error.
+fn is_busy(report: &Report, transaction_id: u8, command: u16) -> Result<bool, DeviceError> {
+    ensure_matches(report, transaction_id, command)?;
+    match report.status() {
+        Status::Success => Ok(false),
+        Status::Busy => Ok(true),
+        rejected => Err(DeviceError::Rejected(rejected)),
     }
 }
 
