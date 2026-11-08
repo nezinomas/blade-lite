@@ -17,7 +17,7 @@ mod watch;
 
 use std::io;
 
-pub use backdrop::{round_corners, set_mica};
+pub use backdrop::{hide_caption_buttons, round_corners, set_mica};
 pub use display::WindowsDisplays;
 pub use instance::{WakeListener, WindowsInstance};
 pub use keys::WindowsKeys;
