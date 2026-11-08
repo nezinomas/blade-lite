@@ -107,6 +107,70 @@ fn save_creates_the_folder() {
     assert!(path.is_file());
 }
 
+/// The temp file `save` writes first, next to the config.
+const TEMP: &str = "config.toml.tmp";
+
+/// The file names in `dir`, sorted.
+fn names_in(dir: &Path) -> Vec<String> {
+    let mut names: Vec<String> = fs::read_dir(dir)
+        .unwrap()
+        .map(|entry| entry.unwrap().file_name().into_string().unwrap())
+        .collect();
+    names.sort();
+    names
+}
+
+#[test]
+fn a_save_that_fails_keeps_the_old_config() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join(FILE);
+    let old = Config {
+        preset: Preset::Silent,
+        ..Config::default()
+    };
+    old.save(&path).unwrap();
+    // A folder where the temp file goes makes the write fail.
+    fs::create_dir(dir.path().join(TEMP)).unwrap();
+
+    let new = Config {
+        preset: Preset::Performance,
+        ..Config::default()
+    };
+
+    assert!(matches!(new.save(&path), Err(ConfigError::Io(_))));
+    assert_eq!(Config::load(&path).unwrap(), old);
+}
+
+#[test]
+fn a_save_replaces_the_old_config_and_leaves_no_temp_file() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join(FILE);
+    Config::default().save(&path).unwrap();
+    let new = Config {
+        preset: Preset::Performance,
+        ..Config::default()
+    };
+
+    new.save(&path).unwrap();
+
+    assert_eq!(Config::load(&path).unwrap(), new);
+    assert_eq!(names_in(dir.path()), [FILE]);
+}
+
+#[test]
+fn a_save_that_cannot_replace_the_config_leaves_no_temp_file() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join(FILE);
+    // A folder in the config's place makes the rename fail.
+    fs::create_dir(&path).unwrap();
+
+    assert!(matches!(
+        Config::default().save(&path),
+        Err(ConfigError::Io(_))
+    ));
+    assert_eq!(names_in(dir.path()), [FILE]);
+}
+
 #[test]
 fn path_in_appdata_is_the_app_folder() {
     let path = Config::path_in(Path::new(r"C:\Users\me\AppData\Roaming"));
