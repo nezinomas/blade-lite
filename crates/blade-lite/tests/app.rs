@@ -167,15 +167,23 @@ fn panel_hz(app: &TestApp) -> u32 {
     app.machine().displays.0.current.hz
 }
 
+/// The brightness commands: the keyboard, then the vapor light.
+fn brightness_commands(percent: u8, vapor_on: bool) -> Vec<Command> {
+    let brightness = Brightness::new(percent).unwrap();
+    let mut commands = brightness.commands(&BLADE_18);
+    commands.push(BLADE_18.vapor_light.unwrap().command(brightness, vapor_on));
+    commands
+}
+
 fn lighting_commands(percent: u8, colour: Rgb) -> Vec<Command> {
-    let mut commands = Brightness::new(percent).unwrap().commands(&BLADE_18);
+    let mut commands = brightness_commands(percent, true);
     commands.extend(static_colour(colour, &BLADE_18));
     commands
 }
 
 /// As [`lighting_commands`], with the touchpad key red.
 fn red_lighting_commands(percent: u8, colour: Rgb) -> Vec<Command> {
-    let mut commands = Brightness::new(percent).unwrap().commands(&BLADE_18);
+    let mut commands = brightness_commands(percent, true);
     commands.extend(static_colour_touchpad_off(colour, &BLADE_18));
     commands
 }
@@ -244,7 +252,8 @@ fn brightness_sends_and_saves_the_lighting() {
         saved,
         Some(Lighting {
             brightness: 50,
-            colour: WHITE
+            colour: WHITE,
+            vapor_light: true,
         })
     );
     assert_eq!(app.keyboard_view().unwrap().brightness, 50);
@@ -257,6 +266,7 @@ fn a_colour_keeps_the_saved_brightness() {
         lighting: Some(Lighting {
             brightness: 30,
             colour: WHITE,
+            vapor_light: true,
         }),
         ..Config::default()
     });
@@ -284,6 +294,7 @@ fn touchpad_off_app() -> (TestApp, TempDir, PathBuf) {
         lighting: Some(Lighting {
             brightness: 36,
             colour: GREEN,
+            vapor_light: true,
         }),
         ..Config::default()
     });
@@ -657,6 +668,7 @@ fn a_resume_applies_everything_again() {
         lighting: Some(Lighting {
             brightness: 10,
             colour: WHITE,
+            vapor_light: true,
         }),
         ..Config::default()
     });

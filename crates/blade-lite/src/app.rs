@@ -23,6 +23,7 @@ use crate::report;
 const DEFAULT_LIGHTING: Lighting = Lighting {
     brightness: 100,
     colour: Rgb::new(0xFF, 0xFF, 0xFF),
+    vapor_light: true,
 };
 
 /// Why a click or a view failed.

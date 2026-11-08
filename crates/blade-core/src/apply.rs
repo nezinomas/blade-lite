@@ -80,8 +80,7 @@ pub fn apply_performance(
 }
 
 /// Sends only the lighting: the brightness, the vapor light, then the
-/// colour on every key,
-/// with the touchpad key red if `touchpad_off`.
+/// colour on every key, with the touchpad key red if `touchpad_off`.
 ///
 /// # Errors
 ///
