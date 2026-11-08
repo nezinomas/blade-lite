@@ -1,5 +1,7 @@
 //! The Blade 18 settings window: the app's state and what each click does.
 
+#![deny(clippy::unwrap_used, clippy::print_stdout, clippy::print_stderr)]
+
 mod accent;
 mod app;
 mod autostart_item;

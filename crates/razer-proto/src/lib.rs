@@ -1,5 +1,7 @@
 //! Builds and parses the 90-byte HID feature reports of the Blade 18 controller.
 
+#![deny(clippy::unwrap_used, clippy::print_stdout, clippy::print_stderr)]
+
 use std::ops::Range;
 
 mod brightness;
