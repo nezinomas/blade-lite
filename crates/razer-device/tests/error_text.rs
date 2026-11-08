@@ -15,7 +15,7 @@ fn wrong_reply_shows_the_command_in_hex() {
 
     assert_eq!(
         error.to_string(),
-        "the reply is for another request (transaction ID 4, command 0D81)"
+        "the reply is for another request (it echoes transaction ID 4, command 0D81)"
     );
 }
 

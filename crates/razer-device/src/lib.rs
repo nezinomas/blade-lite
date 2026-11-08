@@ -101,7 +101,7 @@ impl std::fmt::Display for DeviceError {
                 command,
             } => write!(
                 f,
-                "the reply is for another request (transaction ID {transaction_id}, command {command:04X})"
+                "the reply is for another request (it echoes transaction ID {transaction_id}, command {command:04X})"
             ),
         }
     }

@@ -3,6 +3,7 @@ use std::time::{Duration, Instant};
 
 use blade_core::Log;
 use blade_lite::{Reporter, SaidLately, ShownErrors, open_log, report, report_panics};
+use razer_device::DeviceError;
 
 #[test]
 fn a_report_goes_to_the_log_file() {
@@ -73,18 +74,41 @@ fn a_read_error_is_said_once_in_a_while() {
     );
 }
 
+/// A log line for a `DeviceError`, as the app writes it.
+fn device_line(error: &DeviceError) -> String {
+    format!("fan 1: {error}")
+}
+
+fn wrong_reply(transaction_id: u8) -> DeviceError {
+    DeviceError::WrongReply {
+        transaction_id,
+        command: 0x0D81,
+    }
+}
+
 #[test]
 fn details_that_change_on_each_read_do_not_make_a_new_error() {
     let start = Instant::now();
     let mut said = SaidLately::new(Duration::from_secs(600));
-    said.to_say(
-        &lines(&["fan 1: the reply is for another request (transaction ID 3, command 0D81)"]),
-        start,
-    );
+    said.to_say(&[device_line(&wrong_reply(3))], start);
 
-    let next = lines(&["fan 1: the reply is for another request (transaction ID 4, command 0D81)"]);
+    let next = [device_line(&wrong_reply(4))];
 
     assert_eq!(said.to_say(&next, start + Duration::from_secs(2)), NOTHING);
+}
+
+#[test]
+fn another_device_error_on_the_same_read_is_said() {
+    let start = Instant::now();
+    let mut said = SaidLately::new(Duration::from_secs(600));
+    said.to_say(&[device_line(&DeviceError::Busy)], start);
+
+    let next = [device_line(&wrong_reply(4))];
+
+    assert_eq!(
+        said.to_say(&next, start + Duration::from_secs(2)),
+        [next[0].as_str()]
+    );
 }
 
 #[test]
