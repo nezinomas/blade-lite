@@ -1010,3 +1010,29 @@ fn a_model_without_a_vapor_light_hides_the_switch_and_ignores_it() {
     assert_eq!(sent(&app), []);
     assert!(!path.exists());
 }
+
+#[test]
+fn a_resume_keeps_the_vapor_light_off() {
+    let (mut app, _dir, _) = vapor_app(false);
+
+    app.on_power(PowerEvent::Resumed).unwrap();
+
+    let mut expected = PerfMode::Balanced.commands(&BLADE_18).unwrap();
+    expected.extend(brightness_commands(30, false));
+    expected.extend(static_colour(WHITE, &BLADE_18));
+    assert_eq!(sent(&app), expected);
+}
+
+#[test]
+fn start_keeps_the_vapor_light_off() {
+    let (mut app, _dir, _) = vapor_app(false);
+
+    app.start().unwrap();
+
+    let vapor = BLADE_18
+        .vapor_light
+        .unwrap()
+        .command(Brightness::new(30).unwrap(), false);
+    assert!(sent(&app).contains(&vapor), "{:?}", sent(&app));
+    assert_eq!(vapor.args, [0x01, 0x26, 0]);
+}

@@ -220,7 +220,7 @@ where
             colour: lighting.colour,
             touchpad_on: touchpad_on(&self.machine.registry)?,
             logo_on: self.logo_on,
-            vapor_light_on: self.model.vapor_light.map(|_| lighting.vapor_light),
+            vapor_light_on: self.vapor_light_on(),
         }))
     }
 
@@ -424,6 +424,12 @@ where
     fn follow_power(&mut self, event: PowerEvent) -> Result<(), AppError> {
         let displays = &mut self.machine.displays;
         Ok(self.battery_rate.on_event(event, &self.config, displays)?)
+    }
+
+    /// The saved vapor light switch, or `None` if the model has no light.
+    #[must_use]
+    pub fn vapor_light_on(&self) -> Option<bool> {
+        self.model.vapor_light.map(|_| self.lighting().vapor_light)
     }
 
     fn lighting(&self) -> Lighting {
