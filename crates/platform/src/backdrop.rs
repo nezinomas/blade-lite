@@ -11,11 +11,11 @@ use windows_sys::Win32::Graphics::Dwm::{
     DwmSetWindowAttribute,
 };
 use windows_sys::Win32::UI::Controls::MARGINS;
-use windows_sys::Win32::UI::Shell::{DefSubclassProc, SetWindowSubclass};
+use windows_sys::Win32::UI::Shell::{DefSubclassProc, RemoveWindowSubclass, SetWindowSubclass};
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     GWL_STYLE, GetWindowLongPtrW, STYLESTRUCT, SWP_FRAMECHANGED, SWP_NOACTIVATE, SWP_NOMOVE,
-    SWP_NOSIZE, SWP_NOZORDER, SetWindowLongPtrW, SetWindowPos, WM_STYLECHANGING, WS_MAXIMIZEBOX,
-    WS_MINIMIZEBOX, WS_SYSMENU,
+    SWP_NOSIZE, SWP_NOZORDER, SetWindowLongPtrW, SetWindowPos, WM_NCDESTROY, WM_STYLECHANGING,
+    WS_MAXIMIZEBOX, WS_MINIMIZEBOX, WS_SYSMENU,
 };
 use windows_sys::core::HRESULT;
 
@@ -85,7 +85,8 @@ const STYLE_HOOK: usize = 0x58;
 /// Takes the system menu, minimise and maximise styles off a window without
 /// a frame, and keeps them off. winit keeps them on such a window and sets
 /// them again on each change of its style, and once Mica's frame covers the
-/// whole window, Windows draws their buttons over the content. Call it on
+/// whole window, Windows draws their buttons over the content. The window
+/// loses its system menu (Alt+Space) too, so this is for a flyout. Call it on
 /// the thread that made the window; calling it again does no harm.
 ///
 /// # Errors
@@ -98,8 +99,9 @@ pub fn hide_caption_buttons(hwnd: isize) -> io::Result<()> {
     // The last error is cleared first, as a style can be 0. The hook is a
     // plain function, so it outlives the window.
     unsafe {
+        // Not documented to set the last error, so it gets its own.
         if SetWindowSubclass(hwnd, Some(strip_buttons), STYLE_HOOK, 0) == 0 {
-            return Err(io::Error::last_os_error());
+            return Err(io::Error::other("the style hook could not be put on"));
         }
         SetLastError(0);
         let style = GetWindowLongPtrW(hwnd, GWL_STYLE);
@@ -139,6 +141,10 @@ unsafe extern "system" fn strip_buttons(
         // that Windows reads back after this returns.
         let styles = unsafe { &mut *(lparam as *mut STYLESTRUCT) };
         styles.styleNew &= !CAPTION_BUTTONS;
+    }
+    if message == WM_NCDESTROY {
+        // SAFETY: the hook comes off its own window, as Windows asks.
+        unsafe { RemoveWindowSubclass(hwnd, Some(strip_buttons), STYLE_HOOK) };
     }
     // SAFETY: passes the message on unchanged, as each subclass must.
     unsafe { DefSubclassProc(hwnd, message, wparam, lparam) }
