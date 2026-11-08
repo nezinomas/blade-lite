@@ -48,7 +48,8 @@ pub const PAUSE: Duration = Duration::from_millis(1);
 
 /// How long to wait before reading again after a Busy reply. Longer than
 /// [`PAUSE`], so a slow command can finish: up to 200 ms over all Busy reads.
-/// A guess: no Busy reply has been seen on the laptop.
+/// A guess: no Busy reply has been seen on the laptop. `send` blocks the
+/// calling thread for that long, so many Busy replies in a row would stall the window.
 pub const BUSY_PAUSE: Duration = Duration::from_millis(50);
 
 /// How many replies are read while the controller replies Busy. The command

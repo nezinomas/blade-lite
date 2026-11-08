@@ -39,7 +39,7 @@ fn the_device_pauses_between_send_and_read() {
 /// Busy may mean the controller took the command and is still working on it,
 /// so the command is never sent again: the reply is read again after the
 /// longer Busy pause, so a slow command has time to finish.
-/// `OpenRazer` and `razer-laptop-control` do not resend on Busy either.
+/// `OpenRazer` and rnd-ash's `razer-laptop-control` do not resend on Busy either.
 #[test]
 fn a_busy_reply_is_read_again_after_the_busy_pause_without_a_resend() {
     let (transport, clock, log) = fakes(vec![reply(BUSY, 0, COMMAND), reply(SUCCESS, 0, COMMAND)]);
@@ -72,6 +72,12 @@ fn the_last_busy_read_can_still_succeed() {
     assert!(result.is_ok(), "{result:?}");
     assert_eq!(sent(&log).len(), 1);
     assert_eq!(reads(&log), MAX_BUSY_READS);
+    let busy_pauses = log
+        .borrow()
+        .iter()
+        .filter(|event| **event == Event::Slept(BUSY_PAUSE))
+        .count();
+    assert_eq!(busy_pauses, MAX_BUSY_READS - 1);
 }
 
 #[test]
