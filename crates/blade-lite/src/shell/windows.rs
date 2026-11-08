@@ -5,7 +5,7 @@ use std::time::{Duration, Instant};
 
 use blade_core::View;
 use blade_lite::{Rect, flyout_position, report};
-use platform::{round_corners, set_mica};
+use platform::{hide_caption_buttons, round_corners, set_mica};
 use raw_window_handle::{HasWindowHandle, RawWindowHandle};
 use slint::winit_030::{EventResult, WinitWindowAccessor, winit};
 use slint::{ComponentHandle, PhysicalPosition, Timer};
@@ -180,9 +180,17 @@ fn hwnd(window: &slint::Window) -> Option<isize> {
 }
 
 /// Puts Mica behind a window, light as the mockup is. A frameless one also
-/// gets round corners.
+/// gets round corners, and loses the min, max and close buttons that Mica
+/// would show. winit puts their styles back on each show, so this runs after
+/// each show.
 fn put_backdrop(hwnd: isize, frameless: bool) {
-    let result = set_mica(hwnd, false).and_then(|()| {
+    let result = if frameless {
+        hide_caption_buttons(hwnd)
+    } else {
+        Ok(())
+    }
+    .and_then(|()| set_mica(hwnd, false))
+    .and_then(|()| {
         if frameless {
             round_corners(hwnd)
         } else {
