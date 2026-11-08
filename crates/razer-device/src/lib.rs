@@ -46,6 +46,11 @@ impl Clock for SystemClock {
 /// How long the controller needs between a send and a read, and before a read again.
 pub const PAUSE: Duration = Duration::from_millis(1);
 
+/// How long to wait before reading again after a Busy reply. Longer than
+/// [`PAUSE`], so a slow command can finish: up to 200 ms over all Busy reads.
+/// A guess: no Busy reply has been seen on the laptop.
+pub const BUSY_PAUSE: Duration = Duration::from_millis(50);
+
 /// How many replies are read while the controller replies Busy. The command
 /// itself is sent only once.
 pub const MAX_BUSY_READS: usize = 5;
@@ -116,7 +121,7 @@ impl<T: Transport, C: Clock> Device<T, C> {
     /// controller did with it. A first reply with another transaction ID
     /// (most likely one read too soon) is read once more after the pause.
     /// While the controller replies Busy, the reply is read again after the
-    /// pause, up to [`MAX_BUSY_READS`] Busy reads: Busy may mean the controller
+    /// [`BUSY_PAUSE`], up to [`MAX_BUSY_READS`] Busy reads: Busy may mean the controller
     /// took the command and is still working on it.
     ///
     /// # Errors
@@ -129,7 +134,7 @@ impl<T: Transport, C: Clock> Device<T, C> {
             .to_bytes();
         let mut report = self.exchange(&request)?;
         if report.transaction_id() != transaction_id {
-            report = self.read_after_pause()?;
+            report = self.read_after(PAUSE)?;
         }
         let mut busy_reads = 0;
         while is_busy(&report, transaction_id, command)? {
@@ -137,7 +142,7 @@ impl<T: Transport, C: Clock> Device<T, C> {
             if busy_reads == MAX_BUSY_READS {
                 return Err(DeviceError::Busy);
             }
-            report = self.read_after_pause()?;
+            report = self.read_after(BUSY_PAUSE)?;
         }
         Ok(report)
     }
@@ -172,12 +177,12 @@ impl<T: Transport, C: Clock> Device<T, C> {
         self.transport
             .send_report(request)
             .map_err(DeviceError::Io)?;
-        self.read_after_pause()
+        self.read_after(PAUSE)
     }
 
     /// Pauses, then reads and parses a reply.
-    fn read_after_pause(&mut self) -> Result<Report, DeviceError> {
-        self.clock.sleep(PAUSE);
+    fn read_after(&mut self, pause: Duration) -> Result<Report, DeviceError> {
+        self.clock.sleep(pause);
         let reply = self.transport.read_report().map_err(DeviceError::Io)?;
         Report::parse(&reply).map_err(DeviceError::Parse)
     }
