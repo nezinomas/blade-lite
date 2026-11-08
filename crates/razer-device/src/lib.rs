@@ -48,7 +48,7 @@ pub const PAUSE: Duration = Duration::from_millis(1);
 
 /// How many replies are read while the controller replies Busy. The command
 /// itself is sent only once.
-pub const MAX_ATTEMPTS: usize = 5;
+pub const MAX_BUSY_READS: usize = 5;
 
 /// Transaction IDs count from 0 to 31, then start again, as Synapse does.
 const TRANSACTION_IDS: u8 = 32;
@@ -62,7 +62,7 @@ pub enum DeviceError {
     Io(io::Error),
     /// The reply could not be parsed.
     Parse(ParseError),
-    /// The controller was still busy after [`MAX_ATTEMPTS`] reads. The command
+    /// The controller was still busy after [`MAX_BUSY_READS`] reads. The command
     /// was sent once and may still run.
     Busy,
     /// The controller replied Failure or `NotSupported`.
@@ -86,7 +86,7 @@ pub struct FirmwareVersion {
     pub minor: u8,
 }
 
-/// The controller, with the pause and the Busy retry built in.
+/// The controller, with the pause and the Busy read-again built in.
 pub struct Device<T, C> {
     transport: T,
     clock: C,
@@ -116,7 +116,7 @@ impl<T: Transport, C: Clock> Device<T, C> {
     /// controller did with it. A first reply with another transaction ID
     /// (most likely one read too soon) is read once more after the pause.
     /// While the controller replies Busy, the reply is read again after the
-    /// pause, up to [`MAX_ATTEMPTS`] Busy reads: Busy may mean the controller
+    /// pause, up to [`MAX_BUSY_READS`] Busy reads: Busy may mean the controller
     /// took the command and is still working on it.
     ///
     /// # Errors
@@ -134,7 +134,7 @@ impl<T: Transport, C: Clock> Device<T, C> {
         let mut busy_reads = 0;
         while is_busy(&report, transaction_id, command)? {
             busy_reads += 1;
-            if busy_reads == MAX_ATTEMPTS {
+            if busy_reads == MAX_BUSY_READS {
                 return Err(DeviceError::Busy);
             }
             report = self.read_after_pause()?;

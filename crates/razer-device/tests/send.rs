@@ -1,7 +1,7 @@
 mod common;
 
 use common::{BUSY, Event, FAILURE, SUCCESS, fakes, reads, reply, request, sent};
-use razer_device::{Device, DeviceError, MAX_ATTEMPTS, PAUSE};
+use razer_device::{Device, DeviceError, MAX_BUSY_READS, PAUSE};
 use razer_proto::Status;
 
 /// Get firmware version, as captured.
@@ -78,13 +78,13 @@ fn the_next_send_takes_the_next_id_after_a_busy_reply() {
 
 #[test]
 fn too_many_busy_replies_are_an_error() {
-    let (transport, clock, log) = fakes(vec![reply(BUSY, 0, COMMAND); MAX_ATTEMPTS]);
+    let (transport, clock, log) = fakes(vec![reply(BUSY, 0, COMMAND); MAX_BUSY_READS]);
 
     let result = Device::with_first_id(transport, clock, 0).send(COMMAND, &[]);
 
     assert!(matches!(result, Err(DeviceError::Busy)), "{result:?}");
     assert_eq!(sent(&log).len(), 1);
-    assert_eq!(reads(&log), MAX_ATTEMPTS);
+    assert_eq!(reads(&log), MAX_BUSY_READS);
 }
 
 #[test]
