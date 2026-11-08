@@ -1,6 +1,23 @@
 #!/bin/sh
 # Same checks as CI, so a branch is checked before it reaches master.
 set -e
+
+# A stage or ticket merge (feature/, fix/, spike/) must tick docs/PLAN.md.
+# Other merges (docs/, chore/) are not checked.
+zero=0000000000000000000000000000000000000000
+while read -r local_ref local_sha remote_ref remote_sha; do
+  [ "$local_sha" = "$zero" ] && continue
+  if [ "$remote_sha" = "$zero" ]; then range="$local_sha --not --remotes"; else range="$remote_sha..$local_sha"; fi
+  for merge in $(git rev-list --merges $range); do
+    git log -1 --format=%s "$merge" | grep -qE "^Merge branch '(feature|fix|spike)/" || continue
+    if ! git diff --name-only "$merge^1" "$merge" | grep -qx 'docs/PLAN.md'; then
+      echo "pre-push: $(git log -1 --format='%h %s' "$merge") does not change docs/PLAN.md." >&2
+      echo "pre-push: tick the stage or ticket in docs/PLAN.md in its branch." >&2
+      exit 1
+    fi
+  done
+done
+
 cargo fmt --all --check
 cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace

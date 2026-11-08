@@ -5,7 +5,8 @@ Each stage's red and green tests and the open questions are in the full plan:
 https://claude.ai/artifact/JSzNYRpwZJyywztJtBSk2P
 
 How a stage is built, reviewed and merged: the `stage` skill and the hardware safety rules in `CLAUDE.md`.
-Every stage is reviewed before merge by the `informed-reviewer` and `fresh-reviewer` subagents (`.claude/agents/`).
+Every stage is reviewed before merge by subagents (`.claude/agents/`): both the `informed-reviewer` and the `fresh-reviewer` when it can change what is sent to the laptop, the `informed-reviewer` alone when it can't ("Review tiers" in `CLAUDE.md`).
+Checks only a person can do on the laptop wait in "Still to check on the laptop" below until the user confirms them.
 
 ## Before code
 - [x] 0 Try r-helper and read its 02C7 code

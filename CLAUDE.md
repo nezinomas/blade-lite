@@ -9,7 +9,13 @@ Building a stage or ticket: follow the `stage` skill (`.claude/skills/stage/SKIL
 
 ## Hardware safety (wins over every other rule here)
 - This app drives an expensive laptop. Add every guard that fits: validate all input, clamp values to safe ranges, refuse unknown states, and fail safe (do nothing rather than guess).
-- Two separate subagents review every stage before merge (see the `stage` skill). The author never reviews their own stage.
+- Every stage and ticket is reviewed by subagents before merge (`stage` skill, step 7). The author never reviews their own stage.
+
+## Review tiers
+- Both reviewers (`informed-reviewer` and `fresh-reviewer`, `.claude/agents/`) for anything that can change what is sent to the laptop: which command, its bytes or values, its limits, or when it is sent.
+- That always includes `crates/razer-proto` (and its model profile), `crates/razer-device`, `crates/blade-core`, `crates/platform`, `crates/blade-dev` and the `cargo hw` tests. In `crates/ui` and `crates/blade-lite` it includes any change to Rust code, and to `.slint` value ranges, bindings or callbacks.
+- One reviewer (`informed-reviewer`) only when every changed line is one of these: docs (`docs/`, `*.md`), `.claude/`, `.githooks/`, CI files, `capture/` scripts, `.slint` layout or text, log message text.
+- If in doubt, use both.
 
 ## Commands
 - One-time setup: `git config core.hooksPath .githooks` (pre-push runs the checks below, commit-msg blocks AI attribution).
@@ -22,6 +28,15 @@ Building a stage or ticket: follow the `stage` skill (`.claude/skills/stage/SKIL
 - Small logical commits with short messages. No AI attribution: no Co-Authored-By, no session links.
 - No PRs. Merge into master with `git merge --no-ff` (never squash, rebase or fast-forward), then push.
 - After the push, delete the branch locally. Delete it on GitHub only if it was pushed there.
+- If a git step is blocked (merge, push, branch delete), stop and give the user the exact commands.
+
+## Finishing a stage
+- Tick it `[x]` in `docs/PLAN.md` in the same branch, with a one-line result. The pre-push hook refuses a `feature/`, `fix/` or `spike/` merge that does not change `docs/PLAN.md`.
+- Before merge, list the checks only a person can do on the laptop and ask the user to do them. Checks not done yet go in "Still to check on the laptop" in `docs/PLAN.md`.
+- Every report ends with one plain line: what was blocked (permissions, push, merge, branch delete, cargo), or "nothing was blocked".
+
+## Skills
+- `/retro` (`.claude/skills/retro`) needs the `mattpocock-skills` plugin installed.
 
 ## How to work
 - TDD: red, green, refactor, in small stages, per the plan.
