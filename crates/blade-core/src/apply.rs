@@ -118,7 +118,8 @@ pub fn reapply_on_resume(
     Ok(())
 }
 
-/// The commands that set the saved preset, then the saved lighting.
+/// The commands that set the saved preset, then the saved lighting, then
+/// the saved lid logo.
 fn commands(
     config: Config,
     model: &ModelProfile,
@@ -127,6 +128,9 @@ fn commands(
     let mut commands = preset_commands(config, model)?;
     if let Some(lighting) = config.lighting {
         commands.extend(lighting_commands(lighting, model, touchpad_off)?);
+    }
+    if let (Some(on), Some(logo)) = (config.lid_logo, model.logo) {
+        commands.extend(logo.commands(on));
     }
     Ok(commands)
 }

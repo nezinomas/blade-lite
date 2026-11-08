@@ -436,3 +436,36 @@ fn a_model_without_a_vapor_light_gets_only_the_keyboard() {
         .collect();
     assert_eq!(*log.borrow(), expected);
 }
+
+#[test]
+fn a_saved_lid_logo_is_sent_last() {
+    let (mut controller, _, log) = fakes();
+    let saved = Config {
+        lid_logo: Some(false),
+        ..Config::default()
+    };
+
+    apply(&saved, &BLADE_18, &mut controller, false).unwrap();
+
+    let mut expected = preset_steps(0x00);
+    let logo = BLADE_18.logo.unwrap().commands(false);
+    expected.extend(logo.into_iter().map(Step::Sent));
+    assert_eq!(*log.borrow(), expected);
+}
+
+#[test]
+fn a_model_without_a_lid_logo_gets_no_logo_commands() {
+    let (mut controller, _, log) = fakes();
+    let model = razer_proto::ModelProfile {
+        logo: None,
+        ..BLADE_18
+    };
+    let saved = Config {
+        lid_logo: Some(false),
+        ..Config::default()
+    };
+
+    apply(&saved, &model, &mut controller, false).unwrap();
+
+    assert_eq!(*log.borrow(), preset_steps(0x00));
+}

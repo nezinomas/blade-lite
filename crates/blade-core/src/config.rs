@@ -101,6 +101,11 @@ pub struct Config {
     /// `None` until the user sets it, so the keyboard is left as it is.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub lighting: Option<Lighting>,
+    /// The lid logo on or off. `None` until the user sets it, so the logo
+    /// is left as it is. The laptop turns it on again after a wake, so the
+    /// app sends it at start and after each resume.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub lid_logo: Option<bool>,
 }
 
 impl Config {

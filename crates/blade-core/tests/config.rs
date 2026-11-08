@@ -28,6 +28,7 @@ fn round_trip_keeps_custom_values_while_another_preset_is_active() {
             colour: Rgb::new(0x00, 0x78, 0xD4),
             vapor_light: true,
         }),
+        lid_logo: Some(false),
     };
 
     config.save(&path).unwrap();
@@ -185,6 +186,25 @@ fn the_vapor_light_off_is_saved() {
             colour: Rgb::new(0xFF, 0xFF, 0xFF),
             vapor_light: false,
         }),
+        ..Config::default()
+    };
+
+    config.save(&path).unwrap();
+
+    assert_eq!(Config::load(&path).unwrap(), config);
+}
+
+#[test]
+fn the_lid_logo_is_unset_by_default_so_nothing_is_sent_for_it() {
+    assert_eq!(Config::default().lid_logo, None);
+}
+
+#[test]
+fn the_lid_logo_off_is_saved() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join(FILE);
+    let config = Config {
+        lid_logo: Some(false),
         ..Config::default()
     };
 
