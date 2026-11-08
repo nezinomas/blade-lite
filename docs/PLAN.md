@@ -100,7 +100,6 @@ Do these in one go, on AC, with "Start with Windows" on and Num Lock off (the po
 4. **Restart (44, 18).** Turn the lid logo off. Pick the FHD 440 Hz native mode. Restart. The app starts with Windows, the logo stays off, and the screen starts at FHD 440 Hz.
 5. **Put it back.** Set your native mode, keyboard colour, lid logo and preset back as you noted them. Restart once more for the native mode.
 6. **Busy (55).** Nothing to do now. If the log ever shows a Busy error, check whether the command took effect.
-7. **Split files (66).** Code was moved only. Do all of `docs/window-check.md` once, then click a preset, press the power-mode key and switch the touchpad: each works as before.
 
 ## Publishing on GitHub
 - [ ] 39 Release and installer
