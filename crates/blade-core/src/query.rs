@@ -74,7 +74,7 @@ fn read_value<T>(
 ) -> Option<T> {
     let value = match controller.query(query) {
         Ok(args) => parse(&args).ok_or_else(|| "reply not understood".to_owned()),
-        Err(error) => Err(format!("{error:?}")),
+        Err(error) => Err(error.to_string()),
     };
     value
         .map_err(|error| errors.push(format!("{name}: {error}")))

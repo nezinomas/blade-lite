@@ -82,6 +82,50 @@ pub enum DeviceError {
     WrongReply { transaction_id: u8, command: u16 },
 }
 
+/// Plain text for the log. Details that change from one error to the next
+/// go in brackets: the log counts errors that differ only there as one.
+impl std::fmt::Display for DeviceError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Build(BuildError::TooManyArgs(count)) => {
+                write!(f, "the command does not fit in a report ({count} args)")
+            }
+            // No bracket around the Windows message, so each message is its own kind.
+            Self::Io(error) => write!(f, "the HID layer failed: {error}"),
+            Self::Parse(error) => write!(f, "the reply is not valid ({})", parse_text(*error)),
+            Self::Busy => write!(f, "the controller stayed busy after {MAX_BUSY_READS} reads"),
+            Self::Rejected(status) => write!(f, "the controller replied {status:?}"),
+            Self::ShortReply => write!(f, "the reply has too few args"),
+            Self::WrongReply {
+                transaction_id,
+                command,
+            } => write!(
+                f,
+                "the reply is for another request (it echoes transaction ID {transaction_id}, command {command:04X})"
+            ),
+        }
+    }
+}
+
+impl std::error::Error for DeviceError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Io(error) => Some(error),
+            _ => None,
+        }
+    }
+}
+
+fn parse_text(error: ParseError) -> String {
+    match error {
+        ParseError::BadChecksum { expected, found } => {
+            format!("checksum {found:02X}, not {expected:02X}")
+        }
+        ParseError::UnknownStatus(byte) => format!("unknown status {byte:02X}"),
+        ParseError::BadDataSize(size) => format!("data size {size} is too big"),
+    }
+}
+
 /// Get firmware version. Args are `[0, 0]`, the reply args are `[major, minor]`.
 const FIRMWARE_VERSION: u16 = 0x0081;
 

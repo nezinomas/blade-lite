@@ -91,6 +91,20 @@ fn each_failed_read_is_named_in_the_errors() {
 }
 
 #[test]
+fn a_failed_read_is_said_in_plain_text() {
+    let mut controller = FakeQuery::default()
+        .reply(Celsius::query(), &[2, 52, 0, 0])
+        .reply(fan_query(1), &[1, 2, 18]);
+
+    let readings = read_controller(&mut controller, &BLADE_18);
+
+    assert_eq!(
+        readings.errors,
+        ["fan 1: the controller stayed busy after 5 reads"]
+    );
+}
+
+#[test]
 fn a_reply_that_is_not_understood_is_an_error_too() {
     let mut controller = FakeQuery::default()
         .reply(Celsius::query(), &[])

@@ -57,7 +57,7 @@ fn probe() -> ExitCode {
             ExitCode::SUCCESS
         }
         Err(error) => {
-            eprintln!("cannot read the firmware version: {error:?}");
+            eprintln!("cannot read the firmware version: {error}");
             ExitCode::FAILURE
         }
     }
