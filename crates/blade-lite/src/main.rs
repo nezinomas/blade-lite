@@ -4,37 +4,35 @@
 
 // Not at the crate root: the generated Slint code unwraps.
 #[deny(clippy::unwrap_used, clippy::print_stdout, clippy::print_stderr)]
+mod background;
+#[deny(clippy::unwrap_used, clippy::print_stdout, clippy::print_stderr)]
 mod bind;
 #[deny(clippy::unwrap_used, clippy::print_stdout, clippy::print_stderr)]
 mod shell;
 #[deny(clippy::unwrap_used, clippy::print_stdout, clippy::print_stderr)]
 mod tray;
+#[deny(clippy::unwrap_used, clippy::print_stdout, clippy::print_stderr)]
+mod tray_menu;
 
 use std::cell::RefCell;
 use std::path::PathBuf;
 use std::process::ExitCode;
 use std::rc::Rc;
-use std::sync::mpsc::{self, Receiver};
-use std::time::Duration;
+use std::sync::mpsc::Receiver;
 
-use blade_core::{
-    APP_NAME, Config, Log, POLL_INTERVAL, PowerKeyPresses, Start, TOUCHPAD_KEY, autostart,
-    set_autostart, start_instance, starts_in_tray,
-};
-use blade_lite::{
-    App, AutostartItem, Machine, ReaderEnd, ShownErrors, accent_colour, autostart_item, open_log,
-    report, report_panics, step_on_presses, takeover_note,
-};
-use platform::{
-    PowerEvent, PowerEvents, RegistryWatch, WakeListener, WindowsDisplays, WindowsInstance,
-    WindowsKeys, WindowsPowerEvents, WindowsRegistry,
-};
-use razer_device::{Device, HidKeyReports, HidTransport, SystemClock};
+use blade_core::{APP_NAME, Config, Log, POLL_INTERVAL, Start, start_instance, starts_in_tray};
+use blade_lite::{App, Machine, accent_colour, open_log, report, report_panics};
+use platform::{PowerEvent, WindowsDisplays, WindowsInstance, WindowsKeys, WindowsRegistry};
+use razer_device::{Device, HidTransport, SystemClock};
 use razer_proto::{BLADE_18, Rgb};
 use slint::{Timer, TimerMode};
 
+use crate::background::{
+    follow_the_power_key, follow_the_touchpad, open_window_on_wake, power_events, watch_touchpad,
+};
 use crate::shell::Shell;
-use crate::tray::{Tray, TrayAction};
+use crate::tray::Tray;
+use crate::tray_menu::{autostart_shown, on_tray};
 
 slint::include_modules!();
 
@@ -48,9 +46,6 @@ thread_local! {
     static TRAY: RefCell<Option<Rc<Tray>>> = const { RefCell::new(None) };
     /// The power events, so a key press can see them before it steps.
     static POWER: RefCell<Option<Rc<Receiver<PowerEvent>>>> = const { RefCell::new(None) };
-    /// The last autostart warning, so each one is logged once, not on each
-    /// menu open. No warning clears it, so one that comes back is logged.
-    static AUTOSTART_SAID: RefCell<ShownErrors> = RefCell::new(ShownErrors::default());
 }
 
 fn main() -> ExitCode {
@@ -142,222 +137,4 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     TRAY.with(RefCell::take);
     POWER.with(RefCell::take);
     Ok(())
-}
-
-/// Opens the window each time a second copy asks, from a thread that waits.
-fn open_window_on_wake(listener: WakeListener) {
-    std::thread::spawn(move || {
-        loop {
-            match listener.wait(Duration::MAX) {
-                Ok(true) => {}
-                Ok(false) => continue,
-                Err(error) => {
-                    report(&format!(
-                        "a second start can't open the window now: {error}"
-                    ));
-                    return;
-                }
-            }
-            let shown = slint::invoke_from_event_loop(|| {
-                if let Some(shell) = SHELL.with(|cell| cell.borrow().clone()) {
-                    shell.show_window();
-                }
-            });
-            // The event loop has ended, so the app is quitting.
-            if shown.is_err() {
-                return;
-            }
-        }
-    });
-}
-
-/// How long the touchpad state must stay quiet before the key follows it,
-/// so a burst of registry writes paints the key once.
-const TOUCHPAD_QUIET: Duration = Duration::from_millis(100);
-
-/// A watch on the touchpad state. `None` if Windows can't watch it: the key
-/// then follows the touchpad only at start and resume.
-fn watch_touchpad() -> Option<RegistryWatch> {
-    RegistryWatch::open(TOUCHPAD_KEY)
-        .map_err(|error| {
-            report(&format!(
-                "the touchpad key can't follow the touchpad: {error}"
-            ));
-        })
-        .ok()
-}
-
-/// Paints the touchpad key each time the touchpad state changes, however
-/// it was switched, from a thread that waits.
-fn follow_the_touchpad(watch: RegistryWatch) {
-    std::thread::spawn(move || {
-        loop {
-            match wait_for_quiet_change(&watch) {
-                Ok(true) => {}
-                Ok(false) => continue,
-                Err(error) => {
-                    report(&format!(
-                        "the touchpad key stops following the touchpad: {error}"
-                    ));
-                    return;
-                }
-            }
-            let followed = slint::invoke_from_event_loop(|| {
-                if let Some(shell) = SHELL.with(|cell| cell.borrow().clone()) {
-                    shell.act(blade_lite::App::on_touchpad_changed);
-                }
-            });
-            // The event loop has ended, so the app is quitting.
-            if followed.is_err() {
-                return;
-            }
-        }
-    });
-}
-
-/// Waits for a change, then until the state has been quiet for
-/// [`TOUCHPAD_QUIET`].
-fn wait_for_quiet_change(watch: &RegistryWatch) -> std::io::Result<bool> {
-    if !watch.wait(Duration::MAX)? {
-        return Ok(false);
-    }
-    while watch.wait(TOUCHPAD_QUIET)? {}
-    Ok(true)
-}
-
-/// How long to wait before opening the key reports again, after they
-/// fail or stay quiet too long.
-const KEY_REOPEN_PAUSE: Duration = Duration::from_secs(5);
-
-/// Steps the preset each time the power-mode key is pressed, from a thread
-/// that reads the keyboard's key reports. Nothing if the model has no key.
-fn follow_the_power_key() {
-    let Some(key) = BLADE_18.power_key else {
-        return;
-    };
-    std::thread::spawn(move || {
-        // Each problem is said once, not each time it is tried again.
-        let mut said = ShownErrors::default();
-        loop {
-            let problem = match HidKeyReports::open(&BLADE_18) {
-                Ok(mut reports) => {
-                    let presses = PowerKeyPresses::new(key);
-                    match step_on_presses(&mut reports, presses, step_the_preset) {
-                        ReaderEnd::Quit => return,
-                        ReaderEnd::Reopen => String::new(),
-                        ReaderEnd::Failed(error) => format!("the key reports stopped: {error}"),
-                    }
-                }
-                Err(error) => format!("no power-mode key for now: {error}"),
-            };
-            if let Some(text) = said.new_text(&problem) {
-                report(text);
-            }
-            std::thread::sleep(KEY_REOPEN_PAUSE);
-        }
-    });
-}
-
-/// Steps the preset on the event-loop thread. False once the app is
-/// quitting.
-fn step_the_preset() -> bool {
-    slint::invoke_from_event_loop(|| {
-        let Some(shell) = SHELL.with(|cell| cell.borrow().clone()) else {
-            return;
-        };
-        // A power source change not yet seen would let a preset run that
-        // the new source does not offer.
-        if let Some(power) = POWER.with(|cell| cell.borrow().clone()) {
-            shell.follow_power(&power);
-        }
-        shell.act(blade_lite::App::on_power_key);
-    })
-    .is_ok()
-}
-
-/// How "Start with Windows" should show, read from the Run key now. Not
-/// ticked if it can't be read. A warning is logged once, not on each read.
-fn autostart_shown() -> AutostartItem {
-    let read = std::env::current_exe()
-        .map_err(|error| error.to_string())
-        .and_then(|exe| autostart(&WindowsRegistry, &exe).map_err(|error| error.to_string()));
-    let item = autostart_item(&read);
-    AUTOSTART_SAID.with(|said| {
-        if let Some(text) = said
-            .borrow_mut()
-            .new_text(item.warning.as_deref().unwrap_or_default())
-        {
-            report(text);
-        }
-    });
-    item
-}
-
-/// Turns autostart on or off as the tray tick now says. Either way the
-/// item then shows what the registry holds.
-fn sync_autostart(tray: &Tray) {
-    let on = tray.autostart_ticked();
-    let set = std::env::current_exe()
-        .map_err(|error| error.to_string())
-        .and_then(|exe| {
-            let before = autostart(&WindowsRegistry, &exe).map_err(|error| error.to_string());
-            if let Some(note) = takeover_note(&before, on) {
-                report(&note);
-            }
-            set_autostart(on, &mut WindowsRegistry, &exe).map_err(|error| error.to_string())
-        });
-    if let Err(error) = set {
-        report(&format!("could not set autostart: {error}"));
-    }
-    tray.show_autostart(&autostart_shown());
-}
-
-fn on_tray(action: TrayAction) {
-    match action {
-        TrayAction::Quit => {
-            let _ = slint::quit_event_loop();
-            return;
-        }
-        TrayAction::Autostart => {
-            if let Some(tray) = TRAY.with(|cell| cell.borrow().clone()) {
-                sync_autostart(&tray);
-            }
-            return;
-        }
-        TrayAction::MenuOpening => {
-            if let Some(tray) = TRAY.with(|cell| cell.borrow().clone()) {
-                tray.show_autostart(&autostart_shown());
-            }
-            return;
-        }
-        _ => {}
-    }
-    let Some(shell) = SHELL.with(|cell| cell.borrow().clone()) else {
-        return;
-    };
-    match action {
-        TrayAction::Clicked(icon) => shell.toggle_flyout(icon),
-        TrayAction::OpenWindow => shell.show_window(),
-        // Handled above; listed so the match stays whole.
-        TrayAction::Quit | TrayAction::Autostart | TrayAction::MenuOpening => {}
-    }
-}
-
-/// Power events, read on their own thread. No events come if Windows
-/// refuses to send them.
-fn power_events() -> Receiver<PowerEvent> {
-    let (sender, receiver) = mpsc::channel();
-    match WindowsPowerEvents::register() {
-        Ok(mut events) => {
-            std::thread::spawn(move || {
-                while let Some(event) = events.next_event() {
-                    if sender.send(event).is_err() {
-                        break;
-                    }
-                }
-            });
-        }
-        Err(error) => report(&format!("no power events: {error}")),
-    }
-    receiver
 }

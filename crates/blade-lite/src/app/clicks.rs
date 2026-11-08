@@ -1,0 +1,166 @@
+//! What each click does.
+
+use blade_core::{
+    Config, Controller, Query, apply_lighting, apply_performance, next_preset, set_charge_limit,
+    set_logo, set_native_mode, set_refresh_rate, set_touchpad,
+};
+use platform::{DisplayApi, KeyInjector, PowerEvent, Registry};
+use ui::{DisplayCommand, KeyboardCommand, PerformanceCommand};
+
+use super::{App, AppError};
+
+impl<C, D, R, K> App<C, D, R, K>
+where
+    C: Controller + Query,
+    D: DisplayApi,
+    R: Registry,
+    K: KeyInjector,
+{
+    /// # Errors
+    ///
+    /// See [`AppError`]. The config is left as it was, except that a
+    /// change that was sent but not saved is kept in memory.
+    pub fn on_performance(&mut self, command: PerformanceCommand) -> Result<(), AppError> {
+        let mut config = self.config;
+        match command {
+            PerformanceCommand::SetPreset(preset) => {
+                if self.on_battery && !preset.offered_on_battery() {
+                    return Err(AppError::NotOnBattery(preset));
+                }
+                config.preset = preset;
+            }
+            PerformanceCommand::SetCpuBoost(level) => config.custom.cpu_boost = level,
+            PerformanceCommand::SetGpuBoost(level) => config.custom.gpu_boost = level,
+            PerformanceCommand::SetFanRpm(rpm) => config.custom.fan_rpm = rpm,
+            // The controller keeps the limit, so nothing is saved.
+            PerformanceCommand::SetChargeLimit(on) => return self.set_charge_limit(on),
+        }
+        let running = self.running(config);
+        apply_performance(&running, self.model, &mut self.machine.controller)?;
+        self.keep_sent(config)
+    }
+
+    /// Steps to the next preset, as the power-mode key asks.
+    ///
+    /// # Errors
+    ///
+    /// See [`AppError`]. Nothing is sent if the model has no key, or no
+    /// other preset to step to. The config is left as it was, except that
+    /// a preset that was sent but not saved is kept in memory.
+    pub fn on_power_key(&mut self) -> Result<(), AppError> {
+        if self.model.power_key.is_none() {
+            return Ok(());
+        }
+        let running = self.config.preset.running(self.on_battery);
+        match next_preset(running, self.model, self.on_battery) {
+            Some(next) if next != running => {
+                self.on_performance(PerformanceCommand::SetPreset(next))
+            }
+            _ => Ok(()),
+        }
+    }
+
+    /// # Errors
+    ///
+    /// See [`AppError`]. The config is left as it was, except that a
+    /// change that was sent but not saved is kept in memory.
+    pub fn on_keyboard(&mut self, command: KeyboardCommand) -> Result<(), AppError> {
+        let mut lighting = self.lighting();
+        match command {
+            KeyboardCommand::SetBrightness(brightness) => {
+                lighting.brightness = brightness.percent();
+            }
+            KeyboardCommand::SetColour(colour) => lighting.colour = colour,
+            // A model without the light is left alone.
+            KeyboardCommand::SetVaporLight(_) if self.model.vapor_light.is_none() => {
+                return Ok(());
+            }
+            KeyboardCommand::SetVaporLight(on) => lighting.vapor_light = on,
+            KeyboardCommand::SetTouchpad(on) => {
+                let machine = &mut self.machine;
+                return Ok(set_touchpad(on, &machine.registry, &mut machine.keys)?);
+            }
+            // Saved, as the laptop turns the logo on again after a wake.
+            KeyboardCommand::SetLogo(on) => {
+                set_logo(on, &mut self.machine.controller, self.model)?;
+                self.logo_on = Some(on);
+                return self.keep_sent(Config {
+                    lid_logo: Some(on),
+                    ..self.config
+                });
+            }
+        }
+        let red = self.touchpad_off();
+        let applied = apply_lighting(lighting, self.model, &mut self.machine.controller, red);
+        self.key_red = applied.is_ok().then_some(red);
+        applied?;
+        self.keep_sent(Config {
+            lighting: Some(lighting),
+            ..self.config
+        })
+    }
+
+    /// # Errors
+    ///
+    /// See [`AppError`].
+    pub fn on_display(&mut self, command: DisplayCommand) -> Result<(), AppError> {
+        match command {
+            DisplayCommand::SetRefreshRate(rate) => {
+                set_refresh_rate(&mut self.machine.displays, rate)?;
+            }
+            DisplayCommand::SetNativeMode(mode) => {
+                set_native_mode(mode, &mut self.machine.controller)?;
+            }
+            DisplayCommand::SetSixtyHzOnBattery(on) => self.set_sixty_hz_on_battery(on)?,
+        }
+        Ok(())
+    }
+
+    /// Flips the 60 Hz on battery switch. It reads the saved value, so it
+    /// works while the controller or the panel can't be read.
+    ///
+    /// # Errors
+    ///
+    /// See [`AppError`].
+    pub fn toggle_sixty_hz_on_battery(&mut self) -> Result<(), AppError> {
+        self.set_sixty_hz_on_battery(!self.config.sixty_hz_on_battery)
+    }
+
+    /// Saves the switch and acts on it at once. If 60 Hz can't be set on
+    /// battery, the old value is saved again, so the rates don't lock while
+    /// the panel runs another rate.
+    fn set_sixty_hz_on_battery(&mut self, on: bool) -> Result<(), AppError> {
+        let old = self.config;
+        if on == old.sixty_hz_on_battery {
+            return Ok(());
+        }
+        self.commit(Config {
+            sixty_hz_on_battery: on,
+            ..old
+        })?;
+        if !self.on_battery {
+            return Ok(());
+        }
+        // As if the laptop had just gone on battery, or back on AC.
+        if !on {
+            return self.follow_power(PowerEvent::OnAc);
+        }
+        let dropped = self.follow_power(PowerEvent::OnBattery);
+        if dropped.is_err() {
+            // The rate error is the one to show, even if this save fails too.
+            let _ = self.commit(old);
+        }
+        dropped
+    }
+
+    /// Sets the charge limit. If that fails, the switch shows what the
+    /// controller reads back, or hides if that read fails too.
+    fn set_charge_limit(&mut self, on: bool) -> Result<(), AppError> {
+        let result = set_charge_limit(on, &mut self.machine.controller, self.model);
+        match result {
+            Ok(()) => self.charge_limit_on = Some(on),
+            Err(_) => self.read_charge_limit(),
+        }
+        Ok(result?)
+    }
+}
