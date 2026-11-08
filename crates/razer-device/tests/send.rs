@@ -1,6 +1,6 @@
 mod common;
 
-use common::{BUSY, Event, FAILURE, SUCCESS, fakes, reply, request, sent};
+use common::{BUSY, Event, FAILURE, SUCCESS, fakes, reads, reply, request, sent};
 use razer_device::{Device, DeviceError, MAX_ATTEMPTS, PAUSE};
 use razer_proto::Status;
 
@@ -100,6 +100,7 @@ fn a_reply_with_another_transaction_id_twice_is_an_error() {
         "{result:?}"
     );
     assert_eq!(sent(&log).len(), 1);
+    assert_eq!(reads(&log), 2);
 }
 
 #[test]
@@ -132,6 +133,7 @@ fn a_busy_reply_to_another_request_is_not_sent_again() {
         "{result:?}"
     );
     assert_eq!(sent(&log).len(), 1);
+    assert_eq!(reads(&log), 2);
 }
 
 /// A reply read too soon is the one to the request before. The device pauses
@@ -182,8 +184,7 @@ fn a_reply_to_another_command_is_not_read_again() {
         matches!(result, Err(DeviceError::WrongReply { .. })),
         "{result:?}"
     );
-    let reads = log.borrow().iter().filter(|e| **e == Event::Read).count();
-    assert_eq!(reads, 1);
+    assert_eq!(reads(&log), 1);
 }
 
 #[test]
@@ -201,7 +202,7 @@ fn a_failure_reply_to_another_request_is_a_wrong_reply() {
 
 #[test]
 fn a_busy_retry_must_still_match() {
-    let (transport, clock, _) = fakes(vec![
+    let (transport, clock, log) = fakes(vec![
         reply(BUSY, 0, COMMAND),
         reply(SUCCESS, 1, COMMAND),
         reply(SUCCESS, 1, COMMAND),
@@ -213,6 +214,23 @@ fn a_busy_retry_must_still_match() {
         matches!(result, Err(DeviceError::WrongReply { .. })),
         "{result:?}"
     );
+    assert_eq!(sent(&log).len(), 2);
+}
+
+/// The re-read is once per send attempt: a Busy retry may read once more again.
+#[test]
+fn an_older_reply_after_a_busy_retry_is_read_again() {
+    let (transport, clock, log) = fakes(vec![
+        reply(BUSY, 0, COMMAND),
+        reply(SUCCESS, 31, COMMAND),
+        reply(SUCCESS, 0, COMMAND),
+    ]);
+
+    let result = Device::new(transport, clock).send(COMMAND, &[]);
+
+    assert!(result.is_ok(), "{result:?}");
+    assert_eq!(sent(&log).len(), 2);
+    assert_eq!(reads(&log), 3);
 }
 
 /// This model sets the remaining packets (bytes 2 and 3) in some replies,

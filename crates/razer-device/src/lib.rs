@@ -101,6 +101,8 @@ impl<T: Transport, C: Clock> Device<T, C> {
 
     /// Sends a command and returns the controller's Success reply.
     /// While the controller replies Busy, waits and sends the command again.
+    /// A reply with another transaction ID is read once more after the pause
+    /// (once per send attempt), and the command is not sent again.
     ///
     /// # Errors
     ///
@@ -113,8 +115,8 @@ impl<T: Transport, C: Clock> Device<T, C> {
         for _ in 0..MAX_ATTEMPTS {
             let mut report = self.exchange(&request)?;
             if report.transaction_id() != transaction_id {
-                // Read too soon: this is the reply to an earlier request.
-                // Read once more, but do not send again.
+                // A reply with another transaction ID, most likely one read
+                // too soon. Read once more, but do not send again.
                 report = self.read_after_pause()?;
             }
             ensure_matches(&report, transaction_id, command)?;

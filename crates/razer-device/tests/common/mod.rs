@@ -95,6 +95,15 @@ pub fn sent(log: &Log) -> Vec<[u8; REPORT_LEN]> {
         .collect()
 }
 
+/// How many reports the device read.
+#[allow(dead_code)] // Not every test binary uses it.
+pub fn reads(log: &Log) -> usize {
+    log.borrow()
+        .iter()
+        .filter(|event| **event == Event::Read)
+        .count()
+}
+
 /// A Success reply that carries `args`.
 #[allow(dead_code)] // Not every test binary uses it.
 pub fn reply_with_args(transaction_id: u8, command: u16, args: &[u8]) -> [u8; REPORT_LEN] {
