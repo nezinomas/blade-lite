@@ -5,6 +5,7 @@ mod flyout;
 mod header;
 mod keyboard;
 mod performance;
+mod popup;
 
 pub use display::{DisplayCommand, DisplayState, DisplayView, NativeOption, RateSegment};
 pub use flyout::FlyoutView;
@@ -14,3 +15,4 @@ pub use performance::{
     ChargeLimitSwitch, PerformanceCommand, PerformanceState, PerformanceView, PresetOption, Slider,
     SliderKind,
 };
+pub use popup::ModeWatch;

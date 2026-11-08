@@ -1,4 +1,4 @@
-//! Where the tray flyout opens, in physical pixels.
+//! Where the tray flyout and the power mode popup open, in physical pixels.
 
 /// The gap between the flyout and the taskbar or the screen's edge.
 const GAP: i32 = 12;
@@ -25,4 +25,14 @@ pub fn flyout_position(icon: Rect, (width, height): (i32, i32), screen: Rect) ->
         icon.y + icon.height + GAP
     };
     (x, y)
+}
+
+/// The popup's top-left corner: in the bottom-right corner of the work area
+/// (the screen less the taskbar), so above the taskbar clock.
+#[must_use]
+pub fn popup_position(work_area: Rect, (width, height): (i32, i32)) -> (i32, i32) {
+    (
+        work_area.x + work_area.width - width - GAP,
+        work_area.y + work_area.height - height - GAP,
+    )
 }

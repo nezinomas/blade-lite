@@ -14,5 +14,5 @@ pub use autostart_item::{
     takeover_note,
 };
 pub use key_reader::{KEY_IDLE_READS, KEY_READ_WAIT, KeyReportSource, ReaderEnd, step_on_presses};
-pub use placement::{Rect, flyout_position};
+pub use placement::{Rect, flyout_position, popup_position};
 pub use report::{Reporter, SaidLately, ShownErrors, open_log, report, report_panics};
