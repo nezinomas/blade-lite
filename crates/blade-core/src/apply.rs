@@ -12,7 +12,7 @@ use razer_proto::{
 use crate::{Config, CustomSettings, Lighting, Preset};
 
 /// How long to wait after resume before applying again, so the controller is
-/// awake. A guess: the device layer also retries while it replies Busy.
+/// awake. A guess: the device layer also reads again (never resends) while it replies Busy.
 pub const RESUME_PAUSE: Duration = Duration::from_secs(2);
 
 /// Why the settings could not be applied.

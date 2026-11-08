@@ -76,7 +76,7 @@ Checks only a person can do on the laptop wait in "Still to check on the laptop"
 - [ ] 49 Same popup for touchpad on and off (the physical key needs 47)
 - [x] 52 Vapor-chamber light switch (LED `0x26`, set with `0303` after the keyboard: the keyboard level while on, 0 while off; saved in the config and sent at start and resume. Checked on the laptop: the switch, and off stays off after a brightness change and a hibernate)
 - [ ] 54 Num Lock is off after a wake from hibernate: the numpad keys act as arrows, Home, End and the like, not numbers. Find if the app or Windows turns it off (the app sends no Num Lock key; the lock screen setting `HKU\.DEFAULT\Control Panel\Keyboard\InitialKeyboardIndicators` is `0x80000000`, Num Lock off, while the user's is `2`, on)
-- [ ] 55 On a Busy reply, the command is sent again. If Busy means the controller took it and is still working, it runs twice. Check what OpenRazer, razer-laptop-control and librazerblade do on Busy. If they read again without a resend, do the same (up to `MAX_ATTEMPTS` reads)
+- [x] 55 On a Busy reply, the command is sent again. If Busy means the controller took it and is still working, it runs twice. Check what OpenRazer, razer-laptop-control and librazerblade do on Busy. If they read again without a resend, do the same (up to `MAX_ATTEMPTS` reads) (OpenRazer treats Busy as done, the others mostly ignore it, none reads again. Now a command is sent once; on Busy the reply is read again 50 ms later, up to 5 Busy reads (`MAX_BUSY_READS`), then a Busy error. `cargo hw` for the controller passes)
 - [ ] 56 Controller errors in the log use Rust debug text: commands show in decimal (`3713`, not `0D81`) and a Windows error is a long `Os { .. }` block. Give `DeviceError` a plain text with commands in hex
 
 ## Still to check on the laptop
@@ -84,6 +84,7 @@ Checks only a person can do on the laptop wait in "Still to check on the laptop"
 - The 2 s wait after wake, over a real sleep and wake cycle
 - A restart into the FHD 440 Hz native mode
 - Ticket 44: lid logo off stays off after a restart
+- Ticket 55: the read again after a Busy reply has not run on the laptop (no Busy reply seen yet). If the log ever shows a Busy error, check whether the command took effect
 
 ## Publishing on GitHub
 - [ ] 39 Release and installer
