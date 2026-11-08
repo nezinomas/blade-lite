@@ -6,9 +6,9 @@
 
 mod common;
 
-use common::{BUSY, FAILURE, SUCCESS, fakes, reads, reply, request, sent};
-use razer_device::{Device, MAX_BUSY_READS};
-use razer_proto::{REPORT_LEN, Status};
+use common::{BUSY, FAILURE, Log, SUCCESS, fakes, reads, reply, request, sent};
+use razer_device::{Device, DeviceError, MAX_BUSY_READS};
+use razer_proto::{REPORT_LEN, Report, Status};
 
 /// Get firmware version, as captured.
 const COMMAND: u16 = 0x0081;
@@ -95,9 +95,7 @@ fn every_mix_of_replies_sends_the_command_once() {
     assert_eq!(mixes.len(), 1 + 12 + 144 + 1728 + 20736);
 
     for mix in mixes.into_iter().chain(busy_mixes()) {
-        let (transport, clock, log) = fakes(mix.clone());
-
-        let result = Device::with_first_id(transport, clock, 0).send(COMMAND, &[]);
+        let (result, log) = send(&mix);
 
         assert_eq!(sent(&log), [request(0, COMMAND, &[])], "{:?}", short(&mix));
         assert!(
@@ -111,4 +109,35 @@ fn every_mix_of_replies_sends_the_command_once() {
             assert_eq!(report.command(), COMMAND, "{:?}", short(&mix));
         }
     }
+}
+
+/// So the test above can't pass by refusing every reply.
+#[test]
+fn a_success_reply_still_succeeds_after_an_older_reply_or_not() {
+    let success = reply(SUCCESS, 0, COMMAND);
+    let older = reply(SUCCESS, 31, 0x0D82);
+    for mix in [vec![success], vec![older, success]] {
+        let (result, _) = send(&mix);
+        assert!(result.is_ok(), "{:?}: {result:?}", short(&mix));
+    }
+}
+
+/// At the Busy limit the controller may still be working, so the error says Busy.
+#[test]
+fn the_busy_limit_is_a_busy_error() {
+    for mix in busy_mixes() {
+        let (result, _) = send(&mix);
+        assert!(
+            matches!(result, Err(DeviceError::Busy)),
+            "{:?}: {result:?}",
+            short(&mix)
+        );
+    }
+}
+
+/// Sends the command once to a fake that replays `mix`.
+fn send(mix: &[[u8; REPORT_LEN]]) -> (Result<Report, DeviceError>, Log) {
+    let (transport, clock, log) = fakes(mix.to_vec());
+    let result = Device::with_first_id(transport, clock, 0).send(COMMAND, &[]);
+    (result, log)
 }
