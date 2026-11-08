@@ -1,0 +1,92 @@
+//! What the app does at start, on a power change and on a touchpad switch.
+
+use blade_core::{
+    Controller, Query, apply, apply_performance, logo_on, paint_touchpad_key, touchpad_on,
+};
+use platform::{DisplayApi, KeyInjector, PowerEvent, Registry};
+
+use super::{App, AppError};
+
+impl<C, D, R, K> App<C, D, R, K>
+where
+    C: Controller + Query,
+    D: DisplayApi,
+    R: Registry,
+    K: KeyInjector,
+{
+    /// Reads the charge limit state, sends the saved settings, then reads
+    /// the logo state they leave. The preset that runs in place of the
+    /// saved one on battery is sent. The touchpad key is red in that frame
+    /// if the touchpad is off.
+    ///
+    /// # Errors
+    ///
+    /// See [`AppError`].
+    pub fn start(&mut self) -> Result<(), AppError> {
+        self.read_charge_limit();
+        let config = self.running(self.config);
+        let red = self.touchpad_off();
+        let applied = apply(&config, self.model, &mut self.machine.controller, red);
+        self.key_red = applied.is_ok().then_some(red);
+        self.logo_on = logo_on(&mut self.machine.controller, self.model)
+            .ok()
+            .flatten();
+        Ok(applied?)
+    }
+
+    /// Paints the touchpad key red if the touchpad is now off, or back in
+    /// the lighting colour if it is on. Nothing is sent if the key already
+    /// shows the state, or the user has not set the lighting, since the
+    /// app then leaves the keyboard's own effect alone.
+    ///
+    /// # Errors
+    ///
+    /// See [`AppError`]. Nothing is sent if the touchpad state can't be
+    /// read.
+    pub fn on_touchpad_changed(&mut self) -> Result<(), AppError> {
+        let Some(lighting) = self.config.lighting else {
+            return Ok(());
+        };
+        let red = !touchpad_on(&self.machine.registry)?;
+        if self.key_red == Some(red) {
+            return Ok(());
+        }
+        let painted = paint_touchpad_key(red, lighting, self.model, &mut self.machine.controller);
+        self.key_red = painted.is_ok().then_some(red);
+        Ok(painted?)
+    }
+
+    /// Follows the power source, and applies everything again after a
+    /// resume. On battery only Silent or Balanced runs; the saved preset
+    /// comes back on AC. The caller waits [`blade_core::RESUME_PAUSE`]
+    /// before passing on a resume.
+    ///
+    /// # Errors
+    ///
+    /// See [`AppError`].
+    pub fn on_power(&mut self, event: PowerEvent) -> Result<(), AppError> {
+        match event {
+            PowerEvent::Resumed => self.start(),
+            PowerEvent::OnBattery | PowerEvent::OnAc => {
+                self.set_on_battery(event == PowerEvent::OnBattery)?;
+                self.follow_power(event)
+            }
+        }
+    }
+
+    /// Sends the preset again if the power source changes the one that runs.
+    fn set_on_battery(&mut self, on_battery: bool) -> Result<(), AppError> {
+        let before = self.running(self.config).preset;
+        self.on_battery = on_battery;
+        let config = self.running(self.config);
+        if config.preset != before {
+            apply_performance(&config, self.model, &mut self.machine.controller)?;
+        }
+        Ok(())
+    }
+
+    pub(super) fn follow_power(&mut self, event: PowerEvent) -> Result<(), AppError> {
+        let displays = &mut self.machine.displays;
+        Ok(self.battery_rate.on_event(event, &self.config, displays)?)
+    }
+}
