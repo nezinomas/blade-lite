@@ -36,7 +36,7 @@ fn the_device_pauses_between_send_and_read() {
     );
 }
 
-/// Each retry takes a new transaction ID, as Synapse never sends one ID twice,
+/// Each retry takes a new transaction ID, as Synapse never resends a request with its ID,
 /// so a Busy reply read too soon can not pass as the retry's reply.
 #[test]
 fn a_busy_reply_is_retried_after_the_pause_with_a_new_transaction_id() {

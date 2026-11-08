@@ -98,7 +98,9 @@ impl<T: Transport, C: Clock> Device<T, C> {
         Self::with_first_id(transport, clock, random_id())
     }
 
-    /// A device whose first transaction ID is `first_id`, modulo 32.
+    /// A device whose first transaction ID is `first_id`, modulo 32. For tests:
+    /// the app uses [`Device::new`], so a reply from an earlier run is unlikely to match.
+    #[doc(hidden)]
     pub fn with_first_id(transport: T, clock: C, first_id: u8) -> Self {
         Self {
             transport,
