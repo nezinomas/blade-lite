@@ -2,7 +2,7 @@
 
 The window has no unit tests. Check it by hand on the laptop.
 
-A change to how windows are made or shown can break all of them (ticket 48 broke the flyout header, ticket 58). After such a change, do every section here, the popup too.
+A change to how windows are made or shown can break all of them (the flyout header showed min, max and close buttons after ticket 48, fixed in ticket 58). After such a change, do every section here, the popup too.
 
 Start it:
 
@@ -34,7 +34,7 @@ The app now remembers the lighting in `%APPDATA%\blade-lite\config.toml`. The co
 Start the app as above. A blue bolt icon shows in the tray. It may hide under the tray's ^ arrow. Drag it next to the clock to keep it there.
 
 1. **Close the window.** The app keeps running. The icon stays in the tray.
-2. **Open the flyout.** Left-click the icon. A small panel with round corners and Mica opens just above the icon. Its top row shows the model name and the power source, with no minimise, maximise or close buttons (fails until ticket 58 is fixed).
+2. **Open the flyout.** Left-click the icon. A small panel with round corners and Mica opens just above the icon. Its top row shows the model name and the power source, with no minimise, maximise or close buttons, not even for a moment as it opens. Open and close it a few times. Keep it open while you plug or unplug the charger and change the power mode: no buttons come.
 3. **Close the flyout.** Click the icon again, or click anywhere else. The panel closes.
 4. **Flyout controls.** Click Silent. Click your old rate, or another rate and then your old one. Drag Keyboard light, then put it back. Flip Touchpad twice.
    **60 Hz on battery (stage 35).** Flip "Switch to 60 Hz on battery". Open the window: its switch shows the same state. Flip it in the window, and the flyout follows. Put it back as it was.

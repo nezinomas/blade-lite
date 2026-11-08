@@ -5,7 +5,7 @@ use std::time::{Duration, Instant};
 
 use blade_core::View;
 use blade_lite::{Rect, flyout_position, report};
-use platform::{round_corners, set_mica};
+use platform::{hide_caption_buttons, round_corners, set_mica};
 use raw_window_handle::{HasWindowHandle, RawWindowHandle};
 use slint::winit_030::{EventResult, WinitWindowAccessor, winit};
 use slint::{ComponentHandle, PhysicalPosition, Timer};
@@ -180,8 +180,13 @@ fn hwnd(window: &slint::Window) -> Option<isize> {
 }
 
 /// Puts Mica behind a window, light as the mockup is. A frameless one also
-/// gets round corners.
+/// gets round corners, and loses the min, max and close buttons that Mica
+/// would show. If they can't be hidden, Mica still goes on: buttons on top
+/// are better than a see-through flyout.
 fn put_backdrop(hwnd: isize, frameless: bool) {
+    if frameless && let Err(error) = hide_caption_buttons(hwnd) {
+        report(&format!("caption buttons not hidden: {error}"));
+    }
     let result = set_mica(hwnd, false).and_then(|()| {
         if frameless {
             round_corners(hwnd)

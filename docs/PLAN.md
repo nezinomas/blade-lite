@@ -79,7 +79,7 @@ Checks only a person can do on the laptop wait in "Still to check on the laptop"
 - [x] 55 On Busy, read again (50 ms apart, up to 5 reads), never send again
 - [x] 56 Plain `DeviceError` text, commands in hex
 - [x] 57 A change the laptop took is kept in memory even if the config save fails; the error says `sent, but not saved`
-- [ ] 58 Flyout top row: in the user's screenshot, min, max and close buttons sit in the flyout's header and cover "Plugged in" next to "Blade 18 (RZ09-0529)". Find out why (check whether ticket 48's inactive windows caused it) and fix it
+- [x] 58 Flyout header without min, max and close (winit keeps their styles on a frameless window and Mica's frame showed them; a style hook now takes them out)
 - [ ] 59 Power-mode key works only when the numpad is on its second layer (Num Lock off). Make it work as Synapse did. The user offers two ways: Fn + Enter whatever the numpad layer is, or plain numpad Enter while on the second layer
 - [ ] 60 On a weak charge (no charger, but a monitor powers the laptop over USB-C, so it charges slowly), Synapse did not allow Performance, for lack of power. Do the same
 - [x] 61 `Config::save` writes a temp file, then renames it over the config
@@ -99,7 +99,8 @@ Do these in one go, on AC, with "Start with Windows" on and Num Lock off (the po
 3. **Sleep, then hibernate.** Set a keyboard colour that is not white. Sleep the laptop and wake it. About 2 s after wake the colour is back (the 2 s wait after wake). Press Fn + numpad Enter: the preset steps (in the ticket 45 test the key sent only Fn, `04 0A`, without `D3`; Num Lock may have been on, ticket 59). Do the same with a hibernate.
 4. **Restart (44, 18).** Turn the lid logo off. Pick the FHD 440 Hz native mode. Restart. The app starts with Windows, the logo stays off, and the screen starts at FHD 440 Hz.
 5. **Put it back.** Set your native mode, keyboard colour, lid logo and preset back as you noted them. Restart once more for the native mode.
-6. **Busy (55).** Nothing to do now. If the log ever shows a Busy error, check whether the command took effect.
+6. **Flyout buttons (58).** Do all of `docs/window-check.md`. The flyout shows no min, max or close buttons, also while it opens, and while you plug or unplug the charger and change the power mode with it open.
+7. **Busy (55).** Nothing to do now. If the log ever shows a Busy error, check whether the command took effect.
 
 ## Publishing on GitHub
 - [ ] 39 Release and installer
