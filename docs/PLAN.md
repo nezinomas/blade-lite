@@ -5,6 +5,7 @@ Each stage's red and green tests and the open questions are in the full plan:
 https://claude.ai/artifact/JSzNYRpwZJyywztJtBSk2P
 
 How a stage is built, reviewed and merged: the `stage` skill and the hardware safety rules in `CLAUDE.md`.
+Every stage is reviewed before merge by the `informed-reviewer` and `fresh-reviewer` subagents (`.claude/agents/`).
 
 ## Before code
 - [x] 0 Try r-helper and read its 02C7 code
