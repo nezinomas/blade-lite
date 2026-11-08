@@ -1,7 +1,7 @@
 //! What each click in the window does, over fakes.
 
 use std::io;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use blade_core::{Config, Controller, Lighting, Preset, Query, Readings, RefreshRate};
 use blade_lite::{App, Machine};
@@ -230,7 +230,7 @@ fn a_preset_the_controller_refuses_is_neither_kept_nor_saved() {
 }
 
 /// A folder in the file's place makes the save fail.
-fn break_save(path: &PathBuf) {
+fn break_save(path: &Path) {
     std::fs::create_dir(path).unwrap();
 }
 

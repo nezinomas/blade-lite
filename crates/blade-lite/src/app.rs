@@ -54,7 +54,9 @@ pub enum AppError {
 }
 
 impl AppError {
-    /// Whether the laptop took the change, though it was not saved.
+    /// True only for [`NotSaved`](Self::NotSaved): the laptop took the
+    /// change, though it was not saved. False does not prove that nothing
+    /// was sent (a send may fail part way).
     #[must_use]
     pub fn was_sent(&self) -> bool {
         matches!(self, Self::NotSaved(_))
