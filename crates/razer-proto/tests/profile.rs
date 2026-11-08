@@ -75,3 +75,11 @@ fn the_power_key_is_held_in_the_report_read_on_the_laptop() {
 
     assert_eq!(key.held(&report), Some(true));
 }
+
+#[test]
+fn the_vapor_light_is_not_a_keyboard_brightness_led() {
+    let light = BLADE_18.vapor_light.unwrap();
+
+    assert_eq!(light.led, 0x26);
+    assert!(!BLADE_18.brightness_leds.contains(&light.led));
+}

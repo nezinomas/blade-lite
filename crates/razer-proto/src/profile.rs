@@ -3,6 +3,7 @@
 
 use crate::{
     ChargeLimit, CustomLimits, Logo, NativeMode, PerfMode, PowerKey, RpmRange, TouchpadKey,
+    VaporLight,
 };
 
 /// How the controller shows up on USB.
@@ -39,8 +40,13 @@ impl KeyGrid {
 pub struct ModelProfile {
     pub name: &'static str,
     pub usb: UsbId,
-    /// The LEDs a brightness change sets, in the order Synapse sets them.
+    /// The keyboard LEDs a brightness change sets, in the order Synapse
+    /// sets them.
     pub brightness_leds: &'static [u8],
+    /// The vapor-chamber light, set after the keyboard, or `None` if the
+    /// model has none. Its LED must not be one of
+    /// [`ModelProfile::brightness_leds`].
+    pub vapor_light: Option<VaporLight>,
     pub keys: KeyGrid,
     /// The presets the model offers.
     pub presets: &'static [PerfMode],
@@ -72,8 +78,10 @@ pub const BLADE_18: ModelProfile = ModelProfile {
         usage_page: 0x01,
         usage: 0x02,
     },
-    // The keyboard, then the underside.
-    brightness_leds: &[0x05, 0x26],
+    brightness_leds: &[0x05],
+    // Synapse sets it after the keyboard, at the same level. Level 0 turns
+    // it off (seen on the laptop, 2026-11-08).
+    vapor_light: Some(VaporLight { led: 0x26 }),
     // Synapse keeps these positions black in every frame.
     keys: KeyGrid {
         rows: 7,
