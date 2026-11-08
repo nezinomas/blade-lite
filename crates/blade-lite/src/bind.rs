@@ -131,27 +131,27 @@ pub fn flyout(window: &FlyoutWindow, view: &FlyoutView, header: &Header) {
 }
 
 /// Runs `act` with the shell, while it still exists.
-fn on(shell: &Weak<Shell>, act: impl FnOnce(&Shell)) {
+fn on(shell: &Weak<Shell>, act: impl FnOnce(&Rc<Shell>)) {
     if let Some(shell) = shell.upgrade() {
         act(&shell);
     }
 }
 
-fn pick_preset(shell: &Shell, i: i32) {
+fn pick_preset(shell: &Rc<Shell>, i: i32) {
     shell.act(|app| match app.performance_view().pick_preset(index(i)) {
         Some(command) => app.on_performance(command),
         None => Ok(()),
     });
 }
 
-fn pick_rate(shell: &Shell, i: i32) {
+fn pick_rate(shell: &Rc<Shell>, i: i32) {
     shell.act(|app| match app.display_view()?.pick_rate(index(i)) {
         Some(command) => app.on_display(command),
         None => Ok(()),
     });
 }
 
-fn move_brightness(shell: &Shell, percent: i32) {
+fn move_brightness(shell: &Rc<Shell>, percent: i32) {
     let percent = u8::try_from(percent).unwrap_or(u8::MAX);
     shell.act(|app| match app.keyboard_view()?.move_brightness(percent) {
         Some(command) => app.on_keyboard(command),
@@ -159,11 +159,11 @@ fn move_brightness(shell: &Shell, percent: i32) {
     });
 }
 
-fn toggle_sixty_hz(shell: &Shell) {
+fn toggle_sixty_hz(shell: &Rc<Shell>) {
     shell.act(RealApp::toggle_sixty_hz_on_battery);
 }
 
-fn toggle_touchpad(shell: &Shell) {
+fn toggle_touchpad(shell: &Rc<Shell>) {
     shell.act(|app| {
         let command = app.keyboard_view()?.toggle_touchpad();
         app.on_keyboard(command)

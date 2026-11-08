@@ -1,4 +1,5 @@
-//! The app and its two windows: the settings window and the tray flyout.
+//! The app and its windows: the settings window, the tray flyout and the
+//! power mode popup.
 
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
@@ -6,19 +7,22 @@ use std::sync::mpsc::Receiver;
 use std::time::{Duration, Instant};
 
 use blade_core::{PollSchedule, RESUME_PAUSE, Readings, ReadingsSampler, View};
-use blade_lite::{App, AppError, Rect, SaidLately, ShownErrors, flyout_position, report};
+use blade_lite::{
+    App, AppError, Rect, SaidLately, ShownErrors, flyout_position, popup_position, report,
+};
 use platform::{
     PowerEvent, WindowsDisplays, WindowsKeys, WindowsRegistry, WindowsSensors, round_corners,
-    set_mica,
+    set_mica, show_without_focus, work_area,
 };
 use raw_window_handle::{HasWindowHandle, RawWindowHandle};
 use razer_device::{Device, HidTransport, SystemClock};
 use slint::winit_030::{EventResult, WinitWindowAccessor, winit};
 use slint::{ComponentHandle, PhysicalPosition, Timer};
-use ui::FlyoutView;
+use ui::{FlyoutView, ModeWatch};
+use winit::platform::windows::WindowExtWindows;
 
 use crate::tray::px;
-use crate::{FlyoutWindow, MainWindow, bind};
+use crate::{FlyoutWindow, MainWindow, ModePopup, bind};
 
 pub type RealApp =
     App<Device<HidTransport, SystemClock>, WindowsDisplays, WindowsRegistry, WindowsKeys>;
@@ -36,9 +40,15 @@ const SHOW_TRIES: u32 = 60;
 /// since it can come and go on each read.
 const READ_ERROR_QUIET: Duration = Duration::from_secs(10 * 60);
 
+/// How long the power mode popup stays before it fades, and how long the
+/// fade takes (a little longer than its animation in the markup).
+const POPUP_HOLD: Duration = Duration::from_millis(1500);
+const POPUP_FADE: Duration = Duration::from_millis(300);
+
 pub struct Shell {
     window: MainWindow,
     flyout: FlyoutWindow,
+    popup: ModePopup,
     app: RefCell<RealApp>,
     sampler: RefCell<(ReadingsSampler, WindowsSensors)>,
     readings: Cell<Readings>,
@@ -47,13 +57,23 @@ pub struct Shell {
     flyout_closed_at: Cell<Option<Instant>>,
     shown_errors: RefCell<ShownErrors>,
     read_errors: RefCell<SaidLately>,
+    mode_watch: Cell<ModeWatch>,
+    /// Counts the popups, so the fade of an older one leaves a newer alone.
+    popups: Cell<u32>,
 }
 
 impl Shell {
-    pub fn new(window: MainWindow, flyout: FlyoutWindow, app: RealApp) -> Rc<Self> {
+    pub fn new(
+        window: MainWindow,
+        flyout: FlyoutWindow,
+        popup: ModePopup,
+        app: RealApp,
+    ) -> Rc<Self> {
+        let mode_watch = Cell::new(ModeWatch::new(app.running_preset()));
         Rc::new(Self {
             window,
             flyout,
+            popup,
             app: RefCell::new(app),
             sampler: RefCell::new((ReadingsSampler::default(), WindowsSensors::default())),
             readings: Cell::new(Readings::default()),
@@ -62,6 +82,8 @@ impl Shell {
             flyout_closed_at: Cell::new(None),
             shown_errors: RefCell::new(ShownErrors::default()),
             read_errors: RefCell::new(SaidLately::new(READ_ERROR_QUIET)),
+            mode_watch,
+            popups: Cell::new(0),
         })
     }
 
@@ -220,9 +242,95 @@ impl Shell {
     }
 
     /// Runs one change, then shows the new state, or the error if it failed.
-    pub fn act(&self, change: impl FnOnce(&mut RealApp) -> Result<(), AppError>) {
+    /// A new power mode, from any change, shows the popup.
+    pub fn act(self: &Rc<Self>, change: impl FnOnce(&mut RealApp) -> Result<(), AppError>) {
         let result = change(&mut self.app.borrow_mut());
         self.refresh(result.err().as_ref());
+        let mut watch = self.mode_watch.get();
+        let changed = watch.changed(self.app.borrow().running_preset());
+        self.mode_watch.set(watch);
+        if let Some(mode) = changed {
+            self.pop_up(mode);
+        }
+    }
+
+    /// Shows the popup with `mode` above the taskbar clock, without taking
+    /// the focus, then fades it out. A new one starts the time again.
+    fn pop_up(self: &Rc<Self>, mode: &str) {
+        self.popup.set_mode(mode.into());
+        let count = self.popups.get().wrapping_add(1);
+        self.popups.set(count);
+        if let Some(hwnd) = hwnd(self.popup.window()) {
+            self.place_popup();
+            show_without_focus(hwnd, true);
+            self.popup.set_shown(true);
+        } else if !self.show_popup_first_time() {
+            return;
+        }
+        self.after(POPUP_HOLD, count, move |shell| {
+            shell.popup.set_shown(false);
+            shell.after(POPUP_FADE, count, |shell| {
+                if let Some(hwnd) = hwnd(shell.popup.window()) {
+                    show_without_focus(hwnd, false);
+                }
+            });
+        });
+    }
+
+    /// The first show makes the window, which the event loop does later.
+    /// Windows are made inactive (see main), so it takes no focus either.
+    /// False if it can't be shown.
+    fn show_popup_first_time(self: &Rc<Self>) -> bool {
+        if let Err(error) = self.popup.show() {
+            report(&format!("cannot show the power mode popup: {error}"));
+            return false;
+        }
+        self.once_shown(
+            |shell| shell.popup.window(),
+            |shell, _| {
+                shell.popup.window().with_winit_window(|window| {
+                    if let Err(error) = window.set_cursor_hittest(false) {
+                        report(&format!("the popup takes clicks: {error}"));
+                    }
+                    window.set_skip_taskbar(true);
+                });
+                shell.place_popup();
+                shell.popup.set_shown(true);
+            },
+        );
+        true
+    }
+
+    /// Runs `then` after `wait`, unless another popup came since `count`.
+    fn after(self: &Rc<Self>, wait: Duration, count: u32, then: impl FnOnce(&Rc<Self>) + 'static) {
+        let shell = Rc::downgrade(self);
+        Timer::single_shot(wait, move || {
+            if let Some(shell) = shell.upgrade()
+                && shell.popups.get() == count
+            {
+                then(&shell);
+            }
+        });
+    }
+
+    fn place_popup(&self) {
+        let area = match work_area() {
+            Ok((x, y, width, height)) => Rect {
+                x,
+                y,
+                width,
+                height,
+            },
+            Err(error) => {
+                report(&format!("the popup can't find the taskbar: {error}"));
+                return;
+            }
+        };
+        let size = self.popup.window().size();
+        let (x, y) = popup_position(area, (px(size.width), px(size.height)));
+        self.popup
+            .window()
+            .set_position(PhysicalPosition::new(x, y));
     }
 
     /// Fills both windows again. `error` is shown above the groups, if any.

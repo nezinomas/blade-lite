@@ -569,3 +569,54 @@ export component FlyoutWindow inherits Window {
         }
     }
 }
+
+// The power mode popup above the taskbar clock: semi-transparent black, no
+// focus, no clicks. It fades in when shown and out when Rust clears shown.
+export component ModePopup inherits Window {
+    in property <string> caption: "Power mode";
+    in property <string> mode;
+    in property <bool> shown;
+    in property <color> accent: #0078d4;
+
+    title: "Blade Lite";
+    no-frame: true;
+    always-on-top: true;
+    width: 240px;
+    height: 72px;
+    background: transparent;
+    default-font-family: "Segoe UI Variable Text";
+
+    Rectangle {
+        background: #000000c0;
+        border-radius: 8px;
+        opacity: root.shown ? 1 : 0;
+        animate opacity { duration: 250ms; easing: ease-out; }
+
+        HorizontalLayout {
+            padding-left: 16px;
+            padding-right: 16px;
+            spacing: 12px;
+            Rectangle {
+                width: 4px;
+                height: 36px;
+                y: (parent.height - self.height) / 2;
+                border-radius: 2px;
+                background: root.accent;
+            }
+            VerticalLayout {
+                alignment: center;
+                Text {
+                    text: root.caption;
+                    font-size: 12px;
+                    color: #ffffffa6;
+                }
+                Text {
+                    text: root.mode;
+                    font-size: 20px;
+                    font-weight: 600;
+                    color: white;
+                }
+            }
+        }
+    }
+}
