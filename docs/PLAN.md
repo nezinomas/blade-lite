@@ -79,16 +79,19 @@ Checks only a person can do on the laptop wait in "Still to check on the laptop"
 - [x] 55 On a Busy reply, the command is sent again. If Busy means the controller took it and is still working, it runs twice. Check what OpenRazer, razer-laptop-control and librazerblade do on Busy. If they read again without a resend, do the same (up to `MAX_ATTEMPTS` reads) (OpenRazer treats Busy as done, the others mostly ignore it, two forks resend, none reads again. Now a command is sent once; on Busy the reply is read again 50 ms later, up to 5 Busy reads (`MAX_BUSY_READS`), then a Busy error. `cargo hw` for the controller passes)
 - [x] 56 Controller errors in the log use Rust debug text: commands show in decimal (`3713`, not `0D81`) and a Windows error is a long `Os { .. }` block. Give `DeviceError` a plain text with commands in hex (each error now has one plain line, such as `the reply is for another request (it echoes transaction ID 4, command 0D81)` or `the HID layer failed: <Windows message> (os error N)`; details that change go in brackets, so the log still says each kind once per 10 minutes)
 
-- [ ] 57 A preset that is sent but whose config save fails: the controller runs the new preset, but the app keeps the old one (header, window, and no power mode popup). Keep the sent preset in memory as the logo switch does, or say in the error that it was sent but not saved
+- [x] 57 A preset that is sent but whose config save fails: the controller runs the new preset, but the app keeps the old one (header, window, and no power mode popup). Keep the sent preset in memory as the logo switch does, or say in the error that it was sent but not saved (a preset, custom value, lighting or logo change the laptop took is now kept in memory even if the save fails; the error says `sent, but not saved: ...` and the popup still shows. The next resume and power change send the kept state)
 - [ ] 58 Flyout top row: in the user's screenshot, min, max and close buttons sit in the flyout's header and cover "Plugged in" next to "Blade 18 (RZ09-0529)". Find out why (check whether ticket 48's inactive windows caused it) and fix it
 - [ ] 59 Power-mode key works only when the numpad is on its second layer (Num Lock off). Make it work as Synapse did. The user offers two ways: Fn + Enter whatever the numpad layer is, or plain numpad Enter while on the second layer
 - [ ] 60 On a weak charge (no charger, but a monitor powers the laptop over USB-C, so it charges slowly), Synapse did not allow Performance, for lack of power. Do the same
+- [ ] 61 `Config::save` uses `fs::write`, which empties the file first. A save that fails part way (such as a full disk) leaves a broken file, and the next start fails to load it. Write a temp file next to it, then rename it over the config
+- [ ] 62 A send that fails part way (such as the zones sent, then a boost Busy) leaves the controller with part of the new state, but the app keeps the old one until the next resume sends it again. Decide whether to read back or say so in the error
 
 ## Still to check on the laptop
 - The power-mode key after a real sleep (in the ticket 45 test the key twice sent only Fn, `04 0A`, without `D3`)
 - The 2 s wait after wake, over a real sleep and wake cycle
 - A restart into the FHD 440 Hz native mode
 - Ticket 44: lid logo off stays off after a restart
+- Ticket 57: make `%APPDATA%\blade-lite\config.toml` read-only, press the power-mode key: the popup and the header show the new mode, and the window shows `sent, but not saved`. Make it writable again after
 - Ticket 55: the read again after a Busy reply has not run on the laptop (no Busy reply seen yet). If the log ever shows a Busy error, check whether the command took effect
 
 ## Publishing on GitHub
