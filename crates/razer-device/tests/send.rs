@@ -36,11 +36,12 @@ fn the_device_pauses_between_send_and_read() {
     );
 }
 
-/// Each retry takes a new transaction ID, as Synapse never resends a request with its ID,
-/// so a Busy reply read too soon can not pass as the retry's reply.
+/// Busy may mean the controller took the command and is still working on it,
+/// so the command is never sent again: the reply is read again after the pause.
+/// OpenRazer and razer-laptop-control do not resend on Busy either.
 #[test]
-fn a_busy_reply_is_retried_after_the_pause_with_a_new_transaction_id() {
-    let (transport, clock, log) = fakes(vec![reply(BUSY, 0, COMMAND), reply(SUCCESS, 1, COMMAND)]);
+fn a_busy_reply_is_read_again_after_the_pause_without_a_resend() {
+    let (transport, clock, log) = fakes(vec![reply(BUSY, 0, COMMAND), reply(SUCCESS, 0, COMMAND)]);
 
     let report = Device::with_first_id(transport, clock, 0)
         .send(COMMAND, &[])
@@ -48,35 +49,23 @@ fn a_busy_reply_is_retried_after_the_pause_with_a_new_transaction_id() {
 
     assert_eq!(report.status(), Status::Success);
     assert_eq!(
-        sent(&log),
-        [request(0, COMMAND, &[]), request(1, COMMAND, &[])]
+        *log.borrow(),
+        [
+            Event::Sent(request(0, COMMAND, &[])),
+            Event::Slept(PAUSE),
+            Event::Read,
+            Event::Slept(PAUSE),
+            Event::Read
+        ]
     );
-    assert_eq!(log.borrow()[3], Event::Slept(PAUSE));
-}
-
-/// The Busy reply to the first attempt, read again too soon after the retry,
-/// has the older ID: it is read once more, and the command is not sent a third time.
-#[test]
-fn a_busy_reply_read_too_soon_after_a_retry_is_read_again() {
-    let (transport, clock, log) = fakes(vec![
-        reply(BUSY, 0, COMMAND),
-        reply(BUSY, 0, COMMAND),
-        reply(SUCCESS, 1, COMMAND),
-    ]);
-
-    let result = Device::with_first_id(transport, clock, 0).send(COMMAND, &[]);
-
-    assert!(result.is_ok(), "{result:?}");
-    assert_eq!(sent(&log).len(), 2);
-    assert_eq!(reads(&log), 3);
 }
 
 #[test]
-fn the_next_send_follows_the_retry_ids() {
+fn the_next_send_takes_the_next_id_after_a_busy_reply() {
     let (transport, clock, log) = fakes(vec![
         reply(BUSY, 0, COMMAND),
+        reply(SUCCESS, 0, COMMAND),
         reply(SUCCESS, 1, COMMAND),
-        reply(SUCCESS, 2, COMMAND),
     ]);
     let mut device = Device::with_first_id(transport, clock, 0);
 
@@ -84,21 +73,31 @@ fn the_next_send_follows_the_retry_ids() {
     device.send(COMMAND, &[]).unwrap();
 
     let ids: Vec<u8> = sent(&log).iter().map(|bytes| bytes[1]).collect();
-    assert_eq!(ids, [0, 1, 2]);
+    assert_eq!(ids, [0, 1]);
 }
 
 #[test]
 fn too_many_busy_replies_are_an_error() {
-    let busy = (0_u8..)
-        .take(MAX_ATTEMPTS)
-        .map(|id| reply(BUSY, id, COMMAND))
-        .collect();
-    let (transport, clock, log) = fakes(busy);
+    let (transport, clock, log) = fakes(vec![reply(BUSY, 0, COMMAND); MAX_ATTEMPTS]);
 
     let result = Device::with_first_id(transport, clock, 0).send(COMMAND, &[]);
 
-    assert!(matches!(result, Err(DeviceError::Busy)));
-    assert_eq!(sent(&log).len(), MAX_ATTEMPTS);
+    assert!(matches!(result, Err(DeviceError::Busy)), "{result:?}");
+    assert_eq!(sent(&log).len(), 1);
+    assert_eq!(reads(&log), MAX_ATTEMPTS);
+}
+
+#[test]
+fn a_busy_reply_then_a_failure_is_rejected() {
+    let (transport, clock, log) = fakes(vec![reply(BUSY, 0, COMMAND), reply(FAILURE, 0, COMMAND)]);
+
+    let result = Device::with_first_id(transport, clock, 0).send(COMMAND, &[]);
+
+    assert!(
+        matches!(result, Err(DeviceError::Rejected(Status::Failure))),
+        "{result:?}"
+    );
+    assert_eq!(sent(&log).len(), 1);
 }
 
 #[test]
@@ -206,17 +205,18 @@ fn an_older_reply_is_read_again_once_after_the_pause() {
 }
 
 #[test]
-fn a_busy_reply_read_again_is_retried() {
+fn a_busy_reply_after_an_older_reply_is_read_again() {
     let (transport, clock, log) = fakes(vec![
         reply(SUCCESS, 31, COMMAND),
         reply(BUSY, 0, COMMAND),
-        reply(SUCCESS, 1, COMMAND),
+        reply(SUCCESS, 0, COMMAND),
     ]);
 
     let result = Device::with_first_id(transport, clock, 0).send(COMMAND, &[]);
 
     assert!(result.is_ok(), "{result:?}");
-    assert_eq!(sent(&log).len(), 2);
+    assert_eq!(sent(&log).len(), 1);
+    assert_eq!(reads(&log), 3);
 }
 
 /// The same transaction ID with another command is not a reply read too soon.
@@ -247,37 +247,29 @@ fn a_failure_reply_to_another_request_is_a_wrong_reply() {
     assert_eq!(sent(&log).len(), 1);
 }
 
+/// After a Busy reply, the reply read again must still echo the request.
 #[test]
-fn a_busy_retry_must_still_match() {
+fn a_reply_read_again_after_busy_must_still_match() {
     let (transport, clock, log) = fakes(vec![
         reply(BUSY, 0, COMMAND),
         reply(SUCCESS, 2, COMMAND),
-        reply(SUCCESS, 2, COMMAND),
+        reply(SUCCESS, 0, COMMAND),
     ]);
 
     let result = Device::with_first_id(transport, clock, 0).send(COMMAND, &[]);
 
     assert!(
-        matches!(result, Err(DeviceError::WrongReply { .. })),
+        matches!(
+            result,
+            Err(DeviceError::WrongReply {
+                transaction_id: 2,
+                ..
+            })
+        ),
         "{result:?}"
     );
-    assert_eq!(sent(&log).len(), 2);
-}
-
-/// The re-read is once per send attempt: a Busy retry may read once more again.
-#[test]
-fn an_older_reply_after_a_busy_retry_is_read_again() {
-    let (transport, clock, log) = fakes(vec![
-        reply(BUSY, 0, COMMAND),
-        reply(SUCCESS, 31, COMMAND),
-        reply(SUCCESS, 1, COMMAND),
-    ]);
-
-    let result = Device::with_first_id(transport, clock, 0).send(COMMAND, &[]);
-
-    assert!(result.is_ok(), "{result:?}");
-    assert_eq!(sent(&log).len(), 2);
-    assert_eq!(reads(&log), 3);
+    assert_eq!(sent(&log).len(), 1);
+    assert_eq!(reads(&log), 2);
 }
 
 /// This model sets the remaining packets (bytes 2 and 3) in some replies,
