@@ -12,6 +12,7 @@ struct FakeSensors {
     cpu: Vec<Option<CpuTimes>>,
     power: Option<PowerReading>,
     gpu_awake: bool,
+    gpu_awake_fails: bool,
     gpu: Option<GpuReading>,
     /// How many times the GPU itself was read.
     gpu_reads: Cell<usize>,
@@ -26,6 +27,7 @@ impl FakeSensors {
                 battery_rate_mw: Some(-45_000),
             }),
             gpu_awake: true,
+            gpu_awake_fails: false,
             gpu: Some(GpuReading {
                 celsius: 61,
                 load_percent: 37,
@@ -49,6 +51,9 @@ impl Sensors for FakeSensors {
     }
 
     fn gpu_awake(&mut self) -> io::Result<bool> {
+        if self.gpu_awake_fails {
+            return Err(io::ErrorKind::Other.into());
+        }
         Ok(self.gpu_awake)
     }
 
@@ -134,6 +139,55 @@ fn failed_reads_leave_their_values_empty() {
     };
 
     assert_eq!(second_snapshot(&mut sensors), Readings::default());
+}
+
+#[test]
+fn each_failed_read_is_named_in_the_errors() {
+    let mut sensors = FakeSensors {
+        cpu: vec![Some(times(0, 0)), None],
+        power: None,
+        gpu: None,
+        ..FakeSensors::new()
+    };
+    let mut sampler = ReadingsSampler::default();
+    sampler.sample(&mut sensors);
+
+    sampler.sample(&mut sensors);
+
+    let errors = sampler.errors();
+    assert_eq!(errors.len(), 3, "{errors:?}");
+    assert!(errors[0].starts_with("battery: "));
+    assert!(errors[1].starts_with("CPU load: "));
+    assert!(errors[2].starts_with("GPU: "));
+}
+
+#[test]
+fn a_good_snapshot_clears_the_errors() {
+    let mut sensors = FakeSensors {
+        cpu: vec![None, Some(times(0, 0))],
+        ..FakeSensors::new()
+    };
+    let mut sampler = ReadingsSampler::default();
+    sampler.sample(&mut sensors);
+    assert_eq!(sampler.errors().len(), 1);
+
+    sampler.sample(&mut sensors);
+
+    assert!(sampler.errors().is_empty(), "{:?}", sampler.errors());
+}
+
+#[test]
+fn a_failed_gpu_power_state_is_an_error() {
+    let mut sensors = FakeSensors {
+        gpu_awake_fails: true,
+        ..FakeSensors::new()
+    };
+    let mut sampler = ReadingsSampler::default();
+
+    sampler.sample(&mut sensors);
+
+    assert_eq!(sampler.errors().len(), 1);
+    assert!(sampler.errors()[0].starts_with("GPU power state: "));
 }
 
 #[test]

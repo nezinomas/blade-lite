@@ -78,3 +78,39 @@ fn a_failed_read_leaves_only_its_value_empty() {
     assert_eq!(readings.cpu, None);
     assert_eq!(readings.fans, [None, Some(FanRpm(1800))]);
 }
+
+#[test]
+fn each_failed_read_is_named_in_the_errors() {
+    let mut controller = FakeQuery::default().reply(fan_query(1), &[1, 2, 18]);
+
+    let readings = read_controller(&mut controller, &BLADE_18);
+
+    assert_eq!(readings.errors.len(), 2, "{:?}", readings.errors);
+    assert!(readings.errors[0].starts_with("CPU temperature: "));
+    assert!(readings.errors[1].starts_with("fan 1: "));
+}
+
+#[test]
+fn a_reply_that_is_not_understood_is_an_error_too() {
+    let mut controller = FakeQuery::default()
+        .reply(Celsius::query(), &[])
+        .reply(fan_query(0), &[1, 1, 17])
+        .reply(fan_query(1), &[]);
+
+    let readings = read_controller(&mut controller, &BLADE_18);
+
+    assert_eq!(
+        readings.errors,
+        ["CPU temperature: reply not understood", "fan 2: reply not understood"]
+    );
+}
+
+#[test]
+fn good_reads_have_no_errors() {
+    let mut controller = FakeQuery::default()
+        .reply(Celsius::query(), &[2, 52, 0, 0])
+        .reply(fan_query(0), &[1, 1, 17])
+        .reply(fan_query(1), &[1, 2, 18]);
+
+    assert!(read_controller(&mut controller, &BLADE_18).errors.is_empty());
+}
