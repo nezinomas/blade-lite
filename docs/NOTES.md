@@ -45,6 +45,7 @@ Status lives in `docs/PLAN.md` only. Commands and git rules are in `CLAUDE.md`.
 - Tickets that need the user (37, 46) are skipped by "next ticket"; 44 needs a reboot.
 - Run a retro about every 5 stages, or sooner if the same thing goes wrong twice.
 - The user hibernates the laptop, not sleeps it. A laptop check after a power change (resume, re-apply) must cover hibernate as well as sleep.
+- Num Lock after a wake comes from Windows, not the app (the app sends no Num Lock key). The lock screen value `HKU\.DEFAULT\Control Panel\Keyboard\InitialKeyboardIndicators` must be `2`; at the default `0x80000000` the numpad woke as arrows. With `2`, Num Lock keeps its state over a hibernate (on stays on, off stays off). Set to `2` on 2026-11-08 (needs admin).
 
 ## Lessons
 
