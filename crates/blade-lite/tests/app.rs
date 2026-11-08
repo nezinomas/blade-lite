@@ -1127,3 +1127,13 @@ fn start_keeps_the_vapor_light_off() {
     assert!(sent(&app).contains(&vapor), "{:?}", sent(&app));
     assert_eq!(vapor.args, [0x01, 0x26, 0]);
 }
+
+#[test]
+fn the_running_preset_is_the_one_the_power_source_lets_run() {
+    let (mut app, _dir, _) = performance_app();
+    assert_eq!(app.running_preset(), Preset::Performance);
+
+    app.on_power(PowerEvent::OnBattery).unwrap();
+
+    assert_eq!(app.running_preset(), Preset::Balanced);
+}

@@ -77,7 +77,12 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
 
     slint::BackendSelector::new()
         .backend_name("winit".into())
-        .with_winit_window_attributes_hook(|attributes| attributes.with_transparent(true))
+        .with_winit_window_attributes_hook(|attributes| {
+            // Inactive: winit then shows each window without the focus,
+            // each time, which the power mode popup needs. The window and
+            // the flyout ask for the focus after each show.
+            attributes.with_transparent(true).with_active(false)
+        })
         .select()?;
 
     let config_path = Config::path_in(&appdata);
@@ -96,9 +101,11 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     let accent = accent_colour(&WindowsRegistry).unwrap_or(DEFAULT_ACCENT);
     let window = MainWindow::new()?;
     let flyout = FlyoutWindow::new()?;
+    let popup = ModePopup::new()?;
     window.set_accent(bind::colour(accent));
     flyout.set_accent(bind::colour(accent));
-    let shell = Shell::new(window, flyout, app);
+    popup.set_accent(bind::colour(accent));
+    let shell = Shell::new(window, flyout, popup, app);
     bind::callbacks(&shell);
     shell.watch_windows();
     shell.refresh(started.err().as_ref());
