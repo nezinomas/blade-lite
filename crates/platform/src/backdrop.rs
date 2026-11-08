@@ -4,16 +4,18 @@ use std::ffi::c_void;
 use std::io;
 use std::ptr::null_mut;
 
-use windows_sys::Win32::Foundation::{GetLastError, SetLastError};
+use windows_sys::Win32::Foundation::{GetLastError, HWND, LPARAM, LRESULT, SetLastError, WPARAM};
 use windows_sys::Win32::Graphics::Dwm::{
     DWMSBT_MAINWINDOW, DWMWA_SYSTEMBACKDROP_TYPE, DWMWA_USE_IMMERSIVE_DARK_MODE,
     DWMWA_WINDOW_CORNER_PREFERENCE, DWMWCP_ROUND, DwmExtendFrameIntoClientArea,
     DwmSetWindowAttribute,
 };
 use windows_sys::Win32::UI::Controls::MARGINS;
+use windows_sys::Win32::UI::Shell::{DefSubclassProc, SetWindowSubclass};
 use windows_sys::Win32::UI::WindowsAndMessaging::{
-    GWL_STYLE, GetWindowLongPtrW, SWP_FRAMECHANGED, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE,
-    SWP_NOZORDER, SetWindowLongPtrW, SetWindowPos, WS_MAXIMIZEBOX, WS_MINIMIZEBOX, WS_SYSMENU,
+    GWL_STYLE, GetWindowLongPtrW, STYLESTRUCT, SWP_FRAMECHANGED, SWP_NOACTIVATE, SWP_NOMOVE,
+    SWP_NOSIZE, SWP_NOZORDER, SetWindowLongPtrW, SetWindowPos, WM_STYLECHANGING, WS_MAXIMIZEBOX,
+    WS_MINIMIZEBOX, WS_SYSMENU,
 };
 use windows_sys::core::HRESULT;
 
@@ -74,30 +76,40 @@ pub fn round_corners(hwnd: isize) -> io::Result<()> {
     }
 }
 
-/// The styles of the min, max and close buttons. Low bits, so they fit.
-#[allow(clippy::cast_possible_wrap)]
-const CAPTION_BUTTONS: isize = (WS_SYSMENU | WS_MINIMIZEBOX | WS_MAXIMIZEBOX) as isize;
+/// The styles of the close, min and max buttons.
+const CAPTION_BUTTONS: u32 = WS_SYSMENU | WS_MINIMIZEBOX | WS_MAXIMIZEBOX;
+
+/// Our id for the style hook, among the window's other subclasses.
+const STYLE_HOOK: usize = 0x58;
 
 /// Takes the system menu, minimise and maximise styles off a window without
-/// a frame. winit keeps them on such a window, and once Mica's frame covers
-/// the whole window, Windows draws their buttons over the content.
+/// a frame, and keeps them off. winit keeps them on such a window and sets
+/// them again on each change of its style, and once Mica's frame covers the
+/// whole window, Windows draws their buttons over the content. Call it on
+/// the thread that made the window; calling it again does no harm.
 ///
 /// # Errors
 ///
-/// The Windows error if the style could not be read or set.
+/// The Windows error if the hook could not be put on, or the style could
+/// not be read or set.
 pub fn hide_caption_buttons(hwnd: isize) -> io::Result<()> {
     let hwnd = hwnd as *mut c_void;
     // SAFETY: plain calls on a handle; a bad handle only makes them fail.
-    // The last error is cleared first, as a style can be 0.
+    // The last error is cleared first, as a style can be 0. The hook is a
+    // plain function, so it outlives the window.
     unsafe {
+        if SetWindowSubclass(hwnd, Some(strip_buttons), STYLE_HOOK, 0) == 0 {
+            return Err(io::Error::last_os_error());
+        }
         SetLastError(0);
         let style = GetWindowLongPtrW(hwnd, GWL_STYLE);
         if style == 0 && GetLastError() != 0 {
             return Err(io::Error::last_os_error());
         }
+        // Set again, the style goes through the hook, which takes the
+        // buttons out.
         SetLastError(0);
-        if SetWindowLongPtrW(hwnd, GWL_STYLE, style & !CAPTION_BUTTONS) == 0 && GetLastError() != 0
-        {
+        if SetWindowLongPtrW(hwnd, GWL_STYLE, style) == 0 && GetLastError() != 0 {
             return Err(io::Error::last_os_error());
         }
         // Windows reads a changed style only on a frame change.
@@ -107,6 +119,29 @@ pub fn hide_caption_buttons(hwnd: isize) -> io::Result<()> {
         }
     }
     Ok(())
+}
+
+/// The style hook: takes the button styles out of each new style before
+/// Windows takes it.
+unsafe extern "system" fn strip_buttons(
+    hwnd: HWND,
+    message: u32,
+    wparam: WPARAM,
+    lparam: LPARAM,
+    _id: usize,
+    _data: usize,
+) -> LRESULT {
+    // WPARAM carries the GWL index, a small negative int.
+    #[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap)]
+    let index = wparam as i32;
+    if message == WM_STYLECHANGING && index == GWL_STYLE && lparam != 0 {
+        // SAFETY: for WM_STYLECHANGING, LPARAM points to the STYLESTRUCT
+        // that Windows reads back after this returns.
+        let styles = unsafe { &mut *(lparam as *mut STYLESTRUCT) };
+        styles.styleNew &= !CAPTION_BUTTONS;
+    }
+    // SAFETY: passes the message on unchanged, as each subclass must.
+    unsafe { DefSubclassProc(hwnd, message, wparam, lparam) }
 }
 
 fn check(result: HRESULT) -> io::Result<()> {
@@ -126,8 +161,8 @@ mod tests {
     use std::ptr::null_mut;
 
     use windows_sys::Win32::UI::WindowsAndMessaging::{
-        CreateWindowExW, DestroyWindow, GWL_STYLE, GetWindowLongPtrW, WS_MAXIMIZEBOX,
-        WS_MINIMIZEBOX, WS_POPUP, WS_SIZEBOX, WS_SYSMENU,
+        CreateWindowExW, DestroyWindow, GWL_STYLE, GetWindowLongPtrW, SetWindowLongPtrW,
+        WS_MAXIMIZEBOX, WS_MINIMIZEBOX, WS_POPUP, WS_SIZEBOX, WS_SYSMENU,
     };
 
     use super::hide_caption_buttons;
@@ -172,11 +207,33 @@ mod tests {
     fn the_buttons_go_and_the_rest_of_the_style_stays() {
         let hwnd = frameless_window();
 
-        hide_caption_buttons(hwnd).unwrap();
+        let result = hide_caption_buttons(hwnd);
 
         let style = style(hwnd);
         // SAFETY: the window this test made, on its own thread.
         unsafe { DestroyWindow(hwnd as _) };
+        result.unwrap();
+        assert_eq!(
+            style & bits(WS_SYSMENU | WS_MINIMIZEBOX | WS_MAXIMIZEBOX),
+            0
+        );
+        assert_eq!(style & bits(WS_SIZEBOX), bits(WS_SIZEBOX));
+    }
+
+    #[test]
+    fn a_later_style_change_does_not_bring_the_buttons_back() {
+        let hwnd = frameless_window();
+        let result = hide_caption_buttons(hwnd);
+
+        // As winit does on a show: the whole style, buttons and all.
+        let full = style(hwnd) | bits(WS_SYSMENU | WS_MINIMIZEBOX | WS_MAXIMIZEBOX);
+        // SAFETY: a live window this thread made.
+        unsafe { SetWindowLongPtrW(hwnd as _, GWL_STYLE, full) };
+
+        let style = style(hwnd);
+        // SAFETY: the window this test made, on its own thread.
+        unsafe { DestroyWindow(hwnd as _) };
+        result.unwrap();
         assert_eq!(
             style & bits(WS_SYSMENU | WS_MINIMIZEBOX | WS_MAXIMIZEBOX),
             0

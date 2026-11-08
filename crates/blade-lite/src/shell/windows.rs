@@ -181,16 +181,13 @@ fn hwnd(window: &slint::Window) -> Option<isize> {
 
 /// Puts Mica behind a window, light as the mockup is. A frameless one also
 /// gets round corners, and loses the min, max and close buttons that Mica
-/// would show. winit puts their styles back on each show, so this runs after
-/// each show.
+/// would show. If they can't be hidden, Mica still goes on: buttons on top
+/// are better than a see-through flyout.
 fn put_backdrop(hwnd: isize, frameless: bool) {
-    let result = if frameless {
-        hide_caption_buttons(hwnd)
-    } else {
-        Ok(())
+    if frameless && let Err(error) = hide_caption_buttons(hwnd) {
+        report(&format!("caption buttons not hidden: {error}"));
     }
-    .and_then(|()| set_mica(hwnd, false))
-    .and_then(|()| {
+    let result = set_mica(hwnd, false).and_then(|()| {
         if frameless {
             round_corners(hwnd)
         } else {
