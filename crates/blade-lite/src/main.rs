@@ -2,8 +2,12 @@
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+// Not at the crate root: the generated Slint code unwraps.
+#[deny(clippy::unwrap_used, clippy::print_stdout, clippy::print_stderr)]
 mod bind;
+#[deny(clippy::unwrap_used, clippy::print_stdout, clippy::print_stderr)]
 mod shell;
+#[deny(clippy::unwrap_used, clippy::print_stdout, clippy::print_stderr)]
 mod tray;
 
 use std::cell::RefCell;

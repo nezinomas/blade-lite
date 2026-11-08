@@ -5,7 +5,7 @@ The `informed-reviewer` checks each diff against these rules. They are judgement
 ## Errors and the log
 - In `blade-lite`, every error goes through `report()`, so it reaches the log file.
 - An error on a path that repeats (a poll, a refresh, a watch) is said once, not on each pass (`ShownErrors`, `SaidLately`).
-- Error text is one plain line. Details that change, such as a transaction ID or bytes, go in brackets: the log groups errors by the text before the first `(` or `{`.
+- Error text is one plain line. Details that change, such as a transaction ID or bytes, go in brackets: `SaidLately` groups repeated errors by the text before the first `(` or `{`.
 - `expect` only on values that can't come from the device or a file, with a message that says why it can't fail. Device data never panics.
 
 ## State
@@ -14,7 +14,7 @@ The `informed-reviewer` checks each diff against these rules. They are judgement
 - A send that may have reached the controller is never sent again to "retry" it.
 
 ## Tests
-- A hardware test reads the state first and puts it back at the end.
+- A hardware test reads the state first and puts it back at the end, even when a step fails: keep each `Result`, put the state back, then assert.
 - A test for a guard shows the guard sends nothing: it checks what the fake transport got, not only the result.
 
 ## Project
