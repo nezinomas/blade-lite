@@ -223,9 +223,87 @@ fn a_preset_the_controller_refuses_is_neither_kept_nor_saved() {
 
     let result = app.on_performance(PerformanceCommand::SetPreset(Preset::Silent));
 
-    assert!(result.is_err());
+    let error = result.unwrap_err();
+    assert!(!error.was_sent());
     assert_eq!(app.config().preset, Preset::Balanced);
     assert!(!path.exists());
+}
+
+/// A folder in the file's place makes the save fail.
+fn break_save(path: &PathBuf) {
+    std::fs::create_dir(path).unwrap();
+}
+
+#[test]
+fn a_preset_sent_but_not_saved_is_kept_and_shown() {
+    let (mut app, _dir, path) = app();
+    break_save(&path);
+
+    let error = app
+        .on_performance(PerformanceCommand::SetPreset(Preset::Silent))
+        .unwrap_err();
+
+    assert!(error.was_sent());
+    assert_eq!(app.running_preset(), Preset::Silent);
+    let view = app.performance_view();
+    let selected = view.presets.iter().find(|option| option.selected).unwrap();
+    assert_eq!(selected.preset, Preset::Silent);
+}
+
+#[test]
+fn a_power_key_preset_not_saved_is_kept_for_the_next_press() {
+    let (mut app, _dir, path) = app();
+    break_save(&path);
+
+    assert!(app.on_power_key().unwrap_err().was_sent());
+    let first = app.running_preset();
+    assert_ne!(first, Preset::Balanced);
+    assert!(app.on_power_key().unwrap_err().was_sent());
+
+    assert_ne!(app.running_preset(), first);
+}
+
+#[test]
+fn a_custom_value_sent_but_not_saved_is_kept() {
+    let (mut app, _dir, path) = app_with(Config {
+        preset: Preset::Custom,
+        ..Config::default()
+    });
+    break_save(&path);
+
+    assert!(
+        app.on_performance(PerformanceCommand::SetCpuBoost(3))
+            .unwrap_err()
+            .was_sent()
+    );
+
+    assert_eq!(app.config().custom.cpu_boost, 3);
+}
+
+#[test]
+fn lighting_sent_but_not_saved_is_kept() {
+    let (mut app, _dir, path) = app();
+    break_save(&path);
+    let half = Brightness::new(50).unwrap();
+
+    let error = app
+        .on_keyboard(KeyboardCommand::SetBrightness(half))
+        .unwrap_err();
+
+    assert!(error.was_sent());
+    assert_eq!(app.keyboard_view().unwrap().brightness, 50);
+}
+
+#[test]
+fn the_error_says_the_change_was_sent_but_not_saved() {
+    let (mut app, _dir, path) = app();
+    break_save(&path);
+
+    let error = app
+        .on_performance(PerformanceCommand::SetPreset(Preset::Silent))
+        .unwrap_err();
+
+    assert!(error.to_string().starts_with("sent, but not saved: "));
 }
 
 #[test]
