@@ -64,7 +64,8 @@ pub struct Machine<C, D, R, K> {
 }
 
 /// The app's state. Each click becomes a command, and each command is
-/// applied first and saved only when it worked.
+/// applied first and saved only when it worked. A logo switch that worked
+/// is kept in memory even if its save fails.
 pub struct App<C, D, R, K> {
     model: &'static ModelProfile,
     config: Config,

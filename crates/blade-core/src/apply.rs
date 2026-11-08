@@ -120,7 +120,7 @@ pub fn reapply_on_resume(
 
 /// The commands that set the saved preset, then the saved lid logo, then
 /// the saved lighting. The logo goes before the long key frame, so a
-/// lighting error does not keep it from being sent.
+/// device error in that frame does not keep it from being sent.
 fn commands(
     config: Config,
     model: &ModelProfile,
