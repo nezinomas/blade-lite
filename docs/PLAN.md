@@ -65,7 +65,7 @@ Checks only a person can do on the laptop wait in "Still to check on the laptop"
 - [x] 41 `cargo hw` takes the one-copy lock, so it can't run beside the app
 - [x] 42 A log file, since a release build shows no error text (`%APPDATA%\blade-lite\blade-lite.log`, 5 files of 1 MB, panics too)
 - [x] 43 Autostart tick: re-read it when the menu opens, and warn if the Run key names another exe (such as `target\debug`). The item says "(set to another program)" and the log names it
-- [ ] 44 Lid logo off after a reboot and a sleep: check it stays off. If it comes back on, save it in the config and send it at start and resume
+- [x] 44 Lid logo off after a reboot and a sleep: check it stays off. If it comes back on, save it in the config and send it at start and resume (it came back on after a sleep; the switch is now saved and sent at start and after each resume, before the lighting)
 - [x] 45 Each reply must echo its request's transaction id and command, or `Device::send` returns `WrongReply` and does not send again. The `cargo hw` tests that send commands pass with the check
 - [ ] 47 Physical touchpad key: it switches the touchpad in the laptop itself, and Windows is not told, so the red key does not follow it. The keyboard sends report `04 DD` on press and `04 00` on release (Synapse capture, steps 23 and 26). Find where the real touchpad state can be read, then read that report (not a keyboard hook) and repaint the key
 - [x] 51 If the log shows a `WrongReply` with an older transaction ID (a reply read too soon), pause and read again once before giving up, without sending again (any other transaction ID is read once more per send attempt; a re-read never sends)
@@ -81,6 +81,7 @@ Checks only a person can do on the laptop wait in "Still to check on the laptop"
 - The power-mode key after a real sleep (in the ticket 45 test the key twice sent only Fn, `04 0A`, without `D3`)
 - The 2 s wait after wake, over a real sleep and wake cycle
 - A restart into the FHD 440 Hz native mode
+- Ticket 44: lid logo off stays off, and the switch shows off, after a sleep, a hibernate and a restart; on stays on
 
 ## Publishing on GitHub
 - [ ] 39 Release and installer
