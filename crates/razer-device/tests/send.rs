@@ -89,7 +89,8 @@ fn the_next_send_follows_the_retry_ids() {
 
 #[test]
 fn too_many_busy_replies_are_an_error() {
-    let busy = (0..MAX_ATTEMPTS as u8)
+    let busy = (0_u8..)
+        .take(MAX_ATTEMPTS)
         .map(|id| reply(BUSY, id, COMMAND))
         .collect();
     let (transport, clock, log) = fakes(busy);

@@ -203,5 +203,5 @@ fn ensure_matches(report: &Report, transaction_id: u8, command: u16) -> Result<(
 /// A transaction ID from the random seed std gives each hasher.
 fn random_id() -> u8 {
     let random = RandomState::new().build_hasher().finish();
-    (random % u64::from(TRANSACTION_IDS)) as u8
+    random.to_le_bytes()[0] % TRANSACTION_IDS
 }
