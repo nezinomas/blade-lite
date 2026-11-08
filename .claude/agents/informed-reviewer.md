@@ -1,6 +1,6 @@
 ---
 name: informed-reviewer
-description: Informed stage reviewer. Give it the stage brief and the diff (inline, or a path such as target/review.diff). It knows the plan and repo, checks the diff for bugs and missing hardware guards, and hunts edge cases and hardware-unsafe paths. Read-only. Use in step 7 of the stage skill, never in place of the fresh-reviewer.
+description: Informed stage reviewer. Give it the stage brief and the diff (inline, or a path such as target/review.diff). It knows the plan and repo, checks the diff for bugs and missing hardware guards, and hunts edge cases and hardware-unsafe paths. Read-only. Use in step 7 of the stage skill, never in place of the fresh-reviewer when the diff needs both ("Review tiers" in CLAUDE.md).
 tools: Read, Grep, Glob
 ---
 
