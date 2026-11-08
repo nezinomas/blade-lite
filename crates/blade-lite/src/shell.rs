@@ -242,10 +242,16 @@ impl Shell {
     }
 
     /// Runs one change, then shows the new state, or the error if it failed.
-    /// A new power mode, from any change, shows the popup.
+    /// A new power mode, from any change that worked, shows the popup.
     pub fn act(self: &Rc<Self>, change: impl FnOnce(&mut RealApp) -> Result<(), AppError>) {
         let result = change(&mut self.app.borrow_mut());
+        let failed = result.is_err();
         self.refresh(result.err().as_ref());
+        // A failed change may leave the controller in the old mode, so the
+        // popup waits for one that works.
+        if failed {
+            return;
+        }
         let mut watch = self.mode_watch.get();
         let changed = watch.changed(self.app.borrow().running_preset());
         self.mode_watch.set(watch);
@@ -260,6 +266,9 @@ impl Shell {
         self.popup.set_mode(mode.into());
         let count = self.popups.get().wrapping_add(1);
         self.popups.set(count);
+        // After the first show the popup is shown and hidden by Windows
+        // alone, since Slint's show takes the focus. Slint still thinks it
+        // is visible, on purpose.
         if let Some(hwnd) = hwnd(self.popup.window()) {
             self.place_popup();
             show_without_focus(hwnd, true);
