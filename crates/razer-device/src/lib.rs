@@ -90,7 +90,8 @@ impl std::fmt::Display for DeviceError {
             Self::Build(BuildError::TooManyArgs(count)) => {
                 write!(f, "the command does not fit in a report ({count} args)")
             }
-            Self::Io(error) => write!(f, "the HID layer failed ({error})"),
+            // No bracket around the Windows message, so each message is its own kind.
+            Self::Io(error) => write!(f, "the HID layer failed: {error}"),
             Self::Parse(error) => write!(f, "the reply is not valid ({})", parse_text(*error)),
             Self::Busy => write!(f, "the controller stayed busy after {MAX_BUSY_READS} reads"),
             Self::Rejected(status) => write!(f, "the controller replied {status:?}"),
@@ -106,7 +107,14 @@ impl std::fmt::Display for DeviceError {
     }
 }
 
-impl std::error::Error for DeviceError {}
+impl std::error::Error for DeviceError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Io(error) => Some(error),
+            _ => None,
+        }
+    }
+}
 
 fn parse_text(error: ParseError) -> String {
     match error {

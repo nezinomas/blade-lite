@@ -57,14 +57,20 @@ fn a_read_error_is_said_once_in_a_while() {
     let start = Instant::now();
     let quiet = Duration::from_secs(600);
     let mut said = SaidLately::new(quiet);
-    let busy = lines(&["fan 1: Busy"]);
+    let busy = lines(&["fan 1: the controller stayed busy after 5 reads"]);
 
-    assert_eq!(said.to_say(&busy, start), ["fan 1: Busy"]);
+    assert_eq!(
+        said.to_say(&busy, start),
+        ["fan 1: the controller stayed busy after 5 reads"]
+    );
     assert_eq!(said.to_say(&busy, start + Duration::from_secs(2)), NOTHING);
     // It comes and goes: still quiet.
     assert_eq!(said.to_say(&[], start + Duration::from_secs(4)), NOTHING);
     assert_eq!(said.to_say(&busy, start + Duration::from_secs(6)), NOTHING);
-    assert_eq!(said.to_say(&busy, start + quiet), ["fan 1: Busy"]);
+    assert_eq!(
+        said.to_say(&busy, start + quiet),
+        ["fan 1: the controller stayed busy after 5 reads"]
+    );
 }
 
 #[test]
@@ -85,9 +91,15 @@ fn details_that_change_on_each_read_do_not_make_a_new_error() {
 fn each_read_error_has_its_own_quiet_time() {
     let start = Instant::now();
     let mut said = SaidLately::new(Duration::from_secs(600));
-    said.to_say(&lines(&["fan 1: Busy"]), start);
+    said.to_say(
+        &lines(&["fan 1: the controller stayed busy after 5 reads"]),
+        start,
+    );
 
-    let both = lines(&["fan 1: Busy", "battery: denied"]);
+    let both = lines(&[
+        "fan 1: the controller stayed busy after 5 reads",
+        "battery: denied",
+    ]);
 
     assert_eq!(
         said.to_say(&both, start + Duration::from_secs(2)),
