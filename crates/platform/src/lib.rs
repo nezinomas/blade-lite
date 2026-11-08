@@ -20,7 +20,7 @@ pub use backdrop::{round_corners, set_mica};
 pub use display::WindowsDisplays;
 pub use instance::{WakeListener, WindowsInstance};
 pub use keys::WindowsKeys;
-pub use popup::{show_without_focus, work_area};
+pub use popup::work_area;
 pub use power::WindowsPowerEvents;
 pub use registry::WindowsRegistry;
 pub use sensors::WindowsSensors;

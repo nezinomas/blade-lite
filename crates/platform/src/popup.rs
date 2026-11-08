@@ -1,13 +1,9 @@
-//! What the power mode popup needs from Windows: where the taskbar is not,
-//! and a way to show the popup without taking the focus.
+//! What the power mode popup needs from Windows: where the taskbar is not.
 
-use std::ffi::c_void;
 use std::io;
 
 use windows_sys::Win32::Foundation::RECT;
-use windows_sys::Win32::UI::WindowsAndMessaging::{
-    SPI_GETWORKAREA, SW_HIDE, SW_SHOWNOACTIVATE, ShowWindow, SystemParametersInfoW,
-};
+use windows_sys::Win32::UI::WindowsAndMessaging::{SPI_GETWORKAREA, SystemParametersInfoW};
 
 /// The main screen less the taskbar, as `(x, y, width, height)` in
 /// physical pixels.
@@ -34,15 +30,4 @@ pub fn work_area() -> io::Result<(i32, i32, i32, i32)> {
         area.right - area.left,
         area.bottom - area.top,
     ))
-}
-
-/// Shows a window without making it the active one, so the focus stays
-/// where the user is typing, or hides it.
-pub fn show_without_focus(hwnd: isize, shown: bool) {
-    let command = if shown { SW_SHOWNOACTIVATE } else { SW_HIDE };
-    // SAFETY: a bad handle only makes the call fail. Its result is whether
-    // the window was visible before, not an error.
-    unsafe {
-        ShowWindow(hwnd as *mut c_void, command);
-    }
 }

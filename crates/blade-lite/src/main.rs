@@ -78,8 +78,9 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     slint::BackendSelector::new()
         .backend_name("winit".into())
         .with_winit_window_attributes_hook(|attributes| {
-            // Inactive: the first show takes no focus, which the power mode
-            // popup needs. The window and flyout ask for the focus.
+            // Inactive: winit then shows each window without the focus,
+            // each time, which the power mode popup needs. The window and
+            // the flyout ask for the focus after each show.
             attributes.with_transparent(true).with_active(false)
         })
         .select()?;

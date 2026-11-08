@@ -22,7 +22,10 @@ fn a_new_mode_shows_its_name_once() {
 fn each_change_shows_the_mode_it_changed_to() {
     let mut watch = ModeWatch::new(Preset::Silent);
 
-    assert_eq!(watch.changed(Preset::Performance, true), Some("Performance"));
+    assert_eq!(
+        watch.changed(Preset::Performance, true),
+        Some("Performance")
+    );
     assert_eq!(watch.changed(Preset::Custom, true), Some("Custom"));
     assert_eq!(watch.changed(Preset::Balanced, true), Some("Balanced"));
 }

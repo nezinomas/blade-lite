@@ -12,7 +12,7 @@ use blade_lite::{
 };
 use platform::{
     PowerEvent, WindowsDisplays, WindowsKeys, WindowsRegistry, WindowsSensors, round_corners,
-    set_mica, show_without_focus, work_area,
+    set_mica, work_area,
 };
 use raw_window_handle::{HasWindowHandle, RawWindowHandle};
 use razer_device::{Device, HidTransport, SystemClock};
@@ -60,6 +60,8 @@ pub struct Shell {
     mode_watch: Cell<ModeWatch>,
     /// Counts the popups, so the fade of an older one leaves a newer alone.
     popups: Cell<u32>,
+    /// Whether the popup has been made click-through.
+    popup_ready: Cell<bool>,
 }
 
 impl Shell {
@@ -84,6 +86,7 @@ impl Shell {
             read_errors: RefCell::new(SaidLately::new(READ_ERROR_QUIET)),
             mode_watch,
             popups: Cell::new(0),
+            popup_ready: Cell::new(false),
         })
     }
 
@@ -245,15 +248,10 @@ impl Shell {
     /// A new power mode, from any change that worked, shows the popup.
     pub fn act(self: &Rc<Self>, change: impl FnOnce(&mut RealApp) -> Result<(), AppError>) {
         let result = change(&mut self.app.borrow_mut());
-        let failed = result.is_err();
+        let worked = result.is_ok();
         self.refresh(result.err().as_ref());
-        // A failed change may leave the controller in the old mode, so the
-        // popup waits for one that works.
-        if failed {
-            return;
-        }
         let mut watch = self.mode_watch.get();
-        let changed = watch.changed(self.app.borrow().running_preset());
+        let changed = watch.changed(self.app.borrow().running_preset(), worked);
         self.mode_watch.set(watch);
         if let Some(mode) = changed {
             self.pop_up(mode);
@@ -266,48 +264,44 @@ impl Shell {
         self.popup.set_mode(mode.into());
         let count = self.popups.get().wrapping_add(1);
         self.popups.set(count);
-        // After the first show the popup is shown and hidden by Windows
-        // alone, since Slint's show takes the focus. Slint still thinks it
-        // is visible, on purpose.
-        if let Some(hwnd) = hwnd(self.popup.window()) {
-            self.place_popup();
-            show_without_focus(hwnd, true);
-            self.popup.set_shown(true);
-        } else if !self.show_popup_first_time() {
+        // Placed first, so even the first show opens in its place.
+        self.place_popup();
+        // Every window shows without taking the focus (see main), so this
+        // show leaves it where the user is typing.
+        if let Err(error) = self.popup.show() {
+            report(&format!("cannot show the power mode popup: {error}"));
             return;
+        }
+        if self.popup_ready.get() {
+            self.popup.set_shown(true);
+        } else {
+            self.once_shown(
+                |shell| shell.popup.window(),
+                |shell, _| shell.set_up_popup(),
+            );
         }
         self.after(POPUP_HOLD, count, move |shell| {
             shell.popup.set_shown(false);
             shell.after(POPUP_FADE, count, |shell| {
-                if let Some(hwnd) = hwnd(shell.popup.window()) {
-                    show_without_focus(hwnd, false);
-                }
+                let _ = shell.popup.hide();
             });
         });
     }
 
-    /// The first show makes the window, which the event loop does later.
-    /// Windows are made inactive (see main), so it takes no focus either.
-    /// False if it can't be shown.
-    fn show_popup_first_time(self: &Rc<Self>) -> bool {
-        if let Err(error) = self.popup.show() {
-            report(&format!("cannot show the power mode popup: {error}"));
-            return false;
+    /// Once the popup has a handle: no clicks, no taskbar button, placed
+    /// again at its real size, then faded in. Done again on the next popup until it has worked.
+    fn set_up_popup(&self) {
+        let hittest = self.popup.window().with_winit_window(|window| {
+            window.set_skip_taskbar(true);
+            window.set_cursor_hittest(false)
+        });
+        match hittest {
+            Some(Ok(())) => self.popup_ready.set(true),
+            Some(Err(error)) => report(&format!("the popup takes clicks: {error}")),
+            None => report("the popup has no window"),
         }
-        self.once_shown(
-            |shell| shell.popup.window(),
-            |shell, _| {
-                shell.popup.window().with_winit_window(|window| {
-                    if let Err(error) = window.set_cursor_hittest(false) {
-                        report(&format!("the popup takes clicks: {error}"));
-                    }
-                    window.set_skip_taskbar(true);
-                });
-                shell.place_popup();
-                shell.popup.set_shown(true);
-            },
-        );
-        true
+        self.place_popup();
+        self.popup.set_shown(true);
     }
 
     /// Runs `then` after `wait`, unless another popup came since `count`.

@@ -17,9 +17,11 @@ impl ModeWatch {
         Self { last: running }
     }
 
-    /// The name of the new mode if `running` is not the last one seen.
-    pub fn changed(&mut self, running: Preset) -> Option<&'static str> {
+    /// The name of the new mode if `running` is not the last one seen and
+    /// the change `worked`. A failed change may leave the controller in the
+    /// old mode, so it shows nothing, and is not shown later either.
+    pub fn changed(&mut self, running: Preset, worked: bool) -> Option<&'static str> {
         let last = std::mem::replace(&mut self.last, running);
-        (last != running).then(|| preset_label(running))
+        (worked && last != running).then(|| preset_label(running))
     }
 }
