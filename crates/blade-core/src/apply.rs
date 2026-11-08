@@ -79,7 +79,8 @@ pub fn apply_performance(
     controller.run(&commands).map_err(ApplyError::Device)
 }
 
-/// Sends only the lighting: the brightness, then the colour on every key,
+/// Sends only the lighting: the brightness, the vapor light, then the
+/// colour on every key,
 /// with the touchpad key red if `touchpad_off`.
 ///
 /// # Errors
@@ -131,7 +132,7 @@ fn commands(
     Ok(commands)
 }
 
-/// The brightness, then the colour on every key.
+/// The brightness, the vapor light, then the colour on every key.
 fn lighting_commands(
     lighting: Lighting,
     model: &ModelProfile,
@@ -139,6 +140,9 @@ fn lighting_commands(
 ) -> Result<Vec<Command>, ApplyError> {
     let brightness = Brightness::new(lighting.brightness).map_err(ApplyError::Brightness)?;
     let mut commands = brightness.commands(model);
+    if let Some(vapor) = model.vapor_light {
+        commands.push(vapor.command(brightness, lighting.vapor_light));
+    }
     commands.extend(if touchpad_off {
         static_colour_touchpad_off(lighting.colour, model)
     } else {

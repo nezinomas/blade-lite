@@ -26,6 +26,7 @@ fn round_trip_keeps_custom_values_while_another_preset_is_active() {
         lighting: Some(Lighting {
             brightness: 40,
             colour: Rgb::new(0x00, 0x78, 0xD4),
+            vapor_light: true,
         }),
     };
 
@@ -128,6 +129,7 @@ fn lighting_colour_is_stored_as_hex() {
         lighting: Some(Lighting {
             brightness: 75,
             colour: Rgb::new(0xFF, 0x8C, 0x00),
+            vapor_light: true,
         }),
         ..Config::default()
     };
@@ -153,4 +155,40 @@ colour = \"red\"
     .unwrap();
 
     assert!(matches!(Config::load(&path), Err(ConfigError::Parse(_))));
+}
+
+#[test]
+fn a_saved_lighting_without_the_vapor_light_keeps_it_on() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join(FILE);
+    fs::write(
+        &path,
+        "[lighting]
+brightness = 50
+colour = \"#FFFFFF\"
+",
+    )
+    .unwrap();
+
+    let lighting = Config::load(&path).unwrap().lighting.unwrap();
+
+    assert!(lighting.vapor_light);
+}
+
+#[test]
+fn the_vapor_light_off_is_saved() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join(FILE);
+    let config = Config {
+        lighting: Some(Lighting {
+            brightness: 50,
+            colour: Rgb::new(0xFF, 0xFF, 0xFF),
+            vapor_light: false,
+        }),
+        ..Config::default()
+    };
+
+    config.save(&path).unwrap();
+
+    assert_eq!(Config::load(&path).unwrap(), config);
 }
