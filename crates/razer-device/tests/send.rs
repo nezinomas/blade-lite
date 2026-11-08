@@ -1,7 +1,7 @@
 mod common;
 
 use common::{BUSY, Event, FAILURE, SUCCESS, fakes, reads, reply, request, sent};
-use razer_device::{Device, DeviceError, MAX_BUSY_READS, PAUSE};
+use razer_device::{BUSY_PAUSE, Device, DeviceError, MAX_BUSY_READS, PAUSE};
 use razer_proto::Status;
 
 /// Get firmware version, as captured.
@@ -37,10 +37,11 @@ fn the_device_pauses_between_send_and_read() {
 }
 
 /// Busy may mean the controller took the command and is still working on it,
-/// so the command is never sent again: the reply is read again after the pause.
+/// so the command is never sent again: the reply is read again after the
+/// longer Busy pause, so a slow command has time to finish.
 /// `OpenRazer` and `razer-laptop-control` do not resend on Busy either.
 #[test]
-fn a_busy_reply_is_read_again_after_the_pause_without_a_resend() {
+fn a_busy_reply_is_read_again_after_the_busy_pause_without_a_resend() {
     let (transport, clock, log) = fakes(vec![reply(BUSY, 0, COMMAND), reply(SUCCESS, 0, COMMAND)]);
 
     let report = Device::with_first_id(transport, clock, 0)
@@ -54,10 +55,23 @@ fn a_busy_reply_is_read_again_after_the_pause_without_a_resend() {
             Event::Sent(request(0, COMMAND, &[])),
             Event::Slept(PAUSE),
             Event::Read,
-            Event::Slept(PAUSE),
+            Event::Slept(BUSY_PAUSE),
             Event::Read
         ]
     );
+}
+
+#[test]
+fn the_last_busy_read_can_still_succeed() {
+    let mut replies = vec![reply(BUSY, 0, COMMAND); MAX_BUSY_READS - 1];
+    replies.push(reply(SUCCESS, 0, COMMAND));
+    let (transport, clock, log) = fakes(replies);
+
+    let result = Device::with_first_id(transport, clock, 0).send(COMMAND, &[]);
+
+    assert!(result.is_ok(), "{result:?}");
+    assert_eq!(sent(&log).len(), 1);
+    assert_eq!(reads(&log), MAX_BUSY_READS);
 }
 
 #[test]
