@@ -11,9 +11,9 @@ description: Build one stage or ticket from docs/PLAN.md end to end (branch, TDD
 4. TDD in small commits: red test, green code, refactor. Short commit messages, no AI attribution.
 5. Add every hardware guard that fits (see "Hardware safety" in `CLAUDE.md`).
 6. Run the checks from `CLAUDE.md`. Run `cargo hw` when the stage touches the controller (quit the app first).
-7. Review with two separate subagents, never yourself:
-   - Informed reviewer: gets the stage brief, the plan and the repo. Checks the diff for bugs and missing guards, and hunts edge cases and paths unsafe for the hardware.
-   - Fresh reviewer: gets only the diff, the repo and the open-source protocol findings (https://claude.ai/artifact/W9Z1Dxcp4Agbxd3r2tEtwX). Checks the code against them.
+7. Review with two separate subagents, never yourself. Write the diff with `git diff master...HEAD > target/review.diff`, then run both (in parallel):
+   - `informed-reviewer` (`.claude/agents/informed-reviewer.md`): give it the stage brief and the diff path. It reads the plan, notes and repo, checks the diff for bugs and missing guards, and hunts edge cases and paths unsafe for the hardware.
+   - `fresh-reviewer` (`.claude/agents/fresh-reviewer.md`): give it only the diff path, no brief. It checks the code against the open-source protocol findings in `docs/protocol-findings.md` (copy of https://claude.ai/artifact/W9Z1Dxcp4Agbxd3r2tEtwX).
    Fix what they find, or add it to `PLAN.md` as a new ticket.
 8. Tick the stage `[x]` in `PLAN.md` in the same branch, with a one-line result. Add new laptop facts to `docs/NOTES.md`.
 9. `git merge --no-ff` into master, push, delete the branch locally (and on GitHub only if it was pushed).
