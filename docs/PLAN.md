@@ -75,6 +75,7 @@ Checks only a person can do on the laptop wait in "Still to check on the laptop"
 - [ ] 48 Power-mode popup above the taskbar clock: takes no focus, fades out, semi-transparent black like Synapse's
 - [ ] 49 Same popup for touchpad on and off (the physical key needs 47)
 - [x] 52 Vapor-chamber light switch (LED `0x26`, set with `0303` after the keyboard: the keyboard level while on, 0 while off; saved in the config and sent at start and resume. Checked on the laptop: the switch, and off stays off after a brightness change and a hibernate)
+- [ ] 54 Num Lock is off after a wake from hibernate: the numpad keys act as arrows, Home, End and the like, not numbers. Find if the app or Windows turns it off (the app sends no Num Lock key; the lock screen setting `HKU\.DEFAULT\Control Panel\Keyboard\InitialKeyboardIndicators` is `0x80000000`, Num Lock off, while the user's is `2`, on)
 
 ## Still to check on the laptop
 - The power-mode key after a real sleep (in the ticket 45 test the key twice sent only Fn, `04 0A`, without `D3`)
