@@ -245,10 +245,11 @@ impl Shell {
     }
 
     /// Runs one change, then shows the new state, or the error if it failed.
-    /// A new power mode, from any change that worked, shows the popup.
+    /// A new power mode, from any change the laptop took (even one not
+    /// saved), shows the popup.
     pub fn act(self: &Rc<Self>, change: impl FnOnce(&mut RealApp) -> Result<(), AppError>) {
         let result = change(&mut self.app.borrow_mut());
-        let worked = result.is_ok();
+        let worked = result.as_ref().map_or_else(AppError::was_sent, |()| true);
         self.refresh(result.err().as_ref());
         let mut watch = self.mode_watch.get();
         let changed = watch.changed(self.app.borrow().running_preset(), worked);
