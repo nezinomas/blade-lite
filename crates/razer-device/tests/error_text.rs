@@ -25,7 +25,9 @@ fn a_windows_error_is_one_short_line() {
 
     let text = error.to_string();
 
-    assert!(text.starts_with("the HID layer failed ("), "{text}");
+    assert!(text.starts_with("the HID layer failed: "), "{text}");
+    // The log groups by the text before the first bracket: the Windows message.
+    assert!(!text.starts_with("the HID layer failed: ("), "{text}");
     assert!(text.contains("os error 1167"), "{text}");
     assert!(!text.contains("Os {"), "{text}");
 }
@@ -70,4 +72,11 @@ fn each_other_error_has_plain_text() {
     for (error, text) in cases {
         assert_eq!(error.to_string(), text);
     }
+}
+
+#[test]
+fn a_windows_error_keeps_its_source() {
+    let error = DeviceError::Io(io::Error::from_raw_os_error(1167));
+
+    assert!(std::error::Error::source(&error).is_some());
 }
