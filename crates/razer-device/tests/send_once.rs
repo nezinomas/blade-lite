@@ -40,6 +40,7 @@ fn kinds() -> Vec<[u8; REPORT_LEN]> {
         // Another transaction ID, and another command.
         reply(SUCCESS, 7, COMMAND),
         reply(SUCCESS, 0, 0x0D82),
+        reply(BUSY, 0, 0x0D82),
     ]
 }
 
@@ -91,7 +92,7 @@ fn short(mix: &[[u8; REPORT_LEN]]) -> Vec<(u8, u8, u16)> {
 #[test]
 fn every_mix_of_replies_sends_the_command_once() {
     let mixes = mixes();
-    assert_eq!(mixes.len(), 1 + 11 + 121 + 1331 + 14641);
+    assert_eq!(mixes.len(), 1 + 12 + 144 + 1728 + 20736);
 
     for mix in mixes.into_iter().chain(busy_mixes()) {
         let (transport, clock, log) = fakes(mix.clone());

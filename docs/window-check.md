@@ -63,10 +63,11 @@ Start with the app closed.
 
 # Power-mode popup check (ticket 48)
 
-Open Notepad and click in it. Start the app.
+Start on AC, with Num Lock off (the power-mode key needs it, ticket 59). Note your preset. Open Notepad and click in it. Start the app.
 
 1. **Key.** Press Fn + numpad Enter. A dark popup shows the new mode above the taskbar clock, then fades out. You can still type in Notepad.
 2. **Clicks pass through.** While the popup shows, click on the place under it. The click reaches what is under it.
 3. **App.** Pick another preset in the window. The popup shows the new mode.
 4. **Power source.** Set Performance, then unplug the charger. The popup says Balanced. Plug it in again.
 5. **Other windows still work.** The flyout closes on a click outside it. A second start brings the window to the front.
+6. **Put it back.** Set your preset again.

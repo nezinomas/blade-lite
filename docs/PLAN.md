@@ -87,13 +87,14 @@ Checks only a person can do on the laptop wait in "Still to check on the laptop"
 - [ ] 63 The config rename can fail with access denied while another program (such as Defender or the search indexer) holds `config.toml` or its temp file open. The change stays in memory (ticket 57), but the next start sends the old config. Retry only the rename a few times (such as 3 tries, 20 ms apart) on `PermissionDenied`, if the log ever shows it
 
 ## Still to check on the laptop
-Do these in one go. Quit the app only where a step says so.
+Do these in one go, on AC, with "Start with Windows" on and Num Lock off (the power-mode key needs it, ticket 59). First note your preset, lid logo and native mode; the last step puts them back.
 
 1. **Read-only config (57).** Make `%APPDATA%\blade-lite\config.toml` read-only. Press the power-mode key. The popup and the header show the new mode, and the window shows `sent, but not saved`. Make the file writable again.
 2. **Config save (61).** Change the preset in the app. `config.toml` has the new preset, and no `config.toml.tmp` is left in that folder.
-3. **Hibernate.** Hibernate the laptop and wake it. Wait 2 s: the app sends the saved state (the 2 s wait after wake). Then press Fn + numpad Enter: the preset steps (in the ticket 45 test the key sent only Fn, `04 0A`, without `D3`).
-4. **Restart (44, 18).** Turn the lid logo off. Pick the FHD 440 Hz native mode. Restart. The logo stays off, and the screen starts at FHD 440 Hz. Put the native mode back.
-5. **Busy (55).** Nothing to do now. If the log ever shows a Busy error, check whether the command took effect.
+3. **Sleep, then hibernate.** Set a keyboard colour that is not white. Sleep the laptop and wake it. About 2 s after wake the colour is back (the 2 s wait after wake). Press Fn + numpad Enter: the preset steps (in the ticket 45 test the key sent only Fn, `04 0A`, without `D3`; Num Lock may have been on, ticket 59). Do the same with a hibernate.
+4. **Restart (44, 18).** Turn the lid logo off. Pick the FHD 440 Hz native mode. Restart. The app starts with Windows, the logo stays off, and the screen starts at FHD 440 Hz.
+5. **Put it back.** Set your native mode, lid logo and preset back as you noted them. Restart once more for the native mode.
+6. **Busy (55).** Nothing to do now. If the log ever shows a Busy error, check whether the command took effect.
 
 ## Publishing on GitHub
 - [ ] 39 Release and installer
