@@ -4,20 +4,7 @@ One stage is one branch. Tick a stage (`[x]`) in the same branch that finishes i
 Each stage's red and green tests and the open questions are in the full plan:
 https://claude.ai/artifact/JSzNYRpwZJyywztJtBSk2P
 
-Before a stage merges, review its diff and hunt for bugs. The app drives
-real hardware, so add every guard that fits: validate input, clamp to safe
-ranges, and fail safe (do nothing rather than guess).
-
-Two separate subagents do the review, not the stage author:
-1. Informed reviewer: gets the stage brief, the plan and the repo. It checks
-   the diff for bugs and missing guards, and hunts edge cases and paths that
-   are unsafe for the hardware.
-2. Fresh reviewer: gets only the diff, the repo and the open-source protocol
-   findings (https://claude.ai/artifact/W9Z1Dxcp4Agbxd3r2tEtwX). It checks the
-   code against them.
-
-Fix what they find, or add it to the plan as a new stage. The stage report
-lists each reviewer's findings on its own.
+How a stage is built, reviewed and merged: the `stage` skill and the hardware safety rules in `CLAUDE.md`.
 
 ## Before code
 - [x] 0 Try r-helper and read its 02C7 code
@@ -82,6 +69,13 @@ lists each reviewer's findings on its own.
 - [ ] 51 If the log shows a `WrongReply` with an older transaction ID (a reply read too soon), pause and read again once before giving up, without sending again
 - [ ] 50 Log the sensor and fan read errors (now shown blank, never logged), and say an error that comes and goes only once in a while, not on each change
 - [ ] 46 Charge limit: on AC with the battery above 80% and the limit on, check Windows says "not charging". If it still charges, try sending `070F` after the limit as Synapse does
+- [ ] 48 Power-mode popup above the taskbar clock: takes no focus, fades out, semi-transparent black like Synapse's
+- [ ] 49 Same popup for touchpad on and off (the physical key needs 47)
+
+## Still to check on the laptop
+- The power-mode key after a real sleep (in the ticket 45 test the key twice sent only Fn, `04 0A`, without `D3`)
+- The 2 s wait after wake, over a real sleep and wake cycle
+- A restart into the FHD 440 Hz native mode
 
 ## Publishing on GitHub
 - [ ] 39 Release and installer

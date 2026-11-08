@@ -3,3 +3,4 @@
 /capture/raw/
 __pycache__/
 graphify-out/
+.claude/settings.local.json
