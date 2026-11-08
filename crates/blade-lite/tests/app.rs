@@ -768,6 +768,19 @@ fn readings_the_controller_cannot_give_show_dashes() {
     assert_eq!(fan.value, ui::MISSING);
 }
 
+#[test]
+fn the_header_keeps_the_controller_read_errors() {
+    let (mut app, _dir, _) = app();
+
+    app.header(Readings::default());
+
+    assert!(
+        app.read_errors().iter().any(|e| e.starts_with("fan 1: ")),
+        "{:?}",
+        app.read_errors()
+    );
+}
+
 fn performance_app() -> (TestApp, TempDir, PathBuf) {
     app_with(Config {
         preset: Preset::Performance,

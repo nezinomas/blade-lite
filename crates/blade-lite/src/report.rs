@@ -1,9 +1,10 @@
 //! Where the app's errors go: stderr for a debug build, and the log file,
 //! since a release build has no console.
 
+use std::collections::HashMap;
 use std::io::{self, Write};
 use std::sync::{Mutex, OnceLock, PoisonError, TryLockError};
-use std::time::SystemTime;
+use std::time::{Duration, Instant, SystemTime};
 
 use blade_core::Log;
 
@@ -100,4 +101,46 @@ impl ShownErrors {
         text.clone_into(&mut self.last);
         (!text.is_empty()).then_some(text)
     }
+}
+
+/// Errors that can come and go on each read, such as a busy fan read, so
+/// each one is said once, then not again until a quiet time has passed.
+#[derive(Debug)]
+pub struct SaidLately {
+    quiet: Duration,
+    said: HashMap<String, Instant>,
+}
+
+impl SaidLately {
+    #[must_use]
+    pub fn new(quiet: Duration) -> Self {
+        Self {
+            quiet,
+            said: HashMap::new(),
+        }
+    }
+
+    /// The errors not said in the quiet time before `now`. They count as
+    /// said from `now` on. Two errors that differ only in their details
+    /// count as one.
+    pub fn to_say<'a>(&mut self, errors: &'a [String], now: Instant) -> Vec<&'a str> {
+        // Forget the old ones, so the map stays small.
+        self.said
+            .retain(|_, &mut at| now.saturating_duration_since(at) < self.quiet);
+        let mut new = Vec::new();
+        for error in errors {
+            let kind = kind(error);
+            if !self.said.contains_key(kind) {
+                self.said.insert(kind.to_owned(), now);
+                new.push(error.as_str());
+            }
+        }
+        new
+    }
+}
+
+/// The error without its details in braces or brackets, such as a
+/// transaction ID, since they can change on each read.
+fn kind(error: &str) -> &str {
+    error.find(['{', '(']).map_or(error, |at| &error[..at])
 }

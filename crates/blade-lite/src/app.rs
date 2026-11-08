@@ -83,6 +83,8 @@ pub struct App<C, D, R, K> {
     /// `None` if unknown, such as after a failed send: the next change
     /// then paints it.
     key_red: Option<bool>,
+    /// The controller reads that failed when the header was last made.
+    read_errors: Vec<String>,
 }
 
 impl<C, D, R, K> App<C, D, R, K>
@@ -109,6 +111,7 @@ where
             logo_on: None,
             charge_limit_on: None,
             key_red: None,
+            read_errors: Vec::new(),
         }
     }
 
@@ -169,8 +172,10 @@ where
     }
 
     /// The header, with the controller's readings added to `readings`.
+    /// The reads that failed are kept in [`read_errors`](Self::read_errors).
     pub fn header(&mut self, readings: Readings) -> Header {
         let controller = read_controller(&mut self.machine.controller, self.model);
+        self.read_errors = controller.errors;
         Header::new(&HeaderState {
             model: self.model,
             preset: self.config.preset,
@@ -179,6 +184,13 @@ where
             cpu_celsius: controller.cpu,
             fans: controller.fans,
         })
+    }
+
+    /// One line per controller read that failed when the header was last
+    /// made, such as `fan 1: Busy`.
+    #[must_use]
+    pub fn read_errors(&self) -> &[String] {
+        &self.read_errors
     }
 
     #[must_use]

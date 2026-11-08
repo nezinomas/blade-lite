@@ -1,7 +1,8 @@
 use std::fs;
+use std::time::{Duration, Instant};
 
 use blade_core::Log;
-use blade_lite::{Reporter, ShownErrors, open_log, report, report_panics};
+use blade_lite::{Reporter, SaidLately, ShownErrors, open_log, report, report_panics};
 
 #[test]
 fn a_report_goes_to_the_log_file() {
@@ -43,6 +44,55 @@ fn no_error_is_never_logged() {
     assert_eq!(shown.new_text(""), None);
     // The same error after a clear spell is news again.
     assert_eq!(shown.new_text("busy"), Some("busy"));
+}
+
+const NOTHING: [&str; 0] = [];
+
+fn lines(texts: &[&str]) -> Vec<String> {
+    texts.iter().map(|&text| text.to_owned()).collect()
+}
+
+#[test]
+fn a_read_error_is_said_once_in_a_while() {
+    let start = Instant::now();
+    let quiet = Duration::from_secs(600);
+    let mut said = SaidLately::new(quiet);
+    let busy = lines(&["fan 1: Busy"]);
+
+    assert_eq!(said.to_say(&busy, start), ["fan 1: Busy"]);
+    assert_eq!(said.to_say(&busy, start + Duration::from_secs(2)), NOTHING);
+    // It comes and goes: still quiet.
+    assert_eq!(said.to_say(&[], start + Duration::from_secs(4)), NOTHING);
+    assert_eq!(said.to_say(&busy, start + Duration::from_secs(6)), NOTHING);
+    assert_eq!(said.to_say(&busy, start + quiet), ["fan 1: Busy"]);
+}
+
+#[test]
+fn details_that_change_on_each_read_do_not_make_a_new_error() {
+    let start = Instant::now();
+    let mut said = SaidLately::new(Duration::from_secs(600));
+    said.to_say(
+        &lines(&["fan 1: WrongReply { transaction_id: 3, command: 1 }"]),
+        start,
+    );
+
+    let next = lines(&["fan 1: WrongReply { transaction_id: 4, command: 1 }"]);
+
+    assert_eq!(said.to_say(&next, start + Duration::from_secs(2)), NOTHING);
+}
+
+#[test]
+fn each_read_error_has_its_own_quiet_time() {
+    let start = Instant::now();
+    let mut said = SaidLately::new(Duration::from_secs(600));
+    said.to_say(&lines(&["fan 1: Busy"]), start);
+
+    let both = lines(&["fan 1: Busy", "battery: denied"]);
+
+    assert_eq!(
+        said.to_say(&both, start + Duration::from_secs(2)),
+        ["battery: denied"]
+    );
 }
 
 #[test]

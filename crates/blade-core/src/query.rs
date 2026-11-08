@@ -24,6 +24,8 @@ pub struct ControllerReadings {
     pub cpu: Option<Celsius>,
     /// One per fan, in the model's fan order.
     pub fans: Vec<Option<FanRpm>>,
+    /// One line per value that could not be read, such as `fan 1: Busy`.
+    pub errors: Vec<String>,
 }
 
 /// The native mode chosen for the next boot, or `None` for one the model lacks.
@@ -40,18 +42,41 @@ pub fn chosen_native_mode(
 }
 
 /// Reads the CPU temperature and each fan. A failed read leaves only its
-/// value empty.
+/// value empty, and names it in the errors.
 pub fn read_controller(controller: &mut impl Query, model: &ModelProfile) -> ControllerReadings {
-    let cpu = controller
-        .query(&Celsius::query())
-        .ok()
-        .and_then(|args| Celsius::cpu_from_reply(&args));
+    let mut errors = Vec::new();
+    let cpu = read_value(
+        controller,
+        &Celsius::query(),
+        Celsius::cpu_from_reply,
+        "CPU temperature",
+        &mut errors,
+    );
     let fans = FanRpm::queries(model)
         .iter()
-        .map(|query| {
-            let args = controller.query(query).ok()?;
-            FanRpm::from_reply(&args)
+        .enumerate()
+        .map(|(index, query)| {
+            let name = format!("fan {}", index + 1);
+            read_value(controller, query, FanRpm::from_reply, &name, &mut errors)
         })
         .collect();
-    ControllerReadings { cpu, fans }
+    ControllerReadings { cpu, fans, errors }
+}
+
+/// Reads one value. A failed read or a reply not understood adds a line to
+/// `errors`, starting with `name`.
+fn read_value<T>(
+    controller: &mut impl Query,
+    query: &Command,
+    parse: impl FnOnce(&[u8]) -> Option<T>,
+    name: &str,
+    errors: &mut Vec<String>,
+) -> Option<T> {
+    let value = match controller.query(query) {
+        Ok(args) => parse(&args).ok_or_else(|| "reply not understood".to_owned()),
+        Err(error) => Err(format!("{error:?}")),
+    };
+    value
+        .map_err(|error| errors.push(format!("{name}: {error}")))
+        .ok()
 }
