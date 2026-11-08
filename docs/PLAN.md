@@ -83,8 +83,9 @@ Checks only a person can do on the laptop wait in "Still to check on the laptop"
 - [ ] 58 Flyout top row: in the user's screenshot, min, max and close buttons sit in the flyout's header and cover "Plugged in" next to "Blade 18 (RZ09-0529)". Find out why (check whether ticket 48's inactive windows caused it) and fix it
 - [ ] 59 Power-mode key works only when the numpad is on its second layer (Num Lock off). Make it work as Synapse did. The user offers two ways: Fn + Enter whatever the numpad layer is, or plain numpad Enter while on the second layer
 - [ ] 60 On a weak charge (no charger, but a monitor powers the laptop over USB-C, so it charges slowly), Synapse did not allow Performance, for lack of power. Do the same
-- [ ] 61 `Config::save` uses `fs::write`, which empties the file first. A save that fails part way (such as a full disk) leaves a broken file, and the next start fails to load it. Write a temp file next to it, then rename it over the config
+- [x] 61 `Config::save` uses `fs::write`, which empties the file first. A save that fails part way (such as a full disk) leaves a broken file, and the next start fails to load it. Write a temp file next to it, then rename it over the config (save writes `config.toml.tmp`, syncs it, then renames it over the config; a failed save keeps the old config and removes the temp file)
 - [ ] 62 A send that fails part way (such as the zones sent, then a boost Busy) leaves the controller with part of the new state, but the app keeps the old one until the next resume sends it again. Decide whether to read back or say so in the error
+- [ ] 63 The config rename can fail with access denied while another program (such as Defender or the search indexer) holds `config.toml` or its temp file open. The change stays in memory (ticket 57), but the next start sends the old config. Retry only the rename a few times (such as 3 tries, 20 ms apart) on `PermissionDenied`, if the log ever shows it
 
 ## Still to check on the laptop
 - The power-mode key after a real sleep (in the ticket 45 test the key twice sent only Fn, `04 0A`, without `D3`)
@@ -92,6 +93,7 @@ Checks only a person can do on the laptop wait in "Still to check on the laptop"
 - A restart into the FHD 440 Hz native mode
 - Ticket 44: lid logo off stays off after a restart
 - Ticket 57: make `%APPDATA%\blade-lite\config.toml` read-only, press the power-mode key: the popup and the header show the new mode, and the window shows `sent, but not saved`. Make it writable again after
+- Ticket 61: change a preset in the app. `%APPDATA%\blade-lite\config.toml` has the new preset, and no `config.toml.tmp` is left in that folder
 - Ticket 55: the read again after a Busy reply has not run on the laptop (no Busy reply seen yet). If the log ever shows a Busy error, check whether the command took effect
 
 ## Publishing on GitHub

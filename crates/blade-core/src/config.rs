@@ -137,7 +137,9 @@ impl Config {
     ///
     /// # Errors
     ///
-    /// [`ConfigError::Io`] if the folder or file can't be written.
+    /// [`ConfigError::Io`] if the folder or temp file can't be written, or
+    /// the old config can't be replaced (such as another program holding it
+    /// open). The old config is then left as it was.
     pub fn save(&self, path: &Path) -> Result<(), ConfigError> {
         let text = toml::to_string(self)?;
         if let Some(dir) = path.parent() {
