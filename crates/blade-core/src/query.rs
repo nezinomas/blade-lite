@@ -24,7 +24,7 @@ pub struct ControllerReadings {
     pub cpu: Option<Celsius>,
     /// One per fan, in the model's fan order.
     pub fans: Vec<Option<FanRpm>>,
-    /// One line per value that could not be read, such as `fan 1: busy`.
+    /// One line per value that could not be read, such as `fan 1: Busy`.
     pub errors: Vec<String>,
 }
 

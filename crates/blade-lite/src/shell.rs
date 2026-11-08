@@ -230,6 +230,7 @@ impl Shell {
         let mut app = self.app.borrow_mut();
         let mut errors: Vec<String> = error.iter().map(ToString::to_string).collect();
         let header = app.header(self.readings.get());
+        self.say_read_errors(app.read_errors());
         let performance = app.performance_view();
         bind::header(&self.window, &header);
         bind::performance(&self.window, &performance);
@@ -300,16 +301,17 @@ impl Shell {
         let mut app = self.app.borrow_mut();
         let header = app.header(readings);
         errors.extend_from_slice(app.read_errors());
-        for error in self
-            .read_errors
-            .borrow_mut()
-            .to_say(&errors, Instant::now())
-        {
-            report(&format!("read failed: {error}"));
-        }
+        self.say_read_errors(&errors);
         bind::header(&self.window, &header);
         if let Ok(view) = app.keyboard_view() {
             bind::keyboard(&self.window, &view);
+        }
+    }
+
+    /// Logs the failed reads not logged in the quiet time.
+    fn say_read_errors(&self, errors: &[String]) {
+        for error in self.read_errors.borrow_mut().to_say(errors, Instant::now()) {
+            report(&format!("read failed: {error}"));
         }
     }
 }
