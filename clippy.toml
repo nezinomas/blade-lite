@@ -1,0 +1,2 @@
+# `#[cfg(test)]` code may unwrap; library code may not (see each lib.rs).
+allow-unwrap-in-tests = true

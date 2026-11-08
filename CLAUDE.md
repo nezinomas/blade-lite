@@ -19,7 +19,7 @@ Building a stage or ticket: follow the `stage` skill (`.claude/skills/stage/SKIL
 
 ## Commands
 - One-time setup: `git config core.hooksPath .githooks` (pre-push runs the checks below, commit-msg blocks AI attribution).
-- Checks, same as CI: `cargo fmt --all --check`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo test --workspace`, `python -m unittest discover -s capture`.
+- Checks, same as CI: `cargo fmt --all --check`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo t` (`cargo test --workspace`, quiet), `python -m unittest discover -s capture`.
 - Hardware tests on the laptop: `cargo hw`. Quit the app first (the tests take the one-copy lock). The charger test must start on battery.
 - PowerShell scripts: `powershell -ExecutionPolicy Bypass -File <script>`.
 

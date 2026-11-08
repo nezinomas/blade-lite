@@ -2,6 +2,8 @@
 
 The window has no unit tests. Check it by hand on the laptop.
 
+A change to how windows are made or shown can break all of them (ticket 48 broke the flyout header, ticket 58). After such a change, do every section here, the popup too.
+
 Start it:
 
 ```
@@ -32,7 +34,7 @@ The app now remembers the lighting in `%APPDATA%\blade-lite\config.toml`. The co
 Start the app as above. A blue bolt icon shows in the tray. It may hide under the tray's ^ arrow. Drag it next to the clock to keep it there.
 
 1. **Close the window.** The app keeps running. The icon stays in the tray.
-2. **Open the flyout.** Left-click the icon. A small panel with round corners and Mica opens just above the icon.
+2. **Open the flyout.** Left-click the icon. A small panel with round corners and Mica opens just above the icon. Its top row shows the model name and the power source, with no minimise, maximise or close buttons (fails until ticket 58 is fixed).
 3. **Close the flyout.** Click the icon again, or click anywhere else. The panel closes.
 4. **Flyout controls.** Click Silent. Click your old rate, or another rate and then your old one. Drag Keyboard light, then put it back. Flip Touchpad twice.
    **60 Hz on battery (stage 35).** Flip "Switch to 60 Hz on battery". Open the window: its switch shows the same state. Flip it in the window, and the flyout follows. Put it back as it was.
@@ -58,3 +60,14 @@ Start with the app closed.
 4. **Sign out and in.** The icon appears in the tray. No window opens. The saved preset and lighting are back.
 5. **Task Manager.** In Task Manager, Startup apps, disable Blade Lite. Quit the app and start it again. "Start with Windows" is not ticked. Tick it. Task Manager shows it enabled again.
 6. **Turn it off.** Untick "Start with Windows". Sign out and in. The app does not start.
+
+# Power-mode popup check (ticket 48)
+
+Start on AC, with Num Lock off (the power-mode key needs it, ticket 59). Note your preset. Open Notepad and click in it. Start the app.
+
+1. **Key.** Press Fn + numpad Enter. A dark popup shows the new mode above the taskbar clock, then fades out. You can still type in Notepad.
+2. **Clicks pass through.** While the popup shows, click on the place under it. The click reaches what is under it.
+3. **App.** Pick another preset in the window. The popup shows the new mode.
+4. **Power source.** Set Performance, then unplug the charger. The popup says Balanced. Plug it in again.
+5. **Other windows still work.** The flyout closes on a click outside it. A second start brings the window to the front.
+6. **Put it back.** Set your preset again.

@@ -8,6 +8,7 @@ You review one stage of blade-lite before it is merged. You did not write it. Th
 
 ## Read first
 - `CLAUDE.md`: hardware safety, model profile and code rules.
+- `CODING_STANDARDS.md`: the rules to check each changed line against.
 - `docs/PLAN.md`: where this stage sits and the open tickets.
 - `docs/NOTES.md`: laptop and protocol facts checked on this laptop.
 - The stage brief and the diff the caller gave you. Read the changed files in full, and the code they call and that calls them.

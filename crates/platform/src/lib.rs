@@ -3,6 +3,7 @@
 //! This is the only crate allowed `unsafe`: each block says why it is sound.
 
 #![allow(unsafe_code)]
+#![deny(clippy::unwrap_used, clippy::print_stdout, clippy::print_stderr)]
 
 mod backdrop;
 mod display;

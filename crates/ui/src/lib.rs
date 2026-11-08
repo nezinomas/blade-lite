@@ -1,5 +1,7 @@
 //! View models that turn the app's state into what the window and flyout show.
 
+#![deny(clippy::unwrap_used, clippy::print_stdout, clippy::print_stderr)]
+
 mod display;
 mod flyout;
 mod header;

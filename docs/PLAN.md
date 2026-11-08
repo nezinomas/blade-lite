@@ -57,44 +57,47 @@ Checks only a person can do on the laptop wait in "Still to check on the laptop"
 - [x] 33 Red touchpad key (follows the Windows touchpad switch; the physical key is 47)
 - [x] 34 Power-mode key (Fn + numpad Enter steps Silent, Balanced, Performance; read from the keyboard's key report, no hook; checked on the laptop)
 - [x] 35 60 Hz on battery toggle (in the Display group and the flyout; a failed 60 Hz set saves the switch off again)
+- [x] 48 Power-mode popup above the taskbar clock (no focus, fades out; shows each mode change that worked; checked on the laptop)
+- [ ] 49 Same popup for touchpad on and off (the physical key needs 47)
+- [x] 52 Vapor-chamber light switch (LED `0x26`, off stays off after a brightness change and a hibernate; checked on the laptop)
 
 ## Bug fixes
 - [x] 36 Only Silent or Balanced on battery
 - [ ] 37 Fans stay loud after Performance to Silent
-- [x] 38 Keyboard colour input needs guards (only `#RRGGBB` sends a colour; bad text sends nothing and the field shows the colour in use)
+- [x] 38 Keyboard colour input needs guards (only `#RRGGBB` sends a colour)
 - [x] 41 `cargo hw` takes the one-copy lock, so it can't run beside the app
-- [x] 42 A log file, since a release build shows no error text (`%APPDATA%\blade-lite\blade-lite.log`, 5 files of 1 MB, panics too)
-- [x] 43 Autostart tick: re-read it when the menu opens, and warn if the Run key names another exe (such as `target\debug`). The item says "(set to another program)" and the log names it
-- [x] 44 Lid logo off after a reboot and a sleep: check it stays off. If it comes back on, save it in the config and send it at start and resume (it came back on after a sleep; the switch is now saved and sent at start and after each resume, before the lighting. Checked on the laptop: off and on stay after a sleep and a hibernate)
-- [x] 45 Each reply must echo its request's transaction id and command, or `Device::send` returns `WrongReply` and does not send again. The `cargo hw` tests that send commands pass with the check
-- [ ] 47 Physical touchpad key: it switches the touchpad in the laptop itself, and Windows is not told, so the red key does not follow it. The keyboard sends report `04 DD` on press and `04 00` on release (Synapse capture, steps 23 and 26). Find where the real touchpad state can be read, then read that report (not a keyboard hook) and repaint the key
-- [x] 51 If the log shows a `WrongReply` with an older transaction ID (a reply read too soon), pause and read again once before giving up, without sending again (any other transaction ID is read once more per send attempt; a re-read never sends)
-- [x] 53 Busy retries send the same transaction ID, so a Busy reply read too soon matches and the command goes out once more. A new `Device` also starts at ID 0, so a reply left from an earlier run can match. Check the Synapse capture: does it keep the ID on a Busy retry? If not, take a new ID per retry (the capture has no Busy reply and never resends a request with its ID, so each retry now takes a new ID; a new `Device` starts at a random ID. `cargo hw` for the controller passed 4 times, each from a random first ID)
-- [x] 50 Log the sensor and fan read errors (now shown blank, never logged), and say an error that comes and goes only once in a while, not on each change (each failed Windows or controller read is logged as `read failed: <read>: <error>`, then not again for 10 minutes; details such as a transaction ID don't count as a new error)
+- [x] 42 A log file (`%APPDATA%\blade-lite\blade-lite.log`, 5 files of 1 MB, panics too)
+- [x] 43 Autostart tick re-read when the menu opens; says "(set to another program)" when the Run key names another exe
+- [x] 44 Lid logo comes back on after a sleep (now saved and sent at start and after each resume; checked after a sleep and a hibernate)
+- [x] 45 Each reply must echo its request's transaction ID and command, or `Device::send` returns `WrongReply` and does not send again
 - [ ] 46 Charge limit: on AC with the battery above 80% and the limit on, check Windows says "not charging". If it still charges, try sending `070F` after the limit as Synapse does
-- [x] 48 Power-mode popup above the taskbar clock: takes no focus, fades out, semi-transparent black like Synapse's (shows the new mode after any change that worked, from the key, the app or the power source; every window now opens without the focus and the window and flyout ask for it. Checked on the laptop: focus stays in Notepad, clicks pass through, flyout closes on an outside click, a second start brings the window up, unplugging Performance says Balanced)
-- [ ] 49 Same popup for touchpad on and off (the physical key needs 47)
-- [x] 52 Vapor-chamber light switch (LED `0x26`, set with `0303` after the keyboard: the keyboard level while on, 0 while off; saved in the config and sent at start and resume. Checked on the laptop: the switch, and off stays off after a brightness change and a hibernate)
-- [x] 54 Num Lock off after a wake from hibernate: Windows, not the app. The lock screen setting `HKU\.DEFAULT\Control Panel\Keyboard\InitialKeyboardIndicators` was the default `0x80000000`; the user set it to `2`. Checked on the laptop: Num Lock now stays as it was before hibernate, on or off
-- [x] 55 On a Busy reply, the command is sent again. If Busy means the controller took it and is still working, it runs twice. Check what OpenRazer, razer-laptop-control and librazerblade do on Busy. If they read again without a resend, do the same (up to `MAX_ATTEMPTS` reads) (OpenRazer treats Busy as done, the others mostly ignore it, two forks resend, none reads again. Now a command is sent once; on Busy the reply is read again 50 ms later, up to 5 Busy reads (`MAX_BUSY_READS`), then a Busy error. `cargo hw` for the controller passes)
-- [x] 56 Controller errors in the log use Rust debug text: commands show in decimal (`3713`, not `0D81`) and a Windows error is a long `Os { .. }` block. Give `DeviceError` a plain text with commands in hex (each error now has one plain line, such as `the reply is for another request (it echoes transaction ID 4, command 0D81)` or `the HID layer failed: <Windows message> (os error N)`; details that change go in brackets, so the log still says each kind once per 10 minutes)
-
-- [x] 57 A preset that is sent but whose config save fails: the controller runs the new preset, but the app keeps the old one (header, window, and no power mode popup). Keep the sent preset in memory as the logo switch does, or say in the error that it was sent but not saved (a preset, custom value, lighting or logo change the laptop took is now kept in memory even if the save fails; the error says `sent, but not saved: ...` and the popup still shows. The next resume and power change send the kept state)
+- [ ] 47 Physical touchpad key: it switches the touchpad in the laptop itself, and Windows is not told, so the red key does not follow it. The keyboard sends report `04 DD` on press and `04 00` on release (Synapse capture, steps 23 and 26). Find where the real touchpad state can be read, then read that report (not a keyboard hook) and repaint the key
+- [x] 50 Log the sensor and fan read errors (each kind once per 10 minutes)
+- [x] 51 A reply with an older transaction ID is read again once, never sent again
+- [x] 53 A new transaction ID per send, and a new `Device` starts at a random ID
+- [x] 54 Num Lock off after a wake from hibernate: a Windows setting, not the app (fixed in the registry, see `docs/NOTES.md`)
+- [x] 55 On Busy, read again (50 ms apart, up to 5 reads), never send again
+- [x] 56 Plain `DeviceError` text, commands in hex
+- [x] 57 A change the laptop took is kept in memory even if the config save fails; the error says `sent, but not saved`
 - [ ] 58 Flyout top row: in the user's screenshot, min, max and close buttons sit in the flyout's header and cover "Plugged in" next to "Blade 18 (RZ09-0529)". Find out why (check whether ticket 48's inactive windows caused it) and fix it
 - [ ] 59 Power-mode key works only when the numpad is on its second layer (Num Lock off). Make it work as Synapse did. The user offers two ways: Fn + Enter whatever the numpad layer is, or plain numpad Enter while on the second layer
 - [ ] 60 On a weak charge (no charger, but a monitor powers the laptop over USB-C, so it charges slowly), Synapse did not allow Performance, for lack of power. Do the same
-- [x] 61 `Config::save` uses `fs::write`, which empties the file first. A save that fails part way (such as a full disk) leaves a broken file, and the next start fails to load it. Write a temp file next to it, then rename it over the config (save writes `config.toml.tmp`, syncs it, then renames it over the config; a failed save keeps the old config and removes the temp file)
+- [x] 61 `Config::save` writes a temp file, then renames it over the config
 - [ ] 62 A send that fails part way (such as the zones sent, then a boost Busy) leaves the controller with part of the new state, but the app keeps the old one until the next resume sends it again. Decide whether to read back or say so in the error
 - [ ] 63 The config rename can fail with access denied while another program (such as Defender or the search indexer) holds `config.toml` or its temp file open. The change stays in memory (ticket 57), but the next start sends the old config. Retry only the rename a few times (such as 3 tries, 20 ms apart) on `PermissionDenied`, if the log ever shows it
+- [ ] 64 `cargo test` prints about 600 lines from `crates/blade-lite/tests/report.rs`: `report()` writes to stderr with `writeln!(io::stderr())`, which the test harness does not capture. That costs tokens on every test run. Let a test `Reporter` skip stderr, or capture it, without changing what the app writes
+- [ ] 65 Some `cargo hw` tests in `crates/blade-core/tests/hardware.rs` (native mode, lid logo, touchpad) unwrap the "set the other state" step before they put the state back. If that step fails after the controller took it (such as `Busy`), the test panics and leaves the laptop changed: the next boot can start in the other native mode. Keep each `Result`, put the state back, then assert, as the charge-limit and refresh-rate tests do
+- [ ] 66 `crates/blade-lite/src/app.rs` (about 500 lines) and `shell.rs` (about 470) are edited in most tickets. Split each by job, so a ticket reads less. The same holds for other long files: each module does one job. Move code only: no change in behaviour
 
 ## Still to check on the laptop
-- The power-mode key after a real sleep (in the ticket 45 test the key twice sent only Fn, `04 0A`, without `D3`)
-- The 2 s wait after wake, over a real sleep and wake cycle
-- A restart into the FHD 440 Hz native mode
-- Ticket 44: lid logo off stays off after a restart
-- Ticket 57: make `%APPDATA%\blade-lite\config.toml` read-only, press the power-mode key: the popup and the header show the new mode, and the window shows `sent, but not saved`. Make it writable again after
-- Ticket 61: change a preset in the app. `%APPDATA%\blade-lite\config.toml` has the new preset, and no `config.toml.tmp` is left in that folder
-- Ticket 55: the read again after a Busy reply has not run on the laptop (no Busy reply seen yet). If the log ever shows a Busy error, check whether the command took effect
+Do these in one go, on AC, with "Start with Windows" on and Num Lock off (the power-mode key needs it, ticket 59). First note your preset, keyboard colour, lid logo and native mode; the last step puts them back.
+
+1. **Read-only config (57).** Make `%APPDATA%\blade-lite\config.toml` read-only. Press the power-mode key. The popup and the header show the new mode, and the window shows `sent, but not saved`. Make the file writable again.
+2. **Config save (61).** Change the preset in the app. `config.toml` has the new preset, and no `config.toml.tmp` is left in that folder.
+3. **Sleep, then hibernate.** Set a keyboard colour that is not white. Sleep the laptop and wake it. About 2 s after wake the colour is back (the 2 s wait after wake). Press Fn + numpad Enter: the preset steps (in the ticket 45 test the key sent only Fn, `04 0A`, without `D3`; Num Lock may have been on, ticket 59). Do the same with a hibernate.
+4. **Restart (44, 18).** Turn the lid logo off. Pick the FHD 440 Hz native mode. Restart. The app starts with Windows, the logo stays off, and the screen starts at FHD 440 Hz.
+5. **Put it back.** Set your native mode, keyboard colour, lid logo and preset back as you noted them. Restart once more for the native mode.
+6. **Busy (55).** Nothing to do now. If the log ever shows a Busy error, check whether the command took effect.
 
 ## Publishing on GitHub
 - [ ] 39 Release and installer
