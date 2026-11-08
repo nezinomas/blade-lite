@@ -63,3 +63,5 @@ Status lives in `docs/PLAN.md` only. Commands and git rules are in `CLAUDE.md`.
 - Check `docs/PLAN.md` against what is actually built. Stage 5 found the order did not match.
 - Threads can share this folder. A merge failed because another worktree held `master`. Check the folder is free before you branch (`stage` skill, step 3).
 - In Git Bash, a Windows path written through a heredoc into Python can turn `\b` into a backspace byte. Write such scripts with the Write tool, then check with `grep -c $'\x08' <file>`.
+- Slint: typing in a `LineEdit` breaks a one-way `text:` binding. The window resets the field on Enter, on focus loss, and on `changed custom-hex` (ticket 38).
+- tray-icon 0.26 calls its handlers on the event-loop thread and opens the menu right after the right-button-up handler returns. A change the menu must show has to run inside that handler, not through `slint::invoke_from_event_loop` (ticket 43).
