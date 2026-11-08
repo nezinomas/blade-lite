@@ -1,5 +1,6 @@
 //! Talks to the Blade 18 controller over a [`Transport`].
 
+use std::hash::{BuildHasher, Hasher, RandomState};
 use std::io;
 use std::time::Duration;
 
@@ -91,28 +92,37 @@ pub struct Device<T, C> {
 }
 
 impl<T: Transport, C: Clock> Device<T, C> {
+    /// A device whose first transaction ID is chosen at random, so a reply left
+    /// in the controller by an earlier run is unlikely to match its first request.
     pub fn new(transport: T, clock: C) -> Self {
+        Self::with_first_id(transport, clock, random_id())
+    }
+
+    /// A device whose first transaction ID is `first_id`, modulo 32.
+    pub fn with_first_id(transport: T, clock: C, first_id: u8) -> Self {
         Self {
             transport,
             clock,
-            transaction_id: 0,
+            transaction_id: first_id % TRANSACTION_IDS,
         }
     }
 
     /// Sends a command and returns the controller's Success reply.
-    /// While the controller replies Busy, waits and sends the command again.
-    /// A reply with another transaction ID is read once more after the pause
-    /// (once per send attempt), and the command is not sent again.
+    /// While the controller replies Busy, waits and sends the command again,
+    /// each time with a new transaction ID, so a Busy reply read too soon can
+    /// not pass as the retry's reply. A reply with another transaction ID is
+    /// read once more after the pause (once per send attempt), and the command
+    /// is not sent again.
     ///
     /// # Errors
     ///
     /// See [`DeviceError`].
     pub fn send(&mut self, command: u16, args: &[u8]) -> Result<Report, DeviceError> {
-        let transaction_id = self.next_transaction_id();
-        let request = Request::new(transaction_id, command, args)
-            .map_err(DeviceError::Build)?
-            .to_bytes();
         for _ in 0..MAX_ATTEMPTS {
+            let transaction_id = self.next_transaction_id();
+            let request = Request::new(transaction_id, command, args)
+                .map_err(DeviceError::Build)?
+                .to_bytes();
             let mut report = self.exchange(&request)?;
             if report.transaction_id() != transaction_id {
                 // A reply with another transaction ID, most likely one read
@@ -188,4 +198,10 @@ fn ensure_matches(report: &Report, transaction_id: u8, command: u16) -> Result<(
             command: report.command(),
         })
     }
+}
+
+/// A transaction ID from the random seed std gives each hasher.
+fn random_id() -> u8 {
+    let random = RandomState::new().build_hasher().finish();
+    (random % u64::from(TRANSACTION_IDS)) as u8
 }
