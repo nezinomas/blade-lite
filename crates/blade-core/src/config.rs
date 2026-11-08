@@ -3,7 +3,7 @@
 //! The values are stored as the user picked them. They are checked against
 //! the model when they are applied, not here.
 
-use std::io::ErrorKind;
+use std::io::{ErrorKind, Write};
 use std::path::{Path, PathBuf};
 use std::{fs, io};
 
@@ -131,16 +131,43 @@ impl Config {
 
     /// Writes the config, making its folder if needed.
     ///
+    /// The text goes to a temp file next to the config first, which then
+    /// replaces it. A save that fails part way (such as a full disk) keeps
+    /// the old config whole.
+    ///
     /// # Errors
     ///
-    /// [`ConfigError::Io`] if the folder or file can't be written.
+    /// [`ConfigError::Io`] if the folder or temp file can't be written, or
+    /// the old config can't be replaced (such as another program holding it
+    /// open). The old config is then left as it was.
     pub fn save(&self, path: &Path) -> Result<(), ConfigError> {
+        let text = toml::to_string(self)?;
         if let Some(dir) = path.parent() {
             fs::create_dir_all(dir)?;
         }
-        fs::write(path, toml::to_string(self)?)?;
+        let temp = temp_path(path);
+        write_then_replace(&temp, path, &text).inspect_err(|_| {
+            // Best effort: the error that counts is the one returned.
+            let _ = fs::remove_file(&temp);
+        })?;
         Ok(())
     }
+}
+
+/// The temp file's path: the config's name with `.tmp` added.
+fn temp_path(path: &Path) -> PathBuf {
+    let mut name = path.as_os_str().to_owned();
+    name.push(".tmp");
+    PathBuf::from(name)
+}
+
+/// Writes `text` to `temp`, flushes it to disk, then moves it over `path`.
+fn write_then_replace(temp: &Path, path: &Path, text: &str) -> io::Result<()> {
+    let mut file = fs::File::create(temp)?;
+    file.write_all(text.as_bytes())?;
+    file.sync_all()?;
+    drop(file);
+    fs::rename(temp, path)
 }
 
 // serde hands the value by reference.
