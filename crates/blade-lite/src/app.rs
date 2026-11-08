@@ -206,7 +206,8 @@ where
         }))
     }
 
-    /// The logo switch is hidden if its state could not be read.
+    /// The logo switch is hidden if its state could not be read, the vapor
+    /// light switch if the model has none.
     ///
     /// # Errors
     ///
@@ -219,6 +220,7 @@ where
             colour: lighting.colour,
             touchpad_on: touchpad_on(&self.machine.registry)?,
             logo_on: self.logo_on,
+            vapor_light_on: self.model.vapor_light.map(|_| lighting.vapor_light),
         }))
     }
 
@@ -274,6 +276,11 @@ where
                 lighting.brightness = brightness.percent();
             }
             KeyboardCommand::SetColour(colour) => lighting.colour = colour,
+            // A model without the light is left alone.
+            KeyboardCommand::SetVaporLight(_) if self.model.vapor_light.is_none() => {
+                return Ok(());
+            }
+            KeyboardCommand::SetVaporLight(on) => lighting.vapor_light = on,
             KeyboardCommand::SetTouchpad(on) => {
                 let machine = &mut self.machine;
                 return Ok(set_touchpad(on, &machine.registry, &mut machine.keys)?);

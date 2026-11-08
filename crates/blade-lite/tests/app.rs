@@ -928,3 +928,85 @@ fn a_power_key_with_only_the_running_preset_sends_nothing() {
     assert_eq!(sent(&app), []);
     assert!(!path.exists());
 }
+
+static NO_VAPOR_LIGHT: ModelProfile = ModelProfile {
+    vapor_light: None,
+    ..BLADE_18
+};
+
+/// An app lit at 30% in white, with the vapor light as given.
+fn vapor_app(vapor_light: bool) -> (TestApp, TempDir, PathBuf) {
+    app_with(Config {
+        lighting: Some(Lighting {
+            brightness: 30,
+            colour: WHITE,
+            vapor_light,
+        }),
+        ..Config::default()
+    })
+}
+
+#[test]
+fn the_vapor_light_switch_shows_the_saved_state() {
+    assert_eq!(
+        vapor_app(true).0.keyboard_view().unwrap().vapor_light_on,
+        Some(true)
+    );
+    assert_eq!(
+        vapor_app(false).0.keyboard_view().unwrap().vapor_light_on,
+        Some(false)
+    );
+}
+
+#[test]
+fn the_vapor_light_switch_sends_and_saves_it() {
+    let (mut app, _dir, path) = vapor_app(true);
+
+    app.on_keyboard(KeyboardCommand::SetVaporLight(false))
+        .unwrap();
+
+    let mut expected = brightness_commands(30, false);
+    expected.extend(static_colour(WHITE, &BLADE_18));
+    assert_eq!(sent(&app), expected);
+    let saved = Config::load(&path).unwrap().lighting.unwrap();
+    assert!(!saved.vapor_light);
+    assert_eq!(app.keyboard_view().unwrap().vapor_light_on, Some(false));
+}
+
+#[test]
+fn a_brightness_change_keeps_the_vapor_light_off() {
+    let (mut app, _dir, _) = vapor_app(false);
+
+    app.on_keyboard(KeyboardCommand::SetBrightness(Brightness::new(80).unwrap()))
+        .unwrap();
+
+    let mut expected = brightness_commands(80, false);
+    expected.extend(static_colour(WHITE, &BLADE_18));
+    assert_eq!(sent(&app), expected);
+}
+
+#[test]
+fn a_failed_vapor_light_send_saves_nothing() {
+    let (mut app, _dir, path) = vapor_app(true);
+    app.machine_mut().controller.fails = true;
+
+    assert!(
+        app.on_keyboard(KeyboardCommand::SetVaporLight(false))
+            .is_err()
+    );
+
+    assert!(app.config().lighting.unwrap().vapor_light);
+    assert!(!path.exists());
+}
+
+#[test]
+fn a_model_without_a_vapor_light_hides_the_switch_and_ignores_it() {
+    let (mut app, _dir, path) = app_on(&NO_VAPOR_LIGHT, Config::default());
+
+    assert_eq!(app.keyboard_view().unwrap().vapor_light_on, None);
+    app.on_keyboard(KeyboardCommand::SetVaporLight(false))
+        .unwrap();
+
+    assert!(sent(&app).is_empty());
+    assert!(!path.exists());
+}
