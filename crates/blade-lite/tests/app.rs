@@ -4,7 +4,7 @@ use std::io;
 use std::path::{Path, PathBuf};
 
 use blade_core::{Config, Controller, Lighting, Preset, Query, Readings, RefreshRate};
-use blade_lite::{App, Machine};
+use blade_lite::{App, Machine, took_effect};
 use platform::{
     Display, DisplayApi, DisplayMode, Key, KeyInjector, OutputTechnology, PowerEvent, Registry,
 };
@@ -244,10 +244,42 @@ fn a_preset_sent_but_not_saved_is_kept_and_shown() {
         .unwrap_err();
 
     assert!(error.was_sent());
+    assert_eq!(sent(&app), PerfMode::Silent.commands(&BLADE_18).unwrap());
     assert_eq!(app.running_preset(), Preset::Silent);
     let view = app.performance_view();
     let selected = view.presets.iter().find(|option| option.selected).unwrap();
     assert_eq!(selected.preset, Preset::Silent);
+}
+
+#[test]
+fn a_preset_not_saved_is_sent_again_at_resume_and_back_on_ac() {
+    let (mut app, _dir, path) = app();
+    break_save(&path);
+    let _ = app.on_performance(PerformanceCommand::SetPreset(Preset::Performance));
+    app.machine_mut().controller.sent.clear();
+
+    app.on_power(PowerEvent::Resumed).unwrap();
+    assert!(sent(&app).starts_with(&PerfMode::Performance.commands(&BLADE_18).unwrap()));
+
+    app.on_power(PowerEvent::OnBattery).unwrap();
+    app.machine_mut().controller.sent.clear();
+    app.on_power(PowerEvent::OnAc).unwrap();
+    assert_eq!(sent(&app), PerfMode::Performance.commands(&BLADE_18).unwrap());
+}
+
+#[test]
+fn the_popup_follows_a_change_the_laptop_took() {
+    let (mut app, _dir, path) = app();
+    assert!(took_effect(&Ok(())));
+    app.machine_mut().controller.fails = true;
+    let refused = app.on_performance(PerformanceCommand::SetPreset(Preset::Silent));
+    assert!(!took_effect(&refused));
+
+    app.machine_mut().controller.fails = false;
+    break_save(&path);
+    let not_saved = app.on_performance(PerformanceCommand::SetPreset(Preset::Silent));
+
+    assert!(took_effect(&not_saved));
 }
 
 #[test]
