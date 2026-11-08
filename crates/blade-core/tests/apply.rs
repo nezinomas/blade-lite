@@ -438,9 +438,15 @@ fn a_model_without_a_vapor_light_gets_only_the_keyboard() {
 }
 
 #[test]
-fn a_saved_lid_logo_is_sent_last() {
+fn a_saved_lid_logo_is_sent_after_the_preset_and_before_the_lighting() {
     let (mut controller, _, log) = fakes();
+    let colour = Rgb::new(1, 2, 3);
     let saved = Config {
+        lighting: Some(Lighting {
+            brightness: 50,
+            colour,
+            vapor_light: true,
+        }),
         lid_logo: Some(false),
         ..Config::default()
     };
@@ -449,7 +455,9 @@ fn a_saved_lid_logo_is_sent_last() {
 
     let mut expected = preset_steps(0x00);
     let logo = BLADE_18.logo.unwrap().commands(false);
-    expected.extend(logo.into_iter().map(Step::Sent));
+    let lighting = brightness_commands(50, true);
+    let lighting = lighting.into_iter().chain(static_colour(colour, &BLADE_18));
+    expected.extend(logo.into_iter().chain(lighting).map(Step::Sent));
     assert_eq!(*log.borrow(), expected);
 }
 

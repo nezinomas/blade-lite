@@ -1,4 +1,5 @@
-//! The lid logo light. The controller keeps its state and reports it.
+//! The lid logo light. The controller reports its state, but turns it on
+//! again after a wake, so the app saves it and sends it again.
 
 use razer_device::DeviceError;
 use razer_proto::ModelProfile;

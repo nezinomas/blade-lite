@@ -118,19 +118,20 @@ pub fn reapply_on_resume(
     Ok(())
 }
 
-/// The commands that set the saved preset, then the saved lighting, then
-/// the saved lid logo.
+/// The commands that set the saved preset, then the saved lid logo, then
+/// the saved lighting. The logo goes before the long key frame, so a
+/// lighting error does not keep it from being sent.
 fn commands(
     config: Config,
     model: &ModelProfile,
     touchpad_off: bool,
 ) -> Result<Vec<Command>, ApplyError> {
     let mut commands = preset_commands(config, model)?;
-    if let Some(lighting) = config.lighting {
-        commands.extend(lighting_commands(lighting, model, touchpad_off)?);
-    }
     if let (Some(on), Some(logo)) = (config.lid_logo, model.logo) {
         commands.extend(logo.commands(on));
+    }
+    if let Some(lighting) = config.lighting {
+        commands.extend(lighting_commands(lighting, model, touchpad_off)?);
     }
     Ok(commands)
 }

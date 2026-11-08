@@ -73,8 +73,8 @@ pub struct App<C, D, R, K> {
     battery_rate: BatteryRate,
     on_battery: bool,
     /// The lid logo state, read after the settings are sent at start and
-    /// after each resume. `None` if
-    /// the model has none or it could not be read.
+    /// after each resume. `None` if the model has none or it could not be
+    /// read.
     logo_on: Option<bool>,
     /// The battery charge limit state, read like the logo's.
     charge_limit_on: Option<bool>,
@@ -288,13 +288,13 @@ where
                 return Ok(set_touchpad(on, &machine.registry, &mut machine.keys)?);
             }
             // Saved, as the laptop turns the logo on again after a wake.
+            // Kept in memory even if the save fails, so the next resume
+            // sends what the laptop shows now.
             KeyboardCommand::SetLogo(on) => {
                 set_logo(on, &mut self.machine.controller, self.model)?;
                 self.logo_on = Some(on);
-                return self.commit(Config {
-                    lid_logo: Some(on),
-                    ..self.config
-                });
+                self.config.lid_logo = Some(on);
+                return Ok(self.config.save(&self.config_path)?);
             }
         }
         let red = self.touchpad_off();

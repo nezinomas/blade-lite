@@ -519,7 +519,27 @@ fn the_logo_switch_sends_the_logo_commands_and_saves_the_state() {
     app.on_keyboard(KeyboardCommand::SetLogo(false)).unwrap();
 
     assert_eq!(sent(&app), logo().commands(false));
-    assert_eq!(Config::load(&path).unwrap().lid_logo, Some(false));
+    let saved = Config {
+        lid_logo: Some(false),
+        ..Config::default()
+    };
+    assert_eq!(Config::load(&path).unwrap(), saved);
+}
+
+#[test]
+fn a_logo_switch_that_cannot_be_saved_is_still_sent_at_resume() {
+    let (mut app, _dir, path) = app_with(Config {
+        lid_logo: Some(true),
+        ..Config::default()
+    });
+    // A folder in the file's place makes the save fail.
+    std::fs::create_dir(&path).unwrap();
+    assert!(app.on_keyboard(KeyboardCommand::SetLogo(false)).is_err());
+    app.machine_mut().controller.sent.clear();
+
+    app.on_power(PowerEvent::Resumed).unwrap();
+
+    assert!(sent(&app).ends_with(&logo().commands(false)));
 }
 
 #[test]
@@ -545,6 +565,20 @@ fn a_resume_turns_a_saved_off_logo_off_again() {
 
     assert!(sent(&app).ends_with(&logo().commands(false)));
     assert_eq!(app.keyboard_view().unwrap().logo_on, Some(false));
+}
+
+#[test]
+fn a_failed_start_shows_the_logo_state_the_controller_reads() {
+    let (mut app, _dir, _) = app_with(Config {
+        lid_logo: Some(false),
+        ..Config::default()
+    });
+    app.machine_mut().controller.logo_reply = Some(vec![0, 4, 1]);
+    app.machine_mut().controller.fails = true;
+
+    assert!(app.start().is_err());
+
+    assert_eq!(app.keyboard_view().unwrap().logo_on, Some(true));
 }
 
 #[test]
