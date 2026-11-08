@@ -264,7 +264,8 @@ impl Shell {
         self.popup.set_mode(mode.into());
         let count = self.popups.get().wrapping_add(1);
         self.popups.set(count);
-        // Placed first, so even the first show opens in its place.
+        // Placed before the show. The first time the size is not known yet,
+        // so setup places it again.
         self.place_popup();
         // Every window shows without taking the focus (see main), so this
         // show leaves it where the user is typing.
@@ -289,16 +290,27 @@ impl Shell {
     }
 
     /// Once the popup has a handle: no clicks, no taskbar button, placed
-    /// again at its real size, then faded in. Done again on the next popup until it has worked.
+    /// again at its real size, then faded in. If it would take clicks it is
+    /// hidden, and done again on the next popup.
     fn set_up_popup(&self) {
         let hittest = self.popup.window().with_winit_window(|window| {
             window.set_skip_taskbar(true);
             window.set_cursor_hittest(false)
         });
+        // A popup that takes clicks could take the focus, so it stays
+        // hidden, and setup runs again on the next one.
         match hittest {
             Some(Ok(())) => self.popup_ready.set(true),
-            Some(Err(error)) => report(&format!("the popup takes clicks: {error}")),
-            None => report("the popup has no window"),
+            Some(Err(error)) => {
+                report(&format!("the popup would take clicks: {error}"));
+                let _ = self.popup.hide();
+                return;
+            }
+            None => {
+                report("the popup has no window");
+                let _ = self.popup.hide();
+                return;
+            }
         }
         self.place_popup();
         self.popup.set_shown(true);
