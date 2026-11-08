@@ -47,6 +47,27 @@ pub enum AppError {
     UnknownNativeMode,
     #[error("this preset is not offered on battery: {0:?}")]
     NotOnBattery(Preset),
+    /// The laptop took the change, and the app keeps it, but the config
+    /// file could not be written.
+    #[error("sent, but not saved: {0}")]
+    NotSaved(ConfigError),
+}
+
+impl AppError {
+    /// True only for [`NotSaved`](Self::NotSaved): the laptop took the
+    /// change, though it was not saved. False does not prove that nothing
+    /// was sent (a send may fail part way).
+    #[must_use]
+    pub fn was_sent(&self) -> bool {
+        matches!(self, Self::NotSaved(_))
+    }
+}
+
+/// Whether the laptop took the change: it worked, or it was sent but not
+/// saved. A new power mode then shows the popup.
+#[must_use]
+pub fn took_effect(result: &Result<(), AppError>) -> bool {
+    result.as_ref().map_or_else(AppError::was_sent, |()| true)
 }
 
 impl From<DeviceError> for AppError {
@@ -64,7 +85,7 @@ pub struct Machine<C, D, R, K> {
 }
 
 /// The app's state. Each click becomes a command, and each command is
-/// applied first and saved only when it worked. A logo switch that worked
+/// applied first and saved only when it worked. A change the laptop took
 /// is kept in memory even if its save fails.
 pub struct App<C, D, R, K> {
     model: &'static ModelProfile,
@@ -248,7 +269,8 @@ where
 
     /// # Errors
     ///
-    /// See [`AppError`]. The config is left as it was.
+    /// See [`AppError`]. The config is left as it was, except that a
+    /// change that was sent but not saved is kept in memory.
     pub fn on_performance(&mut self, command: PerformanceCommand) -> Result<(), AppError> {
         let mut config = self.config;
         match command {
@@ -266,7 +288,7 @@ where
         }
         let running = self.running(config);
         apply_performance(&running, self.model, &mut self.machine.controller)?;
-        self.commit(config)
+        self.keep_sent(config)
     }
 
     /// Steps to the next preset, as the power-mode key asks.
@@ -274,7 +296,8 @@ where
     /// # Errors
     ///
     /// See [`AppError`]. Nothing is sent if the model has no key, or no
-    /// other preset to step to; the config is left as it was.
+    /// other preset to step to. The config is left as it was, except that
+    /// a preset that was sent but not saved is kept in memory.
     pub fn on_power_key(&mut self) -> Result<(), AppError> {
         if self.model.power_key.is_none() {
             return Ok(());
@@ -290,8 +313,8 @@ where
 
     /// # Errors
     ///
-    /// See [`AppError`]. The config is left as it was, except that a logo
-    /// switch that was sent but not saved is kept in memory.
+    /// See [`AppError`]. The config is left as it was, except that a
+    /// change that was sent but not saved is kept in memory.
     pub fn on_keyboard(&mut self, command: KeyboardCommand) -> Result<(), AppError> {
         let mut lighting = self.lighting();
         match command {
@@ -309,20 +332,20 @@ where
                 return Ok(set_touchpad(on, &machine.registry, &mut machine.keys)?);
             }
             // Saved, as the laptop turns the logo on again after a wake.
-            // Kept in memory even if the save fails, so the next resume
-            // sends what the laptop shows now.
             KeyboardCommand::SetLogo(on) => {
                 set_logo(on, &mut self.machine.controller, self.model)?;
                 self.logo_on = Some(on);
-                self.config.lid_logo = Some(on);
-                return Ok(self.config.save(&self.config_path)?);
+                return self.keep_sent(Config {
+                    lid_logo: Some(on),
+                    ..self.config
+                });
             }
         }
         let red = self.touchpad_off();
         let applied = apply_lighting(lighting, self.model, &mut self.machine.controller, red);
         self.key_red = applied.is_ok().then_some(red);
         applied?;
-        self.commit(Config {
+        self.keep_sent(Config {
             lighting: Some(lighting),
             ..self.config
         })
@@ -460,6 +483,14 @@ where
 
     fn lighting(&self) -> Lighting {
         self.config.lighting.unwrap_or(DEFAULT_LIGHTING)
+    }
+
+    /// Keeps a config the laptop already runs, then saves it. Kept even if
+    /// the save fails, so the views, the next change and the next resume
+    /// match what the laptop does now.
+    fn keep_sent(&mut self, config: Config) -> Result<(), AppError> {
+        self.config = config;
+        config.save(&self.config_path).map_err(AppError::NotSaved)
     }
 
     fn commit(&mut self, config: Config) -> Result<(), AppError> {
