@@ -1,5 +1,5 @@
-//! The Keyboard and touchpad group: brightness, static colour, the touchpad
-//! and the lid logo.
+//! The Keyboard and touchpad group: brightness, static colour, the touchpad,
+//! the lid logo and the vapor-chamber light.
 
 use razer_proto::{Brightness, Rgb};
 
@@ -27,6 +27,8 @@ pub struct KeyboardState {
     pub touchpad_on: bool,
     /// `None` if the model has no logo or its state is unknown.
     pub logo_on: Option<bool>,
+    /// `None` if the model has no vapor-chamber light.
+    pub vapor_light_on: Option<bool>,
 }
 
 /// A change the user asked for.
@@ -36,6 +38,7 @@ pub enum KeyboardCommand {
     SetColour(Rgb),
     SetTouchpad(bool),
     SetLogo(bool),
+    SetVaporLight(bool),
 }
 
 /// One colour swatch.
@@ -62,6 +65,8 @@ pub struct KeyboardView {
     pub touchpad_on: bool,
     /// `None` hides the lid logo switch: no logo, or its state is unknown.
     pub logo_on: Option<bool>,
+    /// `None` hides the vapor-chamber light switch: the model has none.
+    pub vapor_light_on: Option<bool>,
 }
 
 impl KeyboardView {
@@ -80,6 +85,7 @@ impl KeyboardView {
             custom_colour: state.colour,
             touchpad_on: state.touchpad_on,
             logo_on: state.logo_on,
+            vapor_light_on: state.vapor_light_on,
         }
     }
 
@@ -123,6 +129,14 @@ impl KeyboardView {
     #[must_use]
     pub fn toggle_logo(&self) -> Option<KeyboardCommand> {
         self.logo_on.map(|on| KeyboardCommand::SetLogo(!on))
+    }
+
+    /// The command that flips the vapor-chamber light switch, unless it is
+    /// hidden.
+    #[must_use]
+    pub fn toggle_vapor_light(&self) -> Option<KeyboardCommand> {
+        self.vapor_light_on
+            .map(|on| KeyboardCommand::SetVaporLight(!on))
     }
 
     fn set_colour(&self, colour: Rgb) -> Option<KeyboardCommand> {

@@ -34,6 +34,7 @@ fn keyboard() -> KeyboardView {
         colour: Rgb::new(0xFF, 0xFF, 0xFF),
         touchpad_on: false,
         logo_on: None,
+        vapor_light_on: None,
     })
 }
 

@@ -11,14 +11,22 @@ fn brightness(percent: u8) -> Brightness {
     Brightness::new(percent).expect("0 to 100")
 }
 
-/// Lit at 70% in teal, with the touchpad and the lid logo on.
+/// Lit at 70% in teal, with the touchpad, the lid logo and the vapor light on.
 fn state() -> KeyboardState {
     KeyboardState {
         brightness: brightness(70),
         colour: TEAL,
         touchpad_on: true,
         logo_on: Some(true),
+        vapor_light_on: Some(true),
     }
+}
+
+fn with_vapor_light(vapor_light_on: Option<bool>) -> KeyboardView {
+    KeyboardView::new(&KeyboardState {
+        vapor_light_on,
+        ..state()
+    })
 }
 
 fn with_logo(logo_on: Option<bool>) -> KeyboardView {
@@ -232,4 +240,30 @@ fn an_unknown_lid_logo_state_hides_the_switch_and_sends_nothing() {
 
     assert_eq!(unknown.logo_on, None);
     assert_eq!(unknown.toggle_logo(), None);
+}
+
+#[test]
+fn the_vapor_light_switch_shows_the_saved_state() {
+    assert_eq!(with_vapor_light(Some(true)).vapor_light_on, Some(true));
+    assert_eq!(with_vapor_light(Some(false)).vapor_light_on, Some(false));
+}
+
+#[test]
+fn flipping_the_vapor_light_switch_asks_for_the_other_state() {
+    assert_eq!(
+        with_vapor_light(Some(true)).toggle_vapor_light(),
+        Some(KeyboardCommand::SetVaporLight(false))
+    );
+    assert_eq!(
+        with_vapor_light(Some(false)).toggle_vapor_light(),
+        Some(KeyboardCommand::SetVaporLight(true))
+    );
+}
+
+#[test]
+fn a_model_without_a_vapor_light_hides_the_switch_and_sends_nothing() {
+    let none = with_vapor_light(None);
+
+    assert_eq!(none.vapor_light_on, None);
+    assert_eq!(none.toggle_vapor_light(), None);
 }
