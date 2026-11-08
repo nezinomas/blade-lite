@@ -89,6 +89,7 @@ Checks only a person can do on the laptop wait in "Still to check on the laptop"
 - [ ] 65 Some `cargo hw` tests in `crates/blade-core/tests/hardware.rs` (native mode, lid logo, touchpad) unwrap the "set the other state" step before they put the state back. If that step fails after the controller took it (such as `Busy`), the test panics and leaves the laptop changed: the next boot can start in the other native mode. Keep each `Result`, put the state back, then assert, as the charge-limit and refresh-rate tests do
 - [x] 66 Split by job, code moved only: `app.rs` into `app/` (error, views, clicks, events), `shell.rs` into `shell/` (windows, popup, ticks), `main.rs` threads and tray menu out, `tests/app.rs` into `tests/app/` by topic. Other long Rust files each do one job, so they stay
 - [ ] 67 `crates/blade-lite/ui/window.slint` (about 620 lines) is edited in most UI tickets. Split the header, performance, display and keyboard groups into their own `.slint` components. Move markup only; bindings and callbacks stay the same, so both reviewers
+- [ ] 68 The brightness percent (window and flyout) changes only when the slider is let go, so it looks stuck while dragging. Show the slider's value in the text while dragging. Still send only on release, as now. A `.slint` binding change, so both reviewers
 
 ## Still to check on the laptop
 Do these in one go, on AC, with "Start with Windows" on and Num Lock off (the power-mode key needs it, ticket 59). First note your preset, keyboard colour, lid logo and native mode; the last step puts them back.
