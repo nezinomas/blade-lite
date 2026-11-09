@@ -9,7 +9,7 @@ use razer_device::DeviceError;
 fn a_report_goes_to_the_log_file() {
     let dir = tempfile::tempdir().unwrap();
     let path = Log::path_in(dir.path());
-    let reporter = Reporter::new(Some(Log::new(path.clone())));
+    let reporter = Reporter::quiet(Some(Log::new(path.clone())));
     reporter.report("no Mica: refused");
     let text = fs::read_to_string(path).unwrap();
     assert!(text.ends_with("Z no Mica: refused\n"), "{text}");
@@ -17,14 +17,14 @@ fn a_report_goes_to_the_log_file() {
 
 #[test]
 fn a_report_without_a_log_file_does_nothing_bad() {
-    Reporter::new(None).report("no Mica");
+    Reporter::quiet(None).report("no Mica");
 }
 
 #[test]
 fn a_log_file_that_cannot_be_written_does_not_stop_the_app() {
     let dir = tempfile::tempdir().unwrap();
     // A folder in the file's place.
-    let reporter = Reporter::new(Some(Log::new(dir.path().to_path_buf())));
+    let reporter = Reporter::quiet(Some(Log::new(dir.path().to_path_buf())));
     reporter.report("no Mica");
     reporter.report("still no Mica");
 }
@@ -135,7 +135,7 @@ fn each_read_error_has_its_own_quiet_time() {
 fn reports_from_two_threads_stay_whole_lines() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("blade-lite.log");
-    let reporter = Reporter::new(Some(Log::with_limits(path, 2000, 3)));
+    let reporter = Reporter::quiet(Some(Log::with_limits(path, 2000, 3)));
     std::thread::scope(|scope| {
         for name in ["left", "right"] {
             let reporter = &reporter;
