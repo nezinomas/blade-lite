@@ -93,7 +93,7 @@ Checks only a person can do on the laptop wait in "Still to check on the laptop"
 - [ ] 69 `battery_drops_to_60_hz_and_ac_puts_the_rate_back` in `crates/blade-core/tests/hardware.rs` unwraps `on_event` and `panel_rate()` inside its loop, so an error after the 60 Hz switch skips the put-back and leaves the panel at 60 Hz. Keep the first error, break, put the rate back, then assert, as ticket 65 did. Needs the charger test on the laptop (start on battery)
 - [x] 70 Window tests in `cargo t`: the window, flyout and popup drawn off screen over fakes (Slint's testing backend), 13 scripted clicks that check the exact commands sent, the window and the log, and 6 pictures compared with `crates/blade-lite/tests/screens/`. `CLAUDE.md` and the `stage` skill make threads run them and ask the user only what software can't see
 - [ ] 71 Window tests for the custom colour field (type `#00B7C3`, Enter, check the colour sent) and the Custom sliders (drag CPU boost one step, check the command). Both reviewers
-- [ ] 72 The touchpad key is numpad "." on the digit layer (Num Lock on). With the touchpad off it is red on both layers. Keep it in the keyboard colour while Num Lock is on, red only while Num Lock is off
+- [x] 72 Touchpad key (numpad ".") red only while the touchpad and Num Lock are both off; Num Lock read each 1 s poll, nothing painted during a resume pause (profile flag `plain_with_num_lock`)
 
 ## Still to check on the laptop
 Do these in one go, on AC, with "Start with Windows" on and Num Lock off (the power-mode key needs it, ticket 59). First note your preset, keyboard colour, lid logo and native mode; the last step puts them back.
