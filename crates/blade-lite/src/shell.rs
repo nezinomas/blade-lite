@@ -68,9 +68,10 @@ pub struct Shell<P: Parts = Laptop> {
     popups: Cell<u32>,
     /// Whether the popup has been made click-through.
     popup_ready: Cell<bool>,
-    /// From a wake until the resume is applied after its pause. Nothing is
-    /// painted then, as the controller is not ready.
-    resuming: Cell<bool>,
+    /// The resumes still waiting out their pause. The touchpad key is not
+    /// painted on a Num Lock or touchpad change then, as the controller is
+    /// not ready; the resume paints it.
+    resuming: Cell<u32>,
 }
 
 impl<P: Parts> Shell<P> {
@@ -96,7 +97,7 @@ impl<P: Parts> Shell<P> {
             mode_watch,
             popups: Cell::new(0),
             popup_ready: Cell::new(false),
-            resuming: Cell::new(false),
+            resuming: Cell::new(0),
         })
     }
 

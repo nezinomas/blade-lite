@@ -238,3 +238,29 @@ fn num_lock_during_the_resume_pause_sends_nothing() {
     assert_eq!(sent_since(&f, before), []);
     assert!(f.shell.app().num_lock_on());
 }
+
+#[test]
+fn a_touchpad_change_during_the_resume_pause_sends_nothing() {
+    let f = touchpad_off_fixture();
+    let (sender, receiver) = std::sync::mpsc::channel();
+    sender.send(PowerEvent::Resumed).unwrap();
+    f.shell.follow_power(&receiver);
+    let before = sent_count(&f);
+
+    f.shell.follow_touchpad();
+
+    assert_eq!(sent_since(&f, before), []);
+}
+
+#[test]
+fn a_touchpad_change_paints_the_key_outside_a_resume() {
+    let f = touchpad_off_fixture();
+    let before = sent_count(&f);
+
+    f.shell.follow_touchpad();
+
+    assert_eq!(
+        sent_since(&f, before),
+        razer_proto::static_colour_touchpad_off(WHITE, &BLADE_18)
+    );
+}

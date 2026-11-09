@@ -37,8 +37,8 @@ where
 
     /// Paints the touchpad key red if the touchpad is now off and Num Lock
     /// is off, or back in the lighting colour if not. Nothing is sent if
-    /// the key already shows the state, or the user has not set the lighting, since the
-    /// app then leaves the keyboard's own effect alone.
+    /// the key already shows the state, or the user has not set the
+    /// lighting, since the app then leaves the keyboard's own effect alone.
     ///
     /// # Errors
     ///

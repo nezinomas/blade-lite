@@ -29,7 +29,7 @@ impl<P: Parts> Shell<P> {
         if self.app.borrow().num_lock_on() == on {
             return;
         }
-        if self.resuming.get() {
+        if self.resuming.get() > 0 {
             self.app.borrow_mut().set_num_lock(on);
             return;
         }
@@ -38,6 +38,14 @@ impl<P: Parts> Shell<P> {
         let painted = self.app.borrow_mut().on_num_lock(on);
         if !matches!(painted, Ok(false)) {
             self.act(|_| painted.map(|_| ()));
+        }
+    }
+
+    /// Paints the touchpad key after a touchpad change, unless a resume
+    /// waits: the resume reads the touchpad and paints it.
+    pub fn follow_touchpad(self: &Rc<Self>) {
+        if self.resuming.get() == 0 {
+            self.act(blade_lite::App::on_touchpad_changed);
         }
     }
 
@@ -51,10 +59,10 @@ impl<P: Parts> Shell<P> {
     fn power_event(self: &Rc<Self>, event: PowerEvent) {
         if event == PowerEvent::Resumed {
             // The controller needs a moment after the wake.
-            self.resuming.set(true);
+            self.resuming.set(self.resuming.get().saturating_add(1));
             let shell = Rc::clone(self);
             Timer::single_shot(RESUME_PAUSE, move || {
-                shell.resuming.set(false);
+                shell.resuming.set(shell.resuming.get().saturating_sub(1));
                 shell.app.borrow_mut().set_num_lock(num_lock_on());
                 shell.act(|app| app.on_power(PowerEvent::Resumed));
             });

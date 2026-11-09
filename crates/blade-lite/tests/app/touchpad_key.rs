@@ -108,7 +108,7 @@ fn a_resume_paints_the_touchpad_key_red_again() {
 
     app.on_power(PowerEvent::Resumed).unwrap();
 
-    assert_eq!(sent_after(&app, started).last(), red_key().last());
+    assert!(sent_after(&app, started).ends_with(&red_key()));
     assert_eq!(sent(&app).len(), 2 * started);
 }
 
@@ -303,5 +303,5 @@ fn a_resume_with_num_lock_on_keeps_the_key_plain() {
 
     app.on_power(PowerEvent::Resumed).unwrap();
 
-    assert_eq!(sent_after(&app, started).last(), plain_key().last());
+    assert!(sent_after(&app, started).ends_with(&plain_key()));
 }
