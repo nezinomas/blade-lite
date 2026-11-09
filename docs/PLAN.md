@@ -8,6 +8,8 @@ How a stage is built, reviewed and merged: the `stage` skill and the hardware sa
 Every stage is reviewed before merge by subagents (`.claude/agents/`): both the `informed-reviewer` and the `fresh-reviewer` when it can change what is sent to the laptop, the `informed-reviewer` alone when it can't ("Review tiers" in `CLAUDE.md`).
 Checks only a person can do on the laptop wait in "Still to check on the laptop" below until the user confirms them.
 
+**Next ticket: 74** (Synapse coming back and the Razer drivers from Windows Update). "Next" runs it before any other; remove this line when it is done.
+
 ## Before code
 - [x] 0 Try r-helper and read its 02C7 code
 - [x] 1 Capture Synapse USB traffic
