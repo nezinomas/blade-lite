@@ -37,16 +37,28 @@ fn open() -> HidTransport {
     HidTransport::open(&BLADE_18).unwrap()
 }
 
+/// An error as text, so a test can keep the `Result` of each step and put
+/// the old state back before it asserts.
+fn text(error: impl std::fmt::Display) -> String {
+    error.to_string()
+}
+
 /// Waits until Windows reports the touchpad state, or gives up.
-fn wait_for_touchpad(on: bool) -> bool {
+fn wait_for_touchpad(on: bool) -> Result<bool, String> {
     let start = Instant::now();
     while start.elapsed() < Duration::from_secs(3) {
-        if touchpad_on(&WindowsRegistry).unwrap() == on {
-            return true;
+        if touchpad_on(&WindowsRegistry).map_err(text)? == on {
+            return Ok(true);
         }
         thread::sleep(Duration::from_millis(50));
     }
-    false
+    Ok(false)
+}
+
+/// Switches the touchpad to `on` and waits until Windows reports it.
+fn switch_touchpad(on: bool) -> Result<bool, String> {
+    set_touchpad(on, &WindowsRegistry, &mut WindowsKeys).map_err(text)?;
+    wait_for_touchpad(on)
 }
 
 #[test]
@@ -55,13 +67,12 @@ fn the_touchpad_is_toggled_and_put_back() {
     let before = touchpad_on(&WindowsRegistry).unwrap();
     eprintln!("touchpad on before: {before}");
 
-    set_touchpad(!before, &WindowsRegistry, &mut WindowsKeys).unwrap();
-    let toggled = wait_for_touchpad(!before);
-    set_touchpad(before, &WindowsRegistry, &mut WindowsKeys).unwrap();
-    let restored = wait_for_touchpad(before);
+    let toggled = switch_touchpad(!before);
+    // Put it back even if the toggle failed.
+    let restored = switch_touchpad(before);
 
-    assert!(toggled, "the state did not change");
-    assert!(restored, "the old state was not put back");
+    assert!(toggled.unwrap(), "the state did not change");
+    assert!(restored.unwrap(), "the old state was not put back");
 }
 
 #[test]
@@ -104,12 +115,22 @@ fn the_refresh_rate_is_switched_and_put_back() {
 }
 
 /// The native mode the controller has chosen, and its state.
-fn native_state(device: &mut Device<HidTransport, SystemClock>) -> NativeModeState {
+fn native_state(device: &mut Device<HidTransport, SystemClock>) -> Result<NativeModeState, String> {
     let query = NativeMode::query();
-    let reply = device.send(query.id, &query.args).unwrap();
+    let reply = device.send(query.id, &query.args).map_err(text)?;
     eprintln!("0D8E reply: {:02X?}", reply.args());
-    let chosen = NativeMode::from_reply(reply.args(), &BLADE_18).unwrap();
-    native_mode_state(chosen, &BLADE_18, &WindowsDisplays).unwrap()
+    let chosen = NativeMode::from_reply(reply.args(), &BLADE_18)
+        .ok_or("the 0D8E reply names no known mode")?;
+    native_mode_state(chosen, &BLADE_18, &WindowsDisplays).map_err(text)
+}
+
+/// Chooses `mode` for the next boot, then reads the state back.
+fn choose_native_mode(
+    mode: NativeMode,
+    device: &mut Device<HidTransport, SystemClock>,
+) -> Result<NativeModeState, String> {
+    set_native_mode(mode, device).map_err(text)?;
+    native_state(device)
 }
 
 #[test]
@@ -117,7 +138,7 @@ fn native_state(device: &mut Device<HidTransport, SystemClock>) -> NativeModeSta
 fn the_native_mode_is_chosen_for_the_next_boot_and_put_back() {
     let transport = open();
     let mut device = Device::new(transport, SystemClock);
-    let NativeModeState::Active(before) = native_state(&mut device) else {
+    let NativeModeState::Active(before) = native_state(&mut device).unwrap() else {
         panic!("a mode change already waits for a restart");
     };
     let other = *BLADE_18
@@ -127,13 +148,12 @@ fn the_native_mode_is_chosen_for_the_next_boot_and_put_back() {
         .unwrap();
     eprintln!("booted in {before:?}, choosing {other:?}");
 
-    set_native_mode(other, &mut device).unwrap();
-    let chosen = native_state(&mut device);
-    set_native_mode(before, &mut device).unwrap();
-    let restored = native_state(&mut device);
+    let chosen = choose_native_mode(other, &mut device);
+    // Put it back even if the choice failed, so the next boot is as before.
+    let restored = choose_native_mode(before, &mut device);
 
-    assert_eq!(chosen, NativeModeState::AppliesAfterRestart(other));
-    assert_eq!(restored, NativeModeState::Active(before));
+    assert_eq!(chosen.unwrap(), NativeModeState::AppliesAfterRestart(other));
+    assert_eq!(restored.unwrap(), NativeModeState::Active(before));
 }
 
 #[test]
@@ -146,13 +166,21 @@ fn the_lid_logo_is_flipped_and_put_back() {
         .expect("the logo reads on or off");
     eprintln!("logo on before: {before}");
 
-    set_logo(!before, &mut device, &BLADE_18).unwrap();
-    let flipped = logo_on(&mut device, &BLADE_18).unwrap();
-    set_logo(before, &mut device, &BLADE_18).unwrap();
-    let restored = logo_on(&mut device, &BLADE_18).unwrap();
+    let flipped = switch_logo(!before, &mut device);
+    // Put it back even if the flip failed.
+    let restored = switch_logo(before, &mut device);
 
-    assert_eq!(flipped, Some(!before));
-    assert_eq!(restored, Some(before));
+    assert_eq!(flipped.unwrap(), Some(!before));
+    assert_eq!(restored.unwrap(), Some(before));
+}
+
+/// Turns the lid logo on or off, then reads it back.
+fn switch_logo(
+    on: bool,
+    device: &mut Device<HidTransport, SystemClock>,
+) -> Result<Option<bool>, String> {
+    set_logo(on, device, &BLADE_18).map_err(text)?;
+    logo_on(device, &BLADE_18).map_err(text)
 }
 
 #[test]
@@ -162,14 +190,18 @@ fn the_watch_sees_the_touchpad_switch() {
     let before = touchpad_on(&WindowsRegistry).unwrap();
     let watch = RegistryWatch::open(TOUCHPAD_KEY).unwrap();
 
-    set_touchpad(!before, &WindowsRegistry, &mut WindowsKeys).unwrap();
-    let seen = watch.wait(Duration::from_secs(3)).unwrap();
-    let flipped = wait_for_touchpad(!before);
-    set_touchpad(before, &WindowsRegistry, &mut WindowsKeys).unwrap();
+    let flip = (|| {
+        set_touchpad(!before, &WindowsRegistry, &mut WindowsKeys).map_err(text)?;
+        let seen = watch.wait(Duration::from_secs(3)).map_err(text)?;
+        Ok::<_, String>((seen, wait_for_touchpad(!before)?))
+    })();
+    // Put it back even if the flip failed.
+    let restored = switch_touchpad(before);
 
+    let (seen, flipped) = flip.unwrap();
     assert!(flipped, "the touchpad did not switch");
     assert!(seen, "the watch did not see the switch");
-    assert!(wait_for_touchpad(before), "the touchpad was not put back");
+    assert!(restored.unwrap(), "the touchpad was not put back");
 }
 
 #[test]
