@@ -94,6 +94,11 @@ Checks only a person can do on the laptop wait in "Still to check on the laptop"
 - [x] 70 Window tests in `cargo t`: the window, flyout and popup drawn off screen over fakes (Slint's testing backend), 13 scripted clicks that check the exact commands sent, the window and the log, and 6 pictures compared with `crates/blade-lite/tests/screens/`. `CLAUDE.md` and the `stage` skill make threads run them and ask the user only what software can't see
 - [ ] 71 Window tests for the custom colour field (type `#00B7C3`, Enter, check the colour sent) and the Custom sliders (drag CPU boost one step, check the command). Both reviewers
 - [x] 72 Touchpad key (numpad ".") red only while the touchpad and Num Lock are both off; Num Lock read each 1 s poll, nothing painted during a resume pause (profile flag `plain_with_num_lock`)
+- [ ] 73 Mic key (numpad 0 on the digit layer, mic on the second layer): red while the mic is muted and Num Lock is off, plain with Num Lock on, as ticket 72. Fn + mic today shows the Windows 11 popup "No supported apps in use for mic mute" and the key stays plain (user, 2026-11-09). First find a mute state Windows really keeps (such as the default capture device's mute, read and watched) and check it on the laptop. Both reviewers
+- [ ] 74 Synapse coming back: Windows Update can reinstall Razer's driver and the Synapse installer, and two programs would then talk to the controller. At start and after resume, look for the Razer Synapse service or process; if found, log it and show a one-time warning. Send nothing different (read only)
+- [ ] 75 Temperature warning: a popup when the CPU or GPU stays above a limit (such as 95 °C) for a few minutes, from the readings the app already polls. Once per hot spell, not on each poll
+- [ ] 76 Battery health in the header: wear (full charge capacity against design capacity) and cycle count, read from Windows (WMI `BatteryFullChargedCapacity`, `BatteryStaticData`, `BatteryCycleCount`). Read only, no controller command
+- [ ] 77 Export and import settings, and "Reset to defaults". Import goes through the same checks as loading `config.toml` (an invalid file changes nothing), then applies as a start does. Both reviewers
 
 ## Still to check on the laptop
 Do these in one go, on AC, with "Start with Windows" on and Num Lock off (the power-mode key needs it, ticket 59). First note your preset, keyboard colour, lid logo and native mode; the last step puts them back.
@@ -110,3 +115,8 @@ Do these in one go, on AC, with "Start with Windows" on and Num Lock off (the po
 ## Publishing on GitHub
 - [ ] 39 Release and installer
 - [ ] 40 Signing
+- [ ] 78 Installer: uninstall closes the app, removes the "Blade Lite" Run value, and asks whether to keep `%APPDATA%lade-lite` (config and log). Part of 39 or a ticket beside it
+
+## Maybe later (not tickets yet)
+- "Open log folder" in the tray menu
+- Update check: read GitHub releases about once a week and show a "new version" note; downloads nothing
