@@ -1,13 +1,24 @@
-//! Key presses sent to Windows with `SendInput`.
+//! Key presses sent to Windows with `SendInput`, and the Num Lock state.
 
 use std::io;
 
 use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
-    INPUT, INPUT_0, INPUT_KEYBOARD, KEYBD_EVENT_FLAGS, KEYBDINPUT, KEYEVENTF_KEYUP, SendInput,
-    VIRTUAL_KEY, VK_CONTROL, VK_F24, VK_LWIN,
+    GetKeyState, INPUT, INPUT_0, INPUT_KEYBOARD, KEYBD_EVENT_FLAGS, KEYBDINPUT, KEYEVENTF_KEYUP,
+    SendInput, VIRTUAL_KEY, VK_CONTROL, VK_F24, VK_LWIN, VK_NUMLOCK,
 };
 
 use crate::{Key, KeyInjector};
+
+/// Whether Num Lock is on now. Read from the app's background thread too,
+/// as checked on the laptop.
+#[must_use]
+pub fn num_lock_on() -> bool {
+    // SAFETY: GetKeyState takes a key code by value and touches no memory
+    // of ours.
+    let state = unsafe { GetKeyState(i32::from(VK_NUMLOCK)) };
+    // The low bit is the toggle.
+    state & 1 == 1
+}
 
 /// Key presses that reach Windows as if typed on the keyboard.
 pub struct WindowsKeys;
