@@ -51,6 +51,9 @@ pub struct App<C, D, R, K> {
     /// `None` if unknown, such as after a failed send: the next change
     /// then paints it.
     key_red: Option<bool>,
+    /// Whether Num Lock is on. The touchpad key is "." then, so it keeps
+    /// the plain colour.
+    num_lock_on: bool,
     /// The controller reads that failed when the header was last made.
     read_errors: Vec<String>,
 }
@@ -79,6 +82,7 @@ where
             logo_on: None,
             charge_limit_on: None,
             key_red: None,
+            num_lock_on: false,
             read_errors: Vec::new(),
         }
     }
@@ -97,15 +101,27 @@ where
         &mut self.machine
     }
 
-    /// Whether the touchpad key should be red. If the touchpad state can't
-    /// be read, the key keeps the plain colour.
-    fn touchpad_off(&self) -> bool {
+    #[must_use]
+    pub fn num_lock_on(&self) -> bool {
+        self.num_lock_on
+    }
+
+    /// Takes the Num Lock state without painting, for use before
+    /// [`start`](Self::start).
+    pub fn set_num_lock(&mut self, on: bool) {
+        self.num_lock_on = on;
+    }
+
+    /// Whether the touchpad key should be red: the touchpad is off and Num
+    /// Lock is off. If the touchpad state can't be read, the key keeps the
+    /// plain colour.
+    fn key_should_be_red(&self) -> bool {
         touchpad_on(&self.machine.registry).map_or_else(
             |error| {
                 report(&format!("the touchpad key stays plain: {error}"));
                 false
             },
-            |on| !on,
+            |on| !on && !self.num_lock_on,
         )
     }
 

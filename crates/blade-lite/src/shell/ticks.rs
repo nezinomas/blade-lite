@@ -1,4 +1,4 @@
-//! What the shell does on each poll: power events and sensor reads.
+//! What the shell does on each poll: power events, Num Lock and sensor reads.
 
 use std::rc::Rc;
 use std::sync::mpsc::Receiver;
@@ -6,18 +6,27 @@ use std::time::Instant;
 
 use blade_core::RESUME_PAUSE;
 use blade_lite::report;
-use platform::PowerEvent;
+use platform::{PowerEvent, num_lock_on};
 use slint::Timer;
 
 use super::{Parts, Shell};
 use crate::bind;
 
 impl<P: Parts> Shell<P> {
-    /// Passes on power events, then reads the sensors if a view shows them.
+    /// Passes on power events and Num Lock, then reads the sensors if a
+    /// view shows them.
     pub fn tick(self: &Rc<Self>, power: &Receiver<PowerEvent>) {
         self.follow_power(power);
+        self.follow_num_lock(num_lock_on());
         if self.schedule.borrow_mut().poll_due(Instant::now()) {
             self.tick_readings();
+        }
+    }
+
+    /// Paints the touchpad key again if Num Lock changed since the last look.
+    pub fn follow_num_lock(self: &Rc<Self>, on: bool) {
+        if self.app.borrow().num_lock_on() != on {
+            self.act(|app| app.on_num_lock(on));
         }
     }
 

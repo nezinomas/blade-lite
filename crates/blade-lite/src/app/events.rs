@@ -1,4 +1,5 @@
-//! What the app does at start, on a power change and on a touchpad switch.
+//! What the app does at start, on a power change, on a touchpad switch and
+//! on a Num Lock change.
 
 use blade_core::{
     Controller, Query, apply, apply_performance, logo_on, paint_touchpad_key, touchpad_on,
@@ -17,7 +18,7 @@ where
     /// Reads the charge limit state, sends the saved settings, then reads
     /// the logo state they leave. The preset that runs in place of the
     /// saved one on battery is sent. The touchpad key is red in that frame
-    /// if the touchpad is off.
+    /// if the touchpad is off and Num Lock is off.
     ///
     /// # Errors
     ///
@@ -25,7 +26,7 @@ where
     pub fn start(&mut self) -> Result<(), AppError> {
         self.read_charge_limit();
         let config = self.running(self.config);
-        let red = self.touchpad_off();
+        let red = self.key_should_be_red();
         let applied = apply(&config, self.model, &mut self.machine.controller, red);
         self.key_red = applied.is_ok().then_some(red);
         self.logo_on = logo_on(&mut self.machine.controller, self.model)
@@ -34,8 +35,8 @@ where
         Ok(applied?)
     }
 
-    /// Paints the touchpad key red if the touchpad is now off, or back in
-    /// the lighting colour if it is on. Nothing is sent if the key already
+    /// Paints the touchpad key red if the touchpad is now off and Num Lock
+    /// is off, or back in the lighting colour if not. Nothing is sent if the key already
     /// shows the state, or the user has not set the lighting, since the
     /// app then leaves the keyboard's own effect alone.
     ///
@@ -47,13 +48,27 @@ where
         let Some(lighting) = self.config.lighting else {
             return Ok(());
         };
-        let red = !touchpad_on(&self.machine.registry)?;
+        let red = !touchpad_on(&self.machine.registry)? && !self.num_lock_on;
         if self.key_red == Some(red) {
             return Ok(());
         }
         let painted = paint_touchpad_key(red, lighting, self.model, &mut self.machine.controller);
         self.key_red = painted.is_ok().then_some(red);
         Ok(painted?)
+    }
+
+    /// Paints the touchpad key again when Num Lock changes: with Num Lock
+    /// on the key is ".", so it keeps the plain colour.
+    ///
+    /// # Errors
+    ///
+    /// As [`on_touchpad_changed`](Self::on_touchpad_changed).
+    pub fn on_num_lock(&mut self, on: bool) -> Result<(), AppError> {
+        if self.num_lock_on == on {
+            return Ok(());
+        }
+        self.num_lock_on = on;
+        self.on_touchpad_changed()
     }
 
     /// Follows the power source, and applies everything again after a
