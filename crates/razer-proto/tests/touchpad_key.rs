@@ -16,7 +16,11 @@ fn colour_at(commands: &[razer_proto::Command], row: u8, column: u8) -> Rgb {
 fn the_blade_18_key_is_numpad_dot() {
     assert_eq!(
         BLADE_18.touchpad_key,
-        Some(TouchpadKey { row: 5, column: 17 })
+        Some(TouchpadKey {
+            row: 5,
+            column: 17,
+            plain_with_num_lock: true,
+        })
     );
 }
 
@@ -57,7 +61,11 @@ fn a_model_without_the_key_gets_the_plain_frame() {
 fn a_key_outside_the_grid_or_on_a_gap_is_not_painted() {
     for (row, column) in [(7, 0), (0, 19), (5, 4)] {
         let odd = ModelProfile {
-            touchpad_key: Some(TouchpadKey { row, column }),
+            touchpad_key: Some(TouchpadKey {
+                row,
+                column,
+                plain_with_num_lock: false,
+            }),
             ..BLADE_18
         };
 
