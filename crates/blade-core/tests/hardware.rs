@@ -61,6 +61,17 @@ fn switch_touchpad(on: bool) -> Result<bool, String> {
     wait_for_touchpad(on)
 }
 
+/// Puts the touchpad back to `before`. `set_touchpad` presses the toggle key
+/// only if the state differs, so after a switch that was not seen, first
+/// wait out a late one: else the restore sees `before`, sends nothing, and
+/// the late switch leaves the touchpad changed.
+fn put_touchpad_back(before: bool, switch_seen: bool) -> Result<bool, String> {
+    if !switch_seen {
+        thread::sleep(Duration::from_secs(3));
+    }
+    switch_touchpad(before)
+}
+
 #[test]
 #[ignore = "needs a laptop with a precision touchpad, and toggles it"]
 fn the_touchpad_is_toggled_and_put_back() {
@@ -69,10 +80,12 @@ fn the_touchpad_is_toggled_and_put_back() {
 
     let toggled = switch_touchpad(!before);
     // Put it back even if the toggle failed.
-    let restored = switch_touchpad(before);
+    let restored = put_touchpad_back(before, toggled == Ok(true));
 
+    // The lasting state first, so its error is never hidden.
+    let restored = restored.unwrap_or_else(|error| panic!("{error}; check the touchpad by hand"));
+    assert!(restored, "the touchpad was not put back to on = {before}");
     assert!(toggled.unwrap(), "the state did not change");
-    assert!(restored.unwrap(), "the old state was not put back");
 }
 
 #[test]
@@ -152,8 +165,11 @@ fn the_native_mode_is_chosen_for_the_next_boot_and_put_back() {
     // Put it back even if the choice failed, so the next boot is as before.
     let restored = choose_native_mode(before, &mut device);
 
+    // The lasting state first, so its error is never hidden.
+    let put_back = format!("the next boot may start in {other:?}: choose {before:?} in the app");
+    let restored = restored.unwrap_or_else(|error| panic!("{error}; {put_back}"));
+    assert_eq!(restored, NativeModeState::Active(before), "{put_back}");
     assert_eq!(chosen.unwrap(), NativeModeState::AppliesAfterRestart(other));
-    assert_eq!(restored.unwrap(), NativeModeState::Active(before));
 }
 
 #[test]
@@ -170,8 +186,11 @@ fn the_lid_logo_is_flipped_and_put_back() {
     // Put it back even if the flip failed.
     let restored = switch_logo(before, &mut device);
 
+    // The lasting state first, so its error is never hidden.
+    let put_back = format!("the logo may be left on = {}: set it in the app", !before);
+    let restored = restored.unwrap_or_else(|error| panic!("{error}; {put_back}"));
+    assert_eq!(restored, Some(before), "{put_back}");
     assert_eq!(flipped.unwrap(), Some(!before));
-    assert_eq!(restored.unwrap(), Some(before));
 }
 
 /// Turns the lid logo on or off, then reads it back.
@@ -190,18 +209,21 @@ fn the_watch_sees_the_touchpad_switch() {
     let before = touchpad_on(&WindowsRegistry).unwrap();
     let watch = RegistryWatch::open(TOUCHPAD_KEY).unwrap();
 
-    let flip = (|| {
-        set_touchpad(!before, &WindowsRegistry, &mut WindowsKeys).map_err(text)?;
-        let seen = watch.wait(Duration::from_secs(3)).map_err(text)?;
-        Ok::<_, String>((seen, wait_for_touchpad(!before)?))
-    })();
+    let flip = set_touchpad(!before, &WindowsRegistry, &mut WindowsKeys).map_err(text);
+    // Always wait for the switch, even if the watch failed, so a late one
+    // can't land after the restore.
+    let seen = flip
+        .clone()
+        .and_then(|()| watch.wait(Duration::from_secs(3)).map_err(text));
+    let flipped = flip.and_then(|()| wait_for_touchpad(!before));
     // Put it back even if the flip failed.
-    let restored = switch_touchpad(before);
+    let restored = put_touchpad_back(before, flipped == Ok(true));
 
-    let (seen, flipped) = flip.unwrap();
-    assert!(flipped, "the touchpad did not switch");
-    assert!(seen, "the watch did not see the switch");
-    assert!(restored.unwrap(), "the touchpad was not put back");
+    // The lasting state first, so its error is never hidden.
+    let restored = restored.unwrap_or_else(|error| panic!("{error}; check the touchpad by hand"));
+    assert!(restored, "the touchpad was not put back to on = {before}");
+    assert!(flipped.unwrap(), "the touchpad did not switch");
+    assert!(seen.unwrap(), "the watch did not see the switch");
 }
 
 #[test]
