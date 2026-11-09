@@ -10,7 +10,7 @@ use raw_window_handle::{HasWindowHandle, RawWindowHandle};
 use slint::winit_030::{EventResult, WinitWindowAccessor, winit};
 use slint::{ComponentHandle, PhysicalPosition, Timer};
 
-use super::Shell;
+use super::{Parts, Shell};
 use crate::tray::px;
 
 /// A tray click this soon after the flyout closed is the click that closed
@@ -22,7 +22,7 @@ const REOPEN_GUARD: Duration = Duration::from_millis(300);
 const SHOW_DELAY: Duration = Duration::from_millis(16);
 const SHOW_TRIES: u32 = 60;
 
-impl Shell {
+impl<P: Parts> Shell<P> {
     /// Closing the window hides it, and the flyout hides when it loses focus.
     pub fn watch_windows(self: &Rc<Self>) {
         let shell = Rc::downgrade(self);
