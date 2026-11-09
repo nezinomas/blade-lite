@@ -17,7 +17,8 @@ fn a_report_goes_to_the_log_file() {
 
 #[test]
 fn a_report_without_a_log_file_does_nothing_bad() {
-    Reporter::quiet(None).report("no Mica");
+    // Stderr only: its one line is what this test checks.
+    Reporter::new(None).report("no Mica");
 }
 
 #[test]
@@ -157,7 +158,8 @@ fn reports_from_two_threads_stay_whole_lines() {
     }
 }
 
-/// The app's one reporter: only this test may touch it.
+/// The app's one reporter: only this test may touch it. It writes to stderr,
+/// as the app does, so this test prints a few lines on purpose.
 #[test]
 fn the_app_log_opens_once_and_also_takes_panics() {
     let dir = tempfile::tempdir().unwrap();

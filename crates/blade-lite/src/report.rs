@@ -8,7 +8,8 @@ use std::time::{Duration, Instant, SystemTime};
 
 use blade_core::Log;
 
-/// Writes each report to stderr and, if there is one, the log file.
+/// Writes each report to stderr (unless quiet) and, if there is one, the
+/// log file.
 #[derive(Debug)]
 pub struct Reporter {
     log: Mutex<Option<Log>>,
@@ -26,7 +27,8 @@ impl Reporter {
     }
 
     /// A reporter for `log` that writes nothing to stderr, for tests: the
-    /// test harness does not capture what is written there.
+    /// test harness does not capture what is written there. `None` reports
+    /// nothing at all.
     #[must_use]
     pub fn quiet(log: Option<Log>) -> Self {
         Self {
@@ -36,7 +38,7 @@ impl Reporter {
     }
 
     /// Reports `text`. A log file that can't be written is said on stderr
-    /// and never stops the caller.
+    /// (unless quiet) and never stops the caller.
     pub fn report(&self, text: &str) {
         // One thread at a time, so a file is never moved aside mid-line.
         // A thread that panicked while holding it left nothing half done.
