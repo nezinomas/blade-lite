@@ -91,6 +91,8 @@ Checks only a person can do on the laptop wait in "Still to check on the laptop"
 - [x] 67 `window.slint` split: shared parts, the header and one file per group (display, performance, keyboard); markup moved only, bindings and callbacks the same (checked on the laptop)
 - [ ] 68 The brightness percent (window and flyout) changes only when the slider is let go, so it looks stuck while dragging. Show the slider's value in the text while dragging. Still send only on release, as now. A `.slint` binding change, so both reviewers
 - [ ] 69 `battery_drops_to_60_hz_and_ac_puts_the_rate_back` in `crates/blade-core/tests/hardware.rs` unwraps `on_event` and `panel_rate()` inside its loop, so an error after the 60 Hz switch skips the put-back and leaves the panel at 60 Hz. Keep the first error, break, put the rate back, then assert, as ticket 65 did. Needs the charger test on the laptop (start on battery)
+- [x] 70 Window tests in `cargo t`: the window, flyout and popup drawn off screen over fakes (Slint's testing backend), 13 scripted clicks that check the exact commands sent, the window and the log, and 6 pictures compared with `crates/blade-lite/tests/screens/`. `CLAUDE.md` and the `stage` skill make threads run them and ask the user only what software can't see
+- [ ] 71 Window tests for the custom colour field (type `#00B7C3`, Enter, check the colour sent) and the Custom sliders (drag CPU boost one step, check the command). Both reviewers
 
 ## Still to check on the laptop
 Do these in one go, on AC, with "Start with Windows" on and Num Lock off (the power-mode key needs it, ticket 59). First note your preset, keyboard colour, lid logo and native mode; the last step puts them back.
@@ -100,7 +102,8 @@ Do these in one go, on AC, with "Start with Windows" on and Num Lock off (the po
 3. **Sleep, then hibernate.** Set a keyboard colour that is not white. Sleep the laptop and wake it. About 2 s after wake the colour is back (the 2 s wait after wake). Press Fn + numpad Enter: the preset steps (in the ticket 45 test the key sent only Fn, `04 0A`, without `D3`; Num Lock may have been on, ticket 59). Do the same with a hibernate.
 4. **Restart (44, 18).** Turn the lid logo off. Pick the FHD 440 Hz native mode. Restart. The app starts with Windows, the logo stays off, and the screen starts at FHD 440 Hz.
 5. **Put it back.** Set your native mode, keyboard colour, lid logo and preset back as you noted them. Restart once more for the native mode.
-6. **Busy (55).** Nothing to do now. If the log ever shows a Busy error, check whether the command took effect.
+6. **App after ticket 70.** Start the app. Open the window and the flyout once, and click one preset. They work as before (ticket 70 changed only types in the shell code).
+7. **Busy (55).** Nothing to do now. If the log ever shows a Busy error, check whether the command took effect.
 
 ## Publishing on GitHub
 - [ ] 39 Release and installer

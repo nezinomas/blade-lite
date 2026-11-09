@@ -9,7 +9,7 @@ use slint::winit_030::{WinitWindowAccessor, winit};
 use slint::{ComponentHandle, PhysicalPosition, Timer};
 use winit::platform::windows::WindowExtWindows;
 
-use super::Shell;
+use super::{Parts, Shell};
 use crate::tray::px;
 
 /// How long the power mode popup stays before it fades, and how long the
@@ -17,7 +17,7 @@ use crate::tray::px;
 const POPUP_HOLD: Duration = Duration::from_millis(1500);
 const POPUP_FADE: Duration = Duration::from_millis(300);
 
-impl Shell {
+impl<P: Parts> Shell<P> {
     /// Shows the popup with `mode` above the taskbar clock, without taking
     /// the focus, then fades it out. A new one starts the time again.
     pub(super) fn pop_up(self: &Rc<Self>, mode: &str) {

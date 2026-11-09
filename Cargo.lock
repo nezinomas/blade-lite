@@ -562,7 +562,9 @@ name = "blade-lite"
 version = "0.1.0"
 dependencies = [
  "blade-core",
+ "i-slint-backend-testing",
  "platform",
+ "png",
  "raw-window-handle",
  "razer-device",
  "razer-proto",

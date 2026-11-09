@@ -9,26 +9,53 @@ use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 use std::time::{Duration, Instant};
 
-use blade_core::{PollSchedule, Readings, ReadingsSampler};
+use blade_core::{Controller, PollSchedule, Query, Readings, ReadingsSampler};
 use blade_lite::{App, AppError, SaidLately, ShownErrors, report, took_effect};
-use platform::{WindowsDisplays, WindowsKeys, WindowsRegistry, WindowsSensors};
+use platform::{
+    DisplayApi, KeyInjector, Registry, WindowsDisplays, WindowsKeys, WindowsRegistry,
+    WindowsSensors,
+};
 use razer_device::{Device, HidTransport, SystemClock};
 use ui::{FlyoutView, ModeWatch};
 
 use crate::{FlyoutWindow, MainWindow, ModePopup, bind};
 
-pub type RealApp =
-    App<Device<HidTransport, SystemClock>, WindowsDisplays, WindowsRegistry, WindowsKeys>;
+/// The parts of the laptop the shell's app drives: the real ones, or fakes
+/// in the window tests.
+pub trait Parts: 'static {
+    type Controller: Controller + Query;
+    type Displays: DisplayApi;
+    type Registry: Registry;
+    type Keys: KeyInjector;
+}
+
+/// The real laptop.
+pub struct Laptop;
+
+impl Parts for Laptop {
+    type Controller = Device<HidTransport, SystemClock>;
+    type Displays = WindowsDisplays;
+    type Registry = WindowsRegistry;
+    type Keys = WindowsKeys;
+}
+
+/// The app over the parts `P`.
+pub type AppOn<P> = App<
+    <P as Parts>::Controller,
+    <P as Parts>::Displays,
+    <P as Parts>::Registry,
+    <P as Parts>::Keys,
+>;
 
 /// A sensor or fan read error is logged once, then not again for this long,
 /// since it can come and go on each read.
 const READ_ERROR_QUIET: Duration = Duration::from_secs(10 * 60);
 
-pub struct Shell {
+pub struct Shell<P: Parts = Laptop> {
     window: MainWindow,
     flyout: FlyoutWindow,
     popup: ModePopup,
-    app: RefCell<RealApp>,
+    app: RefCell<AppOn<P>>,
     sampler: RefCell<(ReadingsSampler, WindowsSensors)>,
     readings: Cell<Readings>,
     schedule: RefCell<PollSchedule>,
@@ -43,12 +70,12 @@ pub struct Shell {
     popup_ready: Cell<bool>,
 }
 
-impl Shell {
+impl<P: Parts> Shell<P> {
     pub fn new(
         window: MainWindow,
         flyout: FlyoutWindow,
         popup: ModePopup,
-        app: RealApp,
+        app: AppOn<P>,
     ) -> Rc<Self> {
         let mode_watch = Cell::new(ModeWatch::new(app.running_preset()));
         Rc::new(Self {
@@ -77,10 +104,20 @@ impl Shell {
         &self.flyout
     }
 
+    #[cfg(test)]
+    pub fn popup(&self) -> &ModePopup {
+        &self.popup
+    }
+
+    #[cfg(test)]
+    pub fn app(&self) -> std::cell::RefMut<'_, AppOn<P>> {
+        self.app.borrow_mut()
+    }
+
     /// Runs one change, then shows the new state, or the error if it failed.
     /// A new power mode, from any change the laptop took (even one not
     /// saved), shows the popup.
-    pub fn act(self: &Rc<Self>, change: impl FnOnce(&mut RealApp) -> Result<(), AppError>) {
+    pub fn act(self: &Rc<Self>, change: impl FnOnce(&mut AppOn<P>) -> Result<(), AppError>) {
         let result = change(&mut self.app.borrow_mut());
         let worked = took_effect(&result);
         self.refresh(result.err().as_ref());

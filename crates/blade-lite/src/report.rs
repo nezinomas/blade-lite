@@ -83,6 +83,12 @@ pub fn open_log(log: Log) -> bool {
     REPORTER.set(Reporter::new(Some(log))).is_ok()
 }
 
+/// As [`open_log`], but nothing goes to stderr. For the window tests only;
+/// the app uses [`open_log`].
+pub fn open_quiet_log(log: Log) -> bool {
+    REPORTER.set(Reporter::quiet(Some(log))).is_ok()
+}
+
 /// Reports each panic too, then lets Rust say it as before. A release build
 /// has no console, so a panic would otherwise leave no trace.
 pub fn report_panics() {

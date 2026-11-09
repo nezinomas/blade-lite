@@ -9,10 +9,10 @@ use blade_lite::report;
 use platform::PowerEvent;
 use slint::Timer;
 
-use super::Shell;
+use super::{Parts, Shell};
 use crate::bind;
 
-impl Shell {
+impl<P: Parts> Shell<P> {
     /// Passes on power events, then reads the sensors if a view shows them.
     pub fn tick(self: &Rc<Self>, power: &Receiver<PowerEvent>) {
         self.follow_power(power);

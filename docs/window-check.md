@@ -1,6 +1,6 @@
 # Window check (stage 27)
 
-The window has no unit tests. Check it by hand on the laptop.
+The window tests (`crates/blade-lite/src/window_tests`, ticket 70) draw the window, flyout and popup off screen, click them by script and compare pictures. They can't see real windows (Mica, placement, focus, caption buttons, the tray) or the laptop (lights, fans, the screen switching, the touchpad). This hand check is for those.
 
 A change to how windows are made or shown can break all of them (the flyout header showed min, max and close buttons after ticket 48, fixed in ticket 58). After such a change, do every section here, the popup too.
 

@@ -7,7 +7,7 @@ use razer_proto::Rgb;
 use slint::{ModelRc, SharedString, VecModel};
 use ui::{DisplayView, FlyoutView, Header, KeyboardView, PerformanceView, PresetOption};
 
-use crate::shell::{RealApp, Shell};
+use crate::shell::{AppOn, Parts, Shell};
 use crate::{Choice, FlyoutWindow, MainWindow, SliderRow, Stat, SwatchItem};
 
 pub fn colour(rgb: Rgb) -> slint::Color {
@@ -131,27 +131,27 @@ pub fn flyout(window: &FlyoutWindow, view: &FlyoutView, header: &Header) {
 }
 
 /// Runs `act` with the shell, while it still exists.
-fn on(shell: &Weak<Shell>, act: impl FnOnce(&Rc<Shell>)) {
+fn on<P: Parts>(shell: &Weak<Shell<P>>, act: impl FnOnce(&Rc<Shell<P>>)) {
     if let Some(shell) = shell.upgrade() {
         act(&shell);
     }
 }
 
-fn pick_preset(shell: &Rc<Shell>, i: i32) {
+fn pick_preset<P: Parts>(shell: &Rc<Shell<P>>, i: i32) {
     shell.act(|app| match app.performance_view().pick_preset(index(i)) {
         Some(command) => app.on_performance(command),
         None => Ok(()),
     });
 }
 
-fn pick_rate(shell: &Rc<Shell>, i: i32) {
+fn pick_rate<P: Parts>(shell: &Rc<Shell<P>>, i: i32) {
     shell.act(|app| match app.display_view()?.pick_rate(index(i)) {
         Some(command) => app.on_display(command),
         None => Ok(()),
     });
 }
 
-fn move_brightness(shell: &Rc<Shell>, percent: i32) {
+fn move_brightness<P: Parts>(shell: &Rc<Shell<P>>, percent: i32) {
     let percent = u8::try_from(percent).unwrap_or(u8::MAX);
     shell.act(|app| match app.keyboard_view()?.move_brightness(percent) {
         Some(command) => app.on_keyboard(command),
@@ -159,11 +159,11 @@ fn move_brightness(shell: &Rc<Shell>, percent: i32) {
     });
 }
 
-fn toggle_sixty_hz(shell: &Rc<Shell>) {
-    shell.act(RealApp::toggle_sixty_hz_on_battery);
+fn toggle_sixty_hz<P: Parts>(shell: &Rc<Shell<P>>) {
+    shell.act(AppOn::<P>::toggle_sixty_hz_on_battery);
 }
 
-fn toggle_touchpad(shell: &Rc<Shell>) {
+fn toggle_touchpad<P: Parts>(shell: &Rc<Shell<P>>) {
     shell.act(|app| {
         let command = app.keyboard_view()?.toggle_touchpad();
         app.on_keyboard(command)
@@ -172,12 +172,12 @@ fn toggle_touchpad(shell: &Rc<Shell>) {
 
 /// Each callback builds the group's view again and asks it for the command,
 /// so a click that changes nothing sends nothing.
-pub fn callbacks(shell: &Rc<Shell>) {
+pub fn callbacks<P: Parts>(shell: &Rc<Shell<P>>) {
     window_callbacks(shell);
     flyout_callbacks(shell);
 }
 
-fn flyout_callbacks(shell: &Rc<Shell>) {
+fn flyout_callbacks<P: Parts>(shell: &Rc<Shell<P>>) {
     let flyout = shell.flyout();
     let s = Rc::downgrade(shell);
     flyout.on_pick_preset(move |i| on(&s, |shell| pick_preset(shell, i)));
@@ -210,7 +210,7 @@ fn flyout_callbacks(shell: &Rc<Shell>) {
     });
 }
 
-fn window_callbacks(shell: &Rc<Shell>) {
+fn window_callbacks<P: Parts>(shell: &Rc<Shell<P>>) {
     let window = shell.window();
     let s = Rc::downgrade(shell);
     window.on_pick_preset(move |i| on(&s, |shell| pick_preset(shell, i)));
