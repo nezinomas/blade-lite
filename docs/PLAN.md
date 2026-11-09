@@ -93,6 +93,7 @@ Checks only a person can do on the laptop wait in "Still to check on the laptop"
 - [ ] 69 `battery_drops_to_60_hz_and_ac_puts_the_rate_back` in `crates/blade-core/tests/hardware.rs` unwraps `on_event` and `panel_rate()` inside its loop, so an error after the 60 Hz switch skips the put-back and leaves the panel at 60 Hz. Keep the first error, break, put the rate back, then assert, as ticket 65 did. Needs the charger test on the laptop (start on battery)
 - [x] 70 Window tests in `cargo t`: the window, flyout and popup drawn off screen over fakes (Slint's testing backend), 13 scripted clicks that check the exact commands sent, the window and the log, and 6 pictures compared with `crates/blade-lite/tests/screens/`. `CLAUDE.md` and the `stage` skill make threads run them and ask the user only what software can't see
 - [ ] 71 Window tests for the custom colour field (type `#00B7C3`, Enter, check the colour sent) and the Custom sliders (drag CPU boost one step, check the command). Both reviewers
+- [x] 72 Touchpad key (numpad ".") red only while the touchpad and Num Lock are both off; Num Lock read each 1 s poll, nothing painted during a resume pause (profile flag `plain_with_num_lock`)
 
 ## Still to check on the laptop
 Do these in one go, on AC, with "Start with Windows" on and Num Lock off (the power-mode key needs it, ticket 59). First note your preset, keyboard colour, lid logo and native mode; the last step puts them back.
@@ -103,7 +104,8 @@ Do these in one go, on AC, with "Start with Windows" on and Num Lock off (the po
 4. **Restart (44, 18).** Turn the lid logo off. Pick the FHD 440 Hz native mode. Restart. The app starts with Windows, the logo stays off, and the screen starts at FHD 440 Hz.
 5. **Put it back.** Set your native mode, keyboard colour, lid logo and preset back as you noted them. Restart once more for the native mode.
 6. **App after ticket 70.** Start the app. Open the window and the flyout once, and click one preset. They work as before (ticket 70 changed only types in the shell code).
-7. **Busy (55).** Nothing to do now. If the log ever shows a Busy error, check whether the command took effect.
+7. **Num Lock and the touchpad key (72).** Turn the touchpad off. Press Num Lock a few times: the numpad "." key is red with Num Lock off and in the keyboard colour with Num Lock on, within about 1 s. Then open the window, type in the colour field, click another app, and press Num Lock again: the key still follows. Turn the touchpad back on.
+8. **Busy (55).** Nothing to do now. If the log ever shows a Busy error, check whether the command took effect.
 
 ## Publishing on GitHub
 - [ ] 39 Release and installer

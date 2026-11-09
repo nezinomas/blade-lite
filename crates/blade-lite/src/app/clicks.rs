@@ -90,7 +90,7 @@ where
                 });
             }
         }
-        let red = self.touchpad_off();
+        let red = self.key_should_be_red();
         let applied = apply_lighting(lighting, self.model, &mut self.machine.controller, red);
         self.key_red = applied.is_ok().then_some(red);
         applied?;

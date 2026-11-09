@@ -30,7 +30,9 @@ use std::sync::mpsc::Receiver;
 
 use blade_core::{APP_NAME, Config, Log, POLL_INTERVAL, Start, start_instance, starts_in_tray};
 use blade_lite::{App, Machine, accent_colour, open_log, report, report_panics};
-use platform::{PowerEvent, WindowsDisplays, WindowsInstance, WindowsKeys, WindowsRegistry};
+use platform::{
+    PowerEvent, WindowsDisplays, WindowsInstance, WindowsKeys, WindowsRegistry, num_lock_on,
+};
 use razer_device::{Device, HidTransport, SystemClock};
 use razer_proto::{BLADE_18, Rgb};
 use slint::{Timer, TimerMode};
@@ -101,6 +103,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         keys: WindowsKeys,
     };
     let mut app = App::new(&BLADE_18, config, config_path, machine);
+    app.set_num_lock(num_lock_on());
     // Before the start reads the touchpad, so no switch is missed.
     let touchpad = watch_touchpad();
     let started = app.start();

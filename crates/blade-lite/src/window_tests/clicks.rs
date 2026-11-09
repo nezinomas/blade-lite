@@ -194,3 +194,73 @@ fn a_failed_click_shows_the_error_and_logs_it() {
     let first = error.lines().next().unwrap();
     assert!(log.contains(first), "{log}");
 }
+
+/// With the lighting saved and the touchpad off, as the touchpad key shows
+/// it.
+fn touchpad_off_fixture() -> Fixture {
+    let f = fixture(Config {
+        lighting: Some(blade_core::Lighting {
+            brightness: 100,
+            colour: WHITE,
+            vapor_light: true,
+        }),
+        ..Config::default()
+    });
+    f.shell.app().machine_mut().registry.touchpad = Some(0);
+    f
+}
+
+#[test]
+fn num_lock_paints_the_touchpad_key_once_per_change() {
+    let f = touchpad_off_fixture();
+    f.shell.follow_num_lock(true);
+    let before = sent_count(&f);
+
+    f.shell.follow_num_lock(false);
+    f.shell.follow_num_lock(false);
+
+    assert_eq!(
+        sent_since(&f, before),
+        razer_proto::static_colour_touchpad_off(WHITE, &BLADE_18)
+    );
+}
+
+#[test]
+fn num_lock_during_the_resume_pause_sends_nothing() {
+    let f = touchpad_off_fixture();
+    let (sender, receiver) = std::sync::mpsc::channel();
+    sender.send(PowerEvent::Resumed).unwrap();
+    f.shell.follow_power(&receiver);
+    let before = sent_count(&f);
+
+    f.shell.follow_num_lock(true);
+
+    assert_eq!(sent_since(&f, before), []);
+    assert!(f.shell.app().num_lock_on());
+}
+
+#[test]
+fn a_touchpad_change_during_the_resume_pause_sends_nothing() {
+    let f = touchpad_off_fixture();
+    let (sender, receiver) = std::sync::mpsc::channel();
+    sender.send(PowerEvent::Resumed).unwrap();
+    f.shell.follow_power(&receiver);
+    let before = sent_count(&f);
+
+    f.shell.follow_touchpad();
+
+    assert_eq!(sent_since(&f, before), []);
+}
+
+#[test]
+fn a_touchpad_change_paints_the_key_outside_a_resume() {
+    let f = touchpad_off_fixture();
+    let before = sent_count(&f);
+
+    f.shell.follow_touchpad();
+
+    assert_eq!(
+        sent_since(&f, before),
+        razer_proto::static_colour_touchpad_off(WHITE, &BLADE_18)
+    );
+}

@@ -1,4 +1,4 @@
-//! What the shell does on each poll: power events and sensor reads.
+//! What the shell does on each poll: power events, Num Lock and sensor reads.
 
 use std::rc::Rc;
 use std::sync::mpsc::Receiver;
@@ -6,18 +6,46 @@ use std::time::Instant;
 
 use blade_core::RESUME_PAUSE;
 use blade_lite::report;
-use platform::PowerEvent;
+use platform::{PowerEvent, num_lock_on};
 use slint::Timer;
 
 use super::{Parts, Shell};
 use crate::bind;
 
 impl<P: Parts> Shell<P> {
-    /// Passes on power events, then reads the sensors if a view shows them.
+    /// Passes on power events and Num Lock, then reads the sensors if a
+    /// view shows them.
     pub fn tick(self: &Rc<Self>, power: &Receiver<PowerEvent>) {
         self.follow_power(power);
+        self.follow_num_lock(num_lock_on());
         if self.schedule.borrow_mut().poll_due(Instant::now()) {
             self.tick_readings();
+        }
+    }
+
+    /// Paints the touchpad key again if Num Lock changed since the last look.
+    /// While a resume waits, the state is only kept: the resume paints it.
+    pub fn follow_num_lock(self: &Rc<Self>, on: bool) {
+        if self.app.borrow().num_lock_on() == on {
+            return;
+        }
+        if self.resuming.get() > 0 {
+            self.app.borrow_mut().set_num_lock(on);
+            return;
+        }
+        // The windows are made again only when a frame was sent or failed,
+        // as that reads the controller.
+        let painted = self.app.borrow_mut().on_num_lock(on);
+        if !matches!(painted, Ok(false)) {
+            self.act(|_| painted.map(|_| ()));
+        }
+    }
+
+    /// Paints the touchpad key after a touchpad change, unless a resume
+    /// waits: the resume reads the touchpad and paints it.
+    pub fn follow_touchpad(self: &Rc<Self>) {
+        if self.resuming.get() == 0 {
+            self.act(blade_lite::App::on_touchpad_changed);
         }
     }
 
@@ -31,8 +59,11 @@ impl<P: Parts> Shell<P> {
     fn power_event(self: &Rc<Self>, event: PowerEvent) {
         if event == PowerEvent::Resumed {
             // The controller needs a moment after the wake.
+            self.resuming.set(self.resuming.get().saturating_add(1));
             let shell = Rc::clone(self);
             Timer::single_shot(RESUME_PAUSE, move || {
+                shell.resuming.set(shell.resuming.get().saturating_sub(1));
+                shell.app.borrow_mut().set_num_lock(num_lock_on());
                 shell.act(|app| app.on_power(PowerEvent::Resumed));
             });
         } else {

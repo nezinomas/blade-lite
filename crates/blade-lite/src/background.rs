@@ -72,7 +72,7 @@ pub fn follow_the_touchpad(watch: RegistryWatch) {
             }
             let followed = slint::invoke_from_event_loop(|| {
                 if let Some(shell) = SHELL.with(|cell| cell.borrow().clone()) {
-                    shell.act(blade_lite::App::on_touchpad_changed);
+                    shell.follow_touchpad();
                 }
             });
             // The event loop has ended, so the app is quitting.

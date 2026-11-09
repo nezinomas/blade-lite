@@ -141,8 +141,13 @@ pub const BLADE_18: ModelProfile = ModelProfile {
     logo: Some(Logo { led: 0x04 }),
     // Synapse offers only 80% on this model.
     charge_limit: Some(ChargeLimit { percent: 80 }),
-    // Numpad ".", with a touchpad icon. Found by eye on the laptop.
-    touchpad_key: Some(TouchpadKey { row: 5, column: 17 }),
+    // Numpad ".", with a touchpad icon on the second layer (Num Lock off).
+    // Found by eye on the laptop.
+    touchpad_key: Some(TouchpadKey {
+        row: 5,
+        column: 17,
+        plain_with_num_lock: true,
+    }),
     // Fn + numpad Enter, with a power-mode icon. Read on the laptop
     // (2026-11-07): `04 0A D3` while held, `04 00` on release.
     power_key: Some(PowerKey {
