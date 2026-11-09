@@ -35,6 +35,7 @@ export component DisplayGroup inherits VerticalLayout {
         title: "Switch to 60 Hz on battery";
         note: "Goes back to your rate when you plug in";
         Switch {
+            accessible-label: "Switch to 60 Hz on battery";
             checked <=> root.sixty-hz-on-battery;
             toggled => { root.toggle-sixty-hz(); }
         }

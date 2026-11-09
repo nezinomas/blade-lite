@@ -1,0 +1,110 @@
+//! The window, flyout and popup, drawn off screen over fakes: scripted
+//! clicks (`clicks`) and pictures compared with saved ones (`screens`).
+//! Nothing here opens a real window or touches the laptop.
+
+mod clicks;
+mod screens;
+
+use std::path::{Path, PathBuf};
+use std::rc::Rc;
+use std::sync::OnceLock;
+
+use blade_core::{Config, Log};
+use blade_lite::open_quiet_log;
+use i_slint_backend_testing::{
+    AccessibleRole, ElementHandle, ElementRoot, TestingBackend, TestingBackendOptions,
+};
+use razer_proto::{BLADE_18, Rgb};
+use slint::platform::PointerEventButton;
+use slint::{ComponentHandle, LogicalSize};
+use tempfile::TempDir;
+
+use crate::fakes::{FakeController, FakeDisplays, FakeKeys, FakeRegistry, app_on};
+use crate::shell::{Parts, Shell};
+use crate::{FlyoutWindow, MainWindow, ModePopup, bind};
+
+/// The fakes in place of the laptop.
+pub struct Fakes;
+
+impl Parts for Fakes {
+    type Controller = FakeController;
+    type Displays = FakeDisplays;
+    type Registry = FakeRegistry;
+    type Keys = FakeKeys;
+}
+
+/// The Windows default accent, as the app uses when it can't read one.
+const ACCENT: Rgb = Rgb::new(0x00, 0x78, 0xD4);
+
+/// Tall enough that the window shows every group without scrolling.
+const WINDOW_SIZE: LogicalSize = LogicalSize::new(760.0, 1240.0);
+
+/// The shell over fakes, its windows shown off screen, and the folder that
+/// holds its config.
+pub struct Fixture {
+    pub shell: Rc<Shell<Fakes>>,
+    _dir: TempDir,
+}
+
+/// Starts the shell over fakes with `config`, as the app starts, with the
+/// lid logo on and the charge limit off, so every row shows.
+pub fn fixture(config: Config) -> Fixture {
+    // Each test runs on its own thread, and Slint keeps one platform per
+    // thread. The software renderer lets a test take a picture.
+    slint::platform::set_platform(Box::new(TestingBackend::new(TestingBackendOptions {
+        mock_time: true,
+        threading: false,
+        renderer_name: Some("software".into()),
+    })))
+    .expect("the first Slint call on this thread");
+    log_path();
+    let (mut app, dir, _) = app_on(&BLADE_18, config);
+    let controller = &mut app.machine_mut().controller;
+    controller.logo_reply = Some(vec![0, 4, 1]);
+    controller.charge = Some(0x50);
+    let started = app.start();
+    let window = MainWindow::new().expect("the window");
+    let flyout = FlyoutWindow::new().expect("the flyout");
+    let popup = ModePopup::new().expect("the popup");
+    window.set_accent(bind::colour(ACCENT));
+    flyout.set_accent(bind::colour(ACCENT));
+    popup.set_accent(bind::colour(ACCENT));
+    let shell = Shell::new(window, flyout, popup, app);
+    bind::callbacks(&shell);
+    shell.refresh(started.err().as_ref());
+    shell.window().window().set_size(WINDOW_SIZE);
+    shell.window().show().expect("the window shows");
+    shell.flyout().show().expect("the flyout shows");
+    Fixture { shell, _dir: dir }
+}
+
+/// The test run's log, opened by the first fixture: the reports of every
+/// test go there, not to stderr. It starts empty on each run.
+pub fn log_path() -> &'static Path {
+    static LOG: OnceLock<PathBuf> = OnceLock::new();
+    LOG.get_or_init(|| {
+        let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/window-tests");
+        std::fs::create_dir_all(&dir).expect("the log folder");
+        let path = dir.join("blade-lite.log");
+        let _ = std::fs::remove_file(&path);
+        assert!(
+            open_quiet_log(Log::new(path.clone())),
+            "no report before the log"
+        );
+        path
+    })
+}
+
+/// The one control in `root` with `role` and `label`.
+pub fn control(root: &impl ElementRoot, role: AccessibleRole, label: &str) -> ElementHandle {
+    let mut found: Vec<_> = ElementHandle::find_by_accessible_label(root, label)
+        .filter(|element| element.accessible_role() == Some(role))
+        .collect();
+    assert_eq!(found.len(), 1, "one {role:?} labelled {label:?}");
+    found.remove(0)
+}
+
+/// Clicks the middle of the control, as a mouse would.
+pub fn click(root: &impl ElementRoot, role: AccessibleRole, label: &str) {
+    control(root, role, label).mock_single_click(PointerEventButton::Left);
+}

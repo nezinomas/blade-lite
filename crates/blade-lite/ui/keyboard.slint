@@ -45,6 +45,7 @@ export component KeyboardGroup inherits VerticalLayout {
                     vertical-alignment: center;
                 }
                 Slider {
+                    accessible-label: "Brightness";
                     minimum: 0;
                     maximum: 100;
                     step: 5;
@@ -70,6 +71,9 @@ export component KeyboardGroup inherits VerticalLayout {
                     background: swatch.colour;
                     border-width: swatch.selected ? 3px : 1px;
                     border-color: swatch.selected ? root.accent : #00000029;
+                    accessible-role: button;
+                    accessible-label: "Colour " + (index + 1);
+                    accessible-enabled: root.colours-enabled;
                     TouchArea {
                         enabled: root.colours-enabled;
                         clicked => { root.pick-swatch(index); }
@@ -81,6 +85,7 @@ export component KeyboardGroup inherits VerticalLayout {
                     color: root.custom-selected ? root.accent : Theme.secondary;
                 }
                 custom-field := LineEdit {
+                    accessible-label: "Custom colour";
                     width: 110px;
                     enabled: root.colours-enabled;
                     text: root.custom-hex;
@@ -105,6 +110,7 @@ export component KeyboardGroup inherits VerticalLayout {
         title: "Touchpad";
         note: root.touchpad-on ? "Turn off when you use a mouse" : "Off";
         Switch {
+            accessible-label: "Touchpad";
             checked <=> root.touchpad-on;
             toggled => { root.toggle-touchpad(); }
         }
@@ -113,6 +119,7 @@ export component KeyboardGroup inherits VerticalLayout {
         title: "Lid logo";
         note: root.logo-on ? "On" : "Off";
         Switch {
+            accessible-label: "Lid logo";
             checked <=> root.logo-on;
             toggled => { root.toggle-logo(); }
         }
@@ -121,6 +128,7 @@ export component KeyboardGroup inherits VerticalLayout {
         title: "Vapor chamber light";
         note: root.vapor-light-on ? "Follows the keyboard brightness" : "Off";
         Switch {
+            accessible-label: "Vapor chamber light";
             checked <=> root.vapor-light-on;
             toggled => { root.toggle-vapor-light(); }
         }

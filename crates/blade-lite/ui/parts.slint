@@ -80,6 +80,9 @@ export component Segments inherits Rectangle {
         spacing: 2px;
         for item[index] in root.items: Rectangle {
             property <bool> on: root.enabled && item.enabled;
+            accessible-role: button;
+            accessible-label: item.label;
+            accessible-enabled: self.on;
             min-width: 64px;
             height: 28px;
             border-radius: 3px;

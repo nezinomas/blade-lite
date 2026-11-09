@@ -224,6 +224,7 @@ export component FlyoutWindow inherits Window {
                 vertical-alignment: center;
             }
             Switch {
+                accessible-label: "Switch to 60 Hz on battery";
                 checked <=> root.sixty-hz-on-battery;
                 toggled => { root.toggle-sixty-hz(); }
             }
@@ -236,6 +237,7 @@ export component FlyoutWindow inherits Window {
                 vertical-alignment: center;
             }
             Slider {
+                accessible-label: "Keyboard light";
                 minimum: 0;
                 maximum: 100;
                 step: 5;
@@ -257,6 +259,7 @@ export component FlyoutWindow inherits Window {
                 vertical-alignment: center;
             }
             Switch {
+                accessible-label: "Touchpad";
                 checked <=> root.touchpad-on;
                 toggled => { root.toggle-touchpad(); }
             }

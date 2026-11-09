@@ -14,6 +14,14 @@ mod tray;
 #[deny(clippy::unwrap_used, clippy::print_stdout, clippy::print_stderr)]
 mod tray_menu;
 
+// The app tests' fakes, for the window tests. Some are used only there.
+#[cfg(test)]
+#[allow(dead_code)]
+#[path = "../tests/app/fakes.rs"]
+mod fakes;
+#[cfg(test)]
+mod window_tests;
+
 use std::cell::RefCell;
 use std::path::PathBuf;
 use std::process::ExitCode;

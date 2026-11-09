@@ -21,6 +21,9 @@ ui = { path = "../ui" }
 slint-build = "1.18.1"
 
 [dev-dependencies]
+# Must match slint exactly. Draws the windows off screen for the window tests.
+i-slint-backend-testing = { version = "=1.18.1", features = ["renderer-software"] }
+png = "0.18.1"
 tempfile = "3.27.0"
 
 [lints]

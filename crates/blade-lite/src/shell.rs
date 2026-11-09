@@ -104,6 +104,16 @@ impl<P: Parts> Shell<P> {
         &self.flyout
     }
 
+    #[cfg(test)]
+    pub fn popup(&self) -> &ModePopup {
+        &self.popup
+    }
+
+    #[cfg(test)]
+    pub fn app(&self) -> std::cell::RefMut<'_, AppOn<P>> {
+        self.app.borrow_mut()
+    }
+
     /// Runs one change, then shows the new state, or the error if it failed.
     /// A new power mode, from any change the laptop took (even one not
     /// saved), shows the popup.
