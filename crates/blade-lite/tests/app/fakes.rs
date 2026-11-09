@@ -8,7 +8,9 @@ use blade_core::{Config, Controller, Query};
 use blade_lite::{App, Machine};
 use platform::{Display, DisplayApi, DisplayMode, Key, KeyInjector, OutputTechnology, Registry};
 use razer_device::DeviceError;
-use razer_proto::{BLADE_18, ChargeLimit, Command, Logo, ModelProfile, NativeMode};
+use razer_proto::{
+    BLADE_18, Brightness, ChargeLimit, Command, Logo, ModelProfile, NativeMode, Rgb, static_colour,
+};
 use tempfile::TempDir;
 
 pub const SET_CHARGE_LIMIT: u16 = 0x0712;
@@ -136,4 +138,18 @@ pub fn app_on(model: &'static ModelProfile, config: Config) -> (TestApp, TempDir
         keys: FakeKeys::default(),
     };
     (App::new(model, config, path.clone(), machine), dir, path)
+}
+
+/// The brightness commands: the keyboard, then the vapor light.
+pub fn brightness_commands(percent: u8, vapor_on: bool) -> Vec<Command> {
+    let brightness = Brightness::new(percent).unwrap();
+    let mut commands = brightness.commands(&BLADE_18);
+    commands.push(BLADE_18.vapor_light.unwrap().command(brightness, vapor_on));
+    commands
+}
+
+pub fn lighting_commands(percent: u8, colour: Rgb) -> Vec<Command> {
+    let mut commands = brightness_commands(percent, true);
+    commands.extend(static_colour(colour, &BLADE_18));
+    commands
 }

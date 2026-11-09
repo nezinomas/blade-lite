@@ -2,10 +2,10 @@
 //! in `tests/screens`. On a change, the test fails and leaves the new
 //! picture and a diff (changed pixels red) in `target/screens`. Look at
 //! them; if the change is meant, save the new pictures with
-//! `BLESS_SCREENS=1 cargo t`.
+//! `BLESS_SCREENS=1 cargo t` (only the value 1 saves).
 //!
-//! On CI the pictures are drawn but not compared: its fonts differ from the
-//! laptop's.
+//! On GitHub Actions the pictures are drawn but not compared: its fonts
+//! differ from the laptop's.
 
 use std::fs::{self, File};
 use std::io::BufWriter;
@@ -74,11 +74,11 @@ fn popup() {
 fn check(name: &str, window: &slint::Window) {
     let shot = window.take_snapshot().expect("a picture of the window");
     let saved = saved_path(name);
-    if std::env::var_os("BLESS_SCREENS").is_some() {
+    if env_is("BLESS_SCREENS", "1") {
         write_png(&saved, &shot);
         return;
     }
-    if std::env::var_os("CI").is_some() {
+    if env_is("GITHUB_ACTIONS", "true") {
         return;
     }
     let Some(baseline) = read_png(&saved) else {
@@ -105,6 +105,10 @@ fn check(name: &str, window: &slint::Window) {
         new.display(),
         diff.display()
     );
+}
+
+fn env_is(name: &str, value: &str) -> bool {
+    std::env::var(name).is_ok_and(|set| set == value)
 }
 
 /// The indices of the pixels that differ, or every pixel if the sizes do.

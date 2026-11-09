@@ -1,6 +1,7 @@
 //! The window, flyout and popup, drawn off screen over fakes: scripted
 //! clicks (`clicks`) and pictures compared with saved ones (`screens`).
-//! Nothing here opens a real window or touches the laptop.
+//! Nothing here opens a real window or touches the laptop. The only real
+//! Windows call is a read of the work area, when a click shows the popup.
 
 mod clicks;
 mod screens;
@@ -79,17 +80,18 @@ pub fn fixture(config: Config) -> Fixture {
 }
 
 /// The test run's log, opened by the first fixture: the reports of every
-/// test go there, not to stderr. It starts empty on each run.
+/// test go there, not to stderr. Each run has its own, so two runs at once
+/// don't mix.
 pub fn log_path() -> &'static Path {
     static LOG: OnceLock<PathBuf> = OnceLock::new();
     LOG.get_or_init(|| {
         let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/window-tests");
         std::fs::create_dir_all(&dir).expect("the log folder");
-        let path = dir.join("blade-lite.log");
+        let path = dir.join(format!("blade-lite-{}.log", std::process::id()));
         let _ = std::fs::remove_file(&path);
         assert!(
             open_quiet_log(Log::new(path.clone())),
-            "no report before the log"
+            "a report came before the first fixture, so the log could not be opened"
         );
         path
     })
@@ -100,7 +102,11 @@ pub fn control(root: &impl ElementRoot, role: AccessibleRole, label: &str) -> El
     let mut found: Vec<_> = ElementHandle::find_by_accessible_label(root, label)
         .filter(|element| element.accessible_role() == Some(role))
         .collect();
-    assert_eq!(found.len(), 1, "one {role:?} labelled {label:?}");
+    assert_eq!(
+        found.len(),
+        1,
+        "one {role:?} labelled {label:?}. None at all? The tests need a debug build:          build.rs adds the debug info that finds controls only there"
+    );
     found.remove(0)
 }
 

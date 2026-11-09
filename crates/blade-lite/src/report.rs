@@ -83,7 +83,8 @@ pub fn open_log(log: Log) -> bool {
     REPORTER.set(Reporter::new(Some(log))).is_ok()
 }
 
-/// As [`open_log`], but nothing goes to stderr, for tests.
+/// As [`open_log`], but nothing goes to stderr. For the window tests only;
+/// the app uses [`open_log`].
 pub fn open_quiet_log(log: Log) -> bool {
     REPORTER.set(Reporter::quiet(Some(log))).is_ok()
 }

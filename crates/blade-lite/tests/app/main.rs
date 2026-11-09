@@ -13,13 +13,10 @@ mod touchpad_key;
 use std::path::{Path, PathBuf};
 
 use blade_core::{Config, Preset};
-use razer_proto::{
-    BLADE_18, Brightness, ChargeLimit, Command, NativeMode, Rgb, static_colour,
-    static_colour_touchpad_off,
-};
+use razer_proto::{BLADE_18, ChargeLimit, Command, NativeMode, Rgb, static_colour_touchpad_off};
 use tempfile::TempDir;
 
-use fakes::{SET_CHARGE_LIMIT, TestApp, app_on, logo};
+use fakes::{SET_CHARGE_LIMIT, TestApp, app_on, brightness_commands, lighting_commands, logo};
 
 const FHD: NativeMode = BLADE_18.native_modes[1];
 const WHITE: Rgb = Rgb::new(0xFF, 0xFF, 0xFF);
@@ -49,20 +46,6 @@ fn sent(app: &TestApp) -> &[Command] {
 
 fn panel_hz(app: &TestApp) -> u32 {
     app.machine().displays.0.current.hz
-}
-
-/// The brightness commands: the keyboard, then the vapor light.
-fn brightness_commands(percent: u8, vapor_on: bool) -> Vec<Command> {
-    let brightness = Brightness::new(percent).unwrap();
-    let mut commands = brightness.commands(&BLADE_18);
-    commands.push(BLADE_18.vapor_light.unwrap().command(brightness, vapor_on));
-    commands
-}
-
-fn lighting_commands(percent: u8, colour: Rgb) -> Vec<Command> {
-    let mut commands = brightness_commands(percent, true);
-    commands.extend(static_colour(colour, &BLADE_18));
-    commands
 }
 
 /// As [`lighting_commands`], with the touchpad key red.
