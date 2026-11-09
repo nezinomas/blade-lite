@@ -8,10 +8,12 @@ use std::time::{Duration, Instant, SystemTime};
 
 use blade_core::Log;
 
-/// Writes each report to stderr and, if there is one, the log file.
+/// Writes each report to stderr (unless quiet) and, if there is one, the
+/// log file.
 #[derive(Debug)]
 pub struct Reporter {
     log: Mutex<Option<Log>>,
+    stderr: bool,
 }
 
 impl Reporter {
@@ -20,40 +22,56 @@ impl Reporter {
     pub fn new(log: Option<Log>) -> Self {
         Self {
             log: Mutex::new(log),
+            stderr: true,
+        }
+    }
+
+    /// A reporter for `log` that writes nothing to stderr, for tests: the
+    /// test harness does not capture what is written there. `None` reports
+    /// nothing at all.
+    #[must_use]
+    pub fn quiet(log: Option<Log>) -> Self {
+        Self {
+            log: Mutex::new(log),
+            stderr: false,
         }
     }
 
     /// Reports `text`. A log file that can't be written is said on stderr
-    /// and never stops the caller.
+    /// (unless quiet) and never stops the caller.
     pub fn report(&self, text: &str) {
         // One thread at a time, so a file is never moved aside mid-line.
         // A thread that panicked while holding it left nothing half done.
         let log = self.log.lock().unwrap_or_else(PoisonError::into_inner);
-        write(log.as_ref(), text);
+        write(log.as_ref(), text, self.stderr);
     }
 
     /// Reports `text`, but to stderr only if another report is under way,
     /// such as one that panicked: waiting for it could hang.
     fn report_if_free(&self, text: &str) {
         match self.log.try_lock() {
-            Ok(log) => write(log.as_ref(), text),
-            Err(TryLockError::Poisoned(poisoned)) => write(poisoned.into_inner().as_ref(), text),
-            Err(TryLockError::WouldBlock) => write(None, text),
+            Ok(log) => write(log.as_ref(), text, self.stderr),
+            Err(TryLockError::Poisoned(poisoned)) => {
+                write(poisoned.into_inner().as_ref(), text, self.stderr);
+            }
+            Err(TryLockError::WouldBlock) => write(None, text, self.stderr),
         }
     }
 }
 
-/// Writes `text` to stderr and `log`. Never panics: a closed stderr is
-/// ignored, and a log that can't be written is said on stderr.
-fn write(log: Option<&Log>, text: &str) {
-    let _ = writeln!(io::stderr(), "blade-lite: {text}");
+/// Writes `text` to `log`, and to stderr if `stderr`. Never panics: a closed
+/// stderr is ignored, and a log that can't be written is said on stderr.
+fn write(log: Option<&Log>, text: &str, stderr: bool) {
+    let say = |line: &str| {
+        if stderr {
+            let _ = writeln!(io::stderr(), "blade-lite: {line}");
+        }
+    };
+    say(text);
     if let Some(log) = log
         && let Err(error) = log.write(SystemTime::now(), text)
     {
-        let _ = writeln!(
-            io::stderr(),
-            "blade-lite: the log file can't be written: {error}"
-        );
+        say(&format!("the log file can't be written: {error}"));
     }
 }
 
