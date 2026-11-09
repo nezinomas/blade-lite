@@ -1,0 +1,68 @@
+// The Performance group of the settings window.
+
+import { Slider, Switch } from "std-widgets.slint";
+import { Card, Choice, GroupTitle, Row, Segments, SliderRow, Theme } from "parts.slint";
+
+export component PerformanceGroup inherits VerticalLayout {
+    in property <[Choice]> presets;
+    in property <[SliderRow]> sliders;
+    in property <bool> charge-limit-shown;
+    in-out property <bool> charge-limit-on;
+    in property <string> charge-limit-note;
+    in property <color> accent;
+
+    callback pick-preset(int);
+    callback move-slider(int, int);
+    callback toggle-charge-limit();
+
+    // The same spacing as the window's own list, so nothing moves.
+    spacing: 4px;
+
+    GroupTitle { text: "Performance"; }
+    Row {
+        title: "Performance mode";
+        note: "Sets CPU, GPU power and fan behaviour";
+        Segments {
+            items: root.presets;
+            accent: root.accent;
+            picked(index) => { root.pick-preset(index); }
+        }
+    }
+    if root.sliders.length > 0: Card {
+        VerticalLayout {
+            padding: 16px;
+            padding-left: 52px;
+            spacing: 12px;
+            for row[index] in root.sliders: HorizontalLayout {
+                spacing: 12px;
+                Text {
+                    text: row.label;
+                    width: 110px;
+                    vertical-alignment: center;
+                }
+                Slider {
+                    minimum: 0;
+                    maximum: row.stops - 1;
+                    step: 1;
+                    value: row.position;
+                    released(value) => { root.move-slider(index, round(value)); }
+                }
+                Text {
+                    text: row.text;
+                    width: 84px;
+                    horizontal-alignment: right;
+                    vertical-alignment: center;
+                    color: Theme.secondary;
+                }
+            }
+        }
+    }
+    if root.charge-limit-shown: Row {
+        title: "Battery charge limit";
+        note: root.charge-limit-note;
+        Switch {
+            checked <=> root.charge-limit-on;
+            toggled => { root.toggle-charge-limit(); }
+        }
+    }
+}

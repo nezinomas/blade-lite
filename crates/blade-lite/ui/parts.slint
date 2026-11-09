@@ -1,0 +1,122 @@
+// The shared pieces of the windows: the data rows Rust fills, the theme
+// colours, and the small building blocks every group uses.
+
+import { Palette } from "std-widgets.slint";
+
+export struct Stat {
+    label: string,
+    value: string,
+}
+
+export struct Choice {
+    label: string,
+    selected: bool,
+    enabled: bool,
+}
+
+export struct SliderRow {
+    label: string,
+    stops: int,
+    position: int,
+    text: string,
+}
+
+export struct SwatchItem {
+    colour: color,
+    selected: bool,
+}
+
+export global Theme {
+    out property <brush> card: Palette.color-scheme == ColorScheme.dark ? #ffffff0d : #ffffffb8;
+    out property <brush> stroke: #0000000f;
+    out property <brush> secondary: Palette.foreground.transparentize(0.35);
+}
+
+// One white card with a thin border, as in Windows Settings.
+export component Card inherits Rectangle {
+    background: Theme.card;
+    border-color: Theme.stroke;
+    border-width: 1px;
+    border-radius: 4px;
+}
+
+// A settings row: title and note on the left, the control on the right.
+export component Row inherits Card {
+    in property <string> title;
+    in property <string> note;
+    min-height: 68px;
+    vertical-stretch: 0;
+    HorizontalLayout {
+        padding-left: 16px;
+        padding-right: 16px;
+        spacing: 16px;
+        VerticalLayout {
+            alignment: center;
+            Text { text: root.title; }
+            if root.note != "": Text {
+                text: root.note;
+                font-size: 12px;
+                color: Theme.secondary;
+            }
+        }
+        VerticalLayout {
+            alignment: center;
+            @children
+        }
+    }
+}
+
+// Buttons side by side; the selected one is filled with the accent.
+export component Segments inherits Rectangle {
+    in property <[Choice]> items;
+    in property <bool> enabled: true;
+    in property <color> accent;
+    callback picked(int);
+    border-color: Theme.stroke;
+    border-width: 1px;
+    border-radius: 4px;
+    HorizontalLayout {
+        padding: 2px;
+        spacing: 2px;
+        for item[index] in root.items: Rectangle {
+            property <bool> on: root.enabled && item.enabled;
+            min-width: 64px;
+            height: 28px;
+            border-radius: 3px;
+            background: item.selected ? root.accent : (touch.has-hover && self.on ? #0000000a : transparent);
+            Text {
+                text: item.label;
+                color: item.selected ? white : (parent.on ? Palette.foreground : Theme.secondary);
+                horizontal-alignment: center;
+            }
+            touch := TouchArea {
+                enabled: parent.on;
+                clicked => { root.picked(index); }
+            }
+        }
+    }
+}
+
+export component GroupTitle inherits VerticalLayout {
+    in property <string> text;
+    padding-top: 20px;
+    padding-bottom: 6px;
+    Text {
+        text: root.text;
+        font-weight: 600;
+    }
+}
+
+export component StatCell inherits VerticalLayout {
+    in property <Stat> stat;
+    Text {
+        text: root.stat.label;
+        font-size: 12px;
+        color: Theme.secondary;
+    }
+    Text {
+        text: root.stat.value;
+        font-size: 16px;
+        font-weight: 600;
+    }
+}

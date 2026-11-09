@@ -1,0 +1,59 @@
+// The Display group of the settings window.
+
+import { Switch } from "std-widgets.slint";
+import { Choice, GroupTitle, Row, Segments } from "parts.slint";
+
+export component DisplayGroup inherits VerticalLayout {
+    in property <[Choice]> rates;
+    in property <bool> rates-enabled;
+    in property <string> rate-note;
+    in-out property <bool> sixty-hz-on-battery;
+    in property <[Choice]> native-modes;
+    in property <string> native-note;
+    in property <bool> restart-infobar;
+    in property <color> accent;
+
+    callback pick-rate(int);
+    callback toggle-sixty-hz();
+    callback pick-native(int);
+
+    // The same spacing as the window's own list, so nothing moves.
+    spacing: 4px;
+
+    GroupTitle { text: "Display"; }
+    Row {
+        title: "Refresh rate";
+        note: root.rate-note;
+        Segments {
+            items: root.rates;
+            enabled: root.rates-enabled;
+            accent: root.accent;
+            picked(index) => { root.pick-rate(index); }
+        }
+    }
+    Row {
+        title: "Switch to 60 Hz on battery";
+        note: "Goes back to your rate when you plug in";
+        Switch {
+            checked <=> root.sixty-hz-on-battery;
+            toggled => { root.toggle-sixty-hz(); }
+        }
+    }
+    Row {
+        title: "Native display mode";
+        note: root.native-note;
+        Segments {
+            items: root.native-modes;
+            accent: root.accent;
+            picked(index) => { root.pick-native(index); }
+        }
+    }
+    if root.restart-infobar: Rectangle {
+        background: #fff4ce;
+        border-radius: 4px;
+        HorizontalLayout {
+            padding: 12px;
+            Text { text: "Restart to apply. The display switches mode after a restart."; }
+        }
+    }
+}

@@ -1,0 +1,128 @@
+// The Keyboard and touchpad group of the settings window.
+
+import { LineEdit, Slider, Switch } from "std-widgets.slint";
+import { Card, GroupTitle, Row, SwatchItem, Theme } from "parts.slint";
+
+export component KeyboardGroup inherits VerticalLayout {
+    in property <int> brightness;
+    in property <string> brightness-text;
+    in property <bool> colours-enabled;
+    in property <[SwatchItem]> swatches;
+    in property <bool> custom-selected;
+    in property <string> custom-hex;
+    in-out property <bool> touchpad-on;
+    in property <bool> logo-shown;
+    in-out property <bool> logo-on;
+    in property <bool> vapor-light-shown;
+    in-out property <bool> vapor-light-on;
+    in property <color> accent;
+
+    callback move-brightness(int);
+    callback pick-swatch(int);
+    callback pick-custom(string);
+    callback toggle-touchpad();
+    callback toggle-logo();
+    callback toggle-vapor-light();
+
+    // A swatch, the flyout or a re-apply changed the colour: show it.
+    changed custom-hex => {
+        custom-field.text = root.custom-hex;
+    }
+
+    // The same spacing as the window's own list, so nothing moves.
+    spacing: 4px;
+
+    GroupTitle { text: "Keyboard and touchpad"; }
+    Card {
+        VerticalLayout {
+            padding: 16px;
+            spacing: 14px;
+            HorizontalLayout {
+                spacing: 12px;
+                Text {
+                    text: "Brightness";
+                    width: 110px;
+                    vertical-alignment: center;
+                }
+                Slider {
+                    minimum: 0;
+                    maximum: 100;
+                    step: 5;
+                    value: root.brightness;
+                    released(value) => { root.move-brightness(round(value)); }
+                }
+                Text {
+                    text: root.brightness-text;
+                    width: 84px;
+                    horizontal-alignment: right;
+                    vertical-alignment: center;
+                    color: Theme.secondary;
+                }
+            }
+            HorizontalLayout {
+                spacing: 8px;
+                opacity: root.colours-enabled ? 1 : 0.5;
+                alignment: start;
+                for swatch[index] in root.swatches: Rectangle {
+                    width: 28px;
+                    height: 28px;
+                    border-radius: 14px;
+                    background: swatch.colour;
+                    border-width: swatch.selected ? 3px : 1px;
+                    border-color: swatch.selected ? root.accent : #00000029;
+                    TouchArea {
+                        enabled: root.colours-enabled;
+                        clicked => { root.pick-swatch(index); }
+                    }
+                }
+                Text {
+                    text: "Custom";
+                    vertical-alignment: center;
+                    color: root.custom-selected ? root.accent : Theme.secondary;
+                }
+                custom-field := LineEdit {
+                    width: 110px;
+                    enabled: root.colours-enabled;
+                    text: root.custom-hex;
+                    placeholder-text: "#RRGGBB";
+                    // Typing breaks the text binding, so each handler
+                    // below shows the colour in use again: the new one,
+                    // or the last good one if the text was not a colour.
+                    accepted(text) => {
+                        root.pick-custom(text);
+                        self.text = root.custom-hex;
+                    }
+                    changed has-focus => {
+                        if !self.has-focus {
+                            self.text = root.custom-hex;
+                        }
+                    }
+                }
+            }
+        }
+    }
+    Row {
+        title: "Touchpad";
+        note: root.touchpad-on ? "Turn off when you use a mouse" : "Off";
+        Switch {
+            checked <=> root.touchpad-on;
+            toggled => { root.toggle-touchpad(); }
+        }
+    }
+    if root.logo-shown: Row {
+        title: "Lid logo";
+        note: root.logo-on ? "On" : "Off";
+        Switch {
+            checked <=> root.logo-on;
+            toggled => { root.toggle-logo(); }
+        }
+    }
+    if root.vapor-light-shown: Row {
+        title: "Vapor chamber light";
+        note: root.vapor-light-on ? "Follows the keyboard brightness" : "Off";
+        Switch {
+            checked <=> root.vapor-light-on;
+            toggled => { root.toggle-vapor-light(); }
+        }
+    }
+}

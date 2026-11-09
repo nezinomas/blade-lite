@@ -1,0 +1,59 @@
+// The device header at the top of the settings window.
+
+import { Card, Stat, StatCell, Theme } from "parts.slint";
+
+export component Header inherits Card {
+    in property <string> device;
+    in property <string> preset;
+    in property <string> power;
+    in property <[Stat]> stats-top;
+    in property <[Stat]> stats-bottom;
+
+    border-radius: 8px;
+    HorizontalLayout {
+        padding: 20px;
+        spacing: 28px;
+        VerticalLayout {
+            alignment: center;
+            spacing: 4px;
+            Text {
+                text: root.device;
+                font-size: 20px;
+                font-weight: 600;
+            }
+            Text {
+                text: root.preset;
+                color: Theme.secondary;
+            }
+            HorizontalLayout {
+                alignment: start;
+                Rectangle {
+                    border-radius: 10px;
+                    background: root.power == "On battery" ? #fff4ce : #00000009;
+                    HorizontalLayout {
+                        padding-left: 8px;
+                        padding-right: 8px;
+                        padding-top: 2px;
+                        padding-bottom: 2px;
+                        Text {
+                            text: root.power;
+                            font-size: 12px;
+                            color: root.power == "On battery" ? #9d5d00 : Theme.secondary;
+                        }
+                    }
+                }
+            }
+        }
+        VerticalLayout {
+            spacing: 4px;
+            HorizontalLayout {
+                spacing: 28px;
+                for stat in root.stats-top: StatCell { stat: stat; width: 72px; }
+            }
+            HorizontalLayout {
+                spacing: 28px;
+                for stat in root.stats-bottom: StatCell { stat: stat; width: 72px; }
+            }
+        }
+    }
+}
