@@ -36,8 +36,8 @@ where
     }
 
     /// Paints the touchpad key red if the touchpad is now off and Num Lock
-    /// is off, or back in the lighting colour if not. Nothing is sent if the key already
-    /// shows the state, or the user has not set the lighting, since the
+    /// is off, or back in the lighting colour if not. Nothing is sent if
+    /// the key already shows the state, or the user has not set the lighting, since the
     /// app then leaves the keyboard's own effect alone.
     ///
     /// # Errors
@@ -45,30 +45,47 @@ where
     /// See [`AppError`]. Nothing is sent if the touchpad state can't be
     /// read.
     pub fn on_touchpad_changed(&mut self) -> Result<(), AppError> {
-        let Some(lighting) = self.config.lighting else {
-            return Ok(());
-        };
-        let red = !touchpad_on(&self.machine.registry)? && !self.num_lock_on;
-        if self.key_red == Some(red) {
+        if self.config.lighting.is_none() {
             return Ok(());
         }
-        let painted = paint_touchpad_key(red, lighting, self.model, &mut self.machine.controller);
-        self.key_red = painted.is_ok().then_some(red);
-        Ok(painted?)
+        let red = self.red_for(touchpad_on(&self.machine.registry)?);
+        self.paint_key(red)?;
+        Ok(())
     }
 
-    /// Paints the touchpad key again when Num Lock changes: with Num Lock
-    /// on the key is ".", so it keeps the plain colour.
+    /// Paints the touchpad key again when Num Lock changes: a key that is
+    /// then a numpad key keeps the plain colour. If the touchpad state
+    /// can't be read, the key keeps the plain colour, as at start. Returns
+    /// whether a frame was sent.
     ///
     /// # Errors
     ///
-    /// As [`on_touchpad_changed`](Self::on_touchpad_changed).
-    pub fn on_num_lock(&mut self, on: bool) -> Result<(), AppError> {
-        if self.num_lock_on == on {
-            return Ok(());
+    /// See [`AppError`]. The new state is kept even if the send fails, and
+    /// the next change paints the key.
+    pub fn on_num_lock(&mut self, on: bool) -> Result<bool, AppError> {
+        if self.num_lock_on == on || self.config.lighting.is_none() {
+            self.num_lock_on = on;
+            return Ok(false);
         }
         self.num_lock_on = on;
-        self.on_touchpad_changed()
+        let red = self.key_should_be_red();
+        self.paint_key(red)
+    }
+
+    /// Paints the touchpad key red or plain in the saved lighting, unless
+    /// it shows that already or no lighting is saved. Returns whether a
+    /// frame was sent.
+    fn paint_key(&mut self, red: bool) -> Result<bool, AppError> {
+        let Some(lighting) = self.config.lighting else {
+            return Ok(false);
+        };
+        if self.key_red == Some(red) {
+            return Ok(false);
+        }
+        let painted = paint_touchpad_key(red, lighting, self.model, &mut self.machine.controller);
+        self.key_red = painted.is_ok().then_some(red);
+        painted?;
+        Ok(true)
     }
 
     /// Follows the power source, and applies everything again after a

@@ -51,8 +51,8 @@ pub struct App<C, D, R, K> {
     /// `None` if unknown, such as after a failed send: the next change
     /// then paints it.
     key_red: Option<bool>,
-    /// Whether Num Lock is on. The touchpad key is "." then, so it keeps
-    /// the plain colour.
+    /// Whether Num Lock is on. A touchpad key that is then a numpad key
+    /// keeps the plain colour.
     num_lock_on: bool,
     /// The controller reads that failed when the header was last made.
     read_errors: Vec<String>,
@@ -112,17 +112,27 @@ where
         self.num_lock_on = on;
     }
 
-    /// Whether the touchpad key should be red: the touchpad is off and Num
-    /// Lock is off. If the touchpad state can't be read, the key keeps the
-    /// plain colour.
+    /// Whether the touchpad key should be red. If the touchpad state can't
+    /// be read, the key keeps the plain colour.
     fn key_should_be_red(&self) -> bool {
         touchpad_on(&self.machine.registry).map_or_else(
             |error| {
                 report(&format!("the touchpad key stays plain: {error}"));
                 false
             },
-            |on| !on && !self.num_lock_on,
+            |on| self.red_for(on),
         )
+    }
+
+    /// Red while the touchpad is off, unless Num Lock is on and the key is
+    /// then a numpad key.
+    fn red_for(&self, touchpad_on: bool) -> bool {
+        let numpad_now = self.num_lock_on
+            && self
+                .model
+                .touchpad_key
+                .is_some_and(|key| key.plain_with_num_lock);
+        !touchpad_on && !numpad_now
     }
 
     fn read_charge_limit(&mut self) {

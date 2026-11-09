@@ -68,6 +68,9 @@ pub struct Shell<P: Parts = Laptop> {
     popups: Cell<u32>,
     /// Whether the popup has been made click-through.
     popup_ready: Cell<bool>,
+    /// From a wake until the resume is applied after its pause. Nothing is
+    /// painted then, as the controller is not ready.
+    resuming: Cell<bool>,
 }
 
 impl<P: Parts> Shell<P> {
@@ -93,6 +96,7 @@ impl<P: Parts> Shell<P> {
             mode_watch,
             popups: Cell::new(0),
             popup_ready: Cell::new(false),
+            resuming: Cell::new(false),
         })
     }
 

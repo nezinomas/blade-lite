@@ -253,3 +253,55 @@ fn the_app_knows_the_num_lock_state() {
 
     assert!(app.num_lock_on());
 }
+
+#[test]
+fn num_lock_without_saved_lighting_is_kept_and_sends_nothing() {
+    let (mut app, _dir, _) = app();
+    app.machine_mut().registry.touchpad = Some(0);
+    app.start().unwrap();
+    let started = sent(&app).len();
+
+    assert!(!app.on_num_lock(true).unwrap());
+
+    assert!(app.num_lock_on());
+    assert_eq!(sent_after(&app, started), []);
+}
+
+#[test]
+fn num_lock_with_an_unreadable_touchpad_keeps_the_key_plain() {
+    let (mut app, _dir, _) = num_lock_app();
+    app.start().unwrap();
+    let started = sent(&app).len();
+    app.machine_mut().registry.touchpad = None;
+
+    assert!(!app.on_num_lock(false).unwrap());
+
+    assert!(!app.num_lock_on());
+    assert_eq!(sent_after(&app, started), []);
+}
+
+#[test]
+fn a_failed_paint_on_num_lock_is_painted_on_the_next_change() {
+    let (mut app, _dir, _) = num_lock_app();
+    app.start().unwrap();
+    app.machine_mut().controller.fails = true;
+    assert!(app.on_num_lock(false).is_err());
+    app.machine_mut().controller.fails = false;
+    assert!(!app.num_lock_on());
+    let before = sent(&app).len();
+
+    app.on_num_lock(true).unwrap();
+
+    assert_eq!(sent_after(&app, before), plain_key());
+}
+
+#[test]
+fn a_resume_with_num_lock_on_keeps_the_key_plain() {
+    let (mut app, _dir, _) = num_lock_app();
+    app.start().unwrap();
+    let started = sent(&app).len();
+
+    app.on_power(PowerEvent::Resumed).unwrap();
+
+    assert_eq!(sent_after(&app, started).last(), plain_key().last());
+}

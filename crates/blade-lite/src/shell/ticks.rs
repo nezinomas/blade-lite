@@ -24,9 +24,20 @@ impl<P: Parts> Shell<P> {
     }
 
     /// Paints the touchpad key again if Num Lock changed since the last look.
+    /// While a resume waits, the state is only kept: the resume paints it.
     pub fn follow_num_lock(self: &Rc<Self>, on: bool) {
-        if self.app.borrow().num_lock_on() != on {
-            self.act(|app| app.on_num_lock(on));
+        if self.app.borrow().num_lock_on() == on {
+            return;
+        }
+        if self.resuming.get() {
+            self.app.borrow_mut().set_num_lock(on);
+            return;
+        }
+        // The windows are made again only when a frame was sent or failed,
+        // as that reads the controller.
+        let painted = self.app.borrow_mut().on_num_lock(on);
+        if !matches!(painted, Ok(false)) {
+            self.act(|_| painted.map(|_| ()));
         }
     }
 
@@ -40,8 +51,11 @@ impl<P: Parts> Shell<P> {
     fn power_event(self: &Rc<Self>, event: PowerEvent) {
         if event == PowerEvent::Resumed {
             // The controller needs a moment after the wake.
+            self.resuming.set(true);
             let shell = Rc::clone(self);
             Timer::single_shot(RESUME_PAUSE, move || {
+                shell.resuming.set(false);
+                shell.app.borrow_mut().set_num_lock(num_lock_on());
                 shell.act(|app| app.on_power(PowerEvent::Resumed));
             });
         } else {
