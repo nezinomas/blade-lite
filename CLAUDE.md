@@ -20,6 +20,7 @@ Building a stage or ticket: follow the `stage` skill (`.claude/skills/stage/SKIL
 ## Commands
 - One-time setup: `git config core.hooksPath .githooks` (pre-push runs the checks below, commit-msg blocks AI attribution).
 - Checks, same as CI: `cargo fmt --all --check`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo t` (`cargo test --workspace`, quiet), `python -m unittest discover -s capture`.
+- Window tests (in `cargo t`, `crates/blade-lite/src/window_tests`): the window, flyout and popup drawn off screen over fakes. Scripted clicks check what is sent, saved, shown and logged. Pictures are compared with `crates/blade-lite/tests/screens/`; a change fails and leaves the new picture and a diff in `target/screens/`. If the change is meant: `BLESS_SCREENS=1 cargo t`, look at the saved pictures, commit them. On CI the pictures are drawn, not compared (other fonts).
 - Hardware tests on the laptop: `cargo hw`. Quit the app first (the tests take the one-copy lock). The charger test must start on battery.
 - PowerShell scripts: `powershell -ExecutionPolicy Bypass -File <script>`.
 
@@ -32,7 +33,7 @@ Building a stage or ticket: follow the `stage` skill (`.claude/skills/stage/SKIL
 
 ## Finishing a stage
 - Tick it `[x]` in `docs/PLAN.md` in the same branch, with a one-line result. The pre-push hook refuses a `feature/`, `fix/` or `spike/` merge that does not change `docs/PLAN.md`.
-- Before merge, list the checks only a person can do on the laptop and ask the user to do them. Checks not done yet go in "Still to check on the laptop" in `docs/PLAN.md`.
+- Check the screen yourself with the window tests (look at each changed picture), and add a click test for each new control. Before merge, list only the checks software can't see (`stage` skill, step 8) and ask the user to do them. Checks not done yet go in "Still to check on the laptop" in `docs/PLAN.md`.
 - Every report ends with one plain line: what was blocked (permissions, push, merge, branch delete, cargo), or "nothing was blocked".
 
 ## Skills
