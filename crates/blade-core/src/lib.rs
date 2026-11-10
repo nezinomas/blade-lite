@@ -34,7 +34,7 @@ pub use autostart::{
     APPROVED_KEY, Autostart, AutostartError, RUN_KEY, RUN_VALUE, SHOWN_COMMAND_CHARS, TRAY_FLAG,
     autostart, set_autostart, starts_in_tray,
 };
-pub use battery_rate::{BATTERY_RATE, BatteryRate};
+pub use battery_rate::{BATTERY_RATE, BatteryRate, RESUME_RATE_TRIES};
 pub use charge::{ChargeError, charge_limit_on, set_charge_limit};
 pub use config::{Config, ConfigError, CustomSettings, Lighting, Preset};
 pub use instance::{APP_NAME, Start, start_instance};

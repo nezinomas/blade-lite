@@ -860,3 +860,62 @@ fn a_touchpad_change_with_a_wake_not_yet_followed_shows_the_popup_and_sends_noth
     assert_eq!(f.shell.popup().get_caption(), "Touchpad");
     assert_eq!(f.shell.popup().get_mode(), "Off");
 }
+
+#[test]
+fn a_wake_60_hz_refused_on_battery_is_set_on_a_later_tick_with_no_error() {
+    let f = fixture(Config {
+        sixty_hz_on_battery: true,
+        ..Config::default()
+    });
+    FAKE_ON_BATTERY.set(true);
+    let (sender, receiver) = std::sync::mpsc::channel();
+    f.shell.listen_for_power(receiver);
+    sender.send(PowerEvent::OnBattery).unwrap();
+    f.shell.tick();
+    // Windows puts 240 Hz back in the wake, and refuses the first 60 Hz.
+    f.shell.app().machine_mut().displays.0.current.hz = 240;
+    f.shell.app().machine_mut().displays.1 = 1;
+    sender.send(PowerEvent::Resumed).unwrap();
+    f.shell.tick();
+    i_slint_backend_testing::mock_elapsed_time(
+        blade_core::RESUME_PAUSE + std::time::Duration::from_millis(1),
+    );
+    assert_eq!(f.shell.app().machine().displays.0.current.hz, 240);
+
+    f.shell.tick();
+
+    assert_eq!(f.shell.app().machine().displays.0.current.hz, 60);
+    assert_eq!(f.shell.window().get_error(), "");
+}
+
+#[test]
+fn a_wake_60_hz_refused_every_time_shows_only_the_last_error() {
+    let f = fixture(Config {
+        sixty_hz_on_battery: true,
+        ..Config::default()
+    });
+    FAKE_ON_BATTERY.set(true);
+    let (sender, receiver) = std::sync::mpsc::channel();
+    f.shell.listen_for_power(receiver);
+    sender.send(PowerEvent::OnBattery).unwrap();
+    f.shell.tick();
+    f.shell.app().machine_mut().displays.0.current.hz = 240;
+    f.shell.app().machine_mut().displays.1 = usize::MAX;
+    sender.send(PowerEvent::Resumed).unwrap();
+    f.shell.tick();
+    i_slint_backend_testing::mock_elapsed_time(
+        blade_core::RESUME_PAUSE + std::time::Duration::from_millis(1),
+    );
+
+    for _ in 1..blade_core::RESUME_RATE_TRIES {
+        f.shell.tick();
+        assert_eq!(f.shell.window().get_error(), "");
+    }
+    f.shell.tick();
+    assert!(f.shell.window().get_error().contains("refresh rate"));
+    let left = f.shell.app().machine().displays.1;
+    f.shell.tick();
+
+    assert_eq!(f.shell.app().machine().displays.1, left);
+    assert_eq!(f.shell.app().machine().displays.0.current.hz, 240);
+}

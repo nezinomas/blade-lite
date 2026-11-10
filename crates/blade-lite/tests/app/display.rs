@@ -5,6 +5,7 @@ use platform::PowerEvent;
 use razer_proto::{BLADE_18, PerfMode};
 use ui::{DisplayCommand, PowerPill};
 
+use crate::fakes::TestApp;
 use crate::{FHD, WHITE, app, app_with, lighting_commands, panel_hz, sent};
 
 #[test]
@@ -230,4 +231,71 @@ fn quitting_after_the_switch_is_turned_off_on_battery_leaves_the_rate() {
     app.on_quit().unwrap();
 
     assert_eq!(panel_hz(&app), 120);
+}
+
+#[test]
+fn a_wake_on_battery_sets_60_hz_again_when_windows_put_the_rate_back() {
+    let (mut app, _dir, _) = app_with(Config {
+        sixty_hz_on_battery: true,
+        ..Config::default()
+    });
+    app.on_power(PowerEvent::OnBattery).unwrap();
+    // Windows puts the saved rate back in the wake.
+    app.machine_mut().displays.0.current.hz = 240;
+
+    app.on_power(PowerEvent::Resumed).unwrap();
+
+    assert_eq!(panel_hz(&app), 60);
+}
+
+#[test]
+fn a_wake_on_ac_before_its_power_event_leaves_the_rate() {
+    let (mut app, _dir, _) = app_with(Config {
+        sixty_hz_on_battery: true,
+        ..Config::default()
+    });
+    app.on_power(PowerEvent::OnBattery).unwrap();
+    // The charger went in during the sleep; its event comes later.
+    app.machine_mut().displays.0.current.hz = 240;
+    app.take_on_battery(false);
+
+    app.on_power(PowerEvent::Resumed).unwrap();
+
+    assert_eq!(panel_hz(&app), 240);
+}
+
+/// On battery at 60 Hz, then a wake whose 60 Hz Windows refused once.
+fn refused_after_a_wake() -> (TestApp, tempfile::TempDir) {
+    let (mut app, dir, _) = app_with(Config {
+        sixty_hz_on_battery: true,
+        ..Config::default()
+    });
+    app.on_power(PowerEvent::OnBattery).unwrap();
+    app.machine_mut().displays.0.current.hz = 240;
+    app.machine_mut().displays.1 = 1;
+    app.on_power(PowerEvent::Resumed).unwrap();
+    (app, dir)
+}
+
+#[test]
+fn a_wake_60_hz_refused_on_battery_is_tried_again() {
+    let (mut app, _dir) = refused_after_a_wake();
+    assert_eq!(panel_hz(&app), 240);
+    assert!(app.battery_rate_pending());
+
+    app.retry_battery_rate().unwrap();
+
+    assert_eq!(panel_hz(&app), 60);
+    assert!(!app.battery_rate_pending());
+}
+
+#[test]
+fn a_wake_60_hz_refused_is_not_tried_again_on_ac() {
+    let (mut app, _dir) = refused_after_a_wake();
+    app.take_on_battery(false);
+
+    assert!(!app.battery_rate_pending());
+    app.retry_battery_rate().unwrap();
+
+    assert_eq!(panel_hz(&app), 240);
 }

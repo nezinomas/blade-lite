@@ -123,7 +123,7 @@ fn a_panel_already_at_60_hz_is_left_alone() {
 }
 
 #[test]
-fn resume_does_not_touch_the_rate() {
+fn a_resume_with_no_saved_rate_does_not_touch_the_rate() {
     let mut api = panel_at(240);
 
     feed(&[PowerEvent::Resumed], config(true), &mut api);
@@ -172,4 +172,184 @@ fn a_rate_changed_outside_the_app_on_battery_is_kept() {
 
     let rates: Vec<u32> = api.set.iter().map(|(_, mode, _)| mode.hz).collect();
     assert_eq!(rates, [60, 120]);
+}
+
+#[test]
+fn a_resume_on_battery_sets_60_hz_again_after_windows_put_the_rate_back() {
+    let mut api = panel_at(240);
+    let mut battery_rate = BatteryRate::default();
+    battery_rate
+        .on_event(PowerEvent::OnBattery, &config(true), &mut api)
+        .unwrap();
+    // Windows puts the saved rate back in the wake.
+    set_refresh_rate(&mut api, RefreshRate(240)).unwrap();
+
+    battery_rate
+        .on_event(PowerEvent::Resumed, &config(true), &mut api)
+        .unwrap();
+    battery_rate
+        .on_event(PowerEvent::OnAc, &config(true), &mut api)
+        .unwrap();
+
+    let rates: Vec<u32> = api.set.iter().map(|(_, mode, _)| mode.hz).collect();
+    assert_eq!(rates, [60, 240, 60, 240]);
+    let (_, _, life) = api.set[2];
+    assert_eq!(life, ModeLife::UntilRestart);
+}
+
+#[test]
+fn a_resume_keeps_a_rate_changed_outside_the_app_on_battery() {
+    let mut api = panel_at(240);
+    let mut battery_rate = BatteryRate::default();
+    battery_rate
+        .on_event(PowerEvent::OnBattery, &config(true), &mut api)
+        .unwrap();
+    set_refresh_rate(&mut api, RefreshRate(120)).unwrap();
+
+    battery_rate
+        .on_event(PowerEvent::Resumed, &config(true), &mut api)
+        .unwrap();
+
+    let rates: Vec<u32> = api.set.iter().map(|(_, mode, _)| mode.hz).collect();
+    assert_eq!(rates, [60, 120]);
+}
+
+#[test]
+fn a_resume_with_the_panel_still_at_60_hz_changes_nothing() {
+    let mut api = panel_at(240);
+    let mut battery_rate = BatteryRate::default();
+    battery_rate
+        .on_event(PowerEvent::OnBattery, &config(true), &mut api)
+        .unwrap();
+
+    battery_rate
+        .on_event(PowerEvent::Resumed, &config(true), &mut api)
+        .unwrap();
+
+    let rates: Vec<u32> = api.set.iter().map(|(_, mode, _)| mode.hz).collect();
+    assert_eq!(rates, [60]);
+}
+
+#[test]
+fn a_resume_after_the_rate_was_put_back_on_ac_changes_nothing() {
+    let mut api = panel_at(240);
+
+    feed(
+        &[PowerEvent::OnBattery, PowerEvent::OnAc, PowerEvent::Resumed],
+        config(true),
+        &mut api,
+    );
+
+    let rates: Vec<u32> = api.set.iter().map(|(_, mode, _)| mode.hz).collect();
+    assert_eq!(rates, [60, 240]);
+}
+
+#[test]
+fn a_resume_with_no_internal_panel_active_is_not_an_error() {
+    let mut api = panel_at(240);
+    let mut battery_rate = BatteryRate::default();
+    battery_rate
+        .on_event(PowerEvent::OnBattery, &config(true), &mut api)
+        .unwrap();
+    // The lid shut, a monitor only.
+    let mut api = FakeDisplays::new(Some(vec![]));
+
+    battery_rate
+        .on_event(PowerEvent::Resumed, &config(true), &mut api)
+        .unwrap();
+
+    assert_eq!(api.set, []);
+}
+
+/// On battery at 60 Hz, then a wake that put 240 Hz back.
+fn woken_at_240(api: &mut FakeDisplays) -> BatteryRate {
+    let mut battery_rate = BatteryRate::default();
+    battery_rate
+        .on_event(PowerEvent::OnBattery, &config(true), api)
+        .unwrap();
+    set_refresh_rate(api, RefreshRate(240)).unwrap();
+    battery_rate
+}
+
+#[test]
+fn a_60_hz_refused_after_a_wake_is_tried_again_on_the_next_polls() {
+    let mut api = panel_at(240);
+    let mut battery_rate = woken_at_240(&mut api);
+    api.failing_sets = 2;
+
+    // Not an error yet: the tries show only the last one.
+    battery_rate
+        .on_event(PowerEvent::Resumed, &config(true), &mut api)
+        .unwrap();
+    assert!(battery_rate.retry_pending());
+    battery_rate.retry(&config(true), &mut api).unwrap();
+    battery_rate.retry(&config(true), &mut api).unwrap();
+
+    assert_eq!(api.panel_mode(), mode(3840, 2400, 60));
+    assert!(!battery_rate.retry_pending());
+}
+
+#[test]
+fn the_tries_after_a_wake_stop_with_the_last_error() {
+    let mut api = panel_at(240);
+    let mut battery_rate = woken_at_240(&mut api);
+    api.failing_sets = usize::MAX;
+
+    // Not an error yet: the tries show only the last one.
+    battery_rate
+        .on_event(PowerEvent::Resumed, &config(true), &mut api)
+        .unwrap();
+    let mut results = Vec::new();
+    while battery_rate.retry_pending() {
+        results.push(battery_rate.retry(&config(true), &mut api).is_ok());
+    }
+
+    assert_eq!(results.len(), usize::from(blade_core::RESUME_RATE_TRIES));
+    assert_eq!(results.iter().filter(|ok| !**ok).count(), 1);
+    assert_eq!(results.last(), Some(&false));
+}
+
+#[test]
+fn ac_stops_the_tries_after_a_wake() {
+    let mut api = panel_at(240);
+    let mut battery_rate = woken_at_240(&mut api);
+    api.failing_sets = 1;
+    let _ = battery_rate.on_event(PowerEvent::Resumed, &config(true), &mut api);
+
+    battery_rate
+        .on_event(PowerEvent::OnAc, &config(true), &mut api)
+        .unwrap();
+
+    assert!(!battery_rate.retry_pending());
+}
+
+#[test]
+fn turning_the_option_off_stops_the_tries_after_a_wake() {
+    let mut api = panel_at(240);
+    let mut battery_rate = woken_at_240(&mut api);
+    api.failing_sets = 1;
+    let _ = battery_rate.on_event(PowerEvent::Resumed, &config(true), &mut api);
+    let before = api.set.len();
+
+    battery_rate.retry(&config(false), &mut api).unwrap();
+
+    assert_eq!(api.set.len(), before);
+    assert!(!battery_rate.retry_pending());
+}
+
+#[test]
+fn a_battery_event_keeps_the_tries_after_a_wake() {
+    let mut api = panel_at(240);
+    let mut battery_rate = woken_at_240(&mut api);
+    api.failing_sets = 1;
+    battery_rate
+        .on_event(PowerEvent::Resumed, &config(true), &mut api)
+        .unwrap();
+
+    battery_rate
+        .on_event(PowerEvent::OnBattery, &config(true), &mut api)
+        .unwrap();
+    battery_rate.retry(&config(true), &mut api).unwrap();
+
+    assert_eq!(api.panel_mode(), mode(3840, 2400, 60));
 }

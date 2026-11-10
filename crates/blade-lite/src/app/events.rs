@@ -86,8 +86,9 @@ where
     }
 
     /// Follows the power source, and applies everything again after a
-    /// resume. On battery only Silent or Balanced runs; the saved preset
-    /// comes back on AC. The caller waits [`blade_core::RESUME_PAUSE`]
+    /// resume, with 60 Hz again on battery if Windows put the rate back.
+    /// On battery only Silent or Balanced runs; the saved preset comes
+    /// back on AC. The caller waits [`blade_core::RESUME_PAUSE`]
     /// before passing on a resume.
     ///
     /// # Errors
@@ -95,7 +96,22 @@ where
     /// See [`AppError`].
     pub fn on_power(&mut self, event: PowerEvent) -> Result<(), AppError> {
         match event {
-            PowerEvent::Resumed => self.start(),
+            PowerEvent::Resumed => {
+                // The rate follows even if the start fails.
+                let started = self.start();
+                // Only on battery: the charger may have gone in during the
+                // sleep, before its power event comes.
+                let rate = if self.on_battery {
+                    self.follow_power(event)
+                } else {
+                    Ok(())
+                };
+                if let (Err(_), Err(error)) = (&started, &rate) {
+                    // Only the start error is shown, so this one is logged.
+                    crate::report(&format!("the 60 Hz after the wake failed too: {error}"));
+                }
+                started.and(rate)
+            }
             PowerEvent::OnBattery | PowerEvent::OnAc => {
                 // The rate follows even if the preset send fails.
                 let preset = self.set_on_battery(event == PowerEvent::OnBattery);
@@ -132,6 +148,26 @@ where
     /// See [`AppError`].
     pub fn on_quit(&mut self) -> Result<(), AppError> {
         Ok(self.battery_rate.put_back(&mut self.machine.displays)?)
+    }
+
+    /// Whether a wake's 60 Hz on battery failed and is to be tried again.
+    #[must_use]
+    pub fn battery_rate_pending(&self) -> bool {
+        self.on_battery && self.battery_rate.retry_pending()
+    }
+
+    /// Tries a wake's failed 60 Hz again, on battery only (one try per
+    /// poll; see [`blade_core::BatteryRate::retry`]).
+    ///
+    /// # Errors
+    ///
+    /// See [`AppError`].
+    pub fn retry_battery_rate(&mut self) -> Result<(), AppError> {
+        if !self.on_battery {
+            return Ok(());
+        }
+        let displays = &mut self.machine.displays;
+        Ok(self.battery_rate.retry(&self.config, displays)?)
     }
 
     pub(super) fn follow_power(&mut self, event: PowerEvent) -> Result<(), AppError> {
