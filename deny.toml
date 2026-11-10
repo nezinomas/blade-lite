@@ -1,0 +1,35 @@
+# cargo-deny: licences, security advisories, duplicate and banned crates,
+# and where crates come from. Run with `cargo deny check`.
+
+[graph]
+targets = ["x86_64-pc-windows-msvc"]
+
+[advisories]
+# Unmaintained crates are flagged only when we depend on them directly.
+unmaintained = "workspace"
+
+[licenses]
+# Permissive licences only. Slint is used under its royalty-free licence,
+# with attribution (README).
+allow = [
+    "Apache-2.0",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "BSL-1.0",
+    "ISC",
+    "LicenseRef-Slint-Royalty-free-2.0",
+    "MIT",
+    "Unicode-3.0",
+    "Zlib",
+]
+confidence-threshold = 0.9
+
+[bans]
+multiple-versions = "warn"
+wildcards = "deny"
+# Our own crates depend on each other by path, with no version.
+allow-wildcard-paths = true
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
