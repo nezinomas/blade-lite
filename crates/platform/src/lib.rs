@@ -88,6 +88,17 @@ pub trait UserBytes {
     fn read_user_bytes(&self, key: &str, name: &str) -> io::Result<Vec<u8>>;
 }
 
+/// Reads what runs on the laptop now.
+pub trait Programs {
+    /// The file name of each running program, and the name and display
+    /// name of each running service and driver, in no set order.
+    ///
+    /// # Errors
+    ///
+    /// The Windows error if they could not be read.
+    fn running(&self) -> io::Result<Vec<String>>;
+}
+
 /// Keeps the app to one running copy.
 pub trait InstanceLock {
     /// Claims the app for this copy. `false` means another copy has it.
