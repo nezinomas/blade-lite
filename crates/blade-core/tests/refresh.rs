@@ -4,6 +4,7 @@ mod common;
 
 use blade_core::{DisplayError, RefreshRate, refresh_rates, set_refresh_rate};
 use common::{FakeDisplays, mode, monitor, panel};
+use platform::ModeLife;
 
 fn rates(hz: &[u32]) -> Vec<RefreshRate> {
     hz.iter().copied().map(RefreshRate).collect()
@@ -70,7 +71,11 @@ fn setting_a_rate_keeps_the_resolution() {
 
     assert_eq!(
         api.set,
-        vec![(r"\\.\DISPLAY1".into(), mode(3840, 2400, 60))]
+        vec![(
+            r"\\.\DISPLAY1".into(),
+            mode(3840, 2400, 60),
+            ModeLife::Saved
+        )]
     );
 }
 

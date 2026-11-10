@@ -3,7 +3,7 @@
 
 use std::io;
 
-use platform::{Display, DisplayApi, DisplayMode, OutputTechnology};
+use platform::{Display, DisplayApi, DisplayMode, ModeLife, OutputTechnology};
 
 /// A refresh rate, in Hz.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -49,13 +49,23 @@ pub fn current_rate(api: &impl DisplayApi) -> Result<RefreshRate, DisplayError> 
     Ok(RefreshRate(panel.current.hz))
 }
 
-/// Switches the panel to `rate` and keeps its resolution. A rate the panel
-/// does not offer is refused before Windows is asked.
+/// Switches the panel to `rate` and keeps its resolution, also after a
+/// restart. A rate the panel does not offer is refused before Windows is
+/// asked.
 ///
 /// # Errors
 ///
 /// See [`DisplayError`].
 pub fn set_refresh_rate(api: &mut impl DisplayApi, rate: RefreshRate) -> Result<(), DisplayError> {
+    set_rate(api, rate, ModeLife::Saved)
+}
+
+/// As [`set_refresh_rate`], for as long as `life` says.
+pub(crate) fn set_rate(
+    api: &mut impl DisplayApi,
+    rate: RefreshRate,
+    life: ModeLife,
+) -> Result<(), DisplayError> {
     let displays = api.displays().map_err(DisplayError::Query)?;
     let panel = internal_panel(&displays).ok_or(DisplayError::NoInternalPanel)?;
     if !rates_at_current_resolution(panel).contains(&rate) {
@@ -65,7 +75,8 @@ pub fn set_refresh_rate(api: &mut impl DisplayApi, rate: RefreshRate) -> Result<
         hz: rate.0,
         ..panel.current
     };
-    api.set_mode(&panel.name, mode).map_err(DisplayError::Set)
+    api.set_mode(&panel.name, mode, life)
+        .map_err(DisplayError::Set)
 }
 
 /// The panel's rates at its current resolution, each once, lowest first.

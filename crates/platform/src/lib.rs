@@ -145,6 +145,18 @@ pub struct DisplayMode {
     pub hz: u32,
 }
 
+/// How long a display keeps a mode it is switched to.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ModeLife {
+    /// Saved in the user's settings, so it is kept after a restart.
+    Saved,
+    /// Not saved: a restart or a sign-in starts at the saved mode. Windows
+    /// or another program (such as a game on exit) can also put the saved
+    /// mode back sooner, for example after a display is plugged in (general
+    /// Windows behaviour, not checked on this laptop).
+    UntilRestart,
+}
+
 /// How a display is connected, as Windows reports it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum OutputTechnology {
@@ -174,12 +186,12 @@ pub trait DisplayApi {
     /// The Windows error if the displays could not be read.
     fn displays(&self) -> io::Result<Vec<Display>>;
 
-    /// Switches the display named `name` to `mode`, and keeps it after a restart.
+    /// Switches the display named `name` to `mode`, for as long as `life` says.
     ///
     /// # Errors
     ///
     /// The Windows error if the display did not take the mode.
-    fn set_mode(&mut self, name: &str, mode: DisplayMode) -> io::Result<()>;
+    fn set_mode(&mut self, name: &str, mode: DisplayMode, life: ModeLife) -> io::Result<()>;
 }
 
 /// How long the CPUs have run since boot, in 100 ns units, summed over all.
