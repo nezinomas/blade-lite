@@ -301,12 +301,13 @@ mod tests {
     fn the_first_collection_to_send_is_the_only_one_read_then() {
         let (mut sources, log) = sources(vec![
             vec![Ok(Vec::new()), Ok(vec![0x04, 0x0A])],
-            vec![Ok(POWER_KEY.to_vec())],
+            vec![Ok(POWER_KEY.to_vec()), Ok(vec![0x04, 0x00])],
         ]);
 
         assert_eq!(sources.read(WAIT).unwrap(), Some(POWER_KEY.to_vec()));
+        assert_eq!(sources.read(WAIT).unwrap(), Some(vec![0x04, 0x00]));
         assert_eq!(sources.read(WAIT).unwrap(), None);
-        assert_eq!(*log.borrow(), [(0, 250), (1, 250), (1, 250)]);
+        assert_eq!(*log.borrow(), [(0, 250), (1, 250), (1, 250), (1, 250)]);
     }
 
     #[test]
