@@ -52,8 +52,14 @@ fn more_than_80_args_is_an_error() {
 
 #[test]
 fn exactly_80_args_fit() {
-    let bytes = Request::new(0, 0x030B, &[0xAB; MAX_ARGS]).unwrap().to_bytes();
+    let bytes = Request::new(0, 0x030B, &[0xAB; MAX_ARGS])
+        .unwrap()
+        .to_bytes();
 
     assert_eq!(usize::from(bytes[DATA_SIZE]), MAX_ARGS);
-    assert!(bytes[ARGS..ARGS + MAX_ARGS].iter().all(|&byte| byte == 0xAB));
+    assert!(
+        bytes[ARGS..ARGS + MAX_ARGS]
+            .iter()
+            .all(|&byte| byte == 0xAB)
+    );
 }
