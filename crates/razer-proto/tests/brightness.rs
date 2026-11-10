@@ -126,3 +126,27 @@ fn a_reply_for_another_led_or_storage_is_none() {
     assert_eq!(Brightness::from_reply(&BLADE_18, &[0x01, 0x05]), None);
     assert_eq!(Brightness::from_reply(&BLADE_18, &[]), None);
 }
+
+#[test]
+fn a_dim_level_is_never_read_as_off() {
+    for level in 1..=2 {
+        let read = Brightness::from_reply(&BLADE_18, &[0x01, 0x05, level]).unwrap();
+
+        assert_eq!(read.percent(), 1, "level {level}");
+    }
+}
+
+#[test]
+fn the_laptop_steps_read_as_the_nearest_percent() {
+    // Fn + F10 / F11 step the level by 15 (read on the laptop).
+    let read = |level| {
+        Brightness::from_reply(&BLADE_18, &[0x01, 0x05, level])
+            .unwrap()
+            .percent()
+    };
+
+    assert_eq!(read(15), 6);
+    assert_eq!(read(30), 12);
+    assert_eq!(read(127), 50);
+    assert_eq!(read(225), 88);
+}

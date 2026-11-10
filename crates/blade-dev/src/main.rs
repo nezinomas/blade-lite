@@ -1,6 +1,6 @@
 //! `blade-dev probe`: finds the controller and reads its firmware version.
-//! `blade-dev keys`: prints the Razer key reports and the keyboard
-//! brightness as they change, for a minute.
+//! `blade-dev keys`: prints the Razer key reports, and the keyboard and
+//! vapor light levels as they change, for a minute.
 
 use std::process::ExitCode;
 use std::time::{Duration, Instant};
@@ -8,11 +8,13 @@ use std::time::{Duration, Instant};
 use blade_core::{APP_NAME, Start, start_instance};
 use blade_dev::Command;
 use platform::WindowsInstance;
-use razer_device::{Device, HidKeyReports, HidTransport, SystemClock};
-use razer_proto::{BLADE_18, Brightness};
+use razer_device::{Device, DeviceError, HidKeyReports, HidTransport, SystemClock};
+use razer_proto::BLADE_18;
 
 /// How long `keys` runs.
 const KEYS_RUN: Duration = Duration::from_secs(60);
+/// Get LED brightness. Args are `[1, led, 0]`, the reply args `[1, led, level]`.
+const GET_BRIGHTNESS: u16 = 0x0383;
 /// How long one key read waits; the brightness is read between reads.
 const KEY_READ_WAIT: Duration = Duration::from_millis(250);
 
@@ -55,8 +57,12 @@ fn keys() -> ExitCode {
     let Some(_instance) = take_lock() else {
         return ExitCode::FAILURE;
     };
-    let (Some(query), true) = (Brightness::query(&BLADE_18), BLADE_18.power_key.is_some()) else {
-        eprintln!("this model has no key reports or brightness");
+    let (Some(&keyboard), Some(vapor), true) = (
+        BLADE_18.brightness_leds.first(),
+        BLADE_18.vapor_light,
+        BLADE_18.power_key.is_some(),
+    ) else {
+        eprintln!("this model has no key reports, brightness or vapor light");
         return ExitCode::FAILURE;
     };
     let mut reports = match HidKeyReports::open(&BLADE_18) {
@@ -86,26 +92,39 @@ fn keys() -> ExitCode {
                 return ExitCode::FAILURE;
             }
         }
-        let read = device
-            .send(query.id, &query.args)
-            .map_err(|error| format!("{error:?}"))
-            .and_then(|reply| {
-                let args = reply.args();
-                Brightness::from_reply(&BLADE_18, args)
-                    .map(|brightness| (args[2], brightness.percent()))
-                    .ok_or_else(|| format!("unknown reply {:02X?}", args.get(..3)))
-            });
-        if shown.as_ref() != Some(&read) {
-            match &read {
-                Ok((level, percent)) => {
-                    println!("{at:>6} ms  brightness level {level} ({percent}%)");
-                }
-                Err(error) => println!("{at:>6} ms  brightness read failed: {error}"),
-            }
-            shown = Some(read);
+        let levels = (level(&mut device, keyboard), level(&mut device, vapor.led));
+        if let (Err(DeviceError::Io(error)), _) | (_, Err(DeviceError::Io(error))) = &levels {
+            eprintln!("the controller went away: {error}");
+            return ExitCode::FAILURE;
+        }
+        let text = format!("keyboard {}, vapor {}", show(&levels.0), show(&levels.1));
+        if shown.as_ref() != Some(&text) {
+            println!("{at:>6} ms  {text}");
+            shown = Some(text);
         }
     }
     ExitCode::SUCCESS
+}
+
+/// Reads one LED's brightness level. `None` if the reply is for another
+/// storage or LED.
+fn level(
+    device: &mut Device<HidTransport, SystemClock>,
+    led: u8,
+) -> Result<Option<u8>, DeviceError> {
+    let reply = device.send(GET_BRIGHTNESS, &[1, led, 0])?;
+    Ok(match reply.args() {
+        [1, echoed, level, ..] if *echoed == led => Some(*level),
+        _ => None,
+    })
+}
+
+fn show(level: &Result<Option<u8>, DeviceError>) -> String {
+    match level {
+        Ok(Some(level)) => format!("level {level}"),
+        Ok(None) => "an unknown reply".into(),
+        Err(error) => format!("read failed ({error:?})"),
+    }
 }
 
 fn probe() -> ExitCode {

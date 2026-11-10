@@ -5,6 +5,8 @@ use crate::{Command, ModelProfile};
 /// Set LED brightness. Args are `[1, led, level]`.
 const SET_BRIGHTNESS: u16 = 0x0303;
 /// Get LED brightness. Args are `[1, led, 0]`, the reply args `[1, led, level]`.
+/// The laptop answers it for the keyboard and the vapor light (`cargo hw`
+/// brightness test, and `blade-dev keys` on 2026-11-10).
 const GET_BRIGHTNESS: u16 = 0x0383;
 /// The args start with 1, as Synapse sends them.
 const VARIABLE_STORAGE: u8 = 0x01;
@@ -58,14 +60,17 @@ impl Brightness {
     }
 
     /// The keyboard's brightness from a query's reply args. `None` if the
-    /// reply is for another storage or LED. The percent is rounded down,
-    /// so a level the app set reads back as the percent it came from.
+    /// reply is for another storage or LED. The percent is the nearest one,
+    /// so a level the app set reads back as the percent it came from, but
+    /// at least 1 for a level above 0, so a dim keyboard is never read as
+    /// off.
     #[must_use]
     pub fn from_reply(model: &ModelProfile, args: &[u8]) -> Option<Self> {
         let &led = model.brightness_leds.first()?;
         match args {
             [VARIABLE_STORAGE, echoed, level, ..] if *echoed == led => {
-                let percent = u16::from(*level) * u16::from(MAX_PERCENT) / 255;
+                let nearest = (u16::from(*level) * u16::from(MAX_PERCENT) + 127) / 255;
+                let percent = if *level > 0 { nearest.max(1) } else { 0 };
                 Some(Self(u8::try_from(percent).ok()?))
             }
             _ => None,

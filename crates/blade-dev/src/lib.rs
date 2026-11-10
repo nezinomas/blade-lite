@@ -5,8 +5,8 @@
 pub enum Command {
     /// Find the controller and read its firmware version.
     Probe,
-    /// Print the Razer key reports and the keyboard brightness as they
-    /// change, to find which keys change what.
+    /// Print the Razer key reports, and the keyboard and vapor light
+    /// levels as they change, to find which keys change what.
     Keys,
 }
 

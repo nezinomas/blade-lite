@@ -633,14 +633,48 @@ fn an_fn_press_that_changes_nothing_keeps_a_shown_error() {
 }
 
 #[test]
-fn a_failed_brightness_read_after_fn_shows_the_error() {
+fn fn_up_during_the_resume_pause_reads_and_sends_nothing() {
+    // The controller may still run another level then; the resume sends
+    // the saved one.
+    let f = lit_fixture();
+    let (sender, receiver) = std::sync::mpsc::channel();
+    sender.send(PowerEvent::Resumed).unwrap();
+    f.shell.follow_power(&receiver);
+    let before = sent_count(&f);
+    f.shell.app().machine_mut().controller.brightness_level = Some(255);
+
+    f.shell.follow_brightness_keys();
+
+    assert_eq!(sent_since(&f, before), []);
+    assert_eq!(f.shell.app().config().lighting.unwrap().brightness, 35);
+}
+
+#[test]
+fn a_failed_brightness_read_after_fn_is_logged_not_shown() {
+    // Fn is pressed for many things: a lasting fault must not fill the
+    // window on each press.
     let f = lit_fixture();
     let before = sent_count(&f);
 
     f.shell.follow_brightness_keys();
 
-    let error = f.shell.window().get_error();
-    assert!(error.contains("busy"), "{error}");
+    assert_eq!(f.shell.window().get_error(), "");
     assert_eq!(sent_since(&f, before), []);
     assert_eq!(percent_shown(f.shell.window(), "KeyboardGroup"), "35%");
+    let log = std::fs::read_to_string(log_path()).unwrap();
+    assert!(log.contains("keyboard brightness"), "{log}");
+}
+
+#[test]
+fn a_failed_vapor_send_after_fn_shows_the_error_and_the_new_level() {
+    let f = lit_fixture();
+    f.shell.app().machine_mut().controller.brightness_level = Some(255);
+    f.shell.app().machine_mut().controller.fails = true;
+
+    f.shell.follow_brightness_keys();
+    slint::platform::update_timers_and_animations();
+
+    let error = f.shell.window().get_error();
+    assert!(error.contains("busy"), "{error}");
+    assert_eq!(percent_shown(f.shell.window(), "KeyboardGroup"), "100%");
 }

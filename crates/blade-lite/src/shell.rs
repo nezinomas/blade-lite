@@ -148,12 +148,22 @@ impl<P: Parts> Shell<P> {
 
     /// Reads the keyboard brightness after Fn came up, as Fn + F10 or F11
     /// may have set it. The window is filled again only for a new level
-    /// or an error, so an Fn press for anything else leaves a shown error.
+    /// or a failed send or save, so an Fn press for anything else leaves a
+    /// shown error. A failed read is only logged, at most once in a quiet
+    /// spell, as Fn is pressed for many things. Nothing is read while a
+    /// resume waits: the controller may still run another level, and the
+    /// resume sends the saved one.
     pub fn follow_brightness_keys(&self) {
+        if self.resuming.get() > 0 {
+            return;
+        }
         let result = self.app.borrow_mut().on_fn_up();
         match result {
             Ok(false) => {}
             Ok(true) => self.refresh(None),
+            Err(AppError::Device(error)) => {
+                self.say_read_errors(&[format!("keyboard brightness: {error}")]);
+            }
             Err(error) => self.refresh(Some(&error)),
         }
     }

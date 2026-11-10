@@ -9,6 +9,7 @@ use platform::{DisplayApi, KeyInjector, PowerEvent, Registry};
 use ui::{DisplayCommand, KeyboardCommand, PerformanceCommand};
 
 use super::{App, AppError};
+use crate::report;
 
 impl<C, D, R, K> App<C, D, R, K>
 where
@@ -75,7 +76,8 @@ where
     ///
     /// See [`AppError`]. A failed read changes nothing. A new level is
     /// kept and saved even if the vapor light send fails, since the
-    /// keyboard already runs it.
+    /// keyboard already runs it. After a failed start the keyboard may
+    /// run another level than the saved one; the next Fn press takes it.
     ///
     /// Returns whether a new level was taken, so the window is filled
     /// again only then.
@@ -98,6 +100,12 @@ where
             lighting: Some(lighting),
             ..self.config
         });
+        if let (Err(_), Err(error)) = (&sent, &kept) {
+            // Only the send error is returned: log this one.
+            report(&format!(
+                "the new keyboard brightness was not saved: {error}"
+            ));
+        }
         sent?;
         kept.map(|()| true)
     }
