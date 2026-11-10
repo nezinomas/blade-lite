@@ -33,7 +33,8 @@ pub struct FakeController {
     pub sent: Vec<Command>,
     pub fails: bool,
     /// Takes this many commands of each run, then fails it, as a Busy
-    /// reply to a command the controller still ran.
+    /// reply to a command the controller still ran. It stays set, and a
+    /// run of `n` or fewer commands still fails.
     pub fails_after: Option<usize>,
     /// `None` fails the logo query.
     pub logo_reply: Option<Vec<u8>>,
