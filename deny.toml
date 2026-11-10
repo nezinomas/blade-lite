@@ -2,6 +2,8 @@
 # and where crates come from. Run with `cargo deny check`.
 
 [graph]
+# Windows only. This also keeps out Linux-only crates such as `option-ext`
+# (MPL-2.0, through tray-icon and dirs), which the licence list refuses.
 targets = ["x86_64-pc-windows-msvc"]
 
 [advisories]
@@ -10,7 +12,7 @@ unmaintained = "workspace"
 
 [licenses]
 # Permissive licences only. Slint is used under its royalty-free licence,
-# with attribution (README).
+# which needs an attribution once binaries are published (ticket 95).
 allow = [
     "Apache-2.0",
     "BSD-2-Clause",
