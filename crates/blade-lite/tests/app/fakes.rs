@@ -49,6 +49,8 @@ pub struct FakeController {
     pub brightness_level: Option<u8>,
     /// The CPU temperature the controller reads back. `None` fails the query.
     pub cpu_celsius: Option<u8>,
+    /// Every query asked, in order.
+    pub asked: Vec<Command>,
 }
 
 impl Controller for FakeController {
@@ -77,6 +79,7 @@ impl Controller for FakeController {
 
 impl Query for FakeController {
     fn query(&mut self, command: &Command) -> Result<Vec<u8>, DeviceError> {
+        self.asked.push(command.clone());
         if *command == NativeMode::query() {
             Ok(vec![0])
         } else if *command == logo().query() {

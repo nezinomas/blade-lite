@@ -1,9 +1,12 @@
-//! When to read the sensors: once a second, only while a view is visible.
+//! When to read the sensors: once a second while a view is visible, and only
+//! the temperatures, for the heat warning, every ten seconds while none is.
 
 use std::time::{Duration, Instant};
 
 /// The time between two polls.
 pub const POLL_INTERVAL: Duration = Duration::from_secs(1);
+/// The time between two temperature reads while no view is visible.
+pub const HEAT_INTERVAL: Duration = Duration::from_secs(10);
 
 /// A view that shows readings.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -19,6 +22,9 @@ pub struct PollSchedule {
     flyout: bool,
     /// `None` while no view is visible.
     next: Option<Instant>,
+    /// The next temperature read while no view is visible, `None` when one
+    /// is due at once.
+    next_heat: Option<Instant>,
 }
 
 impl PollSchedule {
@@ -43,6 +49,21 @@ impl PollSchedule {
         let due = self.next.is_some_and(|next| now >= next);
         if due {
             self.next = Some(now + POLL_INTERVAL);
+        }
+        due
+    }
+
+    /// Whether to read only the temperatures now: never while a view polls,
+    /// since each poll reads them. A `true` moves the next read one
+    /// [`HEAT_INTERVAL`] on.
+    pub fn heat_due(&mut self, now: Instant) -> bool {
+        if self.next.is_some() {
+            self.next_heat = None;
+            return false;
+        }
+        let due = self.next_heat.is_none_or(|next| now >= next);
+        if due {
+            self.next_heat = Some(now + HEAT_INTERVAL);
         }
         due
     }

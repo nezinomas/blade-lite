@@ -8,7 +8,7 @@ use blade_lite::Rect;
 use i_slint_backend_testing::AccessibleRole::{Button, Slider, Switch, TextInput};
 use i_slint_backend_testing::{ElementHandle, ElementRoot};
 use platform::{Key, PowerEvent};
-use razer_proto::{BLADE_18, Command, PerfMode, Rgb, static_colour};
+use razer_proto::{BLADE_18, Celsius, Command, PerfMode, Rgb, static_colour};
 use slint::platform::{PointerEventButton, WindowEvent};
 use slint::{ComponentHandle, LogicalPosition};
 
@@ -879,6 +879,55 @@ fn a_hot_spell_shows_the_heat_popup_once() {
     }
 
     assert_eq!(f.shell.popup().get_mode(), "", "once per spell");
+}
+
+/// The temperature queries the controller got since `before` queries.
+fn temperature_reads_since(f: &Fixture, before: usize) -> usize {
+    let app = f.shell.app();
+    let asked = &app.machine().controller.asked[before..];
+    asked.iter().filter(|&c| *c == Celsius::query()).count()
+}
+
+fn asked_count(f: &Fixture) -> usize {
+    f.shell.app().machine().controller.asked.len()
+}
+
+#[test]
+fn with_no_view_open_a_tick_reads_only_the_cpu_temperature() {
+    let f = fixture(Config::default());
+    let (asked, sent) = (asked_count(&f), sent_count(&f));
+
+    f.shell.tick();
+
+    let app = f.shell.app();
+    assert_eq!(app.machine().controller.asked[asked..], [Celsius::query()]);
+    drop(app);
+    assert_eq!(sent_since(&f, sent), []);
+    assert_eq!(f.shell.app().cpu_celsius(), None, "the fake can't read it");
+}
+
+#[test]
+fn the_next_tick_within_ten_seconds_reads_nothing() {
+    let f = fixture(Config::default());
+    f.shell.tick();
+    let asked = asked_count(&f);
+
+    f.shell.tick();
+
+    assert_eq!(asked_count(&f), asked);
+}
+
+#[test]
+fn no_temperature_read_while_a_wake_waits() {
+    let f = fixture(Config::default());
+    let (sender, receiver) = std::sync::mpsc::channel();
+    f.shell.listen_for_power(receiver);
+    sender.send(PowerEvent::Resumed).unwrap();
+    let asked = asked_count(&f);
+
+    f.shell.tick();
+
+    assert_eq!(temperature_reads_since(&f, asked), 0);
 }
 
 #[test]

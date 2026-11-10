@@ -2,10 +2,10 @@
 
 use blade_core::{
     ApplyError, Controller, Preset, Query, Readings, chosen_native_mode, current_rate,
-    native_mode_state, read_controller, refresh_rates, touchpad_on,
+    native_mode_state, read_controller, read_cpu_temperature, refresh_rates, touchpad_on,
 };
 use platform::{DisplayApi, KeyInjector, Registry};
-use razer_proto::Brightness;
+use razer_proto::{Brightness, Celsius};
 use ui::{
     DisplayState, DisplayView, Header, HeaderState, KeyboardState, KeyboardView, PerformanceState,
     PerformanceView,
@@ -25,7 +25,7 @@ where
     pub fn header(&mut self, readings: Readings) -> Header {
         let controller = read_controller(&mut self.machine.controller, self.model);
         self.read_errors = controller.errors;
-        self.cpu_celsius = controller.cpu.map(|celsius| u32::from(celsius.0));
+        self.cpu_celsius = celsius(controller.cpu);
         Header::new(&HeaderState {
             model: self.model,
             preset: self.config.preset,
@@ -43,8 +43,16 @@ where
         &self.read_errors
     }
 
-    /// The CPU temperature in °C read when the header was last made, or
-    /// `None` if it could not be read.
+    /// Reads only the CPU temperature, for the heat warning while no view
+    /// shows. A failed read is kept in [`read_errors`](Self::read_errors).
+    pub fn read_cpu_temperature(&mut self) {
+        let (cpu, errors) = read_cpu_temperature(&mut self.machine.controller);
+        self.read_errors = errors;
+        self.cpu_celsius = celsius(cpu);
+    }
+
+    /// The CPU temperature in °C last read, or `None` if it could not be
+    /// read.
     #[must_use]
     pub fn cpu_celsius(&self) -> Option<u32> {
         self.cpu_celsius
@@ -122,4 +130,9 @@ where
     pub fn vapor_light_on(&self) -> Option<bool> {
         self.model.vapor_light.map(|_| self.lighting().vapor_light)
     }
+}
+
+/// A controller temperature in °C.
+fn celsius(cpu: Option<Celsius>) -> Option<u32> {
+    cpu.map(|celsius| u32::from(celsius.0))
 }

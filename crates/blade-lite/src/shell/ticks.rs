@@ -15,16 +15,37 @@ use crate::bind;
 
 impl<P: Parts> Shell<P> {
     /// Passes on power events, tries a wake's refused 60 Hz again, passes
-    /// on Num Lock, then reads the sensors if a view shows them.
+    /// on Num Lock, then reads the sensors if a view shows them, or only
+    /// the temperatures now and then if none does.
     pub fn tick(self: &Rc<Self>) {
         self.follow_own_power();
         if self.resuming.get() == 0 && self.app.borrow().battery_rate_pending() {
             self.retry_battery_rate();
         }
         self.follow_num_lock(num_lock_on());
-        if self.schedule.borrow_mut().poll_due(Instant::now()) {
+        let now = Instant::now();
+        if self.schedule.borrow_mut().poll_due(now) {
             self.tick_readings();
+        } else if self.resuming.get() == 0 && self.schedule.borrow_mut().heat_due(now) {
+            self.tick_heat(now);
         }
+    }
+
+    /// Reads only the temperatures, for the heat warning. Not while a
+    /// resume waits: the controller may not be ready.
+    fn tick_heat(self: &Rc<Self>, now: Instant) {
+        let (gpu, mut errors) = {
+            let (sampler, sensors) = &mut *self.sampler.borrow_mut();
+            (sampler.gpu_celsius(sensors), sampler.errors().to_vec())
+        };
+        let cpu = {
+            let mut app = self.app.borrow_mut();
+            app.read_cpu_temperature();
+            errors.extend_from_slice(app.read_errors());
+            app.cpu_celsius()
+        };
+        self.say_read_errors(&errors);
+        self.watch_heat(cpu, gpu, now);
     }
 
     /// Tries a wake's refused 60 Hz again: Windows can refuse it just after

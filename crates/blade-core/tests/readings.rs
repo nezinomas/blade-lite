@@ -205,3 +205,43 @@ fn no_cpu_time_passing_gives_no_load() {
 
     assert_eq!(second_snapshot(&mut sensors).cpu_load_percent, None);
 }
+
+#[test]
+fn the_gpu_temperature_alone_is_read_when_it_is_awake() {
+    let mut sensors = FakeSensors::new();
+    sensors.cpu.clear();
+    sensors.power = None;
+    let mut sampler = ReadingsSampler::default();
+
+    assert_eq!(sampler.gpu_celsius(&mut sensors), Some(61));
+    assert_eq!(
+        sampler.errors(),
+        [] as [String; 0],
+        "no CPU or battery read"
+    );
+}
+
+#[test]
+fn a_sleeping_gpu_is_not_woken_for_its_temperature() {
+    let mut sensors = FakeSensors::new();
+    sensors.gpu_awake = false;
+    let mut sampler = ReadingsSampler::default();
+
+    assert_eq!(sampler.gpu_celsius(&mut sensors), None);
+    assert_eq!(sensors.gpu_reads.get(), 0);
+}
+
+#[test]
+fn a_failed_gpu_temperature_read_is_named_alone() {
+    let mut sensors = FakeSensors::new();
+    sensors.gpu = None;
+    let mut sampler = ReadingsSampler::default();
+    sampler.sample(&mut FakeSensors {
+        power: None,
+        ..FakeSensors::new()
+    });
+
+    assert_eq!(sampler.gpu_celsius(&mut sensors), None);
+    assert_eq!(sampler.errors().len(), 1, "{:?}", sampler.errors());
+    assert!(sampler.errors()[0].starts_with("GPU: "));
+}

@@ -2,7 +2,7 @@
 
 use std::time::{Duration, Instant};
 
-use blade_core::{POLL_INTERVAL, PollSchedule, View};
+use blade_core::{HEAT_INTERVAL, POLL_INTERVAL, PollSchedule, View};
 
 /// A clock that moves only when told to, in steps of 100 ms.
 struct FakeClock {
@@ -139,4 +139,64 @@ fn a_late_poll_does_not_catch_up_with_a_burst() {
     assert!(schedule.poll_due(clock.now));
     assert!(!schedule.poll_due(clock.now));
     assert_eq!(schedule.next_poll(), Some(clock.now + POLL_INTERVAL));
+}
+
+/// Ticks for `duration`, and returns when a heat read was due, from `start`.
+fn heat_reads(
+    clock: &mut FakeClock,
+    schedule: &mut PollSchedule,
+    duration: Duration,
+) -> Vec<Duration> {
+    let end = clock.now + duration;
+    let mut reads = Vec::new();
+    while clock.now < end {
+        if schedule.heat_due(clock.now) {
+            reads.push(clock.now - clock.start);
+        }
+        clock.now += TICK;
+    }
+    reads
+}
+
+#[test]
+fn the_heat_interval_is_ten_seconds() {
+    assert_eq!(HEAT_INTERVAL, Duration::from_secs(10));
+}
+
+#[test]
+fn with_no_view_visible_the_heat_is_read_at_once_then_every_ten_seconds() {
+    let mut clock = FakeClock::new();
+    let mut schedule = PollSchedule::default();
+
+    assert_eq!(
+        heat_reads(&mut clock, &mut schedule, Duration::from_secs(25)),
+        secs(&[0, 10, 20])
+    );
+}
+
+#[test]
+fn no_heat_read_while_a_view_polls() {
+    let mut clock = FakeClock::new();
+    let mut schedule = PollSchedule::default();
+    schedule.show(View::Flyout, clock.now);
+
+    assert_eq!(
+        heat_reads(&mut clock, &mut schedule, Duration::from_secs(25)),
+        secs(&[])
+    );
+}
+
+#[test]
+fn heat_reads_start_when_the_last_view_closes() {
+    let mut clock = FakeClock::new();
+    let mut schedule = PollSchedule::default();
+    schedule.show(View::Window, clock.now);
+    heat_reads(&mut clock, &mut schedule, Duration::from_secs(15));
+
+    schedule.hide(View::Window);
+
+    assert_eq!(
+        heat_reads(&mut clock, &mut schedule, Duration::from_secs(11)),
+        secs(&[15, 25])
+    );
 }
