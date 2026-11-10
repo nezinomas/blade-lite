@@ -13,7 +13,9 @@ use std::hash::{BuildHasher, Hasher, RandomState};
 use std::io;
 use std::time::Duration;
 
-use razer_proto::{BuildError, Command, ParseError, REPORT_LEN, Report, Request, Status};
+use razer_proto::{
+    BuildError, Command, FirmwareVersion, ParseError, REPORT_LEN, Report, Request, Status,
+};
 
 mod discovery;
 mod hid;
@@ -135,16 +137,6 @@ fn parse_text(error: ParseError) -> String {
     }
 }
 
-/// Get firmware version. Args are `[0, 0]`, the reply args are `[major, minor]`.
-const FIRMWARE_VERSION: u16 = 0x0081;
-
-/// The controller's firmware version, such as 1.7.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct FirmwareVersion {
-    pub major: u8,
-    pub minor: u8,
-}
-
 /// The controller, with the pause and the Busy read-again built in.
 pub struct Device<T, C> {
     transport: T,
@@ -219,11 +211,9 @@ impl<T: Transport, C: Clock> Device<T, C> {
     ///
     /// See [`DeviceError`].
     pub fn firmware_version(&mut self) -> Result<FirmwareVersion, DeviceError> {
-        let report = self.send(FIRMWARE_VERSION, &[0, 0])?;
-        match *report.args() {
-            [major, minor, ..] => Ok(FirmwareVersion { major, minor }),
-            _ => Err(DeviceError::ShortReply),
-        }
+        let query = FirmwareVersion::query();
+        let report = self.send(query.id, &query.args)?;
+        FirmwareVersion::from_reply(report.args()).ok_or(DeviceError::ShortReply)
     }
 
     /// Sends one report, pauses, and reads the reply.

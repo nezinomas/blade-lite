@@ -150,3 +150,37 @@ fn the_laptop_steps_read_as_the_nearest_percent() {
     assert_eq!(read(127), 50);
     assert_eq!(read(225), 88);
 }
+
+#[test]
+fn the_level_query_reads_any_led() {
+    let query = Brightness::level_query(0x26);
+
+    assert_eq!(query.id, 0x0383);
+    assert_eq!(query.args, [0x01, 0x26, 0x00]);
+}
+
+#[test]
+fn the_level_reply_gives_the_raw_level_of_its_led() {
+    assert_eq!(
+        Brightness::level_from_reply(0x26, &[0x01, 0x26, 92]),
+        Some(92)
+    );
+    assert_eq!(
+        Brightness::level_from_reply(0x05, &[0x01, 0x05, 0, 7]),
+        Some(0)
+    );
+}
+
+#[test]
+fn a_level_reply_for_another_led_or_storage_is_none() {
+    assert_eq!(
+        Brightness::level_from_reply(0x05, &[0x01, 0x26, 0x80]),
+        None
+    );
+    assert_eq!(
+        Brightness::level_from_reply(0x05, &[0x00, 0x05, 0x80]),
+        None
+    );
+    assert_eq!(Brightness::level_from_reply(0x05, &[0x01, 0x05]), None);
+    assert_eq!(Brightness::level_from_reply(0x05, &[]), None);
+}

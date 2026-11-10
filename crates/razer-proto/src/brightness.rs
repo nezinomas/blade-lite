@@ -53,10 +53,26 @@ impl Brightness {
     #[must_use]
     pub fn query(model: &ModelProfile) -> Option<Command> {
         let &led = model.brightness_leds.first()?;
-        Some(Command {
+        Some(Self::level_query(led))
+    }
+
+    /// The command that reads one LED's level, such as the vapor light's.
+    #[must_use]
+    pub fn level_query(led: u8) -> Command {
+        Command {
             id: GET_BRIGHTNESS,
             args: vec![VARIABLE_STORAGE, led, 0],
-        })
+        }
+    }
+
+    /// The LED's level, 0 to 255, from a [`Brightness::level_query`] reply.
+    /// `None` if the reply is for another storage or LED.
+    #[must_use]
+    pub fn level_from_reply(led: u8, args: &[u8]) -> Option<u8> {
+        match args {
+            [VARIABLE_STORAGE, echoed, level, ..] if *echoed == led => Some(*level),
+            _ => None,
+        }
     }
 
     /// The keyboard's brightness from a query's reply args. `None` if the
@@ -67,14 +83,10 @@ impl Brightness {
     #[must_use]
     pub fn from_reply(model: &ModelProfile, args: &[u8]) -> Option<Self> {
         let &led = model.brightness_leds.first()?;
-        match args {
-            [VARIABLE_STORAGE, echoed, level, ..] if *echoed == led => {
-                let nearest = (u16::from(*level) * u16::from(MAX_PERCENT) + 127) / 255;
-                let percent = if *level > 0 { nearest.max(1) } else { 0 };
-                Some(Self(u8::try_from(percent).ok()?))
-            }
-            _ => None,
-        }
+        let level = Self::level_from_reply(led, args)?;
+        let nearest = (u16::from(level) * u16::from(MAX_PERCENT) + 127) / 255;
+        let percent = if level > 0 { nearest.max(1) } else { 0 };
+        Some(Self(u8::try_from(percent).ok()?))
     }
 
     /// The commands that set it: one per brightness LED of the model.

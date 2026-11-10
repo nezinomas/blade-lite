@@ -9,12 +9,10 @@ use blade_core::{APP_NAME, Start, start_instance};
 use blade_dev::Command;
 use platform::WindowsInstance;
 use razer_device::{Device, DeviceError, HidKeyReports, HidTransport, SystemClock};
-use razer_proto::BLADE_18;
+use razer_proto::{BLADE_18, Brightness};
 
 /// How long `keys` runs.
 const KEYS_RUN: Duration = Duration::from_secs(60);
-/// Get LED brightness. Args are `[1, led, 0]`, the reply args `[1, led, level]`.
-const GET_BRIGHTNESS: u16 = 0x0383;
 /// How long one key read waits; the brightness is read between reads.
 const KEY_READ_WAIT: Duration = Duration::from_millis(250);
 
@@ -112,11 +110,9 @@ fn level(
     device: &mut Device<HidTransport, SystemClock>,
     led: u8,
 ) -> Result<Option<u8>, DeviceError> {
-    let reply = device.send(GET_BRIGHTNESS, &[1, led, 0])?;
-    Ok(match reply.args() {
-        [1, echoed, level, ..] if *echoed == led => Some(*level),
-        _ => None,
-    })
+    let query = Brightness::level_query(led);
+    let reply = device.send(query.id, &query.args)?;
+    Ok(Brightness::level_from_reply(led, reply.args()))
 }
 
 fn show(level: &Result<Option<u8>, DeviceError>) -> String {
