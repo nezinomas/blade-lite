@@ -63,6 +63,7 @@ fn a_reply_for_the_logo_led_says_on_or_off() {
 #[test]
 fn a_reply_for_another_led_or_an_odd_value_is_not_read() {
     assert_eq!(logo().from_reply(&[0x00, 0x05, 0x01]), None);
+    assert_eq!(logo().from_reply(&[0x00, 0x05, 0x00]), None);
     assert_eq!(logo().from_reply(&[0x00, 0x04, 0x02]), None);
     assert_eq!(logo().from_reply(&[0x00, 0x04]), None);
     // Storage 1 holds another value, so its echo is not the state.
