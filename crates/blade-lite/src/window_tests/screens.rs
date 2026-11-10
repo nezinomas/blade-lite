@@ -53,6 +53,17 @@ fn window_with_an_error() {
 }
 
 #[test]
+fn window_with_the_razer_warning() {
+    let f = fixture(Config::default());
+    f.shell
+        .programs()
+        .set(&["Razer Synapse Service", "RazerAppEngine.exe"]);
+    f.shell.look_for_razer();
+    f.shell.refresh(None);
+    check("window-razer", f.shell.window().window());
+}
+
+#[test]
 fn flyout() {
     let f = fixture(Config::default());
     check("flyout", f.shell.flyout().window());

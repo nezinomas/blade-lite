@@ -30,9 +30,10 @@ drivers, so our app can talk to MI_02 with no Razer software.
 5. Check by hand: typing, the touchpad, the touchpad key, Fn + keyboard
    brightness, Fn + volume, and the lid logo.
 
-If Windows Update puts the driver back later, block the device ID with the
-DeviceInstall restriction keys under `HKLM\SOFTWARE\Policies` (Home has no
-Group Policy editor). Not done now (YAGNI).
+Windows Update offers the Razer drivers again (seen 2026-11-09). Hide them
+with `tools/Block-RazerDriverUpdates.ps1 -Apply` (ticket 74). A device ID
+block (DeviceInstall restriction keys) was not used: it could also block the
+inbox drivers the keyboard needs.
 
 ## Rollback
 

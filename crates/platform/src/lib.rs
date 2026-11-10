@@ -11,6 +11,7 @@ mod instance;
 mod keys;
 mod popup;
 mod power;
+mod programs;
 mod registry;
 mod sensors;
 mod watch;
@@ -23,6 +24,7 @@ pub use instance::{WakeListener, WindowsInstance};
 pub use keys::{WindowsKeys, num_lock_on};
 pub use popup::work_area;
 pub use power::WindowsPowerEvents;
+pub use programs::WindowsPrograms;
 pub use registry::WindowsRegistry;
 pub use sensors::WindowsSensors;
 pub use watch::RegistryWatch;
@@ -86,6 +88,17 @@ pub trait UserBytes {
     ///
     /// The Windows error if the value is missing or is not binary.
     fn read_user_bytes(&self, key: &str, name: &str) -> io::Result<Vec<u8>>;
+}
+
+/// Reads what runs on the laptop now.
+pub trait Programs {
+    /// The file name of each running program, and the name and display
+    /// name of each running service and driver, in no set order.
+    ///
+    /// # Errors
+    ///
+    /// The Windows error if they could not be read.
+    fn running(&self) -> io::Result<Vec<String>>;
 }
 
 /// Keeps the app to one running copy.

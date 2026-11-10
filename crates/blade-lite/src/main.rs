@@ -28,10 +28,14 @@ use std::process::ExitCode;
 use std::rc::Rc;
 use std::sync::mpsc::Receiver;
 
-use blade_core::{APP_NAME, Config, Log, POLL_INTERVAL, Start, start_instance, starts_in_tray};
+use blade_core::{
+    APP_NAME, Config, Log, POLL_INTERVAL, Start, razer_software, razer_warning, start_instance,
+    starts_in_tray,
+};
 use blade_lite::{App, Machine, accent_colour, open_log, report, report_panics};
 use platform::{
-    PowerEvent, WindowsDisplays, WindowsInstance, WindowsKeys, WindowsRegistry, num_lock_on,
+    PowerEvent, WindowsDisplays, WindowsInstance, WindowsKeys, WindowsPrograms, WindowsRegistry,
+    num_lock_on,
 };
 use razer_device::{Device, HidTransport, SystemClock};
 use razer_proto::{BLADE_18, Rgb};
@@ -68,6 +72,18 @@ fn main() -> ExitCode {
     }
 }
 
+/// Opens the controller. If it can't be opened, the error names any Razer
+/// software that runs, such as a Razer driver that took it.
+fn open_controller() -> Result<HidTransport, Box<dyn std::error::Error>> {
+    HidTransport::open(&BLADE_18).map_err(|error| {
+        let found = razer_software(&WindowsPrograms).unwrap_or_default();
+        match razer_warning(&found) {
+            Some(warning) => format!("{error}. {warning}").into(),
+            None => error.into(),
+        }
+    })
+}
+
 fn run() -> Result<(), Box<dyn std::error::Error>> {
     // With no APPDATA there is no log: this error goes to stderr only.
     let appdata = PathBuf::from(std::env::var_os("APPDATA").ok_or("no APPDATA")?);
@@ -97,7 +113,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     let config_path = Config::path_in(&appdata);
     let config = Config::load(&config_path)?;
     let machine = Machine {
-        controller: Device::new(HidTransport::open(&BLADE_18)?, SystemClock),
+        controller: Device::new(open_controller()?, SystemClock),
         displays: WindowsDisplays,
         registry: WindowsRegistry,
         keys: WindowsKeys,
@@ -118,6 +134,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     let shell = Shell::new(window, flyout, popup, app);
     bind::callbacks(&shell);
     shell.watch_windows();
+    let razer_found = shell.look_for_razer();
     shell.refresh(started.err().as_ref());
     SHELL.with(|cell| cell.replace(Some(Rc::clone(&shell))));
 
@@ -138,8 +155,9 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         ticking.tick(&power);
     });
 
-    // At login the app starts in the tray, with the settings re-applied.
-    if !in_tray {
+    // At login the app starts in the tray, with the settings re-applied,
+    // unless Razer software runs: the window then shows the warning.
+    if !in_tray || razer_found {
         shell.show_window();
     }
     // Closing the window keeps the app in the tray. Quit is in its menu.
