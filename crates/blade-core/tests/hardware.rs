@@ -329,6 +329,11 @@ fn battery_drops_to_60_hz_and_ac_puts_the_rate_back() {
         "no 60 Hz on battery, or it was saved"
     );
     assert_eq!(after_ac, Some(before), "the rate was not put back on AC");
+    assert_eq!(
+        read_saved_rate().unwrap(),
+        saved,
+        "the put-back changed the saved rate"
+    );
 }
 
 /// The panel's rate, and the rate saved for it.

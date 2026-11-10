@@ -114,6 +114,10 @@ impl Default for FakeDisplays {
 }
 
 impl DisplayApi for FakeDisplays {
+    fn saved_mode(&self, _name: &str) -> Option<DisplayMode> {
+        None
+    }
+
     fn displays(&self) -> io::Result<Vec<Display>> {
         Ok(vec![self.0.clone()])
     }
