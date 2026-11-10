@@ -49,6 +49,9 @@ pub struct FakeDisplays {
     pub displays: Option<Vec<Display>>,
     /// Each display name, the mode it was asked to take, and for how long.
     pub set: Vec<(String, DisplayMode, ModeLife)>,
+    /// How many of the next sets fail, as Windows refuses one just after a
+    /// wake.
+    pub failing_sets: usize,
 }
 
 impl FakeDisplays {
@@ -56,6 +59,7 @@ impl FakeDisplays {
         Self {
             displays,
             set: Vec::new(),
+            failing_sets: 0,
         }
     }
 }
@@ -66,6 +70,10 @@ impl DisplayApi for FakeDisplays {
     }
 
     fn set_mode(&mut self, name: &str, mode: DisplayMode, life: ModeLife) -> io::Result<()> {
+        if self.failing_sets > 0 {
+            self.failing_sets -= 1;
+            return Err(io::ErrorKind::Other.into());
+        }
         self.set.push((name.into(), mode, life));
         // The display now runs in the new mode, as on Windows.
         let displays = self.displays.iter_mut().flatten();

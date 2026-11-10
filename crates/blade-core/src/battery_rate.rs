@@ -8,11 +8,17 @@ use crate::refresh::{DisplayError, RefreshRate, current_rate, set_rate, set_refr
 /// The rate the panel runs at on battery.
 pub const BATTERY_RATE: RefreshRate = RefreshRate(60);
 
+/// How many polls try 60 Hz again after Windows refused it in a wake (it
+/// did 2026-11-10; a set seconds later worked).
+pub const RESUME_RATE_TRIES: u8 = 10;
+
 /// Follows the power source and remembers the rate to put back on AC.
 #[derive(Debug, Default)]
 pub struct BatteryRate {
     /// The rate before the switch to battery, while one is to be put back.
     saved: Option<RefreshRate>,
+    /// The tries left after a wake whose 60 Hz failed.
+    tries: u8,
 }
 
 impl BatteryRate {
@@ -29,10 +35,17 @@ impl BatteryRate {
         config: &Config,
         api: &mut impl DisplayApi,
     ) -> Result<(), DisplayError> {
+        self.tries = 0;
         match event {
             PowerEvent::OnBattery if config.sixty_hz_on_battery => self.on_battery(api),
             PowerEvent::OnAc => self.put_back(api),
-            PowerEvent::Resumed if config.sixty_hz_on_battery => self.after_resume(api),
+            PowerEvent::Resumed if config.sixty_hz_on_battery => {
+                let result = self.after_resume(api);
+                if result.is_err() {
+                    self.tries = RESUME_RATE_TRIES;
+                }
+                result
+            }
             _ => Ok(()),
         }
     }
@@ -68,6 +81,39 @@ impl BatteryRate {
             Err(error) => return Err(error),
         }
         set_rate(api, BATTERY_RATE, ModeLife::UntilRestart)
+    }
+
+    /// Whether a wake's 60 Hz failed and is to be tried again.
+    #[must_use]
+    pub fn retry_pending(&self) -> bool {
+        self.tries > 0
+    }
+
+    /// Tries the wake's 60 Hz again, once per poll. Only the last failed
+    /// try is an error, so a set refused while the panel wakes is not shown
+    /// each time. A power event or the option turned off stops the tries.
+    ///
+    /// # Errors
+    ///
+    /// See [`DisplayError`].
+    pub fn retry(
+        &mut self,
+        config: &Config,
+        api: &mut impl DisplayApi,
+    ) -> Result<(), DisplayError> {
+        if self.tries == 0 || !config.sixty_hz_on_battery {
+            self.tries = 0;
+            return Ok(());
+        }
+        self.tries -= 1;
+        match self.after_resume(api) {
+            Ok(()) => {
+                self.tries = 0;
+                Ok(())
+            }
+            Err(error) if self.tries == 0 => Err(error),
+            Err(_) => Ok(()),
+        }
     }
 
     /// Puts back the rate that was active before battery, if there is one:

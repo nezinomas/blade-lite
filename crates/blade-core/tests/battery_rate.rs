@@ -260,3 +260,81 @@ fn a_resume_with_no_internal_panel_active_is_not_an_error() {
 
     assert_eq!(api.set, []);
 }
+
+/// On battery at 60 Hz, then a wake that put 240 Hz back.
+fn woken_at_240(api: &mut FakeDisplays) -> BatteryRate {
+    let mut battery_rate = BatteryRate::default();
+    battery_rate
+        .on_event(PowerEvent::OnBattery, &config(true), api)
+        .unwrap();
+    set_refresh_rate(api, RefreshRate(240)).unwrap();
+    battery_rate
+}
+
+#[test]
+fn a_60_hz_refused_after_a_wake_is_tried_again_on_the_next_polls() {
+    let mut api = panel_at(240);
+    let mut battery_rate = woken_at_240(&mut api);
+    api.failing_sets = 2;
+
+    assert!(
+        battery_rate
+            .on_event(PowerEvent::Resumed, &config(true), &mut api)
+            .is_err()
+    );
+    assert!(battery_rate.retry_pending());
+    battery_rate.retry(&config(true), &mut api).unwrap();
+    battery_rate.retry(&config(true), &mut api).unwrap();
+
+    assert_eq!(api.panel_mode(), mode(3840, 2400, 60));
+    assert!(!battery_rate.retry_pending());
+}
+
+#[test]
+fn the_tries_after_a_wake_stop_with_the_last_error() {
+    let mut api = panel_at(240);
+    let mut battery_rate = woken_at_240(&mut api);
+    api.failing_sets = usize::MAX;
+
+    assert!(
+        battery_rate
+            .on_event(PowerEvent::Resumed, &config(true), &mut api)
+            .is_err()
+    );
+    let mut results = Vec::new();
+    while battery_rate.retry_pending() {
+        results.push(battery_rate.retry(&config(true), &mut api).is_ok());
+    }
+
+    assert_eq!(results.len(), usize::from(blade_core::RESUME_RATE_TRIES));
+    assert_eq!(results.iter().filter(|ok| !**ok).count(), 1);
+    assert_eq!(results.last(), Some(&false));
+}
+
+#[test]
+fn a_power_change_stops_the_tries_after_a_wake() {
+    let mut api = panel_at(240);
+    let mut battery_rate = woken_at_240(&mut api);
+    api.failing_sets = 1;
+    let _ = battery_rate.on_event(PowerEvent::Resumed, &config(true), &mut api);
+
+    battery_rate
+        .on_event(PowerEvent::OnAc, &config(true), &mut api)
+        .unwrap();
+
+    assert!(!battery_rate.retry_pending());
+}
+
+#[test]
+fn turning_the_option_off_stops_the_tries_after_a_wake() {
+    let mut api = panel_at(240);
+    let mut battery_rate = woken_at_240(&mut api);
+    api.failing_sets = 1;
+    let _ = battery_rate.on_event(PowerEvent::Resumed, &config(true), &mut api);
+    let before = api.set.len();
+
+    battery_rate.retry(&config(false), &mut api).unwrap();
+
+    assert_eq!(api.set.len(), before);
+    assert!(!battery_rate.retry_pending());
+}

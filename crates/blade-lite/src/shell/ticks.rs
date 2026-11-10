@@ -14,10 +14,14 @@ use super::{Parts, Shell};
 use crate::bind;
 
 impl<P: Parts> Shell<P> {
-    /// Passes on power events and Num Lock, then reads the sensors if a
-    /// view shows them.
+    /// Passes on power events, tries a wake's refused 60 Hz again, passes
+    /// on Num Lock, then reads the sensors if a view shows them.
     pub fn tick(self: &Rc<Self>) {
         self.follow_own_power();
+        // Windows can refuse 60 Hz just after a wake.
+        if self.resuming.get() == 0 && self.app.borrow().battery_rate_pending() {
+            self.act(blade_lite::App::retry_battery_rate);
+        }
         self.follow_num_lock(num_lock_on());
         if self.schedule.borrow_mut().poll_due(Instant::now()) {
             self.tick_readings();
