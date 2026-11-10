@@ -2,6 +2,7 @@
 //! shown after each one.
 
 use blade_core::{Config, Preset};
+use blade_lite::Rect;
 use i_slint_backend_testing::AccessibleRole::{Button, Slider, Switch};
 use i_slint_backend_testing::{ElementHandle, ElementRoot};
 use platform::{Key, PowerEvent};
@@ -286,6 +287,72 @@ fn the_flyout_slider_follows_a_change_from_the_window_after_its_own_drag() {
 
     assert_eq!(flyout.accessible_value().unwrap(), "100");
     assert_eq!(percent_shown(f.shell.flyout(), "FlyoutWindow"), "100%");
+}
+
+/// Presses the brightness slider `label` in its middle and never lets it
+/// go, as when the window hides mid-drag: the slider shows 50%, unsent.
+fn press_without_release<R: ElementRoot + ComponentHandle>(root: &R, label: &str) {
+    let slider = control(root, Slider, label);
+    let start = slider.absolute_position();
+    let size = slider.size();
+    root.window().dispatch_event(WindowEvent::PointerPressed {
+        position: LogicalPosition::new(start.x + size.width / 2.0, start.y + size.height / 2.0),
+        button: PointerEventButton::Left,
+    });
+}
+
+#[test]
+fn showing_the_window_puts_back_a_brightness_drag_cut_short() {
+    let f = fixture(Config::default());
+    let window = f.shell.window();
+    press_without_release(window, "Brightness");
+    assert_eq!(percent_shown(window, "KeyboardGroup"), "50%");
+    let before = sent_count(&f);
+
+    f.shell.show_window();
+
+    let slider = control(window, Slider, "Brightness");
+    assert_eq!(slider.accessible_value().unwrap(), "100");
+    assert_eq!(percent_shown(window, "KeyboardGroup"), "100%");
+    assert_eq!(sent_since(&f, before), []);
+}
+
+#[test]
+fn showing_the_window_puts_back_a_brightness_set_by_narrator() {
+    let f = fixture(Config::default());
+    let window = f.shell.window();
+    let slider = control(window, Slider, "Brightness");
+    let before = sent_count(&f);
+    slider.set_accessible_value("30");
+    assert_eq!(percent_shown(window, "KeyboardGroup"), "30%");
+
+    f.shell.show_window();
+
+    assert_eq!(slider.accessible_value().unwrap(), "100");
+    assert_eq!(percent_shown(window, "KeyboardGroup"), "100%");
+    assert_eq!(sent_since(&f, before), []);
+}
+
+#[test]
+fn opening_the_flyout_puts_back_a_brightness_drag_cut_short() {
+    let f = fixture(Config::default());
+    let flyout = f.shell.flyout();
+    press_without_release(flyout, "Keyboard light");
+    assert_eq!(percent_shown(flyout, "FlyoutWindow"), "50%");
+    let before = sent_count(&f);
+    let icon = Rect {
+        x: 1800,
+        y: 1100,
+        width: 24,
+        height: 24,
+    };
+
+    f.shell.toggle_flyout(icon);
+
+    let slider = control(flyout, Slider, "Keyboard light");
+    assert_eq!(slider.accessible_value().unwrap(), "100");
+    assert_eq!(percent_shown(flyout, "FlyoutWindow"), "100%");
+    assert_eq!(sent_since(&f, before), []);
 }
 
 #[test]
