@@ -1,13 +1,11 @@
 //! Fan speeds and the CPU temperature, read from the controller.
 
-use crate::{Command, ModelProfile};
+use crate::{Command, ModelProfile, VARIABLE_STORAGE};
 
 /// Get a fan's speed. Args are `[1, fan, 0]`, the reply's `[1, fan, rpm/100]`.
 const GET_FAN_RPM: u16 = 0x0D88;
 /// Get the temperatures. The reply's args are `[2, cpu, gpu, 0]`.
 const GET_TEMPERATURES: u16 = 0x0D85;
-/// The args start with 1, as Synapse sends them.
-const VARIABLE_STORAGE: u8 = 0x01;
 /// Position of the speed byte in a fan reply.
 const RPM_INDEX: usize = 2;
 /// Position of the CPU temperature in a temperature reply.

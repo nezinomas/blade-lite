@@ -1,6 +1,7 @@
 //! The user-tweakable Custom preset: CPU boost, GPU boost and fan.
 
-use crate::preset::{FAN_AUTO, SET_PRESET, VARIABLE_STORAGE};
+use crate::VARIABLE_STORAGE;
+use crate::preset::{FAN_AUTO, SET_PRESET};
 use crate::{Command, ModelProfile};
 
 /// Set a boost level. Args are `[1, cluster, level]`.

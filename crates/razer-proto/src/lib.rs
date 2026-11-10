@@ -39,6 +39,9 @@ pub use profile::{BLADE_18, KeyGrid, ModelProfile, UsbId};
 pub use readings::{Celsius, FanRpm};
 pub use touchpad_key::{TOUCHPAD_OFF, TouchpadKey};
 
+/// The first arg of most commands, as Synapse sends it.
+const VARIABLE_STORAGE: u8 = 0x01;
+
 /// Size of every feature report, sent and received.
 pub const REPORT_LEN: usize = 90;
 
