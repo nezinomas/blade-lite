@@ -5,7 +5,7 @@ use std::sync::mpsc::{self, Receiver};
 use std::time::Duration;
 
 use blade_core::{PowerKeyPresses, TOUCHPAD_KEY};
-use blade_lite::{ReaderEnd, ShownErrors, WindowsEnter, report, step_on_presses};
+use blade_lite::{KeyEvent, ReaderEnd, ShownErrors, WindowsEnter, report, step_on_presses};
 use platform::{PowerEvent, PowerEvents, RegistryWatch, WakeListener, WindowsPowerEvents};
 use razer_device::HidKeyReports;
 use razer_proto::BLADE_18;
@@ -97,8 +97,10 @@ fn wait_for_quiet_change(watch: &RegistryWatch) -> std::io::Result<bool> {
 /// fail or stay quiet too long.
 const KEY_REOPEN_PAUSE: Duration = Duration::from_secs(5);
 
-/// Steps the preset each time the power-mode key is pressed, from a thread
-/// that reads the keyboard's key reports. Nothing if the model has no key.
+/// Steps the preset each time the power-mode key is pressed, and reads the
+/// keyboard brightness each time Fn comes up, from a thread that reads the
+/// keyboard's key reports (no keyboard hook). Nothing if the model has no
+/// key.
 pub fn follow_the_power_key() {
     let Some(key) = BLADE_18.power_key else {
         return;
@@ -110,8 +112,7 @@ pub fn follow_the_power_key() {
             let problem = match HidKeyReports::open(&BLADE_18) {
                 Ok(mut reports) => {
                     let presses = PowerKeyPresses::new(key);
-                    match step_on_presses(&mut reports, &mut WindowsEnter, presses, step_the_preset)
-                    {
+                    match step_on_presses(&mut reports, &mut WindowsEnter, presses, on_key) {
                         ReaderEnd::Quit => return,
                         ReaderEnd::Reopen => String::new(),
                         ReaderEnd::Failed(error) => format!("the key reports stopped: {error}"),
@@ -125,6 +126,26 @@ pub fn follow_the_power_key() {
             std::thread::sleep(KEY_REOPEN_PAUSE);
         }
     });
+}
+
+/// Acts on a key event on the event-loop thread. False once the app is
+/// quitting.
+fn on_key(event: KeyEvent) -> bool {
+    match event {
+        KeyEvent::PowerKey => step_the_preset(),
+        KeyEvent::FnUp => follow_the_brightness_keys(),
+    }
+}
+
+/// Reads the keyboard brightness that Fn + F10 or F11 may have set.
+fn follow_the_brightness_keys() -> bool {
+    slint::invoke_from_event_loop(|| {
+        let Some(shell) = SHELL.with(|cell| cell.borrow().clone()) else {
+            return;
+        };
+        shell.follow_brightness_keys();
+    })
+    .is_ok()
 }
 
 /// Steps the preset on the event-loop thread. False once the app is

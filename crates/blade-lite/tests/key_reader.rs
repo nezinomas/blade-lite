@@ -6,7 +6,7 @@ use std::time::Duration;
 
 use blade_core::PowerKeyPresses;
 use blade_lite::{
-    ENTER_READ_WAIT, EnterKey, KEY_IDLE_READS, KEY_READ_WAIT, KeyReportSource, ReaderEnd,
+    ENTER_READ_WAIT, EnterKey, KEY_IDLE_READS, KEY_READ_WAIT, KeyEvent, KeyReportSource, ReaderEnd,
     step_on_presses,
 };
 use razer_proto::BLADE_18;
@@ -63,8 +63,8 @@ fn a_press_calls_back_once_then_a_failed_read_reopens() {
     ]);
     let mut calls = 0;
 
-    let end = step_on_presses(&mut source, &mut FakeEnter::default(), presses(), || {
-        calls += 1;
+    let end = step_on_presses(&mut source, &mut FakeEnter::default(), presses(), |event| {
+        calls += usize::from(event == KeyEvent::PowerKey);
         true
     });
 
@@ -76,7 +76,7 @@ fn a_press_calls_back_once_then_a_failed_read_reopens() {
 fn the_loop_ends_when_the_app_is_quitting() {
     let mut source = source(vec![Some(report(&[0x04])), Some(report(&[0x04, 0xD3]))]);
 
-    let end = step_on_presses(&mut source, &mut FakeEnter::default(), presses(), || false);
+    let end = step_on_presses(&mut source, &mut FakeEnter::default(), presses(), |_| false);
 
     assert_eq!(end, ReaderEnd::Quit);
 }
@@ -87,8 +87,8 @@ fn a_long_quiet_spell_reopens_the_reports() {
     let mut source = source(quiet);
     let mut calls = 0;
 
-    let end = step_on_presses(&mut source, &mut FakeEnter::default(), presses(), || {
-        calls += 1;
+    let end = step_on_presses(&mut source, &mut FakeEnter::default(), presses(), |event| {
+        calls += usize::from(event == KeyEvent::PowerKey);
         true
     });
 
@@ -106,7 +106,7 @@ fn a_report_resets_the_quiet_count() {
     let mut source = source(reads);
 
     // The source fails after its reads, so the loop reached the end.
-    let end = step_on_presses(&mut source, &mut FakeEnter::default(), presses(), || true);
+    let end = step_on_presses(&mut source, &mut FakeEnter::default(), presses(), |_| true);
 
     assert!(matches!(end, ReaderEnd::Failed(_)), "{end:?}");
     assert!(source.0.is_empty());
@@ -125,8 +125,8 @@ fn enter_pressed_while_fn_is_held_calls_back_once() {
     let mut enter = enter(&[false, true, true]);
     let mut calls = 0;
 
-    step_on_presses(&mut source, &mut enter, presses(), || {
-        calls += 1;
+    step_on_presses(&mut source, &mut enter, presses(), |event| {
+        calls += usize::from(event == KeyEvent::PowerKey);
         true
     });
 
@@ -144,7 +144,7 @@ fn enter_is_read_only_while_fn_is_held() {
     ]);
     let mut enter = enter(&[]);
 
-    step_on_presses(&mut source, &mut enter, presses(), || true);
+    step_on_presses(&mut source, &mut enter, presses(), |_| true);
 
     // Once, after the Fn report.
     assert_eq!(enter.1, 1);
@@ -158,7 +158,7 @@ fn reads_wait_less_while_fn_is_held() {
         Some(report(&[0x04])),
     ]);
 
-    step_on_presses(&mut source, &mut FakeEnter::default(), presses(), || true);
+    step_on_presses(&mut source, &mut FakeEnter::default(), presses(), |_| true);
 
     assert_eq!(
         source.1,
@@ -173,7 +173,7 @@ fn quiet_reads_while_fn_is_held_do_not_reopen() {
     reads.extend((0..KEY_IDLE_READS).map(|_| None));
     let mut source = source(reads);
 
-    let end = step_on_presses(&mut source, &mut FakeEnter::default(), presses(), || true);
+    let end = step_on_presses(&mut source, &mut FakeEnter::default(), presses(), |_| true);
 
     assert!(matches!(end, ReaderEnd::Failed(_)), "{end:?}");
 }
@@ -187,7 +187,59 @@ fn the_loop_ends_when_the_app_quits_on_an_enter_press() {
     ]);
     let mut enter = enter(&[false, true]);
 
-    let end = step_on_presses(&mut source, &mut enter, presses(), || false);
+    let end = step_on_presses(&mut source, &mut enter, presses(), |_| false);
 
     assert_eq!(end, ReaderEnd::Quit);
+}
+
+#[test]
+fn fn_coming_up_calls_back_once() {
+    // Fn + F11: the laptop sends only Fn, and sets the brightness itself.
+    let mut source = source(vec![
+        Some(report(&[0x04])),
+        Some(report(&[0x04, 0x0A])),
+        Some(report(&[0x04, 0x0A])),
+        Some(report(&[0x04])),
+        None,
+        Some(report(&[0x04])),
+    ]);
+    let mut events = Vec::new();
+
+    step_on_presses(&mut source, &mut FakeEnter::default(), presses(), |event| {
+        events.push(event);
+        true
+    });
+
+    assert_eq!(events, [KeyEvent::FnUp]);
+}
+
+#[test]
+fn the_power_key_then_fn_up_call_back_in_order() {
+    let mut source = source(vec![
+        Some(report(&[0x04])),
+        Some(report(&[0x04, 0x0A, 0xD3])),
+        Some(report(&[0x04])),
+    ]);
+    let mut events = Vec::new();
+
+    step_on_presses(&mut source, &mut FakeEnter::default(), presses(), |event| {
+        events.push(event);
+        true
+    });
+
+    assert_eq!(events, [KeyEvent::PowerKey, KeyEvent::FnUp]);
+}
+
+#[test]
+fn the_loop_ends_when_the_app_quits_on_fn_up() {
+    let mut source = source(vec![
+        Some(report(&[0x04, 0x0A])),
+        Some(report(&[0x04])),
+        Some(report(&[0x04])),
+    ]);
+
+    let end = step_on_presses(&mut source, &mut FakeEnter::default(), presses(), |_| false);
+
+    assert_eq!(end, ReaderEnd::Quit);
+    assert_eq!(source.0.len(), 1);
 }

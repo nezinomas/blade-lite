@@ -146,6 +146,18 @@ impl<P: Parts> Shell<P> {
         }
     }
 
+    /// Reads the keyboard brightness after Fn came up, as Fn + F10 or F11
+    /// may have set it. The window is filled again only for a new level
+    /// or an error, so an Fn press for anything else leaves a shown error.
+    pub fn follow_brightness_keys(&self) {
+        let result = self.app.borrow_mut().on_fn_up();
+        match result {
+            Ok(false) => {}
+            Ok(true) => self.refresh(None),
+            Err(error) => self.refresh(Some(&error)),
+        }
+    }
+
     /// Runs one change, then shows the new state, or the error if it failed.
     /// A new power mode, from any change the laptop took (even one not
     /// saved), shows the popup.

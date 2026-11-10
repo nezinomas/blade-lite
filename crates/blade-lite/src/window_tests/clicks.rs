@@ -582,3 +582,65 @@ fn a_wake_on_battery_sends_balanced_for_a_saved_performance() {
         "{sent:?}"
     );
 }
+
+/// With a teal lighting at 35% saved.
+fn lit_fixture() -> Fixture {
+    fixture(Config {
+        lighting: Some(blade_core::Lighting {
+            brightness: 35,
+            colour: Rgb::new(0x00, 0xB7, 0xC3),
+            vapor_light: true,
+        }),
+        ..Config::default()
+    })
+}
+
+#[test]
+fn fn_f11_moves_both_brightness_sliders() {
+    let f = lit_fixture();
+    let before = sent_count(&f);
+    f.shell.app().machine_mut().controller.brightness_level = Some(255);
+
+    f.shell.follow_brightness_keys();
+    // The sliders follow in their change handlers, run by the event loop.
+    slint::platform::update_timers_and_animations();
+
+    let vapor = BLADE_18.vapor_light.unwrap();
+    let full = razer_proto::Brightness::new(100).unwrap();
+    assert_eq!(sent_since(&f, before), [vapor.command(full, true)]);
+    let window_slider = control(f.shell.window(), Slider, "Brightness");
+    assert_eq!(window_slider.accessible_value().unwrap(), "100");
+    assert_eq!(percent_shown(f.shell.window(), "KeyboardGroup"), "100%");
+    let flyout_slider = control(f.shell.flyout(), Slider, "Keyboard light");
+    assert_eq!(flyout_slider.accessible_value().unwrap(), "100");
+    assert_eq!(percent_shown(f.shell.flyout(), "FlyoutWindow"), "100%");
+}
+
+#[test]
+fn an_fn_press_that_changes_nothing_keeps_a_shown_error() {
+    let f = lit_fixture();
+    f.shell.app().machine_mut().registry.touchpad = None;
+    click(f.shell.window(), Switch, "Touchpad");
+    let error = f.shell.window().get_error();
+    assert!(error.contains("touchpad"), "{error}");
+    f.shell.app().machine_mut().registry.touchpad = Some(1);
+    let level = razer_proto::Brightness::new(35).unwrap().level();
+    f.shell.app().machine_mut().controller.brightness_level = Some(level);
+
+    f.shell.follow_brightness_keys();
+
+    assert_eq!(f.shell.window().get_error(), error);
+}
+
+#[test]
+fn a_failed_brightness_read_after_fn_shows_the_error() {
+    let f = lit_fixture();
+    let before = sent_count(&f);
+
+    f.shell.follow_brightness_keys();
+
+    let error = f.shell.window().get_error();
+    assert!(error.contains("busy"), "{error}");
+    assert_eq!(sent_since(&f, before), []);
+    assert_eq!(percent_shown(f.shell.window(), "KeyboardGroup"), "35%");
+}

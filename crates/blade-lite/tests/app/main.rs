@@ -1,6 +1,7 @@
 //! What each click in the window does, over fakes.
 
 mod battery;
+mod brightness_keys;
 mod display;
 mod fakes;
 mod header;

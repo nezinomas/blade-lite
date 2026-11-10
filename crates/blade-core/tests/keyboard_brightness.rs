@@ -114,7 +114,7 @@ fn a_model_without_the_vapor_light_is_sent_nothing() {
 
     set_vapor_light(lighting(50, true), &NO_LIGHTS, &mut controller).unwrap();
 
-    assert!(controller.ran.is_empty());
+    assert_eq!(controller.ran, []);
 }
 
 #[test]
@@ -124,7 +124,7 @@ fn a_brightness_over_100_is_refused_unsent() {
     let result = set_vapor_light(lighting(101, true), &BLADE_18, &mut controller);
 
     assert!(result.is_err());
-    assert!(controller.ran.is_empty());
+    assert_eq!(controller.ran, []);
 }
 
 #[test]
