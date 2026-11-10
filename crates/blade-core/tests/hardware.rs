@@ -126,11 +126,15 @@ fn the_refresh_rate_is_switched_and_put_back() {
     let other = *rates.iter().find(|&&rate| rate != before).unwrap();
     eprintln!("rate before: {before:?}, switching to {other:?}");
 
-    let switched = set_refresh_rate(&mut WindowsDisplays, other).map(|()| panel_rate());
-    let restored = set_refresh_rate(&mut WindowsDisplays, before).map(|()| panel_rate());
+    let switched = set_refresh_rate(&mut WindowsDisplays, other)
+        .map_err(text)
+        .and_then(|()| read_panel_rate());
+    // Put it back even if the switch or its read failed.
+    let restored = put_rate_back(before);
 
-    assert_eq!(switched.unwrap(), other, "the rate did not change");
+    // The lasting state first, so its error is never hidden.
     assert_eq!(restored.unwrap(), before, "the old rate was not put back");
+    assert_eq!(switched.unwrap(), other, "the rate did not change");
 }
 
 /// The native mode the controller has chosen, and its state.
