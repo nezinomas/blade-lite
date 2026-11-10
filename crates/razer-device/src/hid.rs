@@ -85,8 +85,9 @@ impl HidKeyReports {
         })
     }
 
-    /// Waits up to `wait` for a report: on each collection in turn until
-    /// one sends, then on that one alone. `None` if none came.
+    /// Waits up to `wait` for a report on each collection in turn until one
+    /// sends, then on that one alone, so a call before the first report can
+    /// take `wait` once per collection. `None` if none came.
     ///
     /// # Errors
     ///
@@ -326,6 +327,15 @@ mod tests {
         let (mut sources, _) = sources(vec![vec![Ok(too_long)]]);
 
         assert!(sources.read(WAIT).is_err());
+    }
+
+    #[test]
+    fn a_source_no_longer_in_the_list_is_an_error() {
+        let (mut sources, log) = sources(vec![vec![]]);
+        sources.source = Some(5);
+
+        assert!(sources.read(WAIT).is_err());
+        assert!(log.borrow().is_empty());
     }
 
     #[test]
