@@ -3,10 +3,11 @@
 
 use blade_core::{Config, Preset};
 use i_slint_backend_testing::AccessibleRole::{Button, Slider, Switch};
+use i_slint_backend_testing::{ElementHandle, ElementRoot};
 use platform::{Key, PowerEvent};
 use razer_proto::{BLADE_18, Command, PerfMode, Rgb, static_colour};
-use slint::LogicalPosition;
-use slint::platform::PointerEventButton;
+use slint::platform::{PointerEventButton, WindowEvent};
+use slint::{ComponentHandle, LogicalPosition};
 
 use super::{Fixture, click, control, fixture, log_path};
 use crate::fakes::{brightness_commands, lighting_commands, logo};
@@ -109,7 +110,146 @@ fn the_brightness_slider_sends_where_it_is_let_go() {
 
     assert_eq!(sent_since(&f, before), lighting_commands(0, WHITE));
     assert_eq!(f.shell.app().config().lighting.unwrap().brightness, 0);
-    assert_eq!(f.shell.window().get_brightness_text(), "Off");
+    assert_eq!(percent_shown(f.shell.window(), "KeyboardGroup"), "Off");
+}
+
+/// The text beside the brightness slider of `component` in `root`.
+fn percent_shown(root: &impl ElementRoot, component: &str) -> String {
+    let id = format!("{component}::brightness-percent");
+    let text = ElementHandle::find_by_element_id(root, &id)
+        .next()
+        .unwrap_or_else(|| panic!("no {id}"));
+    text.accessible_label().unwrap().into()
+}
+
+/// Presses the brightness slider `label` in its middle and drags it to its
+/// left end. The text follows the slider before it is let go, and nothing
+/// is sent until then.
+fn drag_shows_the_percent<R: ElementRoot + ComponentHandle>(
+    f: &Fixture,
+    root: &R,
+    label: &str,
+    component: &str,
+) {
+    let before = sent_count(f);
+    let slider = control(root, Slider, label);
+    let start = slider.absolute_position();
+    let size = slider.size();
+    let middle = LogicalPosition::new(start.x + size.width / 2.0, start.y + size.height / 2.0);
+    let left_end = LogicalPosition::new(start.x, middle.y);
+    let window = root.window();
+    let button = PointerEventButton::Left;
+
+    window.dispatch_event(WindowEvent::PointerPressed {
+        position: middle,
+        button,
+    });
+    assert_eq!(percent_shown(root, component), "50%");
+    window.dispatch_event(WindowEvent::PointerMoved { position: left_end });
+    assert_eq!(percent_shown(root, component), "Off");
+    assert_eq!(sent_since(f, before), []);
+
+    window.dispatch_event(WindowEvent::PointerReleased {
+        position: left_end,
+        button,
+    });
+    assert_eq!(sent_since(f, before), lighting_commands(0, WHITE));
+    assert_eq!(percent_shown(root, component), "Off");
+}
+
+#[test]
+fn the_window_brightness_text_follows_the_slider_while_it_is_dragged() {
+    let f = fixture(Config::default());
+    drag_shows_the_percent(&f, f.shell.window(), "Brightness", "KeyboardGroup");
+}
+
+#[test]
+fn the_flyout_brightness_text_follows_the_slider_while_it_is_dragged() {
+    let f = fixture(Config::default());
+    drag_shows_the_percent(&f, f.shell.flyout(), "Keyboard light", "FlyoutWindow");
+}
+
+/// Drags the brightness slider `label` to its left end and lets it go
+/// while every send fails: the send is tried and its error shown, and the
+/// slider and its text go back to the brightness the laptop has.
+fn failed_send_shows_the_brightness_again<R: ElementRoot + ComponentHandle>(
+    f: &Fixture,
+    root: &R,
+    label: &str,
+    component: &str,
+) {
+    f.shell.app().machine_mut().controller.fails = true;
+    let slider = control(root, Slider, label);
+    let start = slider.absolute_position();
+    let left_end = LogicalPosition::new(start.x, start.y + slider.size().height / 2.0);
+
+    slider.mock_drag(left_end, PointerEventButton::Left);
+
+    let error = f.shell.window().get_error();
+    assert!(error.contains("busy"), "{error}");
+    assert_eq!(f.shell.app().config().lighting, None);
+    assert_eq!(slider.accessible_value().unwrap(), "100");
+    assert_eq!(percent_shown(root, component), "100%");
+}
+
+#[test]
+fn the_window_brightness_goes_back_after_a_failed_send() {
+    let f = fixture(Config::default());
+    failed_send_shows_the_brightness_again(&f, f.shell.window(), "Brightness", "KeyboardGroup");
+}
+
+#[test]
+fn the_flyout_brightness_goes_back_after_a_failed_send() {
+    let f = fixture(Config::default());
+    failed_send_shows_the_brightness_again(&f, f.shell.flyout(), "Keyboard light", "FlyoutWindow");
+}
+
+#[test]
+fn a_drag_cut_short_gives_way_to_a_change_from_the_flyout() {
+    let f = fixture(Config::default());
+    let window = f.shell.window();
+    let slider = control(window, Slider, "Brightness");
+    let start = slider.absolute_position();
+    let middle = LogicalPosition::new(
+        start.x + slider.size().width / 2.0,
+        start.y + slider.size().height / 2.0,
+    );
+    // Pressed, but never let go: the window lost the mouse.
+    window.window().dispatch_event(WindowEvent::PointerPressed {
+        position: middle,
+        button: PointerEventButton::Left,
+    });
+    assert_eq!(percent_shown(window, "KeyboardGroup"), "50%");
+    let flyout = control(f.shell.flyout(), Slider, "Keyboard light");
+    let flyout_start = flyout.absolute_position();
+    let flyout_left_end =
+        LogicalPosition::new(flyout_start.x, flyout_start.y + flyout.size().height / 2.0);
+
+    flyout.mock_drag(flyout_left_end, PointerEventButton::Left);
+
+    assert_eq!(slider.accessible_value().unwrap(), "0");
+    assert_eq!(percent_shown(window, "KeyboardGroup"), "Off");
+}
+
+#[test]
+fn the_flyout_slider_follows_a_change_from_the_window_after_its_own_drag() {
+    let f = fixture(Config::default());
+    let flyout = control(f.shell.flyout(), Slider, "Keyboard light");
+    let start = flyout.absolute_position();
+    let left_end = LogicalPosition::new(start.x, start.y + flyout.size().height / 2.0);
+    flyout.mock_drag(left_end, PointerEventButton::Left);
+    assert_eq!(percent_shown(f.shell.flyout(), "FlyoutWindow"), "Off");
+    let window = control(f.shell.window(), Slider, "Brightness");
+    let start = window.absolute_position();
+    let right_end = LogicalPosition::new(
+        start.x + window.size().width,
+        start.y + window.size().height / 2.0,
+    );
+
+    window.mock_drag(right_end, PointerEventButton::Left);
+
+    assert_eq!(flyout.accessible_value().unwrap(), "100");
+    assert_eq!(percent_shown(f.shell.flyout(), "FlyoutWindow"), "100%");
 }
 
 #[test]

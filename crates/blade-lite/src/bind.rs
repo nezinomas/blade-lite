@@ -91,7 +91,6 @@ pub fn performance(window: &MainWindow, view: &PerformanceView) {
 
 pub fn keyboard(window: &MainWindow, view: &KeyboardView) {
     window.set_brightness(i32::from(view.brightness));
-    window.set_brightness_text(text(&view.brightness_text));
     window.set_colours_enabled(view.colours_enabled);
     window.set_swatches(model(view.swatches.iter().map(|swatch| SwatchItem {
         colour: colour(swatch.colour),
@@ -125,7 +124,6 @@ pub fn flyout(window: &FlyoutWindow, view: &FlyoutView, header: &Header) {
     window.set_rates_enabled(view.rates_enabled);
     window.set_sixty_hz_on_battery(view.sixty_hz_on_battery);
     window.set_brightness(i32::from(view.brightness));
-    window.set_brightness_text(text(&view.brightness_text));
     window.set_touchpad_on(view.touchpad_on);
     window.set_reset_enabled(view.reset_enabled);
 }

@@ -89,7 +89,7 @@ Checks only a person can do on the laptop wait in "Still to check on the laptop"
 - [x] 65 The native mode, lid logo and touchpad `cargo hw` tests keep each step's `Result`, put the state back, then assert the put-back first; a touchpad switch not seen in 3 s is waited out before the restore (checked on the laptop)
 - [x] 66 Split by job, code moved only: `app.rs` into `app/` (error, views, clicks, events), `shell.rs` into `shell/` (windows, popup, ticks), `main.rs` threads and tray menu out, `tests/app.rs` into `tests/app/` by topic. Other long Rust files each do one job, so they stay
 - [x] 67 `window.slint` split: shared parts, the header and one file per group (display, performance, keyboard); markup moved only, bindings and callbacks the same (checked on the laptop)
-- [ ] 68 The brightness percent (window and flyout) changes only when the slider is let go, so it looks stuck while dragging. Show the slider's value in the text while dragging. Still send only on release, as now. A `.slint` binding change, so both reviewers
+- [x] 68 Brightness percent (window and flyout) follows the slider while it is dragged; still sent only on release. After a release, a failed send or a change elsewhere, the slider goes back to the laptop's value (Slint now writes the text, Rust's text is gone)
 - [ ] 69 `battery_drops_to_60_hz_and_ac_puts_the_rate_back` in `crates/blade-core/tests/hardware.rs` unwraps `on_event` and `panel_rate()` inside its loop, so an error after the 60 Hz switch skips the put-back and leaves the panel at 60 Hz. Keep the first error, break, put the rate back, then assert, as ticket 65 did. Needs the charger test on the laptop (start on battery)
 - [x] 70 Window tests in `cargo t`: the window, flyout and popup drawn off screen over fakes (Slint's testing backend), 13 scripted clicks that check the exact commands sent, the window and the log, and 6 pictures compared with `crates/blade-lite/tests/screens/`. `CLAUDE.md` and the `stage` skill make threads run them and ask the user only what software can't see
 - [ ] 71 Window tests for the custom colour field (type `#00B7C3`, Enter, check the colour sent) and the Custom sliders (drag CPU boost one step, check the command). Both reviewers
@@ -99,6 +99,7 @@ Checks only a person can do on the laptop wait in "Still to check on the laptop"
 - [ ] 75 Temperature warning: a popup when the CPU or GPU stays above a limit (such as 95 °C) for a few minutes, from the readings the app already polls. Once per hot spell, not on each poll
 - [ ] 76 Battery health in the header: wear (full charge capacity against design capacity) and cycle count, read from Windows (WMI `BatteryFullChargedCapacity`, `BatteryStaticData`, `BatteryCycleCount`). Read only, no controller command
 - [ ] 77 Export and import settings, and "Reset to defaults". Import goes through the same checks as loading `config.toml` (an invalid file changes nothing), then applies as a start does. Both reviewers
+- [ ] 79 A brightness drag cut short (no mouse-up, such as the flyout hiding mid-drag) or a Narrator set-value leaves the slider and its percent at a value never sent, until the brightness next changes (ticket 68 review). Put the slider back to the laptop's value when the window or flyout is shown (a Slint function called from the show code, so the `docs/window-check.md` checks apply). Display only, nothing is sent. Both reviewers
 
 ## Still to check on the laptop
 Do these in one go, on AC, with "Start with Windows" on and Num Lock off (the power-mode key needs it, ticket 59). First note your preset, keyboard colour, lid logo and native mode; the last step puts them back.
@@ -110,6 +111,7 @@ Do these in one go, on AC, with "Start with Windows" on and Num Lock off (the po
 5. **Put it back.** Set your native mode, keyboard colour, lid logo and preset back as you noted them. Restart once more for the native mode.
 6. **App after ticket 70.** Start the app. Open the window and the flyout once, and click one preset. They work as before (ticket 70 changed only types in the shell code).
 7. **Busy (55).** Nothing to do now. If the log ever shows a Busy error, check whether the command took effect.
+8. **Brightness drag (68).** In the window, drag the keyboard brightness slider slowly and hold it. The percent beside it follows. The keyboard light changes only when you let go. Do the same in the flyout.
 
 ## Publishing on GitHub
 - [ ] 39 Release and installer

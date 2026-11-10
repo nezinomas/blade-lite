@@ -3,7 +3,7 @@
 // a view-model command. Each group lives in its own file.
 
 import { Button, ScrollView, Slider, Switch } from "std-widgets.slint";
-import { Choice, Segments, SliderRow, Stat, SwatchItem, Theme } from "parts.slint";
+import { Choice, Segments, Show, SliderRow, Stat, SwatchItem, Theme } from "parts.slint";
 import { Header } from "header.slint";
 import { DisplayGroup } from "display.slint";
 import { PerformanceGroup } from "performance.slint";
@@ -35,7 +35,6 @@ export component MainWindow inherits Window {
     in property <string> charge-limit-note;
     // Keyboard and touchpad
     in property <int> brightness;
-    in property <string> brightness-text;
     in property <bool> colours-enabled;
     in property <[SwatchItem]> swatches;
     in property <bool> custom-selected;
@@ -125,7 +124,6 @@ export component MainWindow inherits Window {
 
             KeyboardGroup {
                 brightness: root.brightness;
-                brightness-text: root.brightness-text;
                 colours-enabled: root.colours-enabled;
                 swatches: root.swatches;
                 custom-selected: root.custom-selected;
@@ -159,10 +157,15 @@ export component FlyoutWindow inherits Window {
     in property <bool> rates-enabled;
     in-out property <bool> sixty-hz-on-battery;
     in property <int> brightness;
-    in property <string> brightness-text;
     in-out property <bool> touchpad-on;
     in property <bool> reset-enabled;
     in property <color> accent: #0078d4;
+
+    // The laptop's brightness changed (a send, the other window, a
+    // re-apply): the slider goes there, even after a drag broke its binding.
+    changed brightness => {
+        brightness-slider.value = root.brightness;
+    }
 
     callback pick-preset(int);
     callback pick-rate(int);
@@ -236,16 +239,23 @@ export component FlyoutWindow inherits Window {
                 width: 110px;
                 vertical-alignment: center;
             }
-            Slider {
+            brightness-slider := Slider {
                 accessible-label: "Keyboard light";
                 minimum: 0;
                 maximum: 100;
                 step: 5;
                 value: root.brightness;
-                released(value) => { root.move-brightness(round(value)); }
+                // Sent only when the slider is let go. Then the slider goes
+                // back to what the laptop has, so a failed send does not
+                // leave it at the new value.
+                released(value) => {
+                    root.move-brightness(round(value));
+                    self.value = root.brightness;
+                }
             }
-            Text {
-                text: root.brightness-text;
+            brightness-percent := Text {
+                // Follows the slider, also while it is dragged.
+                text: Show.brightness(round(brightness-slider.value));
                 width: 44px;
                 horizontal-alignment: right;
                 vertical-alignment: center;
