@@ -78,6 +78,6 @@ Do these in one go, on AC, with "Start with Windows" on and Num Lock off. First 
 - [x] 96 The key reader loop is `KeySources`, generic over a one-method `ReadTimeout` trait (hidapi and a fake), with 9 unit tests: 0 bytes is `None`, the report is the bytes read, the first collection to send is the only one read then, a read error, a count over the buffer and a lost source are errors, and the wait is capped for hidapi. `cargo mutants` on `hid.rs` now misses only the thin hidapi calls (`docs/NOTES.md`)
 
 ## Maybe later (not tickets yet)
-- Retry only the config rename a few times (such as 3 tries, 20 ms apart) on `PermissionDenied`, if the log ever shows "sent, but not saved" with access denied (was ticket 63)
+- Retry only the config rename a few times (such as 3 tries, 20 ms apart) on `PermissionDenied`, if the log ever shows a "not saved" line with access denied: another program (Defender, the search indexer) can hold `config.toml` open, and the next start would then send the old config (was ticket 63)
 - "Open log folder" in the tray menu
 - Update check: read GitHub releases about once a week and show a "new version" note; downloads nothing
