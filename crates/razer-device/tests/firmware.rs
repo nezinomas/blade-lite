@@ -1,7 +1,8 @@
 mod common;
 
 use common::{SUCCESS, fakes, reply, reply_with_args, request, sent};
-use razer_device::{Device, DeviceError, FirmwareVersion};
+use razer_device::{Device, DeviceError};
+use razer_proto::FirmwareVersion;
 
 /// Get firmware version, as in r-helper.
 const COMMAND: u16 = 0x0081;

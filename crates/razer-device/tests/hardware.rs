@@ -102,8 +102,6 @@ fn reads_without_a_pause_fail() {
     assert!(!errors.is_empty(), "the pause is not needed");
 }
 
-/// Get LED brightness. Args are `[1, led, 0]`, the reply args `[1, led, level]`.
-const GET_BRIGHTNESS: u16 = 0x0383;
 const SET_BRIGHTNESS: u16 = 0x0303;
 const LEDS: [u8; 2] = [0x05, 0x26];
 
@@ -111,13 +109,13 @@ const LEDS: [u8; 2] = [0x05, 0x26];
 fn levels<C: Clock>(device: &mut Device<HidTransport, C>) -> Result<Vec<u8>, String> {
     LEDS.iter()
         .map(|&led| {
+            let query = razer_proto::Brightness::level_query(led);
             let reply = device
-                .send(GET_BRIGHTNESS, &[1, led, 0])
+                .send(query.id, &query.args)
                 .map_err(|error| format!("{error:?}"))?;
-            match reply.args() {
-                [1, echoed, level, ..] if *echoed == led => Ok(*level),
-                args => Err(format!("reply for LED {led:02X}: {:02X?}", &args[..3])),
-            }
+            let args = reply.args();
+            razer_proto::Brightness::level_from_reply(led, args)
+                .ok_or_else(|| format!("reply for LED {led:02X}: {:02X?}", &args[..3]))
         })
         .collect()
 }
