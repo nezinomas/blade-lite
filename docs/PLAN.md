@@ -80,7 +80,7 @@ Checks only a person can do on the laptop wait in "Still to check on the laptop"
 - [x] 56 Plain `DeviceError` text, commands in hex
 - [x] 57 A change the laptop took is kept in memory even if the config save fails; the error says `sent, but not saved`
 - [x] 58 Flyout header without min, max and close (winit keeps their styles on a frameless window and Mica's frame showed them; a style hook now takes them out; checked on the laptop)
-- [ ] 59 Power-mode key works only when the numpad is on its second layer (Num Lock off). Make it work as Synapse did. The user offers two ways: Fn + Enter whatever the numpad layer is, or plain numpad Enter while on the second layer
+- [x] 59 Power-mode key with Num Lock on too: the keyboard then sends only Fn and Windows a plain Enter, so while Fn is held (up to 5 s) and Num Lock is on, the reader reads Enter's state (no hook) and an Enter press steps the preset. The Enter still reaches the open app; either Enter key counts (user's pick)
 - [ ] 60 On a weak charge (no charger, but a monitor powers the laptop over USB-C, so it charges slowly), Synapse did not allow Performance, for lack of power. Do the same
 - [x] 61 `Config::save` writes a temp file, then renames it over the config
 - [ ] 62 A send that fails part way (such as the zones sent, then a boost Busy) leaves the controller with part of the new state, but the app keeps the old one until the next resume sends it again. Decide whether to read back or say so in the error
@@ -102,11 +102,11 @@ Checks only a person can do on the laptop wait in "Still to check on the laptop"
 - [ ] 79 A brightness drag cut short (no mouse-up, such as the flyout hiding mid-drag) or a Narrator set-value leaves the slider and its percent at a value never sent, until the brightness next changes (ticket 68 review). Put the slider back to the laptop's value when the window or flyout is shown (a Slint function called from the show code, so the `docs/window-check.md` checks apply). Display only, nothing is sent. Both reviewers
 
 ## Still to check on the laptop
-Do these in one go, on AC, with "Start with Windows" on and Num Lock off (the power-mode key needs it, ticket 59). First note your preset, keyboard colour, lid logo and native mode; the last step puts them back.
+Do these in one go, on AC, with "Start with Windows" on and Num Lock off. First note your preset, keyboard colour, lid logo and native mode; the last step puts them back.
 
 1. **Read-only config (57).** Make `%APPDATA%\blade-lite\config.toml` read-only. Press the power-mode key. The popup and the header show the new mode, and the window shows `sent, but not saved`. Make the file writable again.
 2. **Config save (61).** Change the preset in the app. `config.toml` has the new preset, and no `config.toml.tmp` is left in that folder.
-3. **Sleep, then hibernate.** Set a keyboard colour that is not white. Sleep the laptop and wake it. About 2 s after wake the colour is back (the 2 s wait after wake). Press Fn + numpad Enter: the preset steps (in the ticket 45 test the key sent only Fn, `04 0A`, without `D3`; Num Lock may have been on, ticket 59). Do the same with a hibernate.
+3. **Sleep, then hibernate.** Set a keyboard colour that is not white. Sleep the laptop and wake it. About 2 s after wake the colour is back (the 2 s wait after wake). Press Fn + numpad Enter: the preset steps (the ticket 45 test sent only Fn, `04 0A`: Num Lock was on, fixed in ticket 59). Do the same with a hibernate.
 4. **Restart (44, 18).** Turn the lid logo off. Pick the FHD 440 Hz native mode. Restart. The app starts with Windows, the logo stays off, and the screen starts at FHD 440 Hz.
 5. **Put it back.** Set your native mode, keyboard colour, lid logo and preset back as you noted them. Restart once more for the native mode.
 6. **App after ticket 70.** Start the app. Open the window and the flyout once, and click one preset. They work as before (ticket 70 changed only types in the shell code).

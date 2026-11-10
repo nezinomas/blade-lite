@@ -63,7 +63,7 @@ Start with the app closed.
 
 # Power-mode popup check (ticket 48)
 
-Start on AC, with Num Lock off (the power-mode key needs it, ticket 59). Note your preset. Open Notepad and click in it. Start the app.
+Start on AC (the power-mode key works with Num Lock on or off, ticket 59). Note your preset. Open Notepad and click in it. Start the app.
 
 1. **Key.** Press Fn + numpad Enter. A dark popup shows the new mode above the taskbar clock, then fades out. You can still type in Notepad.
 2. **Clicks pass through.** While the popup shows, click on the place under it. The click reaches what is under it.
