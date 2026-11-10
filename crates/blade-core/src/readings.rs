@@ -43,7 +43,15 @@ impl ReadingsSampler {
         }
     }
 
-    /// One line per read that failed in the last snapshot, such as
+    /// Reads only the GPU's temperature, for the heat warning, and only if
+    /// the GPU is already awake. A failed read is `None`, named in
+    /// [`errors`](Self::errors).
+    pub fn gpu_celsius(&mut self, sensors: &mut impl Sensors) -> Option<u32> {
+        self.errors.clear();
+        self.gpu_if_awake(sensors).map(|gpu| gpu.celsius)
+    }
+
+    /// One line per read that failed in the last read, such as
     /// `battery: <the Windows error>`.
     #[must_use]
     pub fn errors(&self) -> &[String] {

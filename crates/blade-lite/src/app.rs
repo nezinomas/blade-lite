@@ -63,6 +63,8 @@ pub struct App<C, D, R, K> {
     num_lock_on: bool,
     /// The controller reads that failed when the header was last made.
     read_errors: Vec<String>,
+    /// The CPU temperature read when the header was last made, in °C.
+    cpu_celsius: Option<u32>,
 }
 
 impl<C, D, R, K> App<C, D, R, K>
@@ -92,6 +94,7 @@ where
             key_red: None,
             num_lock_on: false,
             read_errors: Vec::new(),
+            cpu_celsius: None,
         }
     }
 

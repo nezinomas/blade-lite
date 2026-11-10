@@ -11,7 +11,8 @@ use platform::{
 };
 use razer_device::DeviceError;
 use razer_proto::{
-    BLADE_18, Brightness, ChargeLimit, Command, Logo, ModelProfile, NativeMode, Rgb, static_colour,
+    BLADE_18, Brightness, Celsius, ChargeLimit, Command, Logo, ModelProfile, NativeMode, Rgb,
+    static_colour,
 };
 use tempfile::TempDir;
 
@@ -24,7 +25,8 @@ pub fn logo() -> Logo {
 
 /// Records the commands it runs. It answers the native mode query with
 /// mode 0, the logo query with `logo_reply`, the charge limit query with
-/// `charge` and the brightness query with `brightness_level`, and fails
+/// `charge`, the brightness query with `brightness_level` and the
+/// temperature query with `cpu_celsius`, and fails
 /// every run while `fails` is set. A logo command
 /// changes `logo_reply`. While `fails_after` is set, a run takes only
 /// that many commands, then fails.
@@ -45,6 +47,10 @@ pub struct FakeController {
     /// The keyboard brightness level the controller reads back. `None`
     /// fails the query.
     pub brightness_level: Option<u8>,
+    /// The CPU temperature the controller reads back. `None` fails the query.
+    pub cpu_celsius: Option<u8>,
+    /// Every query asked, in order.
+    pub asked: Vec<Command>,
 }
 
 impl Controller for FakeController {
@@ -73,6 +79,7 @@ impl Controller for FakeController {
 
 impl Query for FakeController {
     fn query(&mut self, command: &Command) -> Result<Vec<u8>, DeviceError> {
+        self.asked.push(command.clone());
         if *command == NativeMode::query() {
             Ok(vec![0])
         } else if *command == logo().query() {
@@ -83,6 +90,10 @@ impl Query for FakeController {
             let led = BLADE_18.brightness_leds[0];
             self.brightness_level
                 .map(|level| vec![1, led, level])
+                .ok_or(DeviceError::Busy)
+        } else if *command == Celsius::query() {
+            self.cpu_celsius
+                .map(|celsius| vec![2, celsius, 0, 0])
                 .ok_or(DeviceError::Busy)
         } else {
             Err(DeviceError::Busy)

@@ -1,12 +1,14 @@
 //! Scripted clicks in the window and the flyout: what is sent, saved and
 //! shown after each one.
 
+use std::time::{Duration, Instant, SystemTime};
+
 use blade_core::{Config, Preset};
 use blade_lite::Rect;
 use i_slint_backend_testing::AccessibleRole::{Button, Slider, Switch, TextInput};
 use i_slint_backend_testing::{ElementHandle, ElementRoot};
 use platform::{Key, PowerEvent};
-use razer_proto::{BLADE_18, Command, PerfMode, Rgb, static_colour};
+use razer_proto::{BLADE_18, Celsius, Command, PerfMode, Rgb, static_colour};
 use slint::platform::{PointerEventButton, WindowEvent};
 use slint::{ComponentHandle, LogicalPosition};
 
@@ -859,6 +861,177 @@ fn a_touchpad_change_with_a_wake_not_yet_followed_shows_the_popup_and_sends_noth
     assert_eq!(sent_since(&f, before), []);
     assert_eq!(f.shell.popup().get_caption(), "Touchpad");
     assert_eq!(f.shell.popup().get_mode(), "Off");
+}
+
+#[test]
+fn a_hot_spell_shows_the_heat_popup_once() {
+    let f = fixture(Config::default());
+    let start = Instant::now();
+
+    for second in 0..=ui::HEAT_HOLD.as_secs() * 2 {
+        f.shell
+            .watch_heat(Some(101), None, start + Duration::from_secs(second));
+        if second == ui::HEAT_HOLD.as_secs() {
+            assert_eq!(f.shell.popup().get_caption(), "Too hot");
+            assert_eq!(f.shell.popup().get_mode(), "CPU 101°");
+            f.shell.popup().set_mode("".into());
+        }
+    }
+
+    assert_eq!(f.shell.popup().get_mode(), "", "once per spell");
+}
+
+/// The temperature queries the controller got since `before` queries.
+fn temperature_reads_since(f: &Fixture, before: usize) -> usize {
+    let app = f.shell.app();
+    let asked = &app.machine().controller.asked[before..];
+    asked.iter().filter(|&c| *c == Celsius::query()).count()
+}
+
+fn asked_count(f: &Fixture) -> usize {
+    f.shell.app().machine().controller.asked.len()
+}
+
+#[test]
+fn with_no_view_open_a_tick_reads_only_the_cpu_temperature() {
+    let f = fixture(Config::default());
+    let (asked, sent) = (asked_count(&f), sent_count(&f));
+
+    f.shell.tick();
+
+    let app = f.shell.app();
+    assert_eq!(app.machine().controller.asked[asked..], [Celsius::query()]);
+    drop(app);
+    assert_eq!(sent_since(&f, sent), []);
+    assert_eq!(f.shell.app().cpu_celsius(), None, "the fake can't read it");
+}
+
+#[test]
+fn the_next_tick_within_ten_seconds_reads_nothing() {
+    let f = fixture(Config::default());
+    f.shell.tick();
+    let asked = asked_count(&f);
+
+    f.shell.tick();
+
+    assert_eq!(asked_count(&f), asked);
+}
+
+#[test]
+fn no_temperature_read_while_a_wake_waits() {
+    let f = fixture(Config::default());
+    let (sender, receiver) = std::sync::mpsc::channel();
+    f.shell.listen_for_power(receiver);
+    sender.send(PowerEvent::Resumed).unwrap();
+    let asked = asked_count(&f);
+
+    f.shell.tick();
+
+    assert_eq!(temperature_reads_since(&f, asked), 0);
+}
+
+/// Ticks every `step` from `start` for `duration`, as the 1 s timer would
+/// at those times.
+fn tick_for(f: &Fixture, start: Instant, step: Duration, duration: Duration) {
+    let wall = SystemTime::now();
+    let mut at = Duration::ZERO;
+    while at <= duration {
+        f.shell.tick_at(start + at, wall + at);
+        at += step;
+    }
+}
+
+#[test]
+fn with_no_view_open_a_hot_cpu_shows_the_heat_popup() {
+    let f = fixture(Config::default());
+    f.shell.app().machine_mut().controller.cpu_celsius = Some(101);
+
+    tick_for(&f, Instant::now(), Duration::from_secs(1), ui::HEAT_HOLD);
+
+    assert_eq!(f.shell.popup().get_caption(), "Too hot");
+    assert_eq!(f.shell.popup().get_mode(), "CPU 101°");
+}
+
+#[test]
+fn with_the_flyout_open_a_hot_cpu_shows_the_heat_popup() {
+    let f = fixture(Config::default());
+    f.shell.app().machine_mut().controller.cpu_celsius = Some(101);
+    f.shell.toggle_flyout(ICON);
+
+    tick_for(&f, Instant::now(), Duration::from_secs(1), ui::HEAT_HOLD);
+
+    assert_eq!(f.shell.popup().get_mode(), "CPU 101°");
+}
+
+#[test]
+fn no_background_temperature_read_while_razer_software_runs() {
+    let f = fixture(Config::default());
+    f.shell.programs().set(&["Razer Synapse Service"]);
+    f.shell.look_for_razer();
+    let asked = asked_count(&f);
+
+    f.shell.tick();
+
+    assert_eq!(temperature_reads_since(&f, asked), 0);
+}
+
+#[test]
+fn a_cpu_and_gpu_warning_together_show_both() {
+    let f = fixture(Config::default());
+    let start = Instant::now();
+
+    for second in (0..=ui::HEAT_HOLD.as_secs()).step_by(10) {
+        let now = start + Duration::from_secs(second);
+        f.shell.watch_heat(Some(101), Some(97), now);
+    }
+
+    assert_eq!(f.shell.popup().get_mode(), "CPU 101° · GPU 97°");
+}
+
+#[test]
+fn a_heat_warning_is_logged() {
+    let f = fixture(Config::default());
+    let start = Instant::now();
+
+    for second in (0..=ui::HEAT_HOLD.as_secs()).step_by(10) {
+        f.shell
+            .watch_heat(None, Some(98), start + Duration::from_secs(second));
+    }
+
+    let log = std::fs::read_to_string(log_path()).unwrap();
+    assert!(log.contains("too hot for 3 min: GPU 98°"), "{log}");
+}
+
+#[test]
+fn a_wake_starts_the_hot_spell_again() {
+    let f = fixture(Config::default());
+    let start = Instant::now();
+    for second in (0..ui::HEAT_HOLD.as_secs()).step_by(10) {
+        f.shell
+            .watch_heat(Some(101), None, start + Duration::from_secs(second));
+    }
+    let (sender, receiver) = std::sync::mpsc::channel();
+    sender.send(PowerEvent::Resumed).unwrap();
+    f.shell.follow_power(&receiver);
+
+    f.shell.watch_heat(Some(101), None, start + ui::HEAT_HOLD);
+
+    assert_eq!(f.shell.popup().get_mode(), "");
+}
+
+#[test]
+fn a_short_peak_shows_no_heat_popup_and_sends_nothing() {
+    let f = fixture(Config::default());
+    let start = Instant::now();
+    let before = sent_count(&f);
+
+    for second in 0..ui::HEAT_HOLD.as_secs() {
+        f.shell
+            .watch_heat(None, Some(99), start + Duration::from_secs(second));
+    }
+
+    assert_eq!(f.shell.popup().get_mode(), "");
+    assert_eq!(sent_since(&f, before), []);
 }
 
 #[test]

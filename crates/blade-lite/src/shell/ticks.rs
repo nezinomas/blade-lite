@@ -2,29 +2,62 @@
 
 use std::rc::Rc;
 use std::sync::mpsc::Receiver;
-use std::time::Instant;
+use std::time::{Instant, SystemTime};
 
 use blade_core::RESUME_PAUSE;
 use blade_lite::report;
 use platform::{PowerEvent, num_lock_on};
 use slint::Timer;
+use ui::HeatWatch;
 
-use super::popup::TOUCHPAD;
+use super::popup::{POPUP_HOLD, TOUCHPAD};
 use super::{Parts, Shell};
 use crate::bind;
 
 impl<P: Parts> Shell<P> {
     /// Passes on power events, tries a wake's refused 60 Hz again, passes
-    /// on Num Lock, then reads the sensors if a view shows them.
+    /// on Num Lock, then reads the sensors if a view shows them, or only
+    /// the temperatures now and then if none does.
     pub fn tick(self: &Rc<Self>) {
+        self.tick_at(Instant::now(), SystemTime::now());
+    }
+
+    /// [`tick`](Self::tick) at `now`, with the wall clock at `wall`. The
+    /// window tests give their own times.
+    pub(crate) fn tick_at(self: &Rc<Self>, now: Instant, wall: SystemTime) {
         self.follow_own_power();
         if self.resuming.get() == 0 && self.app.borrow().battery_rate_pending() {
             self.retry_battery_rate();
         }
         self.follow_num_lock(num_lock_on());
-        if self.schedule.borrow_mut().poll_due(Instant::now()) {
-            self.tick_readings();
+        if self.schedule.borrow_mut().poll_due(now) {
+            self.tick_readings(now);
+        } else if self.heat_reads_allowed() && self.schedule.borrow_mut().heat_due(now, wall) {
+            self.tick_heat(now);
         }
+    }
+
+    /// Whether the controller may be read in the background: not while a
+    /// resume waits (it may not be ready), nor while Razer's own software
+    /// runs (it may talk to the controller at the same time).
+    fn heat_reads_allowed(&self) -> bool {
+        self.resuming.get() == 0 && self.razer_warning.borrow().is_none()
+    }
+
+    /// Reads only the temperatures, for the heat warning.
+    fn tick_heat(self: &Rc<Self>, now: Instant) {
+        let (gpu, mut errors) = {
+            let (sampler, sensors) = &mut *self.sampler.borrow_mut();
+            (sampler.gpu_celsius(sensors), sampler.errors().to_vec())
+        };
+        let cpu = {
+            let mut app = self.app.borrow_mut();
+            app.read_cpu_temperature();
+            errors.extend_from_slice(app.read_errors());
+            app.cpu_celsius()
+        };
+        self.say_read_errors(&errors);
+        self.watch_heat(cpu, gpu, now);
     }
 
     /// Tries a wake's refused 60 Hz again: Windows can refuse it just after
@@ -78,7 +111,7 @@ impl<P: Parts> Shell<P> {
         let changed = watch.changed(self.app.borrow().touchpad_on());
         self.touchpad_watch.set(watch);
         if let Some(state) = changed {
-            self.pop_up(TOUCHPAD, state);
+            self.pop_up(TOUCHPAD, state, POPUP_HOLD);
         }
     }
 
@@ -106,6 +139,9 @@ impl<P: Parts> Shell<P> {
     fn power_event(self: &Rc<Self>, event: PowerEvent) {
         self.forget_charging();
         if event == PowerEvent::Resumed {
+            // The time asleep may not count in `Instant`, so a spell before
+            // the sleep is not carried over.
+            self.heat_watch.set(HeatWatch::default());
             // The controller needs a moment after the wake.
             self.resuming.set(self.resuming.get().saturating_add(1));
             let shell = Rc::clone(self);
@@ -138,9 +174,9 @@ impl<P: Parts> Shell<P> {
     }
 
     /// Reads the sensors, then shows the header and the keyboard group,
-    /// since the touchpad key can change it at any time. The reads that
-    /// failed are logged once in a while.
-    fn tick_readings(&self) {
+    /// since the touchpad key can change it at any time, and watches the
+    /// temperatures. The reads that failed are logged once in a while.
+    fn tick_readings(self: &Rc<Self>, now: Instant) {
         let (readings, mut errors) = {
             let (sampler, sensors) = &mut *self.sampler.borrow_mut();
             (sampler.sample(sensors), sampler.errors().to_vec())
@@ -154,6 +190,10 @@ impl<P: Parts> Shell<P> {
         if let Ok(view) = app.keyboard_view() {
             bind::keyboard(&self.window, &view);
         }
+        let cpu = app.cpu_celsius();
+        drop(app);
+        let gpu = readings.gpu.map(|gpu| gpu.celsius);
+        self.watch_heat(cpu, gpu, now);
     }
 
     /// Logs the failed reads not logged in the quiet time.

@@ -44,14 +44,7 @@ pub fn chosen_native_mode(
 /// Reads the CPU temperature and each fan. A failed read leaves only its
 /// value empty, and names it in the errors.
 pub fn read_controller(controller: &mut impl Query, model: &ModelProfile) -> ControllerReadings {
-    let mut errors = Vec::new();
-    let cpu = read_value(
-        controller,
-        &Celsius::query(),
-        Celsius::cpu_from_reply,
-        "CPU temperature",
-        &mut errors,
-    );
+    let (cpu, mut errors) = read_cpu_temperature(controller);
     let fans = FanRpm::queries(model)
         .iter()
         .zip(model.custom.fan_zones)
@@ -63,6 +56,20 @@ pub fn read_controller(controller: &mut impl Query, model: &ModelProfile) -> Con
         })
         .collect();
     ControllerReadings { cpu, fans, errors }
+}
+
+/// Reads only the CPU temperature. A failed read is `None`, with one line in
+/// the errors.
+pub fn read_cpu_temperature(controller: &mut impl Query) -> (Option<Celsius>, Vec<String>) {
+    let mut errors = Vec::new();
+    let cpu = read_value(
+        controller,
+        &Celsius::query(),
+        Celsius::cpu_from_reply,
+        "CPU temperature",
+        &mut errors,
+    );
+    (cpu, errors)
 }
 
 /// Reads one value. A failed read or a reply not understood adds a line to

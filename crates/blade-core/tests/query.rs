@@ -1,7 +1,7 @@
 //! What the app reads back from the controller: the chosen native mode, the
 //! CPU temperature and the fan speeds.
 
-use blade_core::{Query, chosen_native_mode, read_controller};
+use blade_core::{Query, chosen_native_mode, read_controller, read_cpu_temperature};
 use razer_device::DeviceError;
 use razer_proto::{BLADE_18, Celsius, Command, FanRpm, NativeMode};
 
@@ -148,4 +148,23 @@ fn good_reads_have_no_errors() {
     let readings = read_controller(&mut controller, &BLADE_18);
 
     assert_eq!(readings.errors, [] as [&str; 0]);
+}
+
+#[test]
+fn the_cpu_temperature_alone_is_read() {
+    let mut controller = FakeQuery::default().reply(Celsius::query(), &[2, 96, 0, 0]);
+
+    let (cpu, errors) = read_cpu_temperature(&mut controller);
+
+    assert_eq!(cpu, Some(Celsius(96)));
+    assert_eq!(errors, Vec::<String>::new());
+}
+
+#[test]
+fn a_failed_cpu_temperature_read_is_named() {
+    let (cpu, errors) = read_cpu_temperature(&mut FakeQuery::default());
+
+    assert_eq!(cpu, None);
+    assert_eq!(errors.len(), 1);
+    assert!(errors[0].starts_with("CPU temperature: "), "{errors:?}");
 }

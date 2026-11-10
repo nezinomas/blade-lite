@@ -103,3 +103,9 @@ fn the_temperature_query_is_0d85() {
         (0x0D85, vec![0x00, 0x01, 0x00, 0x00])
     );
 }
+
+#[test]
+fn a_temperature_reply_without_02_first_is_not_read() {
+    assert_eq!(Celsius::cpu_from_reply(&[0x00, 52, 0, 0]), None);
+    assert_eq!(Celsius::cpu_from_reply(&[0x01, 52, 0, 0]), None);
+}

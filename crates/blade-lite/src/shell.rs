@@ -18,9 +18,9 @@ use platform::{
     WindowsPrograms, WindowsRegistry, WindowsSensors,
 };
 use razer_device::{Device, HidTransport, SystemClock};
-use ui::{FlyoutView, ModeWatch, TouchpadWatch};
+use ui::{FlyoutView, HeatWatch, ModeWatch, TouchpadWatch};
 
-use popup::POWER_MODE;
+use popup::{POPUP_HOLD, POWER_MODE};
 
 use crate::{FlyoutWindow, MainWindow, ModePopup, bind};
 
@@ -79,6 +79,8 @@ pub struct Shell<P: Parts = Laptop> {
     mode_watch: Cell<ModeWatch>,
     /// The touchpad state last seen, for the touchpad popup.
     touchpad_watch: Cell<TouchpadWatch>,
+    /// The CPU and GPU hot spells, for the heat popup.
+    heat_watch: Cell<HeatWatch>,
     /// Counts the popups, so the fade of an older one leaves a newer alone.
     popups: Cell<u32>,
     /// Whether the popup has been made click-through.
@@ -121,6 +123,7 @@ impl<P: Parts> Shell<P> {
             read_errors: RefCell::new(SaidLately::new(READ_ERROR_QUIET)),
             mode_watch,
             touchpad_watch,
+            heat_watch: Cell::new(HeatWatch::default()),
             popups: Cell::new(0),
             popup_ready: Cell::new(false),
             resuming: Cell::new(0),
@@ -196,7 +199,7 @@ impl<P: Parts> Shell<P> {
         let changed = watch.changed(self.app.borrow().running_preset(), worked);
         self.mode_watch.set(watch);
         if let Some(mode) = changed {
-            self.pop_up(POWER_MODE, mode);
+            self.pop_up(POWER_MODE, mode, POPUP_HOLD);
         }
     }
 

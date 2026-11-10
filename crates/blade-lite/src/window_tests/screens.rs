@@ -10,7 +10,7 @@
 use std::fs::{self, File};
 use std::io::BufWriter;
 use std::path::{Path, PathBuf};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use blade_core::{Config, Preset};
 use i_slint_backend_testing::AccessibleRole::Button;
@@ -106,6 +106,24 @@ fn touchpad_popup() {
     // Past the fade in.
     i_slint_backend_testing::mock_elapsed_time(Duration::from_millis(300));
     check("popup-touchpad", popup.window());
+}
+
+#[test]
+fn heat_popup() {
+    let f = fixture(Config::default());
+    let start = Instant::now();
+    for second in (0..=ui::HEAT_HOLD.as_secs()).step_by(10) {
+        let now = start + Duration::from_secs(second);
+        // Both at once: the widest text.
+        f.shell.watch_heat(Some(105), Some(105), now);
+    }
+    // Shown here, as in `touchpad_popup`.
+    let popup = f.shell.popup();
+    popup.set_shown(true);
+    popup.show().expect("the popup shows");
+    // Past the fade in.
+    i_slint_backend_testing::mock_elapsed_time(Duration::from_millis(300));
+    check("popup-heat", popup.window());
 }
 
 /// Compares a picture of `window` with the saved one called `name`.

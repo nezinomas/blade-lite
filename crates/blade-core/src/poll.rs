@@ -1,9 +1,12 @@
-//! When to read the sensors: once a second, only while a view is visible.
+//! When to read the sensors: once a second while a view is visible, and only
+//! the temperatures, for the heat warning, every ten seconds while none is.
 
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime};
 
 /// The time between two polls.
 pub const POLL_INTERVAL: Duration = Duration::from_secs(1);
+/// The time between two temperature reads while no view is visible.
+pub const HEAT_INTERVAL: Duration = Duration::from_secs(10);
 
 /// A view that shows readings.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -19,6 +22,9 @@ pub struct PollSchedule {
     flyout: bool,
     /// `None` while no view is visible.
     next: Option<Instant>,
+    /// The next temperature read while no view is visible, and the wall
+    /// clock at the last one. `None` when one is due at once.
+    next_heat: Option<(Instant, SystemTime)>,
 }
 
 impl PollSchedule {
@@ -45,6 +51,33 @@ impl PollSchedule {
             self.next = Some(now + POLL_INTERVAL);
         }
         due
+    }
+
+    /// Whether to read only the temperatures now: never while a view polls,
+    /// since each poll reads them. A read due moves the next one
+    /// [`HEAT_INTERVAL`] on. A read more than one interval late by `now` or
+    /// by the wall clock `wall` is skipped, and the next waits one interval:
+    /// the laptop slept or the event loop stood still, so the controller may
+    /// not be awake and the wake not known. The wall clock counts a sleep
+    /// that `Instant` may not; a wall clock set back skips nothing.
+    pub fn heat_due(&mut self, now: Instant, wall: SystemTime) -> bool {
+        if self.next.is_some() {
+            self.next_heat = None;
+            return false;
+        }
+        let Some((next, last_wall)) = self.next_heat else {
+            self.next_heat = Some((now + HEAT_INTERVAL, wall));
+            return true;
+        };
+        if now < next {
+            return false;
+        }
+        self.next_heat = Some((now + HEAT_INTERVAL, wall));
+        let late = now > next + HEAT_INTERVAL;
+        let slept = wall
+            .duration_since(last_wall)
+            .is_ok_and(|passed| passed > HEAT_INTERVAL * 2);
+        !late && !slept
     }
 
     /// When the next poll is due, or `None` while polling is stopped.
