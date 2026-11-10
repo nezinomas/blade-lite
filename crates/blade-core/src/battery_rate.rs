@@ -53,7 +53,12 @@ impl BatteryRate {
 
     /// Remembers the rate once, then sets 60 Hz if the panel is not there yet.
     /// The 60 Hz is not saved, so a shutdown or a crash on battery does not
-    /// leave the panel at 60 Hz after the restart.
+    /// leave the panel at 60 Hz after the restart. A panel already at 60 Hz
+    /// (left by a crash on battery) takes the rate Windows has saved to put
+    /// back, unless that is 60 Hz too. That can't tell such a 60 Hz from
+    /// one another program set without saving it; that one is put back too.
+    /// The rate buttons are locked on battery, so the user can't pick 60 Hz
+    /// by hand there.
     fn on_battery(&mut self, api: &mut impl DisplayApi) -> Result<(), DisplayError> {
         if self.saved.is_some() {
             return Ok(());
@@ -124,8 +129,11 @@ impl BatteryRate {
     /// on AC, and when the app quits. Nothing is sent if the panel no
     /// longer runs at 60 Hz, as the rate was then changed outside the app.
     /// Each saved rate is tried once, so a failed put-back is not retried.
-    /// It is not saved, so the rate Windows has saved stays the user's,
-    /// even when the one put back was set by another program.
+    /// The rate may be the one Windows has saved, taken at a start on
+    /// battery at 60 Hz. It is not saved, so the rate Windows has saved
+    /// stays the user's, even when the one put back was set by another
+    /// program; unless Windows has saved 60 Hz (such as from a scale change
+    /// in Settings on battery), so a restart does not start at 60 Hz.
     ///
     /// # Errors
     ///
@@ -137,6 +145,11 @@ impl BatteryRate {
         if current_rate(api)? != BATTERY_RATE {
             return Ok(());
         }
-        set_rate(api, rate, ModeLife::UntilRestart)
+        let life = if saved_rate(api) == Some(BATTERY_RATE) {
+            ModeLife::Saved
+        } else {
+            ModeLife::UntilRestart
+        };
+        set_rate(api, rate, life)
     }
 }

@@ -418,3 +418,64 @@ fn a_saved_rate_the_panel_does_not_offer_is_not_put_back() {
 
     assert_eq!(api.set, []);
 }
+
+#[test]
+fn a_put_back_is_saved_when_windows_saved_60_hz() {
+    let mut api = panel_at(240);
+    let mut battery_rate = BatteryRate::default();
+    battery_rate
+        .on_event(PowerEvent::OnBattery, &config(true), &mut api)
+        .unwrap();
+    // Such as a scale change in Windows Settings on battery.
+    api.saved = Some(mode(3840, 2400, 60));
+
+    battery_rate
+        .on_event(PowerEvent::OnAc, &config(true), &mut api)
+        .unwrap();
+
+    assert_eq!(api.set.last().unwrap().2, ModeLife::Saved);
+    assert_eq!(api.panel_mode(), mode(3840, 2400, 240));
+}
+
+#[test]
+fn a_start_on_battery_not_at_60_hz_puts_its_own_rate_back() {
+    let mut api = panel_at(120);
+    api.saved = Some(mode(3840, 2400, 240));
+
+    feed(
+        &[PowerEvent::OnBattery, PowerEvent::OnAc],
+        config(true),
+        &mut api,
+    );
+
+    assert_eq!(api.panel_mode(), mode(3840, 2400, 120));
+}
+
+#[test]
+fn a_wake_after_a_start_at_60_hz_sets_60_hz_again() {
+    let mut api = left_at_60(Some(mode(3840, 2400, 240)));
+    let mut battery_rate = BatteryRate::default();
+    battery_rate
+        .on_event(PowerEvent::OnBattery, &config(true), &mut api)
+        .unwrap();
+    set_refresh_rate(&mut api, RefreshRate(240)).unwrap();
+
+    battery_rate
+        .on_event(PowerEvent::Resumed, &config(true), &mut api)
+        .unwrap();
+
+    assert_eq!(api.panel_mode(), mode(3840, 2400, 60));
+}
+
+#[test]
+fn a_quit_after_a_start_at_60_hz_puts_the_saved_rate_back() {
+    let mut api = left_at_60(Some(mode(3840, 2400, 240)));
+    let mut battery_rate = BatteryRate::default();
+    battery_rate
+        .on_event(PowerEvent::OnBattery, &config(true), &mut api)
+        .unwrap();
+
+    battery_rate.put_back(&mut api).unwrap();
+
+    assert_eq!(api.panel_mode(), mode(3840, 2400, 240));
+}
