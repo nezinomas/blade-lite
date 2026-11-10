@@ -132,6 +132,14 @@ impl<P: Parts> Shell<P> {
         self.app.borrow_mut()
     }
 
+    /// Puts back the rate from before battery as the app quits. A failure
+    /// goes to the log, as no window is left to show it.
+    pub fn quit(&self) {
+        if let Err(error) = self.app.borrow_mut().on_quit() {
+            report(&format!("the panel may stay at 60 Hz: {error}"));
+        }
+    }
+
     /// Runs one change, then shows the new state, or the error if it failed.
     /// A new power mode, from any change the laptop took (even one not
     /// saved), shows the popup.

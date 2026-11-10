@@ -30,7 +30,7 @@ impl BatteryRate {
     ) -> Result<(), DisplayError> {
         match event {
             PowerEvent::OnBattery if config.sixty_hz_on_battery => self.on_battery(api),
-            PowerEvent::OnAc => self.on_ac(api),
+            PowerEvent::OnAc => self.put_back(api),
             _ => Ok(()),
         }
     }
@@ -49,11 +49,21 @@ impl BatteryRate {
         Ok(())
     }
 
-    /// Puts back the rate that was active before battery, if there is one.
-    fn on_ac(&mut self, api: &mut impl DisplayApi) -> Result<(), DisplayError> {
-        match self.saved.take() {
-            Some(rate) => set_refresh_rate(api, rate),
-            None => Ok(()),
+    /// Puts back the rate that was active before battery, if there is one:
+    /// on AC, and when the app quits. Nothing is sent if the panel no
+    /// longer runs at 60 Hz, as the rate was then changed outside the app.
+    /// Each saved rate is tried once, so a failed put-back is not retried.
+    ///
+    /// # Errors
+    ///
+    /// See [`DisplayError`].
+    pub fn put_back(&mut self, api: &mut impl DisplayApi) -> Result<(), DisplayError> {
+        let Some(rate) = self.saved.take() else {
+            return Ok(());
+        };
+        if current_rate(api)? != BATTERY_RATE {
+            return Ok(());
         }
+        set_refresh_rate(api, rate)
     }
 }

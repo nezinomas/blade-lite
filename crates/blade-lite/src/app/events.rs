@@ -1,5 +1,5 @@
-//! What the app does at start, on a power change, on a touchpad switch and
-//! on a Num Lock change.
+//! What the app does at start, on a power change, on a touchpad switch, on
+//! a Num Lock change and on quit.
 
 use blade_core::{
     Controller, Query, apply, apply_performance, logo_on, paint_touchpad_key, touchpad_on,
@@ -115,6 +115,17 @@ where
             apply_performance(&config, self.model, &mut self.machine.controller)?;
         }
         Ok(())
+    }
+
+    /// Puts back the rate the panel had before battery, if the app dropped
+    /// it to 60 Hz, so the panel does not stay at 60 Hz once the app is
+    /// gone. Nothing else is sent.
+    ///
+    /// # Errors
+    ///
+    /// See [`AppError`].
+    pub fn on_quit(&mut self) -> Result<(), AppError> {
+        Ok(self.battery_rate.put_back(&mut self.machine.displays)?)
     }
 
     pub(super) fn follow_power(&mut self, event: PowerEvent) -> Result<(), AppError> {
