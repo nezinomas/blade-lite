@@ -1,6 +1,13 @@
 //! Talks to the Blade 18 controller over a [`Transport`].
 
-#![deny(clippy::unwrap_used, clippy::print_stdout, clippy::print_stderr)]
+#![deny(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::indexing_slicing,
+    clippy::print_stdout,
+    clippy::print_stderr
+)]
 
 use std::hash::{BuildHasher, Hasher, RandomState};
 use std::io;

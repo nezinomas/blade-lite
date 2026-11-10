@@ -1,2 +1,6 @@
-# `#[cfg(test)]` code may unwrap; library code may not (see each lib.rs).
+# `#[cfg(test)]` code may unwrap, expect, panic and index; library code
+# may not (see each lib.rs).
 allow-unwrap-in-tests = true
+allow-expect-in-tests = true
+allow-panic-in-tests = true
+allow-indexing-slicing-in-tests = true

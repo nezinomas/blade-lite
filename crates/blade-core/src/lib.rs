@@ -1,6 +1,13 @@
 //! Decides what to apply to the Blade 18 and keeps the user's settings.
 
-#![deny(clippy::unwrap_used, clippy::print_stdout, clippy::print_stderr)]
+#![deny(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::indexing_slicing,
+    clippy::print_stdout,
+    clippy::print_stderr
+)]
 
 mod apply;
 mod autostart;
