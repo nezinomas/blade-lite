@@ -232,6 +232,7 @@ impl<P: Parts> Shell<P> {
         self.flyout.set_sixty_hz_on_battery(sixty_hz);
         self.window
             .set_vapor_light_on(app.vapor_light_on() == Some(true));
+        self.window.set_logo_on(app.logo_on() == Some(true));
         let errors = errors.join("\n");
         if let Some(new) = self.shown_errors.borrow_mut().new_text(&errors) {
             report(new);
