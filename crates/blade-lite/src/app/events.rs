@@ -1,9 +1,7 @@
 //! What the app does at start, on a power change, on a touchpad switch, on
 //! a Num Lock change and on quit.
 
-use blade_core::{
-    Controller, Query, apply, apply_performance, logo_on, paint_touchpad_key, touchpad_on,
-};
+use blade_core::{Controller, Query, apply, apply_performance, paint_touchpad_key, touchpad_on};
 use platform::{DisplayApi, KeyInjector, PowerEvent, Registry};
 
 use super::{App, AppError};
@@ -30,9 +28,7 @@ where
         let applied = apply(&config, self.model, &mut self.machine.controller, red);
         self.key_red = applied.is_ok().then_some(red);
         self.preset_unsure = applied.is_err();
-        self.logo_on = logo_on(&mut self.machine.controller, self.model)
-            .ok()
-            .flatten();
+        self.read_logo();
         Ok(applied?)
     }
 

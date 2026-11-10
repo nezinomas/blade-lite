@@ -154,3 +154,27 @@ fn start_sends_the_saved_logo_state() {
     assert!(sent(&app).ends_with(&logo().commands(false)));
     assert_eq!(app.keyboard_view().unwrap().logo_on, Some(false));
 }
+
+#[test]
+fn a_logo_switch_that_fails_part_way_shows_the_state_read_back() {
+    let (mut app, _dir, _) = app();
+    app.machine_mut().controller.logo_reply = Some(vec![0, 4, 1]);
+    app.start().unwrap();
+    // The switch command runs, but its reply is Busy.
+    app.machine_mut().controller.fails_after = Some(2);
+
+    assert!(app.on_keyboard(KeyboardCommand::SetLogo(false)).is_err());
+    assert_eq!(app.keyboard_view().unwrap().logo_on, Some(false));
+}
+
+#[test]
+fn a_failed_logo_switch_hides_the_switch_if_the_read_back_fails() {
+    let (mut app, _dir, _) = app();
+    app.machine_mut().controller.logo_reply = Some(vec![0, 4, 1]);
+    app.start().unwrap();
+    app.machine_mut().controller.fails = true;
+    app.machine_mut().controller.logo_reply = None;
+
+    assert!(app.on_keyboard(KeyboardCommand::SetLogo(false)).is_err());
+    assert_eq!(app.keyboard_view().unwrap().logo_on, None);
+}

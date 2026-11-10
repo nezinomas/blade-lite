@@ -132,7 +132,11 @@ where
             }
             // Saved, as the laptop turns the logo on again after a wake.
             KeyboardCommand::SetLogo(on) => {
-                set_logo(on, &mut self.machine.controller, self.model)?;
+                if let Err(error) = set_logo(on, &mut self.machine.controller, self.model) {
+                    // A send that fails part way may still switch it.
+                    self.read_logo();
+                    return Err(error.into());
+                }
                 self.logo_on = Some(on);
                 return self.keep_sent(Config {
                     lid_logo: Some(on),

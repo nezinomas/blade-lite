@@ -8,7 +8,9 @@ mod views;
 
 use std::path::PathBuf;
 
-use blade_core::{BatteryRate, Config, Controller, Lighting, Query, charge_limit_on, touchpad_on};
+use blade_core::{
+    BatteryRate, Config, Controller, Lighting, Query, charge_limit_on, logo_on, touchpad_on,
+};
 use platform::{DisplayApi, KeyInjector, Registry};
 use razer_proto::{ModelProfile, Rgb};
 
@@ -150,6 +152,13 @@ where
 
     fn read_charge_limit(&mut self) {
         self.charge_limit_on = charge_limit_on(&mut self.machine.controller, self.model)
+            .ok()
+            .flatten();
+    }
+
+    /// Reads the lid logo state. `None` if the read fails.
+    fn read_logo(&mut self) {
+        self.logo_on = logo_on(&mut self.machine.controller, self.model)
             .ok()
             .flatten();
     }
