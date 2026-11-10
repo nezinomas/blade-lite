@@ -176,7 +176,10 @@ impl<P: Parts> Shell<P> {
 }
 
 /// Ends a drag the window lost (hidden before the mouse-up), so the next
-/// mouse move can't drag a slider of the shown window on.
+/// mouse move can't drag a slider of the shown window on. The Slider still
+/// thinks its handle is pressed, so a later mouse-up over it calls
+/// `released` with the value `show-brightness` set: the laptop's own, which
+/// `KeyboardView::move_brightness` skips, so nothing is sent.
 fn drop_lost_drag(window: &slint::Window) {
     window.dispatch_event(WindowEvent::PointerExited);
 }

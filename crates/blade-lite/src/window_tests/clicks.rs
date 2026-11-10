@@ -312,6 +312,8 @@ const ICON: Rect = Rect {
 /// After a show: the slider `label` and its text show the laptop's 100%,
 /// and moving the mouse to the slider's left end and letting go (the old
 /// drag's mouse-up) neither moves it nor sends anything since `before`.
+/// That mouse-up calls `released` with 100, which sends nothing because
+/// `move_brightness` skips the brightness the laptop already has.
 fn shows_the_laptop_brightness<R: ElementRoot + ComponentHandle>(
     f: &Fixture,
     root: &R,
