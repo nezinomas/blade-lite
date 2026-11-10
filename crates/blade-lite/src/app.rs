@@ -112,6 +112,13 @@ where
         self.num_lock_on = on;
     }
 
+    /// Takes the power source without sending, for use before
+    /// [`start`](Self::start), so a start on battery sends the battery
+    /// preset, not the saved one.
+    pub fn take_on_battery(&mut self, on_battery: bool) {
+        self.on_battery = on_battery;
+    }
+
     /// Whether the touchpad key should be red. If the touchpad state can't
     /// be read, the key keeps the plain colour.
     fn key_should_be_red(&self) -> bool {

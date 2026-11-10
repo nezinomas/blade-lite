@@ -1,12 +1,15 @@
 //! Presets on battery, and the charge limit.
 
-use blade_core::Preset;
+use blade_core::{Config, CustomSettings, Preset};
 use platform::PowerEvent;
 use razer_proto::{BLADE_18, PerfMode};
 use ui::PerformanceCommand;
 
+/// Sets a fan's target speed.
+const SET_FAN: u16 = 0x0D01;
+
 use crate::{
-    LIMIT_OFF, LIMIT_ON, SET_CHARGE_LIMIT, app, charge_limit, charge_limit_on, performance_app,
+    LIMIT_OFF, LIMIT_ON, SET_CHARGE_LIMIT, app, app_with, charge_limit, charge_limit_on, performance_app,
     sent,
 };
 
@@ -154,4 +157,36 @@ fn the_running_preset_is_the_one_the_power_source_lets_run() {
     app.on_power(PowerEvent::OnBattery).unwrap();
 
     assert_eq!(app.running_preset(), Preset::Balanced);
+}
+
+#[test]
+fn a_start_on_battery_sends_balanced_for_a_saved_custom_fan() {
+    let (mut app, _dir, _) = app_with(Config {
+        preset: Preset::Custom,
+        custom: CustomSettings {
+            fan_rpm: Some(1600),
+            ..CustomSettings::default()
+        },
+        ..Config::default()
+    });
+    app.take_on_battery(true);
+
+    app.start().unwrap();
+
+    let balanced = PerfMode::Balanced.commands(&BLADE_18).unwrap();
+    assert!(sent(&app).windows(balanced.len()).any(|run| run == balanced));
+    assert!(sent(&app).iter().all(|command| command.id != SET_FAN));
+    assert_eq!(app.config().preset, Preset::Custom);
+}
+
+#[test]
+fn the_power_event_after_a_start_on_battery_sends_nothing() {
+    let (mut app, _dir, _) = performance_app();
+    app.take_on_battery(true);
+    app.start().unwrap();
+    app.machine_mut().controller.sent.clear();
+
+    app.on_power(PowerEvent::OnBattery).unwrap();
+
+    assert_eq!(sent(&app), []);
 }
