@@ -7,7 +7,7 @@ A change to how windows are made or shown can break all of them (the flyout head
 Start it:
 
 ```
-cargo run -p blade-lite
+cargo app
 ```
 
 A console window opens too in debug builds. Ignore it.
