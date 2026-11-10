@@ -101,8 +101,10 @@ where
         match event {
             PowerEvent::Resumed => self.start(),
             PowerEvent::OnBattery | PowerEvent::OnAc => {
-                self.set_on_battery(event == PowerEvent::OnBattery)?;
-                self.follow_power(event)
+                // The rate follows even if the preset send fails.
+                let preset = self.set_on_battery(event == PowerEvent::OnBattery);
+                let rate = self.follow_power(event);
+                preset.and(rate)
             }
         }
     }

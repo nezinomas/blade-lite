@@ -103,6 +103,7 @@ pub fn fixture(config: Config) -> Fixture {
     })))
     .expect("the first Slint call on this thread");
     log_path();
+    FAKE_ON_BATTERY.set(false);
     let (mut app, dir, _) = app_on(&BLADE_18, config);
     let controller = &mut app.machine_mut().controller;
     controller.logo_reply = Some(vec![0, 4, 1]);

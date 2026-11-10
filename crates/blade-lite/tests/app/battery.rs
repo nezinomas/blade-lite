@@ -6,7 +6,7 @@ use razer_proto::{BLADE_18, PerfMode};
 use ui::PerformanceCommand;
 
 use crate::{
-    LIMIT_OFF, LIMIT_ON, SET_CHARGE_LIMIT, app, app_with, charge_limit, charge_limit_on,
+    LIMIT_OFF, LIMIT_ON, SET_CHARGE_LIMIT, app, app_with, charge_limit, charge_limit_on, panel_hz,
     performance_app, sent,
 };
 
@@ -267,4 +267,31 @@ fn a_power_event_sends_again_after_a_failed_switch() {
     app.on_power(PowerEvent::OnBattery).unwrap();
 
     assert_eq!(sent(&app), PerfMode::Balanced.commands(&BLADE_18).unwrap());
+}
+
+#[test]
+fn a_power_event_sends_again_after_a_failed_preset_click() {
+    let (mut app, _dir, _) = app();
+    app.machine_mut().controller.fails = true;
+    let click = app.on_performance(PerformanceCommand::SetPreset(Preset::Performance));
+    assert!(click.is_err());
+    app.machine_mut().controller.fails = false;
+
+    app.on_power(PowerEvent::OnBattery).unwrap();
+
+    assert_eq!(sent(&app), PerfMode::Balanced.commands(&BLADE_18).unwrap());
+}
+
+#[test]
+fn the_rate_follows_the_battery_even_when_the_preset_send_fails() {
+    let (mut app, _dir, _) = app_with(Config {
+        sixty_hz_on_battery: true,
+        ..Config::default()
+    });
+    app.machine_mut().controller.fails = true;
+    assert!(app.start().is_err());
+
+    assert!(app.on_power(PowerEvent::OnBattery).is_err());
+
+    assert_eq!(panel_hz(&app), 60);
 }
