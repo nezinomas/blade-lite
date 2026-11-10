@@ -10,7 +10,7 @@ Every stage is reviewed before merge by subagents (`.claude/agents/`): both the 
 Checks only a person can do on the laptop wait in "Still to check on the laptop" below until the user confirms them.
 
 ## Extras
-- [ ] 49 Same popup for touchpad on and off (the registry watch covers the physical key too, ticket 47)
+- [x] 49 Same popup for touchpad on and off: on each change of Windows' touchpad value (the physical key, the app's switch or Windows) the popup shows "Touchpad" over "On" or "Off", also while a resume waits (nothing is sent). A state that can't be read shows nothing. Checked by the user 2026-11-10
 - [x] 110 The header and flyout say "Plugged in · Charging" or "Plugged in · Not charging" (the charge limit), from `SYSTEM_BATTERY_STATE.Charging` read with the other readings, only on AC; unknown shows "Plugged in". A power event clears it until the next poll. Checked on the laptop 2026-11-10: the limit switch changes it in about 15 s (Windows updates its battery state that slowly), unplugging at once
 
 ## Bug fixes
@@ -67,6 +67,7 @@ Do these in one go, on AC, with "Start with Windows" on and Num Lock off. First 
 10. **Brightness drag (68).** In the window, drag the keyboard brightness slider slowly and hold it. The percent beside it follows. The keyboard light changes only when you let go. Do the same in the flyout.
 11. **Fans on battery (86).** Unplug the charger. In Balanced, run a CPU load (such as a game or a big build) for 2 minutes. When the app shows the CPU above about 65 °C, the fans show RPM (not 0) and you hear them. If they stay at 0 RPM, stop the load at once and note the CPU temperature.
 12. **Custom fan, then Silent (37).** On AC, pick Custom and set the fan to about 3000 RPM. Wait 1 minute. Click Silent. Within 2 minutes the fans slow to about 1600 RPM or stop, as after Performance.
+13. **Touchpad popup after a wake (49).** Sleep the laptop and wake it. No "Touchpad" popup shows. If Windows shows its own touchpad popup with the key, note whether the two together bother you.
 
 ## Publishing on GitHub
 - [ ] 39 Release and installer
