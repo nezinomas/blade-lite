@@ -9,6 +9,7 @@ use blade_lite::report;
 use platform::{PowerEvent, num_lock_on};
 use slint::Timer;
 
+use super::popup::TOUCHPAD;
 use super::{Parts, Shell};
 use crate::bind;
 
@@ -47,6 +48,13 @@ impl<P: Parts> Shell<P> {
         self.follow_own_power();
         if self.resuming.get() == 0 {
             self.act(blade_lite::App::on_touchpad_changed);
+        }
+        // Only shown, nothing sent, so also while a resume waits.
+        let mut watch = self.touchpad_watch.get();
+        let changed = watch.changed(self.app.borrow().touchpad_on());
+        self.touchpad_watch.set(watch);
+        if let Some(state) = changed {
+            self.pop_up(TOUCHPAD, state);
         }
     }
 

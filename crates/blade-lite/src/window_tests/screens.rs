@@ -93,6 +93,21 @@ fn popup() {
     check("popup", popup.window());
 }
 
+#[test]
+fn touchpad_popup() {
+    let f = fixture(Config::default());
+    f.shell.app().machine_mut().registry.touchpad = Some(0);
+    f.shell.follow_touchpad();
+    // The test backend has no window handle to set up, so it is shown
+    // here, as in `popup`.
+    let popup = f.shell.popup();
+    popup.set_shown(true);
+    popup.show().expect("the popup shows");
+    // Past the fade in.
+    i_slint_backend_testing::mock_elapsed_time(Duration::from_millis(300));
+    check("popup-touchpad", popup.window());
+}
+
 /// Compares a picture of `window` with the saved one called `name`.
 fn check(name: &str, window: &slint::Window) {
     let shot = window.take_snapshot().expect("a picture of the window");

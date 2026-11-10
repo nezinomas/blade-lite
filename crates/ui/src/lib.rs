@@ -17,4 +17,4 @@ pub use performance::{
     ChargeLimitSwitch, PerformanceCommand, PerformanceState, PerformanceView, PresetOption, Slider,
     SliderKind,
 };
-pub use popup::ModeWatch;
+pub use popup::{ModeWatch, TouchpadWatch};

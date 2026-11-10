@@ -95,6 +95,13 @@ where
         }))
     }
 
+    /// Whether the touchpad is on, as Windows has it, or `None` if that
+    /// can't be read.
+    #[must_use]
+    pub fn touchpad_on(&self) -> Option<bool> {
+        touchpad_on(&self.machine.registry).ok()
+    }
+
     /// The lid logo state last read or set, or `None` if the model has no
     /// logo or it could not be read.
     #[must_use]

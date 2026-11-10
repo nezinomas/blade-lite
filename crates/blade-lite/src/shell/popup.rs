@@ -17,10 +17,16 @@ use crate::tray::px;
 const POPUP_HOLD: Duration = Duration::from_millis(1500);
 const POPUP_FADE: Duration = Duration::from_millis(300);
 
+/// The popup's captions.
+pub(super) const POWER_MODE: &str = "Power mode";
+pub(super) const TOUCHPAD: &str = "Touchpad";
+
 impl<P: Parts> Shell<P> {
-    /// Shows the popup with `mode` above the taskbar clock, without taking
-    /// the focus, then fades it out. A new one starts the time again.
-    pub(super) fn pop_up(self: &Rc<Self>, mode: &str) {
+    /// Shows the popup with `caption` over `mode` above the taskbar clock,
+    /// without taking the focus, then fades it out. A new one starts the
+    /// time again.
+    pub(super) fn pop_up(self: &Rc<Self>, caption: &str, mode: &str) {
+        self.popup.set_caption(caption.into());
         self.popup.set_mode(mode.into());
         let count = self.popups.get().wrapping_add(1);
         self.popups.set(count);

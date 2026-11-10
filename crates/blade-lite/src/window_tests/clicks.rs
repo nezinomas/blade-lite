@@ -811,3 +811,36 @@ fn plugging_in_does_not_show_the_old_charging_flag() {
     assert_eq!(f.shell.window().get_power(), "Plugged in");
     assert_eq!(f.shell.flyout().get_power(), "Plugged in");
 }
+
+#[test]
+fn a_touchpad_change_shows_the_touchpad_popup() {
+    let f = fixture(Config::default());
+    // The physical key, the window's switch or Windows turned it off.
+    f.shell.app().machine_mut().registry.touchpad = Some(0);
+
+    f.shell.follow_touchpad();
+
+    assert_eq!(f.shell.popup().get_caption(), "Touchpad");
+    assert_eq!(f.shell.popup().get_mode(), "Off");
+}
+
+#[test]
+fn a_touchpad_watch_with_no_change_shows_no_popup() {
+    let f = fixture(Config::default());
+
+    f.shell.follow_touchpad();
+
+    assert_eq!(f.shell.popup().get_mode(), "");
+}
+
+#[test]
+fn a_new_mode_after_a_touchpad_popup_says_power_mode() {
+    let f = fixture(Config::default());
+    f.shell.app().machine_mut().registry.touchpad = Some(0);
+    f.shell.follow_touchpad();
+
+    click(f.shell.window(), Button, "Silent");
+
+    assert_eq!(f.shell.popup().get_caption(), "Power mode");
+    assert_eq!(f.shell.popup().get_mode(), "Silent");
+}
