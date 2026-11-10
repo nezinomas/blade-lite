@@ -20,6 +20,9 @@ pub struct PowerKey {
     pub report_len: usize,
     /// The key's code in the list of held keys.
     pub code: u8,
+    /// Fn's code in the list. With Num Lock on, Fn + numpad Enter sends
+    /// only Fn here, and the Enter goes to Windows as a plain Enter.
+    pub fn_code: u8,
 }
 
 impl PowerKey {
@@ -27,6 +30,18 @@ impl PowerKey {
     /// is not a key report, so the caller ignores it.
     #[must_use]
     pub fn held(&self, report: &[u8]) -> Option<bool> {
+        self.lists(report, self.code)
+    }
+
+    /// Whether Fn is held in this input report. `None` if the report is
+    /// not a key report.
+    #[must_use]
+    pub fn fn_held(&self, report: &[u8]) -> Option<bool> {
+        self.lists(report, self.fn_code)
+    }
+
+    /// Whether this key report lists `code` as held.
+    fn lists(&self, report: &[u8], code: u8) -> Option<bool> {
         if report.len() != self.report_len {
             return None;
         }
@@ -36,7 +51,7 @@ impl PowerKey {
         }
         // Code 0 ends the list; nothing after it counts.
         let mut listed = held.iter().take_while(|&&code| code != 0);
-        Some(listed.any(|&code| code == self.code))
+        Some(listed.any(|&held| held == code))
     }
 }
 
@@ -51,6 +66,7 @@ mod tests {
         report_id: 0x04,
         report_len: 16,
         code: 0xD3,
+        fn_code: 0x0A,
     };
 
     /// A 16-byte report as the laptop sends it.
@@ -89,6 +105,24 @@ mod tests {
     #[test]
     fn a_code_after_the_end_of_the_list_does_not_count() {
         assert_eq!(KEY.held(&report(&[0x04, 0x0A, 0x00, 0xD3])), Some(false));
+    }
+
+    #[test]
+    fn fn_is_held_with_or_without_the_key() {
+        assert_eq!(KEY.fn_held(&report(&[0x04, 0x0A])), Some(true));
+        assert_eq!(KEY.fn_held(&report(&[0x04, 0x0A, 0xD3])), Some(true));
+    }
+
+    #[test]
+    fn fn_is_not_held_once_the_keys_are_up() {
+        assert_eq!(KEY.fn_held(&report(&[0x04])), Some(false));
+        assert_eq!(KEY.fn_held(&report(&[0x04, 0xD3])), Some(false));
+    }
+
+    #[test]
+    fn fn_in_another_report_is_ignored() {
+        assert_eq!(KEY.fn_held(&report(&[0x05, 0x0A])), None);
+        assert_eq!(KEY.fn_held(&[0x04, 0x0A]), None);
     }
 
     #[test]

@@ -157,5 +157,8 @@ pub const BLADE_18: ModelProfile = ModelProfile {
         report_id: 0x04,
         report_len: 16,
         code: 0xD3,
+        // With Num Lock on, the same keys send only `04 0A`, and Windows
+        // gets a plain Enter (read on the laptop 2026-11-10).
+        fn_code: 0x0A,
     }),
 };
