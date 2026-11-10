@@ -278,6 +278,12 @@ fn window_callbacks<P: Parts>(shell: &Rc<Shell<P>>) {
         });
     });
     let s = Rc::downgrade(shell);
+    window.on_export_settings(move || on(&s, Shell::export_settings));
+    let s = Rc::downgrade(shell);
+    window.on_import_settings(move || on(&s, Shell::import_settings));
+    let s = Rc::downgrade(shell);
+    window.on_reset_settings(move || on(&s, |shell| shell.user_act(AppOn::<P>::reset_settings)));
+    let s = Rc::downgrade(shell);
     window.on_toggle_vapor_light(move || {
         on(&s, |shell| {
             shell.user_act(|app| match app.keyboard_view()?.toggle_vapor_light() {

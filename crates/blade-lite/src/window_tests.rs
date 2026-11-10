@@ -6,6 +6,7 @@
 mod clicks;
 mod razer;
 mod screens;
+mod settings;
 
 use std::cell::RefCell;
 use std::io;
@@ -18,14 +19,14 @@ use blade_lite::open_quiet_log;
 use i_slint_backend_testing::{
     AccessibleRole, ElementHandle, ElementRoot, TestingBackend, TestingBackendOptions,
 };
-use platform::Programs;
+use platform::{FileDialog, Programs};
 use razer_proto::{BLADE_18, Rgb};
 use slint::platform::PointerEventButton;
 use slint::{ComponentHandle, LogicalSize};
 use tempfile::TempDir;
 
 use crate::fakes::{FakeController, FakeDisplays, FakeKeys, FakeRegistry, app_on};
-use crate::shell::{Parts, Shell};
+use crate::shell::{Parts, PickedFile, Shell};
 use crate::{FlyoutWindow, MainWindow, ModePopup, bind};
 
 /// The fakes in place of the laptop.
@@ -41,12 +42,43 @@ impl Parts for Fakes {
     fn on_battery() -> bool {
         FAKE_ON_BATTERY.get()
     }
+
+    /// Answers at once, unless the test holds the answer back.
+    fn pick_file(_owner: Option<isize>, dialog: FileDialog, done: PickedFile) {
+        FAKE_DIALOGS.with_borrow_mut(|dialogs| dialogs.push(dialog));
+        let picked = FAKE_PICKED.with_borrow(|picked| match picked {
+            FakePick::File(path) => Ok(Some(path.clone())),
+            FakePick::Cancel => Ok(None),
+            FakePick::Fail => Err(io::ErrorKind::Other.into()),
+        });
+        if FAKE_HOLD.get() {
+            FAKE_HELD.set(Some(Box::new(move || done(picked))));
+        } else {
+            done(picked);
+        }
+    }
 }
 
 thread_local! {
     /// The power source the fakes report: AC unless a test sets it. Each
     /// test runs on its own thread.
     pub static FAKE_ON_BATTERY: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    /// What the user does in a file dialog: cancel unless a test sets it.
+    pub static FAKE_PICKED: RefCell<FakePick> = const { RefCell::new(FakePick::Cancel) };
+    /// Whether the dialog stays open until the test answers it.
+    pub static FAKE_HOLD: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    /// The answer of a dialog held open.
+    pub static FAKE_HELD: RefCell<Option<Box<dyn FnOnce()>>> = const { RefCell::new(None) };
+    /// The file dialogs shown.
+    pub static FAKE_DIALOGS: RefCell<Vec<FileDialog>> = const { RefCell::new(Vec::new()) };
+}
+
+/// What the user does in a file dialog.
+pub enum FakePick {
+    File(PathBuf),
+    Cancel,
+    /// The dialog itself fails.
+    Fail,
 }
 
 /// What runs: nothing at first. `None` fails the read.
@@ -82,7 +114,7 @@ impl Programs for FakePrograms {
 const ACCENT: Rgb = Rgb::new(0x00, 0x78, 0xD4);
 
 /// Tall enough that the window shows every group without scrolling.
-const WINDOW_SIZE: LogicalSize = LogicalSize::new(760.0, 1240.0);
+const WINDOW_SIZE: LogicalSize = LogicalSize::new(760.0, 1380.0);
 
 /// The shell over fakes, its windows shown off screen, and the folder that
 /// holds its config.
@@ -104,6 +136,8 @@ pub fn fixture(config: Config) -> Fixture {
     .expect("the first Slint call on this thread");
     log_path();
     FAKE_ON_BATTERY.set(false);
+    FAKE_HOLD.set(false);
+    FAKE_HELD.take();
     let (mut app, dir, _) = app_on(&BLADE_18, config);
     let controller = &mut app.machine_mut().controller;
     controller.logo_reply = Some(vec![0, 4, 1]);

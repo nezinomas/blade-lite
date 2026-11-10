@@ -4,6 +4,7 @@
 mod clicks;
 mod error;
 mod events;
+mod settings;
 mod views;
 
 use std::path::PathBuf;

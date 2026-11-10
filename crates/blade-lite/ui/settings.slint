@@ -1,0 +1,38 @@
+// The Settings group of the settings window: export, import and reset.
+
+import { Button } from "std-widgets.slint";
+import { GroupTitle, Row } from "parts.slint";
+
+export component SettingsGroup inherits VerticalLayout {
+    callback export-settings();
+    callback import-settings();
+    callback reset-settings();
+
+    // The same spacing as the window's own list, so nothing moves.
+    spacing: 4px;
+
+    GroupTitle { text: "Settings"; }
+    Row {
+        title: "Export or import settings";
+        note: "A file to keep, or to load again later";
+        HorizontalLayout {
+            spacing: 8px;
+            Button {
+                text: "Export…";
+                clicked => { root.export-settings(); }
+            }
+            Button {
+                text: "Import…";
+                clicked => { root.import-settings(); }
+            }
+        }
+    }
+    Row {
+        title: "Reset to defaults";
+        note: "Balanced, white keys, lid logo on, 60 Hz switch off";
+        Button {
+            text: "Reset";
+            clicked => { root.reset-settings(); }
+        }
+    }
+}

@@ -7,6 +7,7 @@
 
 mod backdrop;
 mod display;
+mod files;
 mod instance;
 mod keys;
 mod popup;
@@ -20,6 +21,7 @@ use std::io;
 
 pub use backdrop::{hide_caption_buttons, round_corners, set_mica};
 pub use display::WindowsDisplays;
+pub use files::{FileDialog, pick_file};
 pub use instance::{WakeListener, WindowsInstance};
 pub use keys::{WindowsKeys, enter_down, num_lock_on};
 pub use popup::work_area;

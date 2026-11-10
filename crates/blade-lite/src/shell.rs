@@ -3,10 +3,13 @@
 
 mod popup;
 mod razer;
+mod settings;
 mod ticks;
 mod windows;
 
 use std::cell::{Cell, RefCell};
+use std::io;
+use std::path::PathBuf;
 use std::rc::Rc;
 use std::sync::mpsc::Receiver;
 use std::time::{Duration, Instant};
@@ -14,8 +17,8 @@ use std::time::{Duration, Instant};
 use blade_core::{Controller, PollSchedule, Query, Readings, ReadingsSampler};
 use blade_lite::{App, AppError, SaidLately, ShownErrors, report, took_effect};
 use platform::{
-    DisplayApi, KeyInjector, PowerEvent, Programs, Registry, WindowsDisplays, WindowsKeys,
-    WindowsPrograms, WindowsRegistry, WindowsSensors,
+    DisplayApi, FileDialog, KeyInjector, PowerEvent, Programs, Registry, WindowsDisplays,
+    WindowsKeys, WindowsPrograms, WindowsRegistry, WindowsSensors,
 };
 use razer_device::{Device, HidTransport, SystemClock};
 use ui::{FlyoutView, HeatWatch, ModeWatch, TouchpadWatch};
@@ -35,7 +38,15 @@ pub trait Parts: 'static {
     type Programs: Programs + Default;
     /// Whether the laptop runs on its battery now. Read only.
     fn on_battery() -> bool;
+    /// Asks the user for a file in the `dialog` over the `owner` window,
+    /// then calls `done` on the app's thread with the file, `None` if the
+    /// user cancels, or the dialog's error. The app keeps running while
+    /// the dialog is open.
+    fn pick_file(owner: Option<isize>, dialog: FileDialog, done: PickedFile);
 }
+
+/// What [`Parts::pick_file`] calls with the user's answer.
+pub type PickedFile = Box<dyn FnOnce(io::Result<Option<PathBuf>>)>;
 
 /// The real laptop.
 pub struct Laptop;
@@ -49,6 +60,34 @@ impl Parts for Laptop {
 
     fn on_battery() -> bool {
         crate::background::on_battery_now()
+    }
+
+    /// The dialog runs on a thread of its own, so the polls, power events
+    /// and popups go on while it is open. Without the window's handle no
+    /// dialog opens, as it would then not block the window.
+    fn pick_file(owner: Option<isize>, dialog: FileDialog, done: PickedFile) {
+        let Some(owner) = owner else {
+            done(Err(io::Error::other("the window has no handle yet")));
+            return;
+        };
+        settings::PICKED.set(Some(done));
+        let spawned = std::thread::Builder::new().spawn(move || {
+            let picked = std::panic::catch_unwind(|| platform::pick_file(Some(owner), dialog))
+                .unwrap_or_else(|_| Err(io::Error::other("the dialog's thread panicked")));
+            let posted = slint::invoke_from_event_loop(move || {
+                if let Some(done) = settings::PICKED.take() {
+                    done(picked);
+                }
+            });
+            if let Err(error) = posted {
+                report(&format!("the picked file was lost: {error}"));
+            }
+        });
+        if let Err(error) = spawned
+            && let Some(done) = settings::PICKED.take()
+        {
+            done(Err(error));
+        }
     }
 }
 
@@ -98,6 +137,8 @@ pub struct Shell<P: Parts = Laptop> {
     razer_warning: RefCell<Option<String>>,
     /// Whether the window was opened for Razer software. Only once per run.
     razer_opened: Cell<bool>,
+    /// Whether a file dialog is open, so a second one is not opened.
+    dialog_open: Cell<bool>,
 }
 
 impl<P: Parts> Shell<P> {
@@ -131,6 +172,7 @@ impl<P: Parts> Shell<P> {
             programs: P::Programs::default(),
             razer_warning: RefCell::new(None),
             razer_opened: Cell::new(false),
+            dialog_open: Cell::new(false),
         })
     }
 

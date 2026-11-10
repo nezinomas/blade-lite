@@ -276,3 +276,138 @@ fn the_lid_logo_off_is_saved() {
 
     assert_eq!(Config::load(&path).unwrap(), config);
 }
+
+#[test]
+fn import_reads_a_saved_config() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("exported.toml");
+    let config = Config {
+        preset: Preset::Silent,
+        custom: tweaked_custom(),
+        ..Config::default()
+    };
+    config.save(&path).unwrap();
+
+    assert_eq!(Config::import(&path).unwrap(), config);
+}
+
+#[test]
+fn import_of_a_missing_file_is_an_error_not_the_defaults() {
+    let dir = tempfile::tempdir().unwrap();
+
+    assert!(matches!(
+        Config::import(&dir.path().join("gone.toml")),
+        Err(ConfigError::Io(_))
+    ));
+}
+
+#[test]
+fn import_of_a_broken_file_is_an_error() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("broken.toml");
+    fs::write(&path, "preset = \"turbo\"\n").unwrap();
+
+    assert!(matches!(Config::import(&path), Err(ConfigError::Parse(_))));
+}
+
+#[test]
+fn a_file_too_big_for_a_config_is_not_read() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join(FILE);
+    // Valid TOML, but far bigger than any config.
+    let comment = format!("# {}\n", "x".repeat(70_000));
+    fs::write(&path, comment + "preset = \"silent\"\n").unwrap();
+
+    assert!(matches!(Config::load(&path), Err(ConfigError::TooBig)));
+    assert!(matches!(Config::import(&path), Err(ConfigError::TooBig)));
+}
+
+/// Writes `text` to a file in `dir` and imports it.
+fn import_text(dir: &Path, text: &str) -> Result<Config, ConfigError> {
+    let path = dir.join("picked.toml");
+    fs::write(&path, text).unwrap();
+    Config::import(&path)
+}
+
+#[test]
+fn import_refuses_a_file_with_no_settings_in_it() {
+    let dir = tempfile::tempdir().unwrap();
+
+    assert!(matches!(
+        import_text(dir.path(), ""),
+        Err(ConfigError::NotSettings)
+    ));
+}
+
+#[test]
+fn import_refuses_a_toml_file_that_is_not_settings() {
+    let dir = tempfile::tempdir().unwrap();
+    let cargo = "[package]\nname = \"x\"\nversion = \"0.1.0\"\n";
+
+    assert!(matches!(
+        import_text(dir.path(), cargo),
+        Err(ConfigError::NotSettings)
+    ));
+}
+
+#[test]
+fn import_refuses_a_misspelt_key() {
+    let dir = tempfile::tempdir().unwrap();
+    let text = "preset = \"custom\"\n[custom]\ncpu_bost = 3\n";
+
+    assert!(matches!(
+        import_text(dir.path(), text),
+        Err(ConfigError::NotSettings)
+    ));
+}
+
+#[test]
+fn import_takes_a_file_with_only_some_settings() {
+    let dir = tempfile::tempdir().unwrap();
+
+    let config = import_text(dir.path(), "lid_logo = false\n").unwrap();
+
+    assert_eq!(config.lid_logo, Some(false));
+}
+
+#[test]
+fn a_file_too_big_cut_inside_a_character_is_too_big() {
+    let dir = tempfile::tempdir().unwrap();
+    // 'é' is two bytes, so the cut at 64 KiB + 1 falls inside one.
+    let text = format!("# {}\n", "é".repeat(40_000));
+
+    assert!(matches!(
+        import_text(dir.path(), &text),
+        Err(ConfigError::TooBig)
+    ));
+}
+
+#[test]
+fn import_takes_back_an_export_with_every_setting_set() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("exported.toml");
+    let config = Config {
+        preset: Preset::Custom,
+        custom: tweaked_custom(),
+        sixty_hz_on_battery: true,
+        lighting: Some(Lighting {
+            brightness: 40,
+            colour: Rgb::new(0x00, 0x78, 0xD4),
+            vapor_light: false,
+        }),
+        lid_logo: Some(false),
+    };
+    config.save(&path).unwrap();
+
+    assert_eq!(Config::import(&path).unwrap(), config);
+}
+
+#[test]
+fn import_refuses_a_file_with_only_empty_tables() {
+    let dir = tempfile::tempdir().unwrap();
+
+    assert!(matches!(
+        import_text(dir.path(), "[custom]\n[lighting]\n"),
+        Err(ConfigError::NotSettings)
+    ));
+}
