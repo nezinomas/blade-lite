@@ -72,6 +72,7 @@ impl<P: Parts> Shell<P> {
     }
 
     fn power_event(self: &Rc<Self>, event: PowerEvent) {
+        self.forget_charging();
         if event == PowerEvent::Resumed {
             // The controller needs a moment after the wake.
             self.resuming.set(self.resuming.get().saturating_add(1));
@@ -94,6 +95,14 @@ impl<P: Parts> Shell<P> {
         } else {
             self.act(|app| app.on_power(event));
         }
+    }
+
+    /// The charging flag read before a power change or a sleep is old: the
+    /// pill shows only "Plugged in" until the next poll reads it again.
+    fn forget_charging(&self) {
+        let mut readings = self.readings.get();
+        readings.charging = None;
+        self.readings.set(readings);
     }
 
     /// Reads the sensors, then shows the header and the keyboard group,

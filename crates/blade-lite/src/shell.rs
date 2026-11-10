@@ -139,6 +139,11 @@ impl<P: Parts> Shell<P> {
     }
 
     #[cfg(test)]
+    pub fn set_readings(&self, readings: Readings) {
+        self.readings.set(readings);
+    }
+
+    #[cfg(test)]
     pub fn app(&self) -> std::cell::RefMut<'_, AppOn<P>> {
         self.app.borrow_mut()
     }

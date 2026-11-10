@@ -131,9 +131,10 @@ fn battery_rate(state: &SYSTEM_BATTERY_STATE) -> Option<i32> {
 }
 
 /// Whether the battery charges now. On AC with the charge limit reached,
-/// Windows says it does not. `None` with no battery.
+/// Windows says it does not. `None` with no battery, or off AC (a reading
+/// on battery says nothing about charging on AC).
 fn charging_flag(state: &SYSTEM_BATTERY_STATE) -> Option<bool> {
-    state.BatteryPresent.then_some(state.Charging)
+    (state.BatteryPresent && state.AcOnLine).then_some(state.Charging)
 }
 
 /// The device ID of the NVIDIA display adapter, if there is one.
@@ -263,24 +264,29 @@ mod tests {
     }
 
     #[test]
-    fn the_charging_flag_needs_a_battery() {
-        let charging = SYSTEM_BATTERY_STATE {
+    fn the_charging_flag_needs_a_battery_and_ac() {
+        let on_ac = SYSTEM_BATTERY_STATE {
             BatteryPresent: true,
-            Charging: true,
+            AcOnLine: true,
             ..Default::default()
         };
-        let not_charging = SYSTEM_BATTERY_STATE {
-            BatteryPresent: true,
-            ..Default::default()
+        let charging = SYSTEM_BATTERY_STATE {
+            Charging: true,
+            ..on_ac
         };
         let absent = SYSTEM_BATTERY_STATE {
-            Charging: true,
-            ..Default::default()
+            BatteryPresent: false,
+            ..charging
+        };
+        let on_battery = SYSTEM_BATTERY_STATE {
+            AcOnLine: false,
+            ..on_ac
         };
 
         assert_eq!(charging_flag(&charging), Some(true));
-        assert_eq!(charging_flag(&not_charging), Some(false));
+        assert_eq!(charging_flag(&on_ac), Some(false));
         assert_eq!(charging_flag(&absent), None);
+        assert_eq!(charging_flag(&on_battery), None);
     }
 
     #[test]
