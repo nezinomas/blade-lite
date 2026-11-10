@@ -70,7 +70,7 @@ Do these in one go, on AC, with "Start with Windows" on and Num Lock off. First 
 - [ ] 40 Signing
 - [ ] 78 Installer: uninstall closes the app, removes the "Blade Lite" Run value, and asks whether to keep `%APPDATA%\blade-lite` (config and log). Part of 39 or a ticket beside it
 - [ ] 95 Slint attribution: the royalty-free licence asks for the `AboutSlint` widget in an About screen, or the Slint badge on the page the binaries are downloaded from. Add one before the first release (ticket 92 review)
-- [ ] 96 `HidKeyReports::read` has no test: `cargo hw` accepts no report, an empty one or a zero byte, so 7 mutants there live (the stubs and the `read > 0` check). Make its loop generic over a one-method `read_timeout` trait (hidapi and a fake), then test that 0 bytes is `None`, the first collection to send is kept, and later reads use only it (ticket 93 review). Both reviewers
+- [x] 96 The key reader loop is `KeySources`, generic over a one-method `ReadTimeout` trait (hidapi and a fake), with 8 unit tests: 0 bytes is `None`, the report is the bytes read, the first collection to send is the only one read then, a read error and a count over the buffer are errors, and the wait is capped for hidapi. `cargo mutants` on `hid.rs` now misses only the thin hidapi calls (`docs/NOTES.md`)
 
 ## Maybe later (not tickets yet)
 - "Open log folder" in the tray menu
