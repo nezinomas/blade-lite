@@ -6,7 +6,6 @@ use blade_core::{Config, Controller, Query, apply, check};
 use platform::{DisplayApi, KeyInjector, Registry};
 
 use super::{App, AppError, DEFAULT_LIGHTING};
-use crate::report;
 
 impl<C, D, R, K> App<C, D, R, K>
 where
@@ -79,11 +78,8 @@ where
             sixty_hz_on_battery: self.config.sixty_hz_on_battery,
             ..config
         });
-        let rate = self.set_sixty_hz_on_battery(config.sixty_hz_on_battery);
-        if let (Err(_), Err(error)) = (&kept, &rate) {
-            // Only the save error is shown, so this one is logged.
-            report(&format!("the 60 Hz on battery switch failed too: {error}"));
-        }
-        kept.and(rate)
+        // A switch that can't be saved is left as it was, as a click does.
+        kept?;
+        self.set_sixty_hz_on_battery(config.sixty_hz_on_battery)
     }
 }

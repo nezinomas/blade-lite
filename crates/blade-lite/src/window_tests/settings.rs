@@ -8,6 +8,7 @@ use platform::FileDialog;
 use razer_proto::{BLADE_18, PerfMode};
 use tempfile::TempDir;
 
+use super::clicks::resuming;
 use super::{FAKE_DIALOGS, FAKE_HELD, FAKE_HOLD, FAKE_PICKED, FakePick, Fixture, click, fixture};
 
 /// The user picks `name` in a folder of its own, which lasts as long as
@@ -143,4 +144,25 @@ fn one_dialog_at_a_time_and_its_answer_comes_later() {
     assert_eq!(f.shell.app().config().preset, Preset::Silent);
     click(f.shell.window(), Button, "Export…");
     assert_eq!(FAKE_DIALOGS.take(), [FileDialog::Save]);
+}
+
+#[test]
+fn a_file_picked_while_the_laptop_wakes_says_to_try_again() {
+    let f = fixture(Config::default());
+    let (_dir, path) = pick("in.toml");
+    Config {
+        preset: Preset::Silent,
+        ..Config::default()
+    }
+    .save(&path)
+    .unwrap();
+    FAKE_HOLD.set(true);
+    click(f.shell.window(), Button, "Import…");
+    f.shell.app().machine_mut().controller.sent.clear();
+    resuming(&f);
+
+    FAKE_HELD.take().unwrap()();
+
+    assert_eq!(f.shell.app().config().preset, Preset::Balanced);
+    assert!(f.shell.window().get_error().contains("try again"));
 }

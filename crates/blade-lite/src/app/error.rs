@@ -29,6 +29,9 @@ pub enum AppError {
     UnknownNativeMode,
     #[error("the file dialog failed: {0}")]
     FileDialog(std::io::Error),
+    /// A file was picked while the laptop was just waking up.
+    #[error("the laptop just woke up, so the file was not used: try again in a moment")]
+    JustWoke,
     #[error("this preset is not offered on battery: {0:?}")]
     NotOnBattery(Preset),
     /// The laptop took the change, and the app keeps it, but the config

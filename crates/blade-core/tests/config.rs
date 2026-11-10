@@ -381,3 +381,33 @@ fn a_file_too_big_cut_inside_a_character_is_too_big() {
         Err(ConfigError::TooBig)
     ));
 }
+
+#[test]
+fn import_takes_back_an_export_with_every_setting_set() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("exported.toml");
+    let config = Config {
+        preset: Preset::Custom,
+        custom: tweaked_custom(),
+        sixty_hz_on_battery: true,
+        lighting: Some(Lighting {
+            brightness: 40,
+            colour: Rgb::new(0x00, 0x78, 0xD4),
+            vapor_light: false,
+        }),
+        lid_logo: Some(false),
+    };
+    config.save(&path).unwrap();
+
+    assert_eq!(Config::import(&path).unwrap(), config);
+}
+
+#[test]
+fn import_refuses_a_file_with_only_empty_tables() {
+    let dir = tempfile::tempdir().unwrap();
+
+    assert!(matches!(
+        import_text(dir.path(), "[custom]\n[lighting]\n"),
+        Err(ConfigError::NotSettings)
+    ));
+}

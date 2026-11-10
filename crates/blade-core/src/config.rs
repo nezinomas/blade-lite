@@ -167,7 +167,7 @@ impl Config {
     pub fn import(path: &Path) -> Result<Self, ConfigError> {
         let text = read_capped(path)?;
         let table: toml::Table = toml::from_str(&text)?;
-        if table.is_empty() || !only_settings(&table) {
+        if !has_a_setting(&table) || !only_settings(&table) {
             return Err(ConfigError::NotSettings);
         }
         Ok(toml::from_str(&text)?)
@@ -222,6 +222,13 @@ fn only_settings(table: &toml::Table) -> bool {
         "lighting" => keys_in(value, &LIGHTING_KEYS),
         key => KEYS.contains(&key),
     })
+}
+
+/// Whether `table` holds at least one value: an empty table is none.
+fn has_a_setting(table: &toml::Table) -> bool {
+    table
+        .values()
+        .any(|value| value.as_table().is_none_or(|inner| !inner.is_empty()))
 }
 
 /// Reads the file as text, refusing one far too big to be a config.

@@ -568,7 +568,7 @@ fn a_touchpad_change_during_the_resume_pause_sends_nothing() {
 }
 
 /// The fixture with a resume waiting out its pause.
-fn resuming(f: &Fixture) {
+pub(super) fn resuming(f: &Fixture) {
     let (sender, receiver) = std::sync::mpsc::channel();
     sender.send(PowerEvent::Resumed).unwrap();
     f.shell.follow_power(&receiver);

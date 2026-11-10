@@ -50,7 +50,16 @@ impl<P: Parts> Shell<P> {
                 };
                 shell.dialog_open.set(false);
                 match picked {
-                    Ok(Some(path)) => shell.user_act(|app| act(app, &path)),
+                    Ok(Some(path)) => {
+                        // The dialog does not block the app, so the laptop
+                        // may have slept while it was open.
+                        shell.follow_own_power();
+                        if shell.resuming.get() > 0 {
+                            shell.refresh(Some(&AppError::JustWoke));
+                        } else {
+                            shell.user_act(|app| act(app, &path));
+                        }
+                    }
                     Ok(None) => {}
                     Err(error) => shell.refresh(Some(&AppError::FileDialog(error))),
                 }

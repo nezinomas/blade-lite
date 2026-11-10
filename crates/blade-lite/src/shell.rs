@@ -71,8 +71,9 @@ impl Parts for Laptop {
             return;
         };
         settings::PICKED.set(Some(done));
-        std::thread::spawn(move || {
-            let picked = platform::pick_file(Some(owner), dialog);
+        let spawned = std::thread::Builder::new().spawn(move || {
+            let picked = std::panic::catch_unwind(|| platform::pick_file(Some(owner), dialog))
+                .unwrap_or_else(|_| Err(io::Error::other("the dialog's thread panicked")));
             let posted = slint::invoke_from_event_loop(move || {
                 if let Some(done) = settings::PICKED.take() {
                     done(picked);
@@ -82,6 +83,11 @@ impl Parts for Laptop {
                 report(&format!("the picked file was lost: {error}"));
             }
         });
+        if let Err(error) = spawned
+            && let Some(done) = settings::PICKED.take()
+        {
+            done(Err(error));
+        }
     }
 }
 
