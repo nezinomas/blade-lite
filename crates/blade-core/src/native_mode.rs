@@ -12,8 +12,8 @@ use crate::{Controller, DisplayError};
 #[derive(Debug, thiserror::Error)]
 pub enum NativeModeError {
     /// The mode is not one of the model's native modes.
-    #[error("the model has no such native mode")]
-    NotOffered,
+    #[error("the model has no such native mode: {0:?}")]
+    NotOffered(NativeMode),
     /// The controller did not take the command.
     #[error("the controller did not take a command: {0}")]
     Device(DeviceError),
@@ -52,15 +52,15 @@ pub fn native_mode_state(
 ///
 /// # Errors
 ///
-/// See [`NativeModeError`]. Nothing is sent for a mode the model lacks: the
-/// controller keeps it for the next boot.
+/// See [`NativeModeError`]. Nothing is sent for a mode the model lacks; the
+/// controller keeps its current choice for the next boot.
 pub fn set_native_mode(
     mode: NativeMode,
     controller: &mut impl Controller,
     model: &ModelProfile,
 ) -> Result<(), NativeModeError> {
     if !model.native_modes.contains(&mode) {
-        return Err(NativeModeError::NotOffered);
+        return Err(NativeModeError::NotOffered(mode));
     }
     controller
         .run(&[mode.command()])

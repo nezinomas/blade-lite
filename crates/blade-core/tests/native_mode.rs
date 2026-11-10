@@ -81,7 +81,7 @@ fn a_mode_the_model_lacks_is_refused_and_nothing_is_sent() {
 
     let result = set_native_mode(unknown, &mut controller, &BLADE_18);
 
-    assert!(matches!(result, Err(NativeModeError::NotOffered)));
+    assert!(matches!(result, Err(NativeModeError::NotOffered(_))));
     assert_eq!(controller.0, []);
 }
 
@@ -92,6 +92,6 @@ fn a_known_id_with_other_sizes_is_refused() {
 
     let result = set_native_mode(changed, &mut controller, &BLADE_18);
 
-    assert!(matches!(result, Err(NativeModeError::NotOffered)));
+    assert!(matches!(result, Err(NativeModeError::NotOffered(_))));
     assert_eq!(controller.0, []);
 }

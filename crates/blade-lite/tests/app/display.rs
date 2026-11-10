@@ -38,6 +38,22 @@ fn a_native_mode_is_sent_to_the_controller() {
 }
 
 #[test]
+fn a_native_mode_the_model_lacks_is_refused_and_not_sent() {
+    let (mut app, _dir, _) = app();
+    let unknown = razer_proto::NativeMode { id: 0x7F, ..FHD };
+
+    let result = app.on_display(DisplayCommand::SetNativeMode(unknown));
+
+    assert!(matches!(
+        result,
+        Err(blade_lite::AppError::NativeMode(
+            blade_core::NativeModeError::NotOffered(mode)
+        )) if mode == unknown
+    ));
+    assert_eq!(sent(&app), []);
+}
+
+#[test]
 fn turning_on_sixty_hz_on_battery_while_on_battery_drops_the_rate() {
     let (mut app, _dir, path) = app();
     app.on_power(PowerEvent::OnBattery).unwrap();
