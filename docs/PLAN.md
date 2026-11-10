@@ -10,13 +10,13 @@ Every stage is reviewed before merge by subagents (`.claude/agents/`): both the 
 Checks only a person can do on the laptop wait in "Still to check on the laptop" below until the user confirms them.
 
 ## Extras
-- [ ] 49 Same popup for touchpad on and off (the physical key needs 47)
+- [ ] 49 Same popup for touchpad on and off (the registry watch covers the physical key too, ticket 47)
 - [x] 110 The header and flyout say "Plugged in · Charging" or "Plugged in · Not charging" (the charge limit), from `SYSTEM_BATTERY_STATE.Charging` read with the other readings, only on AC; unknown shows "Plugged in". A power event clears it until the next poll. Checked on the laptop 2026-11-10: the limit switch changes it in about 15 s (Windows updates its battery state that slowly), unplugging at once
 
 ## Bug fixes
 - [x] 37 Fans stay loud after Performance to Silent: not an app bug. Checked 2026-11-10 after a game: Silent drops the fans to about 1600 RPM in 1 min, and after the app sent fans on auto the controller kept them there for 12 min at 44 to 50 °C. The app's lowest manual fan is 1600 RPM, so it can't make them quieter. Custom with a manual fan, then Silent, is still to check (`docs/NOTES.md`)
 - [x] 46 Charge limit: on AC with the battery above 80% and the limit on, check Windows says "not charging". If it still charges, try sending `070F` after the limit as Synapse does. Checked 2026-11-10: limit on (set in the BIOS), on AC at 79.5%, Windows read not charging with no app running; the app's off made it charge at about 90 W, to 84%, and the app's on stopped it again. No `070F` needed (`docs/NOTES.md`)
-- [x] 47 Physical touchpad key: nothing to build. Windows' `Enabled` value follows the key, so the app's registry watch already repaints the red key (checked by the user 2026-11-10: on and off with the app running, and at app start). The old note said otherwise, likely from a stale read (`docs/NOTES.md`)
+- [x] 47 Physical touchpad key: nothing to build. Windows' `Enabled` value follows the key, so the app's registry watch already repaints the red key (checked by the user 2026-11-10: on with the app running; off seen at app start, painted red). The old note said otherwise, likely from a stale read (`docs/NOTES.md`)
 - [ ] 60 On a weak charge (no charger, but a monitor powers the laptop over USB-C, so it charges slowly), Synapse did not allow Performance, for lack of power. Do the same
 - [x] 62 A send that fails part way: the lid logo is read back after a failed switch (a switch that took is kept and saved; a failed read hides it), as the charge limit is. Lighting and presets can't be fully read, so their error now says the laptop may run part of the change; the next change, resume or power event sends all of it again
 - [ ] 63 The config rename can fail with access denied while another program (such as Defender or the search indexer) holds `config.toml` or its temp file open. The change stays in memory (ticket 57), but the next start sends the old config. Retry only the rename a few times (such as 3 tries, 20 ms apart) on `PermissionDenied`, if the log ever shows it
