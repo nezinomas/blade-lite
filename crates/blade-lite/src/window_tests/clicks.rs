@@ -572,6 +572,19 @@ fn a_click_with_a_wake_not_yet_followed_sends_nothing() {
 }
 
 #[test]
+fn a_touchpad_change_with_a_wake_not_yet_followed_sends_nothing() {
+    let f = touchpad_off_fixture();
+    let (sender, receiver) = std::sync::mpsc::channel();
+    f.shell.listen_for_power(receiver);
+    sender.send(PowerEvent::Resumed).unwrap();
+    let before = sent_count(&f);
+
+    f.shell.follow_touchpad();
+
+    assert_eq!(sent_since(&f, before), []);
+}
+
+#[test]
 fn a_switch_clicked_in_the_resume_pause_shows_the_saved_value_after_it() {
     let f = fixture(Config::default());
     let saved = f.shell.window().get_charge_limit_on();

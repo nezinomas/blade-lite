@@ -44,6 +44,7 @@ impl<P: Parts> Shell<P> {
     /// Paints the touchpad key after a touchpad change, unless a resume
     /// waits: the resume reads the touchpad and paints it.
     pub fn follow_touchpad(self: &Rc<Self>) {
+        self.follow_own_power();
         if self.resuming.get() == 0 {
             self.act(blade_lite::App::on_touchpad_changed);
         }

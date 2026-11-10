@@ -158,7 +158,8 @@ impl<P: Parts> Shell<P> {
     /// spell, as Fn is pressed for many things. Nothing is read while a
     /// resume waits: the controller may still run another level, and the
     /// resume sends the saved one.
-    pub fn follow_brightness_keys(&self) {
+    pub fn follow_brightness_keys(self: &Rc<Self>) {
+        self.follow_own_power();
         if self.resuming.get() > 0 {
             return;
         }

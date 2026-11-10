@@ -167,8 +167,9 @@ fn step_the_preset() -> bool {
         let Some(shell) = SHELL.with(|cell| cell.borrow().clone()) else {
             return;
         };
-        // It follows the power events first: a power source change not yet
-        // seen would let a preset run that the new source does not offer.
+        // `user_act` follows the power events first: a power source change
+        // not yet seen would let a preset run that the new source does not
+        // offer.
         shell.user_act(blade_lite::App::on_power_key);
     })
     .is_ok()
