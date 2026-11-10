@@ -1,4 +1,4 @@
-//! The power mode popup above the taskbar clock.
+//! The popup above the taskbar clock: a new power mode, or the touchpad on or off.
 
 use std::rc::Rc;
 use std::time::Duration;
@@ -12,7 +12,7 @@ use winit::platform::windows::WindowExtWindows;
 use super::{Parts, Shell};
 use crate::tray::px;
 
-/// How long the power mode popup stays before it fades, and how long the
+/// How long the popup stays before it fades, and how long the
 /// fade takes (a little longer than its animation in the markup).
 const POPUP_HOLD: Duration = Duration::from_millis(1500);
 const POPUP_FADE: Duration = Duration::from_millis(300);
@@ -36,7 +36,7 @@ impl<P: Parts> Shell<P> {
         // Every window shows without taking the focus (see main), so this
         // show leaves it where the user is typing.
         if let Err(error) = self.popup.show() {
-            report(&format!("cannot show the power mode popup: {error}"));
+            report(&format!("cannot show the {caption} popup: {error}"));
             return;
         }
         if self.popup_ready.get() {

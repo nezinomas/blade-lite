@@ -1,5 +1,5 @@
 //! The app and its windows: the settings window, the tray flyout and the
-//! power mode popup.
+//! popup.
 
 mod popup;
 mod razer;
