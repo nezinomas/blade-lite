@@ -5,6 +5,9 @@
 pub enum Command {
     /// Find the controller and read its firmware version.
     Probe,
+    /// Print the Razer key reports and the keyboard brightness as they
+    /// change, to find which keys change what.
+    Keys,
 }
 
 impl Command {
@@ -13,6 +16,7 @@ impl Command {
         let mut args = args.into_iter();
         match (args.next(), args.next()) {
             (Some("probe"), None) => Some(Self::Probe),
+            (Some("keys"), None) => Some(Self::Keys),
             _ => None,
         }
     }
