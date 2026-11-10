@@ -48,7 +48,7 @@ Checks only a person can do on the laptop wait in "Still to check on the laptop"
 - [ ] 106 `blade_core::reapply_on_resume` (`apply.rs:105`) is used only by its tests, and it applies the saved preset, not the one for the power source, so a caller would send Performance or Custom on battery. Remove it (code review 2026-11-10). Both reviewers
 - [ ] 107 The sensor and fan reads (`tick_readings`, `read_controller` in `App::header`) still run in the 2 s pause after a wake, which ticket 98 keeps clicks out of. Skip the controller reads while a resume waits, or note why reads are fine (ticket 98 review). Both reviewers
 - [ ] 108 The flyout can open below the screen's bottom edge on a screen shorter than the flyout and the icon: only x is kept on the screen (ticket 97 review). Display only
-- [ ] 109 `docs/protocol-findings.md` has no section for the native mode commands (`0x0D0E` set, `0x0D8E` get, one mode byte, the ids in `profile.rs`), which come from Synapse captures, not the open-source tools. Add one with its source (ticket 99 review). Docs only
+- [x] 109 `docs/protocol-findings.md` has a native mode section: `0x0D0E` set, `0x0D8E` read, one mode byte, the ids in the profile. Its source is Synapse's UI code, not a capture (the ticket said capture), and r-helper's read (ticket 99 review)
 
 ## Still to check on the laptop
 Do these in one go, on AC, with "Start with Windows" on and Num Lock off. First note your preset, keyboard colour, lid logo and native mode; the last step puts them back.

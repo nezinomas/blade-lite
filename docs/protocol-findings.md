@@ -28,6 +28,13 @@ It is a snapshot: some proposed tickets below were built later. Check the code, 
 ## Stage 37 (fans stay loud)
 No new lead. The other projects leave Custom the same way: by setting the preset with fan byte 0. Neither reads the preset back before writing.
 
+## Native display mode (not from the open-source tools)
+Neither open-source project sets the panel's native mode, so this section has another source.
+- Set `0x0D0E [mode]`, read `0x0D8E [0]`, reply args `[mode]`. One mode byte. The set takes effect after a restart; the read gives the mode chosen at once (`docs/NOTES.md`).
+- Mode ids for this model: `0` = 3840 × 2400 at 240 Hz, `1` = 1920 × 1200 at 440 Hz. They live in the model profile (`native_modes` in `crates/razer-proto/src/profile.rs`).
+- Source: Synapse's own UI code on this laptop ("Mini LED Panel Resolution"), not a USB capture, since clicking "Restart" switches the panel (`docs/synapse-capture-findings.md`). r-helper reads `0D8E` only, and has no setter (`docs/r-helper-findings.md`). The `cargo hw` native mode test sets and reads it back.
+- blade-lite sends only the ids in the profile (`set_native_mode` refuses others, ticket 99).
+
 ## Sources
 - github.com/Razer-Linux/razer-laptop-control-no-dkms: `razer_control_gui/src/daemon/device.rs`, `data/devices/laptops.json`
 - github.com/Meetem/librazerblade: `Packets/PacketFactory.cpp`, `Laptop.cpp`
