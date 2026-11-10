@@ -9,6 +9,7 @@ mod keyboard;
 mod logo;
 mod power_key;
 mod presets;
+mod settings;
 mod touchpad_key;
 
 use std::path::{Path, PathBuf};

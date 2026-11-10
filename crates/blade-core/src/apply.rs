@@ -66,6 +66,17 @@ pub fn apply(
     controller.run(&commands).map_err(ApplyError::Device)
 }
 
+/// Checks that the model takes every value in `config`, as [`apply`]
+/// does before it sends anything. Nothing is sent.
+///
+/// # Errors
+///
+/// The [`ApplyError`] that [`apply`] would give for a value the model
+/// does not take.
+pub fn check(config: &Config, model: &ModelProfile) -> Result<(), ApplyError> {
+    commands(*config, model, false).map(drop)
+}
+
 /// Sends only the saved preset, with its Custom values.
 ///
 /// # Errors
