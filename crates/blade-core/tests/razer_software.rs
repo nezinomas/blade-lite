@@ -71,3 +71,15 @@ fn warns_only_when_something_was_found() {
         "{warning}"
     );
 }
+
+#[test]
+fn finds_razer_driver_services_by_their_rz_names() {
+    let names = vec!["RzDev_02c7", "rzdevu_02c7_mou", "RzCommon"];
+    assert_eq!(found(names), ["RzCommon", "RzDev_02c7", "rzdevu_02c7_mou"]);
+}
+
+#[test]
+fn leaves_this_repo_s_own_test_programs_alone() {
+    let names = vec!["razer_device-1a2b3c.exe", "razer_proto-4d5e6f.exe"];
+    assert_eq!(found(names), Vec::<String>::new());
+}

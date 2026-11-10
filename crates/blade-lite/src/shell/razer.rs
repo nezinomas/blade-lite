@@ -23,7 +23,14 @@ impl<P: Parts> Shell<P> {
         };
         let warning = razer_warning(&found);
         let first = warning.is_some() && !self.razer_opened.replace(true);
-        self.razer_warning.replace(warning);
+        let before = self.razer_warning.replace(warning.clone());
+        if warning != before {
+            report(
+                warning
+                    .as_deref()
+                    .unwrap_or("Razer software no longer runs"),
+            );
+        }
         first
     }
 

@@ -14,9 +14,12 @@ $ErrorActionPreference = 'Stop'
 
 function Get-RazerDriverUpdates {
     $session = New-Object -ComObject Microsoft.Update.Session
-    # IsHidden is left out, so hidden ones are listed too.
-    $result = $session.CreateUpdateSearcher().Search("IsInstalled=0 and Type='Driver'")
-    @($result.Updates | Where-Object { $_.DriverManufacturer -match '^Razer' })
+    $searcher = $session.CreateUpdateSearcher()
+    # Hidden ones are asked for apart, so they are listed too.
+    foreach ($hidden in 0, 1) {
+        $result = $searcher.Search("IsInstalled=0 and Type='Driver' and IsHidden=$hidden")
+        $result.Updates | Where-Object { $_.DriverManufacturer -match '^Razer' }
+    }
 }
 
 function Assert-Admin {
@@ -29,11 +32,11 @@ function Assert-Admin {
 if ($Apply -and $Undo) { throw 'Use -Apply or -Undo, not both.' }
 
 Write-Host 'Asking Windows Update. This can take a minute.'
-$updates = Get-RazerDriverUpdates
+$updates = @(Get-RazerDriverUpdates)
 if ($Apply -or $Undo) {
     Assert-Admin
     foreach ($update in $updates) { $update.IsHidden = [bool]$Apply }
-    $updates = Get-RazerDriverUpdates
+    $updates = @(Get-RazerDriverUpdates)
 }
 
 Write-Host "`nRazer driver updates offered: $($updates.Count)"

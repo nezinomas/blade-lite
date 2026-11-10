@@ -17,9 +17,10 @@ use windows_sys::Win32::System::Services::{
 use crate::Programs;
 use crate::instance::Handle;
 
-/// How many times to ask for the services when the list grows between the
-/// size call and the read.
-const SERVICE_TRIES: usize = 4;
+/// The bytes of one page of services. Windows takes at most 256 KB.
+const PAGE_BYTES: usize = 64 * 1024;
+/// More pages than any PC needs, so a list that keeps growing ends.
+const SERVICE_PAGES: usize = 64;
 
 /// What runs on this PC.
 #[derive(Default)]
@@ -86,24 +87,25 @@ fn services() -> io::Result<Vec<String>> {
         return Err(io::Error::last_os_error());
     }
     let manager = Manager(raw);
-    let mut needed = 0;
-    for _ in 0..SERVICE_TRIES {
-        match read_services(&manager, needed)? {
-            Ok(names) => return Ok(names),
-            Err(more) => needed = more,
+    let mut names = Vec::new();
+    // Windows gives the services a page at a time, from where the resume
+    // handle points. A list that changes between pages may repeat or miss
+    // one, which only changes when the next look sees it.
+    let mut resume = 0_u32;
+    for _ in 0..SERVICE_PAGES {
+        if read_page(&manager, &mut resume, &mut names)? {
+            return Ok(names);
         }
     }
-    Err(io::Error::from_raw_os_error(
-        i32::try_from(ERROR_MORE_DATA).unwrap_or(i32::MAX),
-    ))
+    Err(io::Error::other("too many pages of services"))
 }
 
-/// The names, if they fit in `bytes`, or the bytes Windows asks for.
-fn read_services(manager: &Manager, bytes: u32) -> io::Result<Result<Vec<String>, u32>> {
+/// Reads one page of services into `names`. True once the last page is in.
+fn read_page(manager: &Manager, resume: &mut u32, names: &mut Vec<String>) -> io::Result<bool> {
     // u64 words, so the entries, which hold pointers, are aligned.
-    let mut buffer = vec![0_u64; usize::try_from(bytes).unwrap_or(0).div_ceil(8)];
-    let size = u32::try_from(buffer.len() * 8).unwrap_or(u32::MAX);
-    let (mut needed, mut count, mut resume) = (0_u32, 0_u32, 0_u32);
+    let mut buffer = vec![0_u64; PAGE_BYTES / 8];
+    let size = u32::try_from(PAGE_BYTES).unwrap_or(u32::MAX);
+    let (mut needed, mut count) = (0_u32, 0_u32);
     // SAFETY: the buffer is `size` bytes long and lives past the call;
     // Windows writes the entries and their text inside it.
     let ok = unsafe {
@@ -116,25 +118,26 @@ fn read_services(manager: &Manager, bytes: u32) -> io::Result<Result<Vec<String>
             size,
             &raw mut needed,
             &raw mut count,
-            &raw mut resume,
+            resume,
             ptr::null(),
         )
     };
-    if ok == 0 {
+    let last = ok != 0;
+    if !last {
         let error = io::Error::last_os_error();
-        let more = i32::try_from(ERROR_MORE_DATA).ok();
-        return if error.raw_os_error() == more && needed > bytes {
-            Ok(Err(needed))
-        } else {
-            Err(error)
-        };
+        // More data with no entry in a whole page would loop for nothing.
+        if error.raw_os_error() != i32::try_from(ERROR_MORE_DATA).ok() || count == 0 {
+            return Err(error);
+        }
     }
-    let count = usize::try_from(count).unwrap_or(0);
-    let fits = count * size_of::<ENUM_SERVICE_STATUS_PROCESSW>() <= buffer.len() * 8;
+    let count = usize::try_from(count).unwrap_or(usize::MAX);
+    let fits = count
+        .checked_mul(size_of::<ENUM_SERVICE_STATUS_PROCESSW>())
+        .is_some_and(|bytes| bytes <= PAGE_BYTES);
     if !fits {
         return Err(io::Error::new(
             io::ErrorKind::InvalidData,
-            "more services than the buffer holds",
+            "more services than the page holds",
         ));
     }
     // SAFETY: Windows wrote `count` entries at the start of the buffer,
@@ -145,7 +148,6 @@ fn read_services(manager: &Manager, bytes: u32) -> io::Result<Result<Vec<String>
             count,
         )
     };
-    let mut names = Vec::with_capacity(count * 2);
     for entry in entries {
         // SAFETY: each name is nul-ended text that Windows wrote in the
         // buffer, which is still alive.
@@ -154,7 +156,7 @@ fn read_services(manager: &Manager, bytes: u32) -> io::Result<Result<Vec<String>
             names.push(from_wide_ptr(entry.lpDisplayName));
         }
     }
-    Ok(Ok(names))
+    Ok(last)
 }
 
 /// The nul-ended text at `text`, or nothing for a null pointer.

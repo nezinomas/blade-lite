@@ -151,7 +151,6 @@ impl<P: Parts> Shell<P> {
     pub fn refresh(&self, error: Option<&AppError>) {
         let mut app = self.app.borrow_mut();
         let mut errors: Vec<String> = error.iter().map(ToString::to_string).collect();
-        errors.extend(self.razer_warning.borrow().clone());
         let header = app.header(self.readings.get());
         self.say_read_errors(app.read_errors());
         let performance = app.performance_view();
@@ -182,6 +181,13 @@ impl<P: Parts> Shell<P> {
         if let Some(new) = self.shown_errors.borrow_mut().new_text(&errors) {
             report(new);
         }
-        self.window.set_error(errors.into());
+        // The Razer warning is logged when it changes, not with the errors.
+        let warning = self.razer_warning.borrow();
+        let shown: Vec<&str> = warning
+            .as_deref()
+            .into_iter()
+            .chain((!errors.is_empty()).then_some(errors.as_str()))
+            .collect();
+        self.window.set_error(shown.join("\n").into());
     }
 }
