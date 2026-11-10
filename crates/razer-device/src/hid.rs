@@ -94,7 +94,9 @@ impl HidKeyReports {
     ///
     /// # Errors
     ///
-    /// Any hidapi error, such as the keyboard going away.
+    /// Any hidapi error, such as the keyboard going away, or the collection
+    /// that sent last no longer being in the list (it can't today: the list
+    /// never changes after `open`).
     pub fn read(&mut self, wait: Duration) -> io::Result<Option<Vec<u8>>> {
         let millis = i32::try_from(wait.as_millis()).unwrap_or(i32::MAX);
         let mut buffer = [0; KEY_REPORT_ROOM];

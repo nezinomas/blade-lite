@@ -72,11 +72,15 @@ pub fn static_colour_touchpad_off(colour: Rgb, model: &ModelProfile) -> Vec<Comm
 }
 
 /// The custom frame effect, then one frame row per row of the key grid,
-/// with `red` painted [`TOUCHPAD_OFF`]. Nothing for a grid with no columns.
+/// with `red` painted [`TOUCHPAD_OFF`]. Nothing for a grid with no rows or
+/// no columns: the effect alone would show an empty frame.
 fn frame(colour: Rgb, red: Option<(u8, u8)>, model: &ModelProfile) -> Vec<Command> {
     let Some(last_column) = model.keys.columns.checked_sub(1) else {
         return Vec::new();
     };
+    if model.keys.rows == 0 {
+        return Vec::new();
+    }
     let effect = Command {
         id: SET_EFFECT,
         args: CUSTOM_FRAME.to_vec(),
