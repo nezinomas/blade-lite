@@ -9,8 +9,8 @@ use ui::PerformanceCommand;
 const SET_FAN: u16 = 0x0D01;
 
 use crate::{
-    LIMIT_OFF, LIMIT_ON, SET_CHARGE_LIMIT, app, app_with, charge_limit, charge_limit_on, performance_app,
-    sent,
+    LIMIT_OFF, LIMIT_ON, SET_CHARGE_LIMIT, app, app_with, charge_limit, charge_limit_on,
+    performance_app, sent,
 };
 
 #[test]
@@ -174,7 +174,11 @@ fn a_start_on_battery_sends_balanced_for_a_saved_custom_fan() {
     app.start().unwrap();
 
     let balanced = PerfMode::Balanced.commands(&BLADE_18).unwrap();
-    assert!(sent(&app).windows(balanced.len()).any(|run| run == balanced));
+    assert!(
+        sent(&app)
+            .windows(balanced.len())
+            .any(|run| run == balanced)
+    );
     assert!(sent(&app).iter().all(|command| command.id != SET_FAN));
     assert_eq!(app.config().preset, Preset::Custom);
 }

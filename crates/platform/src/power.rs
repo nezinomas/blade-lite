@@ -8,9 +8,10 @@ use std::sync::mpsc::{self, Receiver, Sender};
 
 use windows_sys::Win32::Foundation::ERROR_SUCCESS;
 use windows_sys::Win32::System::Power::{
-    DEVICE_NOTIFY_SUBSCRIBE_PARAMETERS, HPOWERNOTIFY, POWERBROADCAST_SETTING,
+    DEVICE_NOTIFY_SUBSCRIBE_PARAMETERS, GetSystemPowerStatus, HPOWERNOTIFY, POWERBROADCAST_SETTING,
     PowerRegisterSuspendResumeNotification, PowerSettingRegisterNotification,
     PowerSettingUnregisterNotification, PowerUnregisterSuspendResumeNotification,
+    SYSTEM_POWER_STATUS,
 };
 use windows_sys::Win32::System::SystemServices::GUID_ACDC_POWER_SOURCE;
 use windows_sys::Win32::UI::WindowsAndMessaging::{
@@ -20,6 +21,26 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
 use windows_sys::core::GUID;
 
 use crate::{PowerEvent, PowerEvents, windows_error};
+
+/// What `GetSystemPowerStatus` says while the charger is plugged in.
+const AC_ONLINE: u8 = 1;
+
+/// Whether the laptop runs on its battery now. A failed read counts as
+/// battery, so the app then runs the battery preset (fail safe).
+#[must_use]
+pub fn on_battery() -> bool {
+    let mut status = SYSTEM_POWER_STATUS::default();
+    // SAFETY: Windows writes only the status.
+    let read = unsafe { GetSystemPowerStatus(&raw mut status) } != 0;
+    on_battery_for(read.then_some(status.ACLineStatus))
+}
+
+/// Whether an AC line status (`None` for a failed read) means battery. Only
+/// "online" counts as AC; "offline" and "unknown" (255) count as battery.
+#[must_use]
+pub fn on_battery_for(ac_line_status: Option<u8>) -> bool {
+    ac_line_status != Some(AC_ONLINE)
+}
 
 /// Power events from Windows, from [`register`](Self::register) until drop.
 ///

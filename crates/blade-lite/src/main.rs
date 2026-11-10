@@ -120,6 +120,9 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     };
     let mut app = App::new(&BLADE_18, config, config_path, machine);
     app.set_num_lock(num_lock_on());
+    // Before the start sends the preset, so a start on battery sends the
+    // battery one. The power events come only after the start.
+    app.take_on_battery(platform::on_battery());
     // Before the start reads the touchpad, so no switch is missed.
     let touchpad = watch_touchpad();
     let started = app.start();
