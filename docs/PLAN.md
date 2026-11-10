@@ -11,7 +11,7 @@ Checks only a person can do on the laptop wait in "Still to check on the laptop"
 
 ## Extras
 - [ ] 49 Same popup for touchpad on and off (the physical key needs 47)
-- [ ] 110 Charging or not beside "Plugged in" in the header and flyout ("Plugged in · Charging", "Plugged in · Not charging"), so the charge limit shows. Read only, no controller command: the battery's charging flag from Windows, polled with the other readings. Unknown shows "Plugged in" as now
+- [x] 110 The header and flyout say "Plugged in · Charging" or "Plugged in · Not charging" (the charge limit), from `SYSTEM_BATTERY_STATE.Charging` read with the other readings, only on AC; unknown shows "Plugged in". A power event clears it until the next poll. Checked on the laptop 2026-11-10: the limit switch changes it in about 15 s (Windows updates its battery state that slowly), unplugging at once
 
 ## Bug fixes
 - [ ] 37 Fans stay loud after Performance to Silent
