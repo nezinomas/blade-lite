@@ -162,6 +162,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     }
     // Closing the window keeps the app in the tray. Quit is in its menu.
     slint::run_event_loop_until_quit()?;
+    shell.quit();
     SHELL.with(RefCell::take);
     TRAY.with(RefCell::take);
     POWER.with(RefCell::take);

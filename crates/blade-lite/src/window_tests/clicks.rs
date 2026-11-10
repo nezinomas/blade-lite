@@ -77,6 +77,42 @@ fn a_locked_rate_does_nothing_on_a_click() {
 }
 
 #[test]
+fn quitting_on_battery_puts_the_rate_back() {
+    let f = fixture(Config {
+        sixty_hz_on_battery: true,
+        ..Config::default()
+    });
+    f.shell.act(|app| app.on_power(PowerEvent::OnBattery));
+
+    f.shell.quit();
+
+    assert_eq!(f.shell.app().machine().displays.0.current.hz, 240);
+}
+
+#[test]
+fn a_failed_put_back_on_quit_is_logged() {
+    let f = fixture(Config {
+        sixty_hz_on_battery: true,
+        ..Config::default()
+    });
+    f.shell.act(|app| app.on_power(PowerEvent::OnBattery));
+    // 240 Hz is gone, so the put-back is refused.
+    f.shell
+        .app()
+        .machine_mut()
+        .displays
+        .0
+        .modes
+        .retain(|mode| mode.hz != 240);
+
+    f.shell.quit();
+
+    assert_eq!(f.shell.app().machine().displays.0.current.hz, 60);
+    let log = std::fs::read_to_string(log_path()).unwrap();
+    assert!(log.contains("the panel may stay at 60 Hz"), "{log}");
+}
+
+#[test]
 fn a_native_mode_click_sends_that_mode() {
     let f = fixture(Config::default());
     let before = sent_count(&f);

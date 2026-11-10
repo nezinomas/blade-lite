@@ -169,3 +169,30 @@ fn a_resume_applies_everything_again() {
     expected.extend(lighting_commands(10, WHITE));
     assert_eq!(sent(&app), expected);
 }
+
+#[test]
+fn quitting_on_battery_puts_the_rate_back() {
+    let (mut app, _dir, _) = app_with(Config {
+        sixty_hz_on_battery: true,
+        ..Config::default()
+    });
+    app.on_power(PowerEvent::OnBattery).unwrap();
+
+    app.on_quit().unwrap();
+
+    assert_eq!(panel_hz(&app), 240);
+}
+
+#[test]
+fn quitting_on_ac_leaves_the_rate() {
+    let (mut app, _dir, _) = app_with(Config {
+        sixty_hz_on_battery: true,
+        ..Config::default()
+    });
+    app.on_display(DisplayCommand::SetRefreshRate(RefreshRate(120)))
+        .unwrap();
+
+    app.on_quit().unwrap();
+
+    assert_eq!(panel_hz(&app), 120);
+}
