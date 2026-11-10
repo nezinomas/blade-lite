@@ -3,7 +3,7 @@
 // a view-model command. Each group lives in its own file.
 
 import { Button, ScrollView, Slider, Switch } from "std-widgets.slint";
-import { Choice, Segments, Show, SliderRow, Stat, SwatchItem, Theme } from "parts.slint";
+import { BrightnessRange, Choice, Segments, Show, SliderRow, Stat, SwatchItem, Theme } from "parts.slint";
 import { Header } from "header.slint";
 import { DisplayGroup } from "display.slint";
 import { PerformanceGroup } from "performance.slint";
@@ -253,9 +253,9 @@ export component FlyoutWindow inherits Window {
             }
             brightness-slider := Slider {
                 accessible-label: "Keyboard light";
-                minimum: 0;
-                maximum: 100;
-                step: 5;
+                minimum: BrightnessRange.minimum;
+                maximum: BrightnessRange.maximum;
+                step: BrightnessRange.step;
                 value: root.brightness;
                 // Sent only when the slider is let go. Then the slider goes
                 // back to what the laptop has, so a failed send does not

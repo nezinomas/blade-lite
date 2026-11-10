@@ -1,6 +1,6 @@
 //! Keyboard and vapor-chamber light brightness, set as Synapse sets it.
 
-use crate::{Command, ModelProfile};
+use crate::{Command, ModelProfile, VARIABLE_STORAGE};
 
 /// Set LED brightness. Args are `[1, led, level]`.
 const SET_BRIGHTNESS: u16 = 0x0303;
@@ -8,8 +8,6 @@ const SET_BRIGHTNESS: u16 = 0x0303;
 /// The laptop answers it for the keyboard and the vapor light (`cargo hw`
 /// brightness test, and `blade-dev keys` on 2026-11-10).
 const GET_BRIGHTNESS: u16 = 0x0383;
-/// The args start with 1, as Synapse sends them.
-const VARIABLE_STORAGE: u8 = 0x01;
 
 const MAX_PERCENT: u8 = 100;
 

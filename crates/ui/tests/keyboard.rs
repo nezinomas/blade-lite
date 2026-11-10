@@ -45,10 +45,9 @@ fn dark() -> KeyboardView {
 }
 
 #[test]
-fn the_brightness_slider_runs_from_0_to_100() {
+fn the_brightness_slider_shows_the_percent() {
     let view = view();
 
-    assert_eq!(view.brightness_max, 100);
     assert_eq!(view.brightness, 70);
 }
 

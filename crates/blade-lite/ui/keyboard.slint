@@ -1,7 +1,7 @@
 // The Keyboard and touchpad group of the settings window.
 
 import { LineEdit, Slider, Switch } from "std-widgets.slint";
-import { Card, GroupTitle, Row, Show, SwatchItem, Theme } from "parts.slint";
+import { BrightnessRange, Card, GroupTitle, Row, Show, SwatchItem, Theme } from "parts.slint";
 
 export component KeyboardGroup inherits VerticalLayout {
     in property <int> brightness;
@@ -57,9 +57,9 @@ export component KeyboardGroup inherits VerticalLayout {
                 }
                 brightness-slider := Slider {
                     accessible-label: "Brightness";
-                    minimum: 0;
-                    maximum: 100;
-                    step: 5;
+                    minimum: BrightnessRange.minimum;
+                    maximum: BrightnessRange.maximum;
+                    step: BrightnessRange.step;
                     value: root.brightness;
                     // Sent only when the slider is let go. Then the slider goes
                     // back to what the laptop has, so a failed send does not

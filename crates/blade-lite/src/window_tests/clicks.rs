@@ -206,6 +206,20 @@ fn the_flyout_brightness_text_follows_the_slider_while_it_is_dragged() {
     drag_shows_the_percent(&f, f.shell.flyout(), "Keyboard light", "FlyoutWindow");
 }
 
+#[test]
+fn both_brightness_sliders_run_from_0_to_100() {
+    let f = fixture(Config::default());
+    let sliders = [
+        control(f.shell.window(), Slider, "Brightness"),
+        control(f.shell.flyout(), Slider, "Keyboard light"),
+    ];
+
+    for slider in sliders {
+        assert_eq!(slider.accessible_value_minimum(), Some(0.0));
+        assert_eq!(slider.accessible_value_maximum(), Some(100.0));
+    }
+}
+
 /// Drags the brightness slider `label` to its left end and lets it go
 /// while every send fails: the send is tried and its error shown, and the
 /// slider and its text go back to the brightness the laptop has.

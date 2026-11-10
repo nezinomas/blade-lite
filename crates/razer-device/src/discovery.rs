@@ -32,18 +32,20 @@ pub fn find_key_collections<'a>(
         .iter()
         .filter(|device| {
             same_usb(device, usb)
-                && device.interface_number == key.interface_number
-                && device.usage_page == key.usage_page
-                && device.usage == key.usage
+                && in_collection(device, key.interface_number, key.usage_page, key.usage)
         })
         .collect()
 }
 
 fn matches(device: &HidInfo, usb: &UsbId) -> bool {
-    same_usb(device, usb)
-        && device.interface_number == usb.interface_number
-        && device.usage_page == usb.usage_page
-        && device.usage == usb.usage
+    same_usb(device, usb) && in_collection(device, usb.interface_number, usb.usage_page, usb.usage)
+}
+
+/// Whether the device is this interface, usage page and usage.
+fn in_collection(device: &HidInfo, interface_number: i32, usage_page: u16, usage: u16) -> bool {
+    device.interface_number == interface_number
+        && device.usage_page == usage_page
+        && device.usage == usage
 }
 
 /// Whether the device has the model's vendor and product id.

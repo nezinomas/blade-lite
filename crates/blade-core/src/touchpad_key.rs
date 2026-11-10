@@ -2,7 +2,7 @@
 //! as it looked with Synapse.
 
 use razer_device::DeviceError;
-use razer_proto::{ModelProfile, static_colour, static_colour_touchpad_off};
+use razer_proto::{Command, ModelProfile, Rgb, static_colour, static_colour_touchpad_off};
 
 use crate::{Controller, Lighting};
 
@@ -21,10 +21,14 @@ pub fn paint_touchpad_key(
     if model.touchpad_key.is_none() {
         return Ok(());
     }
-    let commands = if red {
-        static_colour_touchpad_off(lighting.colour, model)
+    controller.run(&colour_frame(lighting.colour, model, red))
+}
+
+/// The static colour frame, with the touchpad key red or not.
+pub(crate) fn colour_frame(colour: Rgb, model: &ModelProfile, red: bool) -> Vec<Command> {
+    if red {
+        static_colour_touchpad_off(colour, model)
     } else {
-        static_colour(lighting.colour, model)
-    };
-    controller.run(&commands)
+        static_colour(colour, model)
+    }
 }

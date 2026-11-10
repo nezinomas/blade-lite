@@ -1,13 +1,11 @@
 //! Performance presets, set as Synapse sets them.
 
-use crate::{Command, ModelProfile};
+use crate::{Command, ModelProfile, VARIABLE_STORAGE};
 
 /// Set the preset of one zone. Args are `[1, zone, mode, fan]`.
 pub(crate) const SET_PRESET: u16 = 0x0D02;
 /// Get the preset of one zone. The reply args are `[1, zone, mode, fan]`.
 const GET_PRESET: u16 = 0x0D82;
-/// The args start with 1, as Synapse sends them.
-pub(crate) const VARIABLE_STORAGE: u8 = 0x01;
 /// The fan byte: the controller picks the fan speed.
 pub(crate) const FAN_AUTO: u8 = 0x00;
 /// Position of the mode byte in the args.

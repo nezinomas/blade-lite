@@ -5,10 +5,11 @@ use std::time::Duration;
 use razer_device::{Clock, Device, DeviceError, Transport};
 use razer_proto::{
     Brightness, BrightnessError, Command, CpuBoost, Custom, CustomError, FanMode, GpuBoost,
-    ModelProfile, PerfMode, PresetError, Rpm, static_colour, static_colour_touchpad_off,
+    ModelProfile, PresetError, Rpm,
 };
 
-use crate::{Config, CustomSettings, Lighting, Preset};
+use crate::touchpad_key::colour_frame;
+use crate::{Config, CustomSettings, Lighting};
 
 /// How long to wait after resume before applying again, so the controller is
 /// awake. A guess: the device layer also reads again (never resends) while it replies Busy.
@@ -123,24 +124,15 @@ fn lighting_commands(
     if let Some(vapor) = model.vapor_light {
         commands.push(vapor.command(brightness, lighting.vapor_light));
     }
-    commands.extend(if touchpad_off {
-        static_colour_touchpad_off(lighting.colour, model)
-    } else {
-        static_colour(lighting.colour, model)
-    });
+    commands.extend(colour_frame(lighting.colour, model, touchpad_off));
     Ok(commands)
 }
 
 /// The commands that set the saved preset.
 fn preset_commands(config: Config, model: &ModelProfile) -> Result<Vec<Command>, ApplyError> {
-    let mode = match config.preset {
-        Preset::Silent => PerfMode::Silent,
-        Preset::Balanced => PerfMode::Balanced,
-        Preset::Performance => PerfMode::Performance,
-        Preset::Custom => {
-            let custom = custom(config.custom, model).map_err(ApplyError::Custom)?;
-            return Ok(custom.commands(model));
-        }
+    let Some(mode) = config.preset.perf_mode() else {
+        let custom = custom(config.custom, model).map_err(ApplyError::Custom)?;
+        return Ok(custom.commands(model));
     };
     mode.commands(model).map_err(ApplyError::Preset)
 }

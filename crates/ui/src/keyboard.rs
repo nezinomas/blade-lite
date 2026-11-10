@@ -3,8 +3,6 @@
 
 use razer_proto::{Brightness, Rgb};
 
-/// The brightness slider's highest stop, in percent.
-const BRIGHTNESS_MAX: u8 = 100;
 /// The colours offered as swatches, from the mockup.
 const SWATCHES: [Rgb; 8] = [
     Rgb::new(0xFF, 0xFF, 0xFF),
@@ -49,8 +47,6 @@ pub struct Swatch {
 /// The Keyboard and touchpad group, ready to show.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct KeyboardView {
-    /// The slider runs from 0 to this, in percent.
-    pub brightness_max: u8,
     pub brightness: u8,
     /// `false` while the lights are off.
     pub colours_enabled: bool,
@@ -73,7 +69,6 @@ impl KeyboardView {
         let percent = state.brightness.percent();
         let swatches = swatches(state.colour);
         Self {
-            brightness_max: BRIGHTNESS_MAX,
             brightness: percent,
             colours_enabled: percent > 0,
             custom_selected: !swatches.iter().any(|swatch| swatch.selected),
