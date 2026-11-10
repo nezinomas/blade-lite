@@ -1,5 +1,6 @@
 //! Checks on the real laptop. Run with `cargo hw`.
 
+use std::sync::mpsc::RecvTimeoutError;
 use std::sync::{Mutex, PoisonError};
 use std::thread;
 use std::time::{Duration, Instant};
@@ -286,7 +287,10 @@ fn power_events() -> std::sync::mpsc::Receiver<PowerEvent> {
 #[test]
 #[ignore = "start on battery, then plug the charger in; switches the panel's rate"]
 fn battery_drops_to_60_hz_and_ac_puts_the_rate_back() {
+    // The app would switch the rate too.
+    hold_lock();
     let before = panel_rate();
+    assert_ne!(before, RefreshRate(60), "set another rate first");
     let config = Config {
         sixty_hz_on_battery: true,
         ..Config::default()
@@ -313,7 +317,12 @@ fn rates_until_ac(config: &Config) -> Result<(Option<RefreshRate>, Option<Refres
     let mut battery_rate = BatteryRate::default();
     let events = power_events();
     let (mut on_battery, mut after_ac) = (None, None);
-    while let Ok(event) = events.recv_timeout(PLUG_IN_WAIT) {
+    loop {
+        let event = match events.recv_timeout(PLUG_IN_WAIT) {
+            Ok(event) => event,
+            Err(RecvTimeoutError::Timeout) => break,
+            Err(RecvTimeoutError::Disconnected) => return Err("power events stopped".into()),
+        };
         battery_rate
             .on_event(event, config, &mut WindowsDisplays)
             .map_err(text)?;
