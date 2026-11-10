@@ -43,7 +43,8 @@ impl<P: Parts> Shell<P> {
     }
 
     /// Paints the touchpad key after a touchpad change, unless a resume
-    /// waits: the resume reads the touchpad and paints it.
+    /// waits: the resume reads the touchpad and paints it. Shows the
+    /// touchpad popup on a change, also while a resume waits.
     pub fn follow_touchpad(self: &Rc<Self>) {
         self.follow_own_power();
         if self.resuming.get() == 0 {

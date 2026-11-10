@@ -844,3 +844,19 @@ fn a_new_mode_after_a_touchpad_popup_says_power_mode() {
     assert_eq!(f.shell.popup().get_caption(), "Power mode");
     assert_eq!(f.shell.popup().get_mode(), "Silent");
 }
+
+#[test]
+fn a_touchpad_change_with_a_wake_not_yet_followed_shows_the_popup_and_sends_nothing() {
+    let f = fixture(Config::default());
+    let (sender, receiver) = std::sync::mpsc::channel();
+    f.shell.listen_for_power(receiver);
+    sender.send(PowerEvent::Resumed).unwrap();
+    f.shell.app().machine_mut().registry.touchpad = Some(0);
+    let before = sent_count(&f);
+
+    f.shell.follow_touchpad();
+
+    assert_eq!(sent_since(&f, before), []);
+    assert_eq!(f.shell.popup().get_caption(), "Touchpad");
+    assert_eq!(f.shell.popup().get_mode(), "Off");
+}
