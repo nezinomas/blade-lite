@@ -30,7 +30,8 @@ impl<P: Parts> Shell<P> {
     /// Tries a wake's refused 60 Hz again: Windows can refuse it just after
     /// a wake. Only the last failed try is shown, so a quiet try does not
     /// clear the wake's other errors or read the controller. When the tries
-    /// end, the rate buttons show the panel's rate.
+    /// end, the window's rate buttons show the panel's rate (one display
+    /// view, so one native mode read); the flyout is filled when it opens.
     fn retry_battery_rate(self: &Rc<Self>) {
         let tried = self.app.borrow_mut().retry_battery_rate();
         if let Err(error) = tried {
