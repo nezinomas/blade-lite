@@ -95,7 +95,7 @@ Checks only a person can do on the laptop wait in "Still to check on the laptop"
 - [ ] 71 Window tests for the custom colour field (type `#00B7C3`, Enter, check the colour sent) and the Custom sliders (drag CPU boost one step, check the command). Both reviewers
 - [x] 72 Touchpad key (numpad ".") red only while the touchpad and Num Lock are both off; Num Lock read each 1 s poll, nothing painted during a resume pause (profile flag `plain_with_num_lock`; checked on the laptop)
 - [ ] 73 Mic key (numpad 0 on the digit layer, mic on the second layer): red while the mic is muted and Num Lock is off, plain with Num Lock on, as ticket 72. Fn + mic today shows the Windows 11 popup "No supported apps in use for mic mute" and the key stays plain (user, 2026-11-09). First find a mute state Windows really keeps (such as the default capture device's mute, read and watched) and check it on the laptop. Both reviewers
-- [x] 74 Razer software warning: at start and after resume the app looks for running Razer programs, services and drivers ("razer", "synapse", or an "rz" start), shows a warning in the window while one runs and opens the window once; sends nothing different. The 5 Razer driver updates are hidden with `tools/Block-RazerDriverUpdates.ps1 -Apply` (run by the user). Whether those drivers break blade-lite was not tried
+- [x] 74 Razer software warning: at start and after resume the app looks for running Razer programs, services and drivers ("razer", "synapse", or an "rz" start), shows a warning in the window while one runs and opens the window once; sends nothing different. The 5 Razer driver updates are hidden with `tools/Block-RazerDriverUpdates.ps1 -Apply` (run by the user 2026-11-10, all 5 hidden). Whether those drivers break blade-lite was not tried
 - [ ] 75 Temperature warning: a popup when the CPU or GPU stays above a limit (such as 95 °C) for a few minutes, from the readings the app already polls. Once per hot spell, not on each poll
 - [ ] 76 Battery health in the header: wear (full charge capacity against design capacity) and cycle count, read from Windows (WMI `BatteryFullChargedCapacity`, `BatteryStaticData`, `BatteryCycleCount`). Read only, no controller command
 - [ ] 77 Export and import settings, and "Reset to defaults". Import goes through the same checks as loading `config.toml` (an invalid file changes nothing), then applies as a start does. Both reviewers
@@ -110,7 +110,6 @@ Do these in one go, on AC, with "Start with Windows" on and Num Lock off (the po
 5. **Put it back.** Set your native mode, keyboard colour, lid logo and preset back as you noted them. Restart once more for the native mode.
 6. **App after ticket 70.** Start the app. Open the window and the flyout once, and click one preset. They work as before (ticket 70 changed only types in the shell code).
 7. **Busy (55).** Nothing to do now. If the log ever shows a Busy error, check whether the command took effect.
-8. **Hide the Razer driver updates (74).** In an admin PowerShell in the repo folder: `powershell -ExecutionPolicy Bypass -File .\tools\Block-RazerDriverUpdates.ps1 -Apply`. It must end with `Result: DONE`. Windows Update then lists no Razer driver.
 
 ## Publishing on GitHub
 - [ ] 39 Release and installer
