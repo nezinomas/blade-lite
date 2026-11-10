@@ -123,7 +123,7 @@ fn a_panel_already_at_60_hz_is_left_alone() {
 }
 
 #[test]
-fn resume_does_not_touch_the_rate() {
+fn a_resume_with_no_saved_rate_does_not_touch_the_rate() {
     let mut api = panel_at(240);
 
     feed(&[PowerEvent::Resumed], config(true), &mut api);
@@ -228,4 +228,35 @@ fn a_resume_with_the_panel_still_at_60_hz_changes_nothing() {
 
     let rates: Vec<u32> = api.set.iter().map(|(_, mode, _)| mode.hz).collect();
     assert_eq!(rates, [60]);
+}
+
+#[test]
+fn a_resume_after_the_rate_was_put_back_on_ac_changes_nothing() {
+    let mut api = panel_at(240);
+
+    feed(
+        &[PowerEvent::OnBattery, PowerEvent::OnAc, PowerEvent::Resumed],
+        config(true),
+        &mut api,
+    );
+
+    let rates: Vec<u32> = api.set.iter().map(|(_, mode, _)| mode.hz).collect();
+    assert_eq!(rates, [60, 240]);
+}
+
+#[test]
+fn a_resume_with_no_internal_panel_active_is_not_an_error() {
+    let mut api = panel_at(240);
+    let mut battery_rate = BatteryRate::default();
+    battery_rate
+        .on_event(PowerEvent::OnBattery, &config(true), &mut api)
+        .unwrap();
+    // The lid shut, a monitor only.
+    let mut api = FakeDisplays::new(Some(vec![]));
+
+    battery_rate
+        .on_event(PowerEvent::Resumed, &config(true), &mut api)
+        .unwrap();
+
+    assert_eq!(api.set, []);
 }

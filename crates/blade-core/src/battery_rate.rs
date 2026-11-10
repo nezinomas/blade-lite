@@ -56,13 +56,16 @@ impl BatteryRate {
     /// Sets 60 Hz again if the panel is back at the rate saved before
     /// battery: Windows puts its saved rate back in a wake (seen after a lid
     /// sleep, 2026-11-10). Any other rate was set outside the app, and is
-    /// kept.
+    /// kept. A panel that is not active (lid shut, a monitor only) is left
+    /// alone.
     fn after_resume(&mut self, api: &mut impl DisplayApi) -> Result<(), DisplayError> {
         let Some(saved) = self.saved else {
             return Ok(());
         };
-        if current_rate(api)? != saved {
-            return Ok(());
+        match current_rate(api) {
+            Ok(rate) if rate == saved => {}
+            Ok(_) | Err(DisplayError::NoInternalPanel) => return Ok(()),
+            Err(error) => return Err(error),
         }
         set_rate(api, BATTERY_RATE, ModeLife::UntilRestart)
     }

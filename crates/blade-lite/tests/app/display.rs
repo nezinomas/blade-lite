@@ -246,3 +246,19 @@ fn a_wake_on_battery_sets_60_hz_again_when_windows_put_the_rate_back() {
 
     assert_eq!(panel_hz(&app), 60);
 }
+
+#[test]
+fn a_wake_on_ac_before_its_power_event_leaves_the_rate() {
+    let (mut app, _dir, _) = app_with(Config {
+        sixty_hz_on_battery: true,
+        ..Config::default()
+    });
+    app.on_power(PowerEvent::OnBattery).unwrap();
+    // The charger went in during the sleep; its event comes later.
+    app.machine_mut().displays.0.current.hz = 240;
+    app.take_on_battery(false);
+
+    app.on_power(PowerEvent::Resumed).unwrap();
+
+    assert_eq!(panel_hz(&app), 240);
+}
