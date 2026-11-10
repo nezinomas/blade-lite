@@ -1,7 +1,8 @@
 //! Why a click or a view failed.
 
 use blade_core::{
-    ApplyError, ChargeError, ConfigError, DisplayError, LogoError, Preset, TouchpadError,
+    ApplyError, ChargeError, ConfigError, DisplayError, LogoError, NativeModeError, Preset,
+    TouchpadError,
 };
 use razer_device::DeviceError;
 
@@ -20,6 +21,8 @@ pub enum AppError {
     Logo(#[from] LogoError),
     #[error(transparent)]
     Charge(#[from] ChargeError),
+    #[error(transparent)]
+    NativeMode(#[from] NativeModeError),
     #[error("the controller did not answer: {0}")]
     Device(DeviceError),
     #[error("the controller chose a native mode the model lacks")]

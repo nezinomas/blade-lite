@@ -159,7 +159,7 @@ where
                 set_refresh_rate(&mut self.machine.displays, rate)?;
             }
             DisplayCommand::SetNativeMode(mode) => {
-                set_native_mode(mode, &mut self.machine.controller)?;
+                set_native_mode(mode, &mut self.machine.controller, self.model)?;
             }
             DisplayCommand::SetSixtyHzOnBattery(on) => self.set_sixty_hz_on_battery(on)?,
         }
