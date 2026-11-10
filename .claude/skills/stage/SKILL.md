@@ -22,16 +22,16 @@ description: Build one stage or ticket from docs/PLAN.md end to end (branch, TDD
 11. Report in this form, one line each ("none" when there is nothing):
    ```
    Result: <one line>
-   Time: <start to merge>, of which <time> waiting on the user
+   Time: <start to merge>, of which about <time> waiting on the user
    Tokens: <context tokens at the end>; 5-hour limit <start>% to <end>%
    Waste: <round trips to the user, failed tool calls, redone work>
    Workflow fix: <one change to a rule or skill that would have saved it>
-   Code quality: checks pass; reviewers found <n> (fixed <n>, new tickets <n>); tests added <n>; lint allows added <n>
+   Code quality: checks <pass or fail>; reviewers found <n> (fixed <n>, new tickets <n>); tests added <n>; lint allows added <n>
    Informed reviewer: <findings>
    Fresh reviewer: <findings, or "not needed (tier)">
    Still needs the user: <checks>
    Blocked: <permissions, push, merge, branch delete, cargo, or "nothing was blocked">
    ```
-   Tokens come from the `get_usage` tool; without it, write "not available". Time comes from the start time (step 1) and the merge commit. A workflow fix is only a proposal: say it, don't apply it.
+   Tokens come from the `get_usage` tool; without it, write "not available". Time comes from the start time (step 1) and the merge commit; the wait is the time from each question to the user's answer. A workflow fix is only a proposal: say it, don't apply it. In a batch run, one block per stage, and one Blocked line at the end.
 
 In a batch run, repeat for each stage and stop early when a step needs the user. Skip tickets that need the user (see "Working style" in `docs/NOTES.md`).

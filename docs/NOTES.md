@@ -1,6 +1,6 @@
 # Project notes
 
-Status lives in `docs/PLAN.md` only. Commands and git rules are in `CLAUDE.md`.
+Status lives in `docs/PLAN.md` (open) and `docs/PLAN-done.md` (done) only. Commands and git rules are in `CLAUDE.md`.
 
 ## Laptop and protocol facts
 
