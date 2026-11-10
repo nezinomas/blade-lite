@@ -11,6 +11,7 @@ Checks only a person can do on the laptop wait in "Still to check on the laptop"
 
 ## Extras
 - [ ] 49 Same popup for touchpad on and off (the physical key needs 47)
+- [ ] 110 Charging or not beside "Plugged in" in the header and flyout ("Plugged in · Charging", "Plugged in · Not charging"), so the charge limit shows. Read only, no controller command: the battery's charging flag from Windows, polled with the other readings. Unknown shows "Plugged in" as now
 
 ## Bug fixes
 - [ ] 37 Fans stay loud after Performance to Silent
