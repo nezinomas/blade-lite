@@ -115,7 +115,7 @@ fn levels<C: Clock>(device: &mut Device<HidTransport, C>) -> Result<Vec<u8>, Str
                 .map_err(|error| format!("{error:?}"))?;
             let args = reply.args();
             razer_proto::Brightness::level_from_reply(led, args)
-                .ok_or_else(|| format!("reply for LED {led:02X}: {:02X?}", &args[..3]))
+                .ok_or_else(|| format!("reply for LED {led:02X}: {args:02X?}"))
         })
         .collect()
 }
