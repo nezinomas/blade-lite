@@ -4,7 +4,7 @@
 use std::io;
 use std::ptr;
 
-use windows_sys::Win32::Foundation::{ERROR_MORE_DATA, INVALID_HANDLE_VALUE};
+use windows_sys::Win32::Foundation::{ERROR_MORE_DATA, ERROR_NO_MORE_FILES, INVALID_HANDLE_VALUE};
 use windows_sys::Win32::System::Diagnostics::ToolHelp::{
     CreateToolhelp32Snapshot, PROCESSENTRY32W, Process32FirstW, Process32NextW, TH32CS_SNAPPROCESS,
 };
@@ -52,6 +52,12 @@ fn processes() -> io::Result<Vec<String>> {
         names.push(until_nul(&entry.szExeFile));
         // SAFETY: as above.
         more = unsafe { Process32NextW(snapshot.0, &raw mut entry) } != 0;
+    }
+    // The walk ends with this error; any other means a failed read, not
+    // the end of the list.
+    let error = io::Error::last_os_error();
+    if error.raw_os_error() != i32::try_from(ERROR_NO_MORE_FILES).ok() {
+        return Err(error);
     }
     Ok(names)
 }

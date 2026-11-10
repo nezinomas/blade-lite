@@ -78,3 +78,15 @@ fn a_failed_look_shows_no_warning() {
 
     assert_eq!(f.shell.window().get_error(), "");
 }
+
+#[test]
+fn a_failed_look_keeps_the_warning() {
+    let f = fixture(Config::default());
+    f.shell.programs().set(&[SYNAPSE]);
+    look(&f);
+
+    f.shell.programs().fail();
+    assert!(!look(&f));
+
+    assert!(f.shell.window().get_error().contains(SYNAPSE));
+}
