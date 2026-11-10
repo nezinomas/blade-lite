@@ -20,9 +20,14 @@ pub struct HeaderState<'a> {
     pub fans: Vec<Option<FanRpm>>,
 }
 
-/// Whether the laptop runs on the charger or the battery.
+/// Whether the laptop runs on the charger or the battery, and on the
+/// charger whether the battery charges.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PowerPill {
+    Charging,
+    /// Such as when the charge limit is reached.
+    NotCharging,
+    /// On the charger, charging unknown.
     PluggedIn,
     OnBattery,
 }
@@ -32,6 +37,8 @@ impl PowerPill {
     #[must_use]
     pub fn label(self) -> &'static str {
         match self {
+            Self::Charging => "Plugged in \u{b7} Charging",
+            Self::NotCharging => "Plugged in \u{b7} Not charging",
             Self::PluggedIn => "Plugged in",
             Self::OnBattery => "On battery",
         }
@@ -62,13 +69,18 @@ impl Header {
         Self {
             title: state.model.name.to_owned(),
             preset: preset_label(state.preset.running(state.on_battery, state.model)),
-            power: if state.on_battery {
-                PowerPill::OnBattery
-            } else {
-                PowerPill::PluggedIn
-            },
+            power: power_pill(state),
             stats: stats(state),
         }
+    }
+}
+
+fn power_pill(state: &HeaderState) -> PowerPill {
+    match (state.on_battery, state.readings.charging) {
+        (true, _) => PowerPill::OnBattery,
+        (false, Some(true)) => PowerPill::Charging,
+        (false, Some(false)) => PowerPill::NotCharging,
+        (false, None) => PowerPill::PluggedIn,
     }
 }
 

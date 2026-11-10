@@ -11,6 +11,8 @@ pub struct Readings {
     pub battery_percent: Option<u8>,
     /// Milliwatts drawn from the battery. `None` while it is not draining.
     pub power_draw_mw: Option<u32>,
+    /// Whether the battery charges now. `None` if it could not be read.
+    pub charging: Option<bool>,
     /// `None` while the GPU sleeps, so that reading it does not wake it.
     pub gpu: Option<GpuReading>,
 }
@@ -34,6 +36,7 @@ impl ReadingsSampler {
                 .battery_rate_mw
                 .filter(|&rate| rate < 0)
                 .map(i32::unsigned_abs),
+            charging: power.charging,
             cpu_load_percent: self.cpu_load(sensors),
             gpu: self.gpu_if_awake(sensors),
         }

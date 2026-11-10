@@ -16,6 +16,7 @@ fn the_cpu_and_battery_are_read() {
     assert!(first.idle <= first.total);
     let percent = power.battery_percent.expect("the battery charge is known");
     assert!(percent <= 100);
+    assert!(power.charging.is_some(), "the charging flag is known");
 }
 
 #[test]
