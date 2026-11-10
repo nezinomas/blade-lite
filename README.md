@@ -106,7 +106,7 @@ cargo hw
 | --- | --- |
 | `razer-proto` | Builds and parses packets, the checksum and the command table. No I/O |
 | `razer-device` | The `Transport` trait, the HID transport, reads again on Busy (never resends) |
-| `blade-core` | Presets, Custom, config (TOML in `%APPDATA%`), apply and re-apply after resume, sensor polling |
+| `blade-core` | Presets, Custom, config (TOML in `%APPDATA%`), apply, the pause before the re-apply after resume, sensor polling |
 | `platform` | All Windows FFI. The only crate allowed `unsafe` |
 | `ui` | View models (fully unit-tested) and the Slint markup |
 | `blade` (exe) | The tray app. Single instance, starts at login |
