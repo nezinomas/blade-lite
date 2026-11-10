@@ -6,8 +6,7 @@ use std::ptr;
 
 use windows_sys::Win32::Foundation::{ERROR_MORE_DATA, INVALID_HANDLE_VALUE};
 use windows_sys::Win32::System::Diagnostics::ToolHelp::{
-    CreateToolhelp32Snapshot, PROCESSENTRY32W, Process32FirstW, Process32NextW,
-    TH32CS_SNAPPROCESS,
+    CreateToolhelp32Snapshot, PROCESSENTRY32W, Process32FirstW, Process32NextW, TH32CS_SNAPPROCESS,
 };
 use windows_sys::Win32::System::Services::{
     CloseServiceHandle, ENUM_SERVICE_STATUS_PROCESSW, EnumServicesStatusExW, OpenSCManagerW,
@@ -135,7 +134,10 @@ fn read_services(manager: &Manager, bytes: u32) -> io::Result<Result<Vec<String>
     // SAFETY: Windows wrote `count` entries at the start of the buffer,
     // which is aligned for them and holds them all (checked above).
     let entries = unsafe {
-        std::slice::from_raw_parts(buffer.as_ptr().cast::<ENUM_SERVICE_STATUS_PROCESSW>(), count)
+        std::slice::from_raw_parts(
+            buffer.as_ptr().cast::<ENUM_SERVICE_STATUS_PROCESSW>(),
+            count,
+        )
     };
     let mut names = Vec::with_capacity(count * 2);
     for entry in entries {

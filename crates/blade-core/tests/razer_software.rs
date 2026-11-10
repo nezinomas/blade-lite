@@ -47,8 +47,12 @@ fn says_each_name_once() {
 #[test]
 fn leaves_other_names_alone() {
     // The laptop's THX audio service runs without Synapse.
-    let names = vec!["thx_rznb11_svc.exe", "THX Spatial Audio Service", "blade-lite.exe"];
-    assert!(found(names).is_empty());
+    let names = vec![
+        "thx_rznb11_svc.exe",
+        "THX Spatial Audio Service",
+        "blade-lite.exe",
+    ];
+    assert_eq!(found(names), Vec::<String>::new());
 }
 
 #[test]
@@ -62,5 +66,8 @@ fn warns_only_when_something_was_found() {
     assert_eq!(razer_warning(&[]), None);
     let warning = razer_warning(&["Razer Synapse Service".to_owned(), "RzDev".to_owned()])
         .expect("a warning");
-    assert!(warning.contains("Razer Synapse Service, RzDev"), "{warning}");
+    assert!(
+        warning.contains("Razer Synapse Service, RzDev"),
+        "{warning}"
+    );
 }

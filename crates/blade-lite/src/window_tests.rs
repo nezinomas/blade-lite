@@ -7,6 +7,8 @@ mod clicks;
 mod razer;
 mod screens;
 
+use std::cell::RefCell;
+use std::io;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::sync::OnceLock;
@@ -16,14 +18,13 @@ use blade_lite::open_quiet_log;
 use i_slint_backend_testing::{
     AccessibleRole, ElementHandle, ElementRoot, TestingBackend, TestingBackendOptions,
 };
+use platform::Programs;
 use razer_proto::{BLADE_18, Rgb};
 use slint::platform::PointerEventButton;
 use slint::{ComponentHandle, LogicalSize};
 use tempfile::TempDir;
 
-use crate::fakes::{
-    FakeController, FakeDisplays, FakeKeys, FakePrograms, FakeRegistry, app_on,
-};
+use crate::fakes::{FakeController, FakeDisplays, FakeKeys, FakeRegistry, app_on};
 use crate::shell::{Parts, Shell};
 use crate::{FlyoutWindow, MainWindow, ModePopup, bind};
 
@@ -36,6 +37,35 @@ impl Parts for Fakes {
     type Registry = FakeRegistry;
     type Keys = FakeKeys;
     type Programs = FakePrograms;
+}
+
+/// What runs: nothing at first. `None` fails the read.
+pub struct FakePrograms(RefCell<Option<Vec<String>>>);
+
+impl Default for FakePrograms {
+    fn default() -> Self {
+        Self(RefCell::new(Some(Vec::new())))
+    }
+}
+
+impl FakePrograms {
+    pub fn set(&self, names: &[&str]) {
+        let names = names.iter().map(|&name| name.to_owned()).collect();
+        self.0.replace(Some(names));
+    }
+
+    pub fn fail(&self) {
+        self.0.replace(None);
+    }
+}
+
+impl Programs for FakePrograms {
+    fn running(&self) -> io::Result<Vec<String>> {
+        self.0
+            .borrow()
+            .clone()
+            .ok_or_else(|| io::Error::from(io::ErrorKind::PermissionDenied))
+    }
 }
 
 /// The Windows default accent, as the app uses when it can't read one.
