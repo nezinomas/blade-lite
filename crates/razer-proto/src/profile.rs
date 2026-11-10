@@ -75,6 +75,57 @@ pub struct ModelProfile {
     pub power_key: Option<PowerKey>,
 }
 
+impl ModelProfile {
+    /// Whether the profile keeps the rules its fields name: each mode byte
+    /// differs from the others and from Custom's, and the battery presets
+    /// are offered presets that hold Balanced. Each profile is checked with
+    /// it at build time.
+    #[must_use]
+    pub const fn is_valid(&self) -> bool {
+        let bytes = self.mode_bytes;
+        let mut rest: &[u8] = &[
+            bytes.silent,
+            bytes.balanced,
+            bytes.performance,
+            self.custom.mode,
+        ];
+        while let [first, others @ ..] = rest {
+            if holds_byte(others, *first) {
+                return false;
+            }
+            rest = others;
+        }
+        let mut battery = self.battery_presets;
+        while let [first, others @ ..] = battery {
+            if !holds(self.presets, *first) {
+                return false;
+            }
+            battery = others;
+        }
+        holds(self.battery_presets, PerfMode::Balanced)
+    }
+}
+
+const fn holds_byte(mut bytes: &[u8], byte: u8) -> bool {
+    while let [first, others @ ..] = bytes {
+        if *first == byte {
+            return true;
+        }
+        bytes = others;
+    }
+    false
+}
+
+const fn holds(mut modes: &[PerfMode], mode: PerfMode) -> bool {
+    while let [first, others @ ..] = modes {
+        if *first as u8 == mode as u8 {
+            return true;
+        }
+        modes = others;
+    }
+    false
+}
+
 /// The Blade 18 (RZ09-0529), from the stage 1 capture.
 pub const BLADE_18: ModelProfile = ModelProfile {
     name: "Blade 18 (RZ09-0529)",
@@ -185,3 +236,5 @@ pub const BLADE_18: ModelProfile = ModelProfile {
         fn_code: 0x0A,
     }),
 };
+
+const _: () = assert!(BLADE_18.is_valid());

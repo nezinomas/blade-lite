@@ -33,8 +33,6 @@ pub enum PerfMode {
 }
 
 impl PerfMode {
-    const ALL: [Self; 3] = [Self::Silent, Self::Balanced, Self::Performance];
-
     /// The model's mode byte for it.
     fn byte(self, model: &ModelProfile) -> u8 {
         let bytes = model.mode_bytes;
@@ -78,13 +76,15 @@ impl PerfMode {
     }
 
     /// The preset of `zone` in a query's reply args, read with the model's
-    /// mode bytes. `None` for a mode this does not know, or a reply for
-    /// another storage or zone.
+    /// mode bytes. `None` for a mode the model does not offer, or a reply
+    /// for another storage or zone.
     #[must_use]
     pub fn from_reply(model: &ModelProfile, zone: u8, args: &[u8]) -> Option<Self> {
         match args {
-            [VARIABLE_STORAGE, echoed, mode, ..] if *echoed == zone => Self::ALL
-                .into_iter()
+            [VARIABLE_STORAGE, echoed, mode, ..] if *echoed == zone => model
+                .presets
+                .iter()
+                .copied()
                 .find(|preset| preset.byte(model) == *mode),
             _ => None,
         }

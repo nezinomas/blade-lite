@@ -136,3 +136,16 @@ fn a_reply_is_read_with_the_model_bytes() {
         None
     );
 }
+
+#[test]
+fn a_reply_with_a_preset_the_model_lacks_is_none() {
+    let no_performance = ModelProfile {
+        presets: &[PerfMode::Silent, PerfMode::Balanced],
+        ..BLADE_18
+    };
+
+    assert_eq!(
+        PerfMode::from_reply(&no_performance, 0x01, &[0x01, 0x01, 0x02, 0x00]),
+        None
+    );
+}

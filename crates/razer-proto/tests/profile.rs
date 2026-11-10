@@ -1,6 +1,6 @@
 mod common;
 
-use razer_proto::{BLADE_18, ModelProfile};
+use razer_proto::{BLADE_18, ModelProfile, PerfMode};
 
 #[test]
 fn every_captured_report_went_through_the_profile_interface() {
@@ -84,20 +84,6 @@ fn the_vapor_light_is_not_a_keyboard_brightness_led() {
     assert!(!BLADE_18.brightness_leds.contains(&light.led));
 }
 
-/// Each preset and Custom has its own mode byte, so a reply reads as one
-/// preset only.
-fn mode_bytes_are_distinct(model: &ModelProfile) -> bool {
-    let bytes = model.mode_bytes;
-    let mut all = [
-        bytes.silent,
-        bytes.balanced,
-        bytes.performance,
-        model.custom.mode,
-    ];
-    all.sort_unstable();
-    all.windows(2).all(|pair| pair[0] != pair[1])
-}
-
 #[test]
 fn the_blade_18_mode_bytes_are_the_captured_ones() {
     let bytes = BLADE_18.mode_bytes;
@@ -111,7 +97,6 @@ fn the_blade_18_mode_bytes_are_the_captured_ones() {
         ),
         (0x05, 0x00, 0x02, 0x04)
     );
-    assert!(mode_bytes_are_distinct(&BLADE_18));
 }
 
 #[test]
@@ -120,17 +105,42 @@ fn the_blade_18_logo_is_in_storage_0() {
 }
 
 #[test]
-fn battery_presets_are_offered_presets_and_hold_balanced() {
-    // Balanced runs in place of a preset not offered on battery.
-    assert!(
-        BLADE_18
-            .battery_presets
-            .iter()
-            .all(|preset| BLADE_18.presets.contains(preset))
-    );
-    assert!(
-        BLADE_18
-            .battery_presets
-            .contains(&razer_proto::PerfMode::Balanced)
-    );
+fn the_blade_18_profile_is_valid() {
+    assert!(BLADE_18.is_valid());
+}
+
+#[test]
+fn two_presets_with_one_mode_byte_are_not_valid() {
+    let mut model = BLADE_18;
+    model.mode_bytes.silent = model.mode_bytes.balanced;
+
+    assert!(!model.is_valid());
+}
+
+#[test]
+fn a_custom_byte_of_a_preset_is_not_valid() {
+    let mut model = BLADE_18;
+    model.custom.mode = model.mode_bytes.performance;
+
+    assert!(!model.is_valid());
+}
+
+#[test]
+fn battery_presets_without_balanced_are_not_valid() {
+    let model = ModelProfile {
+        battery_presets: &[PerfMode::Silent],
+        ..BLADE_18
+    };
+
+    assert!(!model.is_valid());
+}
+
+#[test]
+fn a_battery_preset_the_model_lacks_is_not_valid() {
+    let model = ModelProfile {
+        presets: &[PerfMode::Balanced, PerfMode::Performance],
+        ..BLADE_18
+    };
+
+    assert!(!model.is_valid());
 }
