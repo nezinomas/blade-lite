@@ -271,7 +271,7 @@ fn a_device_error_is_said_in_plain_text() {
 
     assert_eq!(
         error.to_string(),
-        "the controller did not take a command: the controller stayed busy after 5 reads"
+        "the controller did not take a command, so the laptop may run part of the change: the controller stayed busy after 5 reads"
     );
 }
 

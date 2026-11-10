@@ -26,11 +26,16 @@ pub fn logo() -> Logo {
 /// mode 0, the logo query with `logo_reply`, the charge limit query with
 /// `charge` and the brightness query with `brightness_level`, and fails
 /// every run while `fails` is set. A logo command
-/// changes `logo_reply`.
+/// changes `logo_reply`. While `fails_after` is set, a run takes only
+/// that many commands, then fails.
 #[derive(Default)]
 pub struct FakeController {
     pub sent: Vec<Command>,
     pub fails: bool,
+    /// Takes this many commands of each run, then fails it, as a Busy
+    /// reply to a command the controller still ran. It stays set, and a
+    /// run of `n` or fewer commands still fails.
+    pub fails_after: Option<usize>,
     /// `None` fails the logo query.
     pub logo_reply: Option<Vec<u8>>,
     /// The charge limit byte. A charge limit command changes it, unless
@@ -47,7 +52,10 @@ impl Controller for FakeController {
         if self.fails {
             return Err(DeviceError::Busy);
         }
-        for command in commands {
+        let taken = self
+            .fails_after
+            .map_or(commands, |n| commands.get(..n).unwrap_or(commands));
+        for command in taken {
             if command.id == SET_CHARGE_LIMIT && !self.charge_stuck {
                 self.charge = Some(command.args[0]);
             }
@@ -55,8 +63,11 @@ impl Controller for FakeController {
                 self.logo_reply = Some(command.args.clone());
             }
         }
-        self.sent.extend_from_slice(commands);
-        Ok(())
+        self.sent.extend_from_slice(taken);
+        match self.fails_after {
+            Some(_) => Err(DeviceError::Busy),
+            None => Ok(()),
+        }
     }
 }
 

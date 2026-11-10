@@ -12,8 +12,9 @@ pub enum LogoError {
     /// The model has no lid logo.
     #[error("the model has no lid logo")]
     NoLogo,
-    /// The controller did not take a command.
-    #[error("the controller did not take a command: {0}")]
+    /// The controller did not take a command. The effect command, and
+    /// maybe the switch too, may have run.
+    #[error("the controller did not take a command, so the laptop may run part of the change: {0}")]
     Device(DeviceError),
 }
 

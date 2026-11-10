@@ -154,3 +154,61 @@ fn start_sends_the_saved_logo_state() {
     assert!(sent(&app).ends_with(&logo().commands(false)));
     assert_eq!(app.keyboard_view().unwrap().logo_on, Some(false));
 }
+
+#[test]
+fn a_logo_switch_that_fails_part_way_shows_the_state_read_back() {
+    let (mut app, _dir, _) = app();
+    app.machine_mut().controller.logo_reply = Some(vec![0, 4, 1]);
+    app.start().unwrap();
+    // The switch command runs, but its reply is Busy.
+    app.machine_mut().controller.fails_after = Some(2);
+
+    assert!(app.on_keyboard(KeyboardCommand::SetLogo(false)).is_err());
+    assert_eq!(app.keyboard_view().unwrap().logo_on, Some(false));
+}
+
+#[test]
+fn a_failed_logo_switch_hides_the_switch_if_the_read_back_fails() {
+    let (mut app, _dir, _) = app();
+    app.machine_mut().controller.logo_reply = Some(vec![0, 4, 1]);
+    app.start().unwrap();
+    app.machine_mut().controller.fails = true;
+    app.machine_mut().controller.logo_reply = None;
+
+    assert!(app.on_keyboard(KeyboardCommand::SetLogo(false)).is_err());
+    assert_eq!(app.keyboard_view().unwrap().logo_on, None);
+}
+
+#[test]
+fn a_logo_switch_that_fails_part_way_but_took_is_sent_at_resume() {
+    let (mut app, _dir, path) = app_with(Config {
+        lid_logo: Some(true),
+        ..Config::default()
+    });
+    app.machine_mut().controller.logo_reply = Some(vec![0, 4, 1]);
+    app.start().unwrap();
+    app.machine_mut().controller.fails_after = Some(2);
+    assert!(app.on_keyboard(KeyboardCommand::SetLogo(false)).is_err());
+    app.machine_mut().controller.fails_after = None;
+    app.machine_mut().controller.sent.clear();
+
+    app.on_power(PowerEvent::Resumed).unwrap();
+
+    assert!(sent(&app).ends_with(&logo().commands(false)));
+    assert_eq!(Config::load(&path).unwrap().lid_logo, Some(false));
+}
+
+#[test]
+fn a_logo_switch_that_fails_before_the_switch_shows_the_old_state() {
+    let (mut app, _dir, path) = app();
+    app.machine_mut().controller.logo_reply = Some(vec![0, 4, 1]);
+    app.start().unwrap();
+    app.machine_mut().controller.sent.clear();
+    app.machine_mut().controller.fails_after = Some(1);
+
+    assert!(app.on_keyboard(KeyboardCommand::SetLogo(false)).is_err());
+
+    assert_eq!(sent(&app), &logo().commands(false)[..1]);
+    assert_eq!(app.keyboard_view().unwrap().logo_on, Some(true));
+    assert!(!path.exists());
+}
