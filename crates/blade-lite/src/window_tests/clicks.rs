@@ -170,8 +170,8 @@ fn the_flyout_brightness_text_follows_the_slider_while_it_is_dragged() {
 }
 
 /// Drags the brightness slider `label` to its left end and lets it go
-/// while every send fails: nothing is sent, and the slider and its text
-/// go back to the brightness the laptop has.
+/// while every send fails: the send is tried and its error shown, and the
+/// slider and its text go back to the brightness the laptop has.
 fn failed_send_shows_the_brightness_again<R: ElementRoot + ComponentHandle>(
     f: &Fixture,
     root: &R,
@@ -185,6 +185,9 @@ fn failed_send_shows_the_brightness_again<R: ElementRoot + ComponentHandle>(
 
     slider.mock_drag(left_end, PointerEventButton::Left);
 
+    let error = f.shell.window().get_error();
+    assert!(error.contains("busy"), "{error}");
+    assert_eq!(f.shell.app().config().lighting, None);
     assert_eq!(slider.accessible_value().unwrap(), "100");
     assert_eq!(percent_shown(root, component), "100%");
 }
@@ -192,17 +195,13 @@ fn failed_send_shows_the_brightness_again<R: ElementRoot + ComponentHandle>(
 #[test]
 fn the_window_brightness_goes_back_after_a_failed_send() {
     let f = fixture(Config::default());
-    let before = sent_count(&f);
     failed_send_shows_the_brightness_again(&f, f.shell.window(), "Brightness", "KeyboardGroup");
-    assert_eq!(sent_since(&f, before), []);
 }
 
 #[test]
 fn the_flyout_brightness_goes_back_after_a_failed_send() {
     let f = fixture(Config::default());
-    let before = sent_count(&f);
     failed_send_shows_the_brightness_again(&f, f.shell.flyout(), "Keyboard light", "FlyoutWindow");
-    assert_eq!(sent_since(&f, before), []);
 }
 
 #[test]
@@ -230,6 +229,27 @@ fn a_drag_cut_short_gives_way_to_a_change_from_the_flyout() {
 
     assert_eq!(slider.accessible_value().unwrap(), "0");
     assert_eq!(percent_shown(window, "KeyboardGroup"), "Off");
+}
+
+#[test]
+fn the_flyout_slider_follows_a_change_from_the_window_after_its_own_drag() {
+    let f = fixture(Config::default());
+    let flyout = control(f.shell.flyout(), Slider, "Keyboard light");
+    let start = flyout.absolute_position();
+    let left_end = LogicalPosition::new(start.x, start.y + flyout.size().height / 2.0);
+    flyout.mock_drag(left_end, PointerEventButton::Left);
+    assert_eq!(percent_shown(f.shell.flyout(), "FlyoutWindow"), "Off");
+    let window = control(f.shell.window(), Slider, "Brightness");
+    let start = window.absolute_position();
+    let right_end = LogicalPosition::new(
+        start.x + window.size().width,
+        start.y + window.size().height / 2.0,
+    );
+
+    window.mock_drag(right_end, PointerEventButton::Left);
+
+    assert_eq!(flyout.accessible_value().unwrap(), "100");
+    assert_eq!(percent_shown(f.shell.flyout(), "FlyoutWindow"), "100%");
 }
 
 #[test]
