@@ -192,7 +192,7 @@ where
     /// Saves the switch and acts on it at once. If 60 Hz can't be set on
     /// battery, the old value is saved again, so the rates don't lock while
     /// the panel runs another rate.
-    fn set_sixty_hz_on_battery(&mut self, on: bool) -> Result<(), AppError> {
+    pub(super) fn set_sixty_hz_on_battery(&mut self, on: bool) -> Result<(), AppError> {
         let old = self.config;
         if on == old.sixty_hz_on_battery {
             return Ok(());

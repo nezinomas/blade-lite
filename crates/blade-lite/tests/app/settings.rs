@@ -241,3 +241,56 @@ fn reset_sends_and_saves_the_defaults() {
     assert_eq!(*app.config(), defaults);
     assert_eq!(Config::load(&path).unwrap(), defaults);
 }
+
+#[test]
+fn import_checks_the_custom_values_while_another_preset_is_picked() {
+    let (mut app, dir, path) = app();
+    let picked = dir.path().join("too-fast.toml");
+    fs::write(
+        &picked,
+        "preset = \"balanced\"\n[custom]\ncpu_boost = 99\ngpu_boost = 1\n",
+    )
+    .unwrap();
+
+    assert!(app.import_settings(&picked).is_err());
+
+    assert_eq!(sent(&app), []);
+    assert_eq!(*app.config(), Config::default());
+    assert!(!path.exists());
+}
+
+#[test]
+fn import_with_60_hz_on_battery_that_windows_refuses_keeps_the_switch_off() {
+    let (mut app, dir, path) = app();
+    app.on_power(PowerEvent::OnBattery).unwrap();
+    app.machine_mut().displays.1 = 1;
+    let picked = exported(
+        dir.path(),
+        &Config {
+            preset: Preset::Silent,
+            sixty_hz_on_battery: true,
+            ..Config::default()
+        },
+    );
+
+    assert!(app.import_settings(&picked).is_err());
+
+    assert_eq!(panel_hz(&app), 240);
+    assert!(!app.config().sixty_hz_on_battery);
+    assert!(!Config::load(&path).unwrap().sixty_hz_on_battery);
+    assert_eq!(app.config().preset, Preset::Silent);
+}
+
+#[test]
+fn reset_on_battery_puts_the_rate_back() {
+    let (mut app, _dir, _) = app_with(Config {
+        sixty_hz_on_battery: true,
+        ..Config::default()
+    });
+    app.on_power(PowerEvent::OnBattery).unwrap();
+    assert_eq!(panel_hz(&app), 60);
+
+    app.reset_settings().unwrap();
+
+    assert_eq!(panel_hz(&app), 240);
+}

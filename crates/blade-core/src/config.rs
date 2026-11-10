@@ -30,6 +30,10 @@ pub enum ConfigError {
     /// The file is far too big to be a config.
     #[error("config file is too big to be a config")]
     TooBig,
+    /// A picked file has no settings, or a key that is not a setting, so
+    /// it is not a settings file.
+    #[error("the file is not Blade Lite settings")]
+    NotSettings,
     /// The config could not be turned into TOML.
     #[error("config could not be written as TOML: {0}")]
     Serialize(#[from] toml::ser::Error),
@@ -141,28 +145,30 @@ impl Config {
     /// [`ConfigError::Parse`] if it is not a valid config,
     /// [`ConfigError::TooBig`] if it is far too big to be one.
     pub fn load(path: &Path) -> Result<Self, ConfigError> {
-        match Self::import(path) {
+        match read_capped(path) {
+            Ok(text) => Ok(toml::from_str(&text)?),
             Err(ConfigError::Io(error)) if error.kind() == ErrorKind::NotFound => {
                 Ok(Self::default())
             }
-            result => result,
+            Err(error) => Err(error),
         }
     }
 
     /// Reads a config the user picked, with the same checks as
-    /// [`load`](Self::load), but a missing file is an error.
+    /// [`load`](Self::load), and more, since the user may pick the wrong
+    /// file: a missing file, a file with no settings, or a key that is not
+    /// a setting (such as a typo, which would quietly give a default) is
+    /// an error.
     ///
     /// # Errors
     ///
-    /// As [`load`](Self::load), and [`ConfigError::Io`] if the file is
-    /// missing.
+    /// As [`load`](Self::load), [`ConfigError::Io`] if the file is
+    /// missing, and [`ConfigError::NotSettings`].
     pub fn import(path: &Path) -> Result<Self, ConfigError> {
-        let mut text = String::new();
-        fs::File::open(path)?
-            .take(MAX_BYTES + 1)
-            .read_to_string(&mut text)?;
-        if text.len() as u64 > MAX_BYTES {
-            return Err(ConfigError::TooBig);
+        let text = read_capped(path)?;
+        let table: toml::Table = toml::from_str(&text)?;
+        if table.is_empty() || !only_settings(&table) {
+            return Err(ConfigError::NotSettings);
         }
         Ok(toml::from_str(&text)?)
     }
@@ -190,6 +196,44 @@ impl Config {
         })?;
         Ok(())
     }
+}
+
+/// The config's top keys, and the keys of its two tables.
+const KEYS: [&str; 5] = [
+    "preset",
+    "custom",
+    "sixty_hz_on_battery",
+    "lighting",
+    "lid_logo",
+];
+const CUSTOM_KEYS: [&str; 3] = ["cpu_boost", "gpu_boost", "fan_rpm"];
+const LIGHTING_KEYS: [&str; 3] = ["brightness", "colour", "vapor_light"];
+
+/// Whether every key in `table` is a setting. The values are checked when
+/// the config is read.
+fn only_settings(table: &toml::Table) -> bool {
+    let keys_in = |value: &toml::Value, keys: &[&str]| {
+        value
+            .as_table()
+            .is_none_or(|inner| inner.keys().all(|key| keys.contains(&key.as_str())))
+    };
+    table.iter().all(|(key, value)| match key.as_str() {
+        "custom" => keys_in(value, &CUSTOM_KEYS),
+        "lighting" => keys_in(value, &LIGHTING_KEYS),
+        key => KEYS.contains(&key),
+    })
+}
+
+/// Reads the file as text, refusing one far too big to be a config.
+fn read_capped(path: &Path) -> Result<String, ConfigError> {
+    let mut bytes = Vec::new();
+    fs::File::open(path)?
+        .take(MAX_BYTES + 1)
+        .read_to_end(&mut bytes)?;
+    if u64::try_from(bytes.len()).map_or(true, |len| len > MAX_BYTES) {
+        return Err(ConfigError::TooBig);
+    }
+    String::from_utf8(bytes).map_err(|error| io::Error::new(ErrorKind::InvalidData, error).into())
 }
 
 /// The temp file's path: the config's name with `.tmp` added.

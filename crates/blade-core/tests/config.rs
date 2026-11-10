@@ -321,3 +321,63 @@ fn a_file_too_big_for_a_config_is_not_read() {
     assert!(matches!(Config::load(&path), Err(ConfigError::TooBig)));
     assert!(matches!(Config::import(&path), Err(ConfigError::TooBig)));
 }
+
+/// Writes `text` to a file in `dir` and imports it.
+fn import_text(dir: &Path, text: &str) -> Result<Config, ConfigError> {
+    let path = dir.join("picked.toml");
+    fs::write(&path, text).unwrap();
+    Config::import(&path)
+}
+
+#[test]
+fn import_refuses_a_file_with_no_settings_in_it() {
+    let dir = tempfile::tempdir().unwrap();
+
+    assert!(matches!(
+        import_text(dir.path(), ""),
+        Err(ConfigError::NotSettings)
+    ));
+}
+
+#[test]
+fn import_refuses_a_toml_file_that_is_not_settings() {
+    let dir = tempfile::tempdir().unwrap();
+    let cargo = "[package]\nname = \"x\"\nversion = \"0.1.0\"\n";
+
+    assert!(matches!(
+        import_text(dir.path(), cargo),
+        Err(ConfigError::NotSettings)
+    ));
+}
+
+#[test]
+fn import_refuses_a_misspelt_key() {
+    let dir = tempfile::tempdir().unwrap();
+    let text = "preset = \"custom\"\n[custom]\ncpu_bost = 3\n";
+
+    assert!(matches!(
+        import_text(dir.path(), text),
+        Err(ConfigError::NotSettings)
+    ));
+}
+
+#[test]
+fn import_takes_a_file_with_only_some_settings() {
+    let dir = tempfile::tempdir().unwrap();
+
+    let config = import_text(dir.path(), "lid_logo = false\n").unwrap();
+
+    assert_eq!(config.lid_logo, Some(false));
+}
+
+#[test]
+fn a_file_too_big_cut_inside_a_character_is_too_big() {
+    let dir = tempfile::tempdir().unwrap();
+    // 'é' is two bytes, so the cut at 64 KiB + 1 falls inside one.
+    let text = format!("# {}\n", "é".repeat(40_000));
+
+    assert!(matches!(
+        import_text(dir.path(), &text),
+        Err(ConfigError::TooBig)
+    ));
+}

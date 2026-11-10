@@ -3,7 +3,7 @@
 use std::path::Path;
 
 use blade_core::{Config, Controller, Query, apply, check};
-use platform::{DisplayApi, KeyInjector, PowerEvent, Registry};
+use platform::{DisplayApi, KeyInjector, Registry};
 
 use super::{App, AppError, DEFAULT_LIGHTING};
 use crate::report;
@@ -62,7 +62,7 @@ where
     /// a start does, then keeps and saves it. Nothing is sent if the model
     /// does not take a value. A failed send keeps the old config, and the
     /// next power event sends the preset again. The 60 Hz switch acts at
-    /// once, as a click on it does.
+    /// once, as a click on it does, and stays off if 60 Hz can't be set.
     fn replace_config(&mut self, config: Config) -> Result<(), AppError> {
         let running = self.running(config);
         check(&config, self.model)?;
@@ -73,20 +73,16 @@ where
         self.preset_unsure = applied.is_err();
         self.read_logo();
         applied?;
-        let switched = self.config.sixty_hz_on_battery != config.sixty_hz_on_battery;
-        let kept = self.keep_sent(config);
-        let rate = if switched && self.on_battery {
-            self.follow_power(if config.sixty_hz_on_battery {
-                PowerEvent::OnBattery
-            } else {
-                PowerEvent::OnAc
-            })
-        } else {
-            Ok(())
-        };
+        // The switch goes through the click's path, which keeps it off if
+        // Windows refuses 60 Hz, so the rates don't lock.
+        let kept = self.keep_sent(Config {
+            sixty_hz_on_battery: self.config.sixty_hz_on_battery,
+            ..config
+        });
+        let rate = self.set_sixty_hz_on_battery(config.sixty_hz_on_battery);
         if let (Err(_), Err(error)) = (&kept, &rate) {
             // Only the save error is shown, so this one is logged.
-            report(&format!("the 60 Hz on battery failed too: {error}"));
+            report(&format!("the 60 Hz on battery switch failed too: {error}"));
         }
         kept.and(rate)
     }
