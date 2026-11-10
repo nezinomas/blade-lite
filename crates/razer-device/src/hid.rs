@@ -52,10 +52,7 @@ const KEY_REPORT_ROOM: usize = 64;
 /// The collections that send the model's key reports, opened through
 /// hidapi. They are only read: nothing is sent to them.
 pub struct HidKeyReports {
-    devices: Vec<HidDevice>,
-    /// The collection that sent the first report. Only that one is read
-    /// from then on, so a press can't come in twice or out of order.
-    source: Option<usize>,
+    sources: KeySources<HidDevice>,
 }
 
 impl HidKeyReports {
@@ -84,8 +81,7 @@ impl HidKeyReports {
             return Err(not_found());
         }
         Ok(Self {
-            devices,
-            source: None,
+            sources: KeySources::new(devices),
         })
     }
 
@@ -98,6 +94,41 @@ impl HidKeyReports {
     /// that sent last no longer being in the list (it can't today: the list
     /// never changes after `open`).
     pub fn read(&mut self, wait: Duration) -> io::Result<Option<Vec<u8>>> {
+        self.sources.read(wait)
+    }
+}
+
+/// A collection read with a wait: hidapi's, or a fake in the tests.
+trait ReadTimeout {
+    /// Reads one report into `buffer`, waiting up to `millis`. 0 bytes if
+    /// none came.
+    fn read_timeout(&self, buffer: &mut [u8], millis: i32) -> io::Result<usize>;
+}
+
+impl ReadTimeout for HidDevice {
+    fn read_timeout(&self, buffer: &mut [u8], millis: i32) -> io::Result<usize> {
+        HidDevice::read_timeout(self, buffer, millis).map_err(io::Error::other)
+    }
+}
+
+/// The key collections, and the one that sent first.
+struct KeySources<D> {
+    devices: Vec<D>,
+    /// The collection that sent the first report. Only that one is read
+    /// from then on, so a press can't come in twice or out of order.
+    source: Option<usize>,
+}
+
+impl<D: ReadTimeout> KeySources<D> {
+    fn new(devices: Vec<D>) -> Self {
+        Self {
+            devices,
+            source: None,
+        }
+    }
+
+    /// See [`HidKeyReports::read`].
+    fn read(&mut self, wait: Duration) -> io::Result<Option<Vec<u8>>> {
         let millis = i32::try_from(wait.as_millis()).unwrap_or(i32::MAX);
         let mut buffer = [0; KEY_REPORT_ROOM];
         let first = self.source.unwrap_or(0);
@@ -109,9 +140,7 @@ impl HidKeyReports {
             None => self.devices.as_slice(),
         };
         for (index, device) in (first..).zip(devices) {
-            let read = device
-                .read_timeout(&mut buffer, millis)
-                .map_err(io::Error::other)?;
+            let read = device.read_timeout(&mut buffer, millis)?;
             if read > 0 {
                 self.source = Some(index);
                 let report = buffer
@@ -177,6 +206,10 @@ fn feature_report(buffer: &[u8; REPORT_LEN + 1], read: usize) -> io::Result<[u8;
 mod tests {
     use super::*;
 
+    use std::cell::RefCell;
+    use std::collections::VecDeque;
+    use std::rc::Rc;
+
     /// A feature read: the report ID, then the report.
     fn read_buffer() -> [u8; REPORT_LEN + 1] {
         let mut buffer = [0xAB; REPORT_LEN + 1];
@@ -197,6 +230,118 @@ mod tests {
         let buffer = feature_buffer(&[0xAB; REPORT_LEN]);
         assert_eq!(buffer[0], REPORT_ID);
         assert_eq!(buffer[1..], [0xAB; REPORT_LEN]);
+    }
+
+    /// A key collection that gives its reports in turn, then 0 bytes, and
+    /// logs its number and the wait of each read. A report longer than the
+    /// buffer is cut, but its whole length is said, as a broken read would.
+    struct FakeCollection {
+        number: usize,
+        reports: RefCell<VecDeque<io::Result<Vec<u8>>>>,
+        log: Rc<RefCell<Vec<(usize, i32)>>>,
+    }
+
+    impl ReadTimeout for FakeCollection {
+        fn read_timeout(&self, buffer: &mut [u8], millis: i32) -> io::Result<usize> {
+            self.log.borrow_mut().push((self.number, millis));
+            let Some(report) = self.reports.borrow_mut().pop_front() else {
+                return Ok(0);
+            };
+            let report = report?;
+            let fits = report.len().min(buffer.len());
+            buffer[..fits].copy_from_slice(&report[..fits]);
+            Ok(report.len())
+        }
+    }
+
+    type ReadLog = Rc<RefCell<Vec<(usize, i32)>>>;
+
+    /// Key sources over collections that give these reports, and their log.
+    fn sources(reports: Vec<Vec<io::Result<Vec<u8>>>>) -> (KeySources<FakeCollection>, ReadLog) {
+        let log = ReadLog::default();
+        let devices = reports
+            .into_iter()
+            .enumerate()
+            .map(|(number, reports)| FakeCollection {
+                number,
+                reports: RefCell::new(reports.into()),
+                log: Rc::clone(&log),
+            })
+            .collect();
+        (KeySources::new(devices), log)
+    }
+
+    const WAIT: Duration = Duration::from_millis(250);
+    const POWER_KEY: [u8; 3] = [0x04, 0x0A, 0xD3];
+
+    #[test]
+    fn no_report_is_none_after_each_collection_waited() {
+        let (mut sources, log) = sources(vec![vec![], vec![]]);
+
+        assert_eq!(sources.read(WAIT).unwrap(), None);
+        assert_eq!(*log.borrow(), [(0, 250), (1, 250)]);
+    }
+
+    #[test]
+    fn zero_bytes_is_no_report() {
+        let (mut sources, _) = sources(vec![vec![Ok(Vec::new())]]);
+
+        assert_eq!(sources.read(WAIT).unwrap(), None);
+    }
+
+    #[test]
+    fn the_report_is_the_bytes_read() {
+        let (mut sources, _) = sources(vec![vec![Ok(POWER_KEY.to_vec())]]);
+
+        assert_eq!(sources.read(WAIT).unwrap(), Some(POWER_KEY.to_vec()));
+    }
+
+    #[test]
+    fn the_first_collection_to_send_is_the_only_one_read_then() {
+        let (mut sources, log) = sources(vec![
+            vec![Ok(Vec::new()), Ok(vec![0x04, 0x0A])],
+            vec![Ok(POWER_KEY.to_vec())],
+        ]);
+
+        assert_eq!(sources.read(WAIT).unwrap(), Some(POWER_KEY.to_vec()));
+        assert_eq!(sources.read(WAIT).unwrap(), None);
+        assert_eq!(*log.borrow(), [(0, 250), (1, 250), (1, 250)]);
+    }
+
+    #[test]
+    fn the_first_source_is_kept_when_it_is_the_first_collection() {
+        let (mut sources, log) = sources(vec![
+            vec![Ok(POWER_KEY.to_vec())],
+            vec![Ok(vec![0x04, 0x0A])],
+        ]);
+
+        sources.read(WAIT).unwrap();
+        assert_eq!(sources.read(WAIT).unwrap(), None);
+        assert_eq!(*log.borrow(), [(0, 250), (0, 250)]);
+    }
+
+    #[test]
+    fn a_read_longer_than_the_buffer_is_an_error() {
+        let too_long = vec![0x04; KEY_REPORT_ROOM + 1];
+        let (mut sources, _) = sources(vec![vec![Ok(too_long)]]);
+
+        assert!(sources.read(WAIT).is_err());
+    }
+
+    #[test]
+    fn a_read_error_is_returned() {
+        let error = io::Error::other("the keyboard went away");
+        let (mut sources, _) = sources(vec![vec![Err(error)]]);
+
+        assert!(sources.read(WAIT).is_err());
+    }
+
+    #[test]
+    fn a_wait_too_long_for_hidapi_is_its_longest() {
+        let (mut sources, log) = sources(vec![vec![]]);
+
+        sources.read(Duration::MAX).unwrap();
+        assert_eq!(*log.borrow(), [(0, i32::MAX)]);
     }
 
     #[test]
