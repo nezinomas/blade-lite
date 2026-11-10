@@ -923,6 +923,7 @@ fn a_wake_60_hz_refused_every_time_shows_only_the_last_error() {
 #[test]
 fn a_typed_custom_colour_sends_and_saves_it_on_enter() {
     let f = fixture(Config::default());
+    assert_eq!(f.shell.app().config().lighting, None);
     let before = sent_count(&f);
     let field = control(f.shell.window(), TextInput, "Custom colour");
     let start = field.absolute_position();
@@ -939,7 +940,8 @@ fn a_typed_custom_colour_sends_and_saves_it_on_enter() {
         button,
     });
 
-    field.set_accessible_value("#00B7C3");
+    field.set_accessible_value("#00b7c3");
+    assert_eq!(sent_since(&f, before), []);
     let enter: slint::SharedString = slint::platform::Key::Return.into();
     window.dispatch_event(WindowEvent::KeyPressed {
         text: enter.clone(),
@@ -980,4 +982,28 @@ fn a_custom_cpu_boost_click_one_step_up_sends_the_custom_commands() {
     };
     assert_eq!(sent_since(&f, before), custom.commands(&BLADE_18));
     assert_eq!(f.shell.app().config().custom.cpu_boost, 2);
+    // The rows are made again after a change, so find the slider again.
+    let slider = control(f.shell.window(), Slider, "CPU boost");
+    assert_eq!(slider.accessible_value().unwrap(), "2");
+}
+
+#[test]
+fn a_custom_slider_goes_back_after_a_failed_send() {
+    let f = fixture(Config {
+        preset: Preset::Custom,
+        ..Config::default()
+    });
+    f.shell.app().machine_mut().controller.fails = true;
+    let slider = control(f.shell.window(), Slider, "CPU boost");
+    let start = slider.absolute_position();
+    let left_end = LogicalPosition::new(start.x, start.y + slider.size().height / 2.0);
+
+    slider.mock_drag(left_end, PointerEventButton::Left);
+
+    let error = f.shell.window().get_error();
+    assert!(error.contains("busy"), "{error}");
+    assert_eq!(f.shell.app().config().custom.cpu_boost, 1);
+    // The rows are made again after a change, so find the slider again.
+    let slider = control(f.shell.window(), Slider, "CPU boost");
+    assert_eq!(slider.accessible_value().unwrap(), "1");
 }
