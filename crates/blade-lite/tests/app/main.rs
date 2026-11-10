@@ -11,6 +11,7 @@ mod power_key;
 mod presets;
 mod settings;
 mod touchpad_key;
+mod weak_charge;
 
 use std::path::{Path, PathBuf};
 

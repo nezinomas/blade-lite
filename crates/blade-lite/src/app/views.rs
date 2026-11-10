@@ -11,7 +11,7 @@ use ui::{
     PerformanceView,
 };
 
-use super::{App, AppError};
+use super::{App, AppError, Power};
 
 impl<C, D, R, K> App<C, D, R, K>
 where
@@ -29,7 +29,8 @@ where
         Header::new(&HeaderState {
             model: self.model,
             preset: self.config.preset,
-            on_battery: self.on_battery,
+            on_battery: self.on_battery(),
+            weak_charge: self.power == Power::WeakCharger,
             readings,
             cpu_celsius: controller.cpu,
             fans: controller.fans,
@@ -63,7 +64,7 @@ where
         PerformanceView::new(&PerformanceState {
             model: self.model,
             preset: self.config.preset,
-            on_battery: self.on_battery,
+            on_battery: self.battery_presets(),
             custom: self.config.custom,
             charge_limit_on: self.charge_limit_on,
         })
@@ -73,7 +74,9 @@ where
     /// runs as another one.
     #[must_use]
     pub fn running_preset(&self) -> Preset {
-        self.config.preset.running(self.on_battery, self.model)
+        self.config
+            .preset
+            .running(self.battery_presets(), self.model)
     }
 
     /// # Errors
@@ -89,7 +92,7 @@ where
             current: current_rate(displays)?,
             native: native_mode_state(chosen, self.model, displays)?,
             sixty_hz_on_battery: self.config.sixty_hz_on_battery,
-            on_battery: self.on_battery,
+            on_battery: self.on_battery(),
         }))
     }
 

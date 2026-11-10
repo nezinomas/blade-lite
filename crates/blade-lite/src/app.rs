@@ -10,7 +10,8 @@ mod views;
 use std::path::PathBuf;
 
 use blade_core::{
-    BatteryRate, Config, Controller, Lighting, Query, charge_limit_on, logo_on, touchpad_on,
+    BatteryRate, Config, Controller, Lighting, Query, charge_limit_on, full_power_charger, logo_on,
+    touchpad_on,
 };
 use platform::{DisplayApi, KeyInjector, Registry};
 use razer_proto::{ModelProfile, Rgb};
@@ -34,6 +35,35 @@ pub struct Machine<C, D, R, K> {
     pub keys: K,
 }
 
+/// What powers the laptop. Only the battery presets run on the battery or
+/// a weak charger, as Synapse does. The charger is read at start, after
+/// each resume and power event, and on the polls.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Power {
+    Charger,
+    /// A charger too weak for every preset, such as a USB-C monitor.
+    WeakCharger,
+    Battery,
+}
+
+impl Power {
+    fn from_battery(on_battery: bool) -> Self {
+        if on_battery {
+            Self::Battery
+        } else {
+            Self::Charger
+        }
+    }
+
+    fn from_full(full: bool) -> Self {
+        if full {
+            Self::Charger
+        } else {
+            Self::WeakCharger
+        }
+    }
+}
+
 /// The app's state. Each click becomes a command, and each command is
 /// applied first and saved only when it worked. A change the laptop took
 /// is kept in memory even if its save fails.
@@ -43,7 +73,7 @@ pub struct App<C, D, R, K> {
     config_path: PathBuf,
     machine: Machine<C, D, R, K>,
     battery_rate: BatteryRate,
-    on_battery: bool,
+    power: Power,
     /// Whether the last start, preset change or power switch failed, so
     /// the controller may not run the preset the app shows (a failed start
     /// may also be a lighting send; a resend then does no harm). The next
@@ -88,7 +118,7 @@ where
             config_path,
             machine,
             battery_rate: BatteryRate::default(),
-            on_battery: false,
+            power: Power::Charger,
             preset_unsure: false,
             logo_on: None,
             charge_limit_on: None,
@@ -128,7 +158,7 @@ where
     /// [`start`](Self::start), so a start on battery sends the battery
     /// preset, not the saved one.
     pub fn take_on_battery(&mut self, on_battery: bool) {
-        self.on_battery = on_battery;
+        self.power = Power::from_battery(on_battery);
     }
 
     /// Whether the touchpad key should be red. If the touchpad state can't
@@ -167,10 +197,36 @@ where
             .flatten();
     }
 
+    /// Whether only the battery presets run: on battery or a weak charge.
+    fn battery_presets(&self) -> bool {
+        self.power != Power::Charger
+    }
+
+    fn on_battery(&self) -> bool {
+        self.power == Power::Battery
+    }
+
+    /// Reads whether the charger is weak. On battery nothing is read. A
+    /// failed read counts as a weak charge (fail safe) until the next read.
+    fn read_charger(&mut self) {
+        if self.on_battery() {
+            return;
+        }
+        self.power = match full_power_charger(&mut self.machine.controller, self.model) {
+            Ok(full) => Power::from_full(full),
+            Err(error) => {
+                report(&format!(
+                    "charger read failed: the battery presets run: {error}"
+                ));
+                Power::WeakCharger
+            }
+        };
+    }
+
     /// The config with the preset that runs in place of its saved one.
     fn running(&self, config: Config) -> Config {
         Config {
-            preset: config.preset.running(self.on_battery, self.model),
+            preset: config.preset.running(self.battery_presets(), self.model),
             ..config
         }
     }

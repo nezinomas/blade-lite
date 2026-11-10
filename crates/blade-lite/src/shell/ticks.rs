@@ -17,7 +17,8 @@ use crate::bind;
 impl<P: Parts> Shell<P> {
     /// Passes on power events, tries a wake's refused 60 Hz again, passes
     /// on Num Lock, then reads the sensors if a view shows them, or only
-    /// the temperatures now and then if none does.
+    /// the temperatures now and then if none does. Each such read also
+    /// reads the charger.
     pub fn tick(self: &Rc<Self>) {
         self.tick_at(Instant::now(), SystemTime::now());
     }
@@ -32,8 +33,24 @@ impl<P: Parts> Shell<P> {
         self.follow_num_lock(num_lock_on());
         if self.schedule.borrow_mut().poll_due(now) {
             self.tick_readings(now);
+            self.follow_charger();
         } else if self.heat_reads_allowed() && self.schedule.borrow_mut().heat_due(now, wall) {
             self.tick_heat(now);
+            self.follow_charger();
+        }
+    }
+
+    /// Sends the preset that runs if a weak charge came or went, such as a
+    /// USB-C monitor plugged in while the Razer charger is pulled (Windows
+    /// sees no power change then). Not while a resume waits or Razer's
+    /// software runs, as for the heat reads.
+    fn follow_charger(self: &Rc<Self>) {
+        if !self.heat_reads_allowed() {
+            return;
+        }
+        let changed = self.app.borrow_mut().follow_charger();
+        if !matches!(changed, Ok(false)) {
+            self.act(|_| changed.map(|_| ()));
         }
     }
 

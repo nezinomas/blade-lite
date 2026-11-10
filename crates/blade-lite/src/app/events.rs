@@ -1,10 +1,13 @@
 //! What the app does at start, on a power change, on a touchpad switch, on
 //! a Num Lock change and on quit.
 
-use blade_core::{Controller, Query, apply, apply_performance, paint_touchpad_key, touchpad_on};
+use blade_core::{
+    Controller, Preset, Query, apply, apply_performance, full_power_charger, paint_touchpad_key,
+    touchpad_on,
+};
 use platform::{DisplayApi, KeyInjector, PowerEvent, Registry};
 
-use super::{App, AppError};
+use super::{App, AppError, Power};
 
 impl<C, D, R, K> App<C, D, R, K>
 where
@@ -23,6 +26,7 @@ where
     /// See [`AppError`].
     pub fn start(&mut self) -> Result<(), AppError> {
         self.read_charge_limit();
+        self.read_charger();
         let config = self.running(self.config);
         let red = self.key_should_be_red();
         let applied = apply(&config, self.model, &mut self.machine.controller, red);
@@ -101,7 +105,7 @@ where
                 let started = self.start();
                 // Only on battery: the charger may have gone in during the
                 // sleep, before its power event comes.
-                let rate = if self.on_battery {
+                let rate = if self.on_battery() {
                     self.follow_power(event)
                 } else {
                     Ok(())
@@ -129,7 +133,37 @@ where
     /// runs, or the last start or switch failed.
     fn set_on_battery(&mut self, on_battery: bool) -> Result<(), AppError> {
         let before = self.running(self.config).preset;
-        self.on_battery = on_battery;
+        self.power = Power::from_battery(on_battery);
+        self.read_charger();
+        self.send_if_changed(before)
+    }
+
+    /// Reads the charger again on a poll, and sends the preset if a weak
+    /// charge came or went. A failed read keeps the last one. On battery
+    /// nothing is read. Returns whether the running preset changed.
+    ///
+    /// # Errors
+    ///
+    /// See [`AppError`].
+    pub fn follow_charger(&mut self) -> Result<bool, AppError> {
+        if self.on_battery() {
+            return Ok(false);
+        }
+        let Ok(full) = full_power_charger(&mut self.machine.controller, self.model) else {
+            return Ok(false);
+        };
+        let before = self.running(self.config).preset;
+        self.power = Power::from_full(full);
+        let changed = self.running(self.config).preset != before;
+        if changed {
+            self.send_if_changed(before)?;
+        }
+        Ok(changed)
+    }
+
+    /// Sends the preset that runs now if it is not `before`, or the last
+    /// start or switch failed.
+    fn send_if_changed(&mut self, before: Preset) -> Result<(), AppError> {
         let config = self.running(self.config);
         if config.preset != before || self.preset_unsure {
             let applied = apply_performance(&config, self.model, &mut self.machine.controller);
@@ -153,7 +187,7 @@ where
     /// Whether a wake's 60 Hz on battery failed and is to be tried again.
     #[must_use]
     pub fn battery_rate_pending(&self) -> bool {
-        self.on_battery && self.battery_rate.retry_pending()
+        self.on_battery() && self.battery_rate.retry_pending()
     }
 
     /// Tries a wake's failed 60 Hz again, on battery only (one try per
@@ -163,7 +197,7 @@ where
     ///
     /// See [`AppError`].
     pub fn retry_battery_rate(&mut self) -> Result<(), AppError> {
-        if !self.on_battery {
+        if !self.on_battery() {
             return Ok(());
         }
         let displays = &mut self.machine.displays;
