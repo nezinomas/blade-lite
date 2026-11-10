@@ -7,6 +7,7 @@ use blade_core::View;
 use blade_lite::{Rect, flyout_position, report};
 use platform::{hide_caption_buttons, round_corners, set_mica};
 use raw_window_handle::{HasWindowHandle, RawWindowHandle};
+use slint::platform::WindowEvent;
 use slint::winit_030::{EventResult, WinitWindowAccessor, winit};
 use slint::{ComponentHandle, PhysicalPosition, Timer};
 
@@ -45,7 +46,6 @@ impl<P: Parts> Shell<P> {
 
     pub fn show_window(self: &Rc<Self>) {
         self.hide_flyout();
-        self.window.invoke_show_brightness();
         if let Err(error) = self.window.show() {
             report(&format!("cannot show the window: {error}"));
             return;
@@ -66,6 +66,8 @@ impl<P: Parts> Shell<P> {
             .borrow_mut()
             .show(View::Window, Instant::now());
         self.refresh(None);
+        drop_lost_drag(self.window.window());
+        self.window.invoke_show_brightness();
     }
 
     /// Opens the flyout above the tray icon, or closes it if it is open.
@@ -82,6 +84,7 @@ impl<P: Parts> Shell<P> {
             return;
         }
         self.refresh(None);
+        drop_lost_drag(self.flyout.window());
         self.flyout.invoke_show_brightness();
         if let Err(error) = self.flyout.show() {
             report(&format!("cannot show the flyout: {error}"));
@@ -170,6 +173,12 @@ impl<P: Parts> Shell<P> {
             .window()
             .set_position(PhysicalPosition::new(x, y));
     }
+}
+
+/// Ends a drag the window lost (hidden before the mouse-up), so the next
+/// mouse move can't drag a slider of the shown window on.
+fn drop_lost_drag(window: &slint::Window) {
+    window.dispatch_event(WindowEvent::PointerExited);
 }
 
 /// The window's Win32 handle, once Windows has made it.
