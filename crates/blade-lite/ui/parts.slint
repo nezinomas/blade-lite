@@ -40,6 +40,12 @@ export global Show {
     }
 }
 
+// The keyboard brightness slider's range, in percent, in the window and the flyout.
+export global BrightnessRange {
+    out property <int> maximum: 100;
+    out property <int> step: 5;
+}
+
 // One white card with a thin border, as in Windows Settings.
 export component Card inherits Rectangle {
     background: Theme.card;
