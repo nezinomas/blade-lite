@@ -225,13 +225,15 @@ impl<P: Parts> Shell<P> {
             let flyout = FlyoutView::new(&performance, display, keyboard);
             bind::flyout(&self.flyout, &flyout, &header);
         }
-        // A switch flips itself on a click. Set it from the config even when
-        // a view failed, so it never shows a value that isn't saved.
+        // A switch flips itself on a click. Set it from the config, or the
+        // logo state last read or set, even when a view failed, so it never
+        // shows a value that was not saved or sent.
         let sixty_hz = app.config().sixty_hz_on_battery;
         self.window.set_sixty_hz_on_battery(sixty_hz);
         self.flyout.set_sixty_hz_on_battery(sixty_hz);
         self.window
             .set_vapor_light_on(app.vapor_light_on() == Some(true));
+        self.window.set_logo_shown(app.logo_on().is_some());
         self.window.set_logo_on(app.logo_on() == Some(true));
         let errors = errors.join("\n");
         if let Some(new) = self.shown_errors.borrow_mut().new_text(&errors) {
