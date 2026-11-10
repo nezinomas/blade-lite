@@ -41,6 +41,10 @@ pub struct App<C, D, R, K> {
     machine: Machine<C, D, R, K>,
     battery_rate: BatteryRate,
     on_battery: bool,
+    /// Whether the last start or power switch failed, so the controller
+    /// may not run the preset for the power source. The next power event
+    /// then sends it, even if the source is the same.
+    preset_unsure: bool,
     /// The lid logo state, read after the settings are sent at start and
     /// after each resume. `None` if the model has none or it could not be
     /// read.
@@ -79,6 +83,7 @@ where
             machine,
             battery_rate: BatteryRate::default(),
             on_battery: false,
+            preset_unsure: false,
             logo_on: None,
             charge_limit_on: None,
             key_red: None,

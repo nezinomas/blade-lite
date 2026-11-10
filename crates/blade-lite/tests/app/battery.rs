@@ -188,7 +188,8 @@ fn a_start_on_battery_sends_balanced_for_a_saved_custom_fan() {
     assert!(sent(&app).iter().all(|command| {
         command.id != SET_FAN
             && command.id != SET_BOOST
-            && !(command.id == SET_PRESET && command.args.get(2) == Some(&CUSTOM_MODE))
+            && !(command.id == SET_PRESET
+                && (command.args.get(2) == Some(&CUSTOM_MODE) || command.args.get(3) != Some(&0)))
     }));
     assert_eq!(app.config().preset, Preset::Custom);
 }
@@ -240,4 +241,30 @@ fn a_resume_taken_as_battery_sends_balanced_for_a_saved_performance() {
             .windows(performance.len())
             .any(|run| run == performance)
     );
+}
+
+#[test]
+fn a_power_event_sends_again_after_a_failed_start() {
+    let (mut app, _dir, _) = performance_app();
+    app.take_on_battery(true);
+    app.machine_mut().controller.fails = true;
+    assert!(app.start().is_err());
+    app.machine_mut().controller.fails = false;
+    app.machine_mut().controller.sent.clear();
+
+    app.on_power(PowerEvent::OnBattery).unwrap();
+
+    assert_eq!(sent(&app), PerfMode::Balanced.commands(&BLADE_18).unwrap());
+}
+
+#[test]
+fn a_power_event_sends_again_after_a_failed_switch() {
+    let (mut app, _dir, _) = performance_app();
+    app.machine_mut().controller.fails = true;
+    assert!(app.on_power(PowerEvent::OnBattery).is_err());
+    app.machine_mut().controller.fails = false;
+
+    app.on_power(PowerEvent::OnBattery).unwrap();
+
+    assert_eq!(sent(&app), PerfMode::Balanced.commands(&BLADE_18).unwrap());
 }
