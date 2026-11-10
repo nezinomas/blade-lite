@@ -277,11 +277,10 @@ fn a_60_hz_refused_after_a_wake_is_tried_again_on_the_next_polls() {
     let mut battery_rate = woken_at_240(&mut api);
     api.failing_sets = 2;
 
-    assert!(
-        battery_rate
-            .on_event(PowerEvent::Resumed, &config(true), &mut api)
-            .is_err()
-    );
+    // Not an error yet: the tries show only the last one.
+    battery_rate
+        .on_event(PowerEvent::Resumed, &config(true), &mut api)
+        .unwrap();
     assert!(battery_rate.retry_pending());
     battery_rate.retry(&config(true), &mut api).unwrap();
     battery_rate.retry(&config(true), &mut api).unwrap();
@@ -296,11 +295,10 @@ fn the_tries_after_a_wake_stop_with_the_last_error() {
     let mut battery_rate = woken_at_240(&mut api);
     api.failing_sets = usize::MAX;
 
-    assert!(
-        battery_rate
-            .on_event(PowerEvent::Resumed, &config(true), &mut api)
-            .is_err()
-    );
+    // Not an error yet: the tries show only the last one.
+    battery_rate
+        .on_event(PowerEvent::Resumed, &config(true), &mut api)
+        .unwrap();
     let mut results = Vec::new();
     while battery_rate.retry_pending() {
         results.push(battery_rate.retry(&config(true), &mut api).is_ok());
@@ -312,7 +310,7 @@ fn the_tries_after_a_wake_stop_with_the_last_error() {
 }
 
 #[test]
-fn a_power_change_stops_the_tries_after_a_wake() {
+fn ac_stops_the_tries_after_a_wake() {
     let mut api = panel_at(240);
     let mut battery_rate = woken_at_240(&mut api);
     api.failing_sets = 1;
@@ -337,4 +335,21 @@ fn turning_the_option_off_stops_the_tries_after_a_wake() {
 
     assert_eq!(api.set.len(), before);
     assert!(!battery_rate.retry_pending());
+}
+
+#[test]
+fn a_battery_event_keeps_the_tries_after_a_wake() {
+    let mut api = panel_at(240);
+    let mut battery_rate = woken_at_240(&mut api);
+    api.failing_sets = 1;
+    battery_rate
+        .on_event(PowerEvent::Resumed, &config(true), &mut api)
+        .unwrap();
+
+    battery_rate
+        .on_event(PowerEvent::OnBattery, &config(true), &mut api)
+        .unwrap();
+    battery_rate.retry(&config(true), &mut api).unwrap();
+
+    assert_eq!(api.panel_mode(), mode(3840, 2400, 60));
 }

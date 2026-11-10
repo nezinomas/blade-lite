@@ -90,8 +90,9 @@ impl Query for FakeController {
     }
 }
 
-/// The panel at 3840 × 2400, 60 to 240 Hz.
-pub struct FakeDisplays(pub Display);
+/// The panel at 3840 × 2400, 60 to 240 Hz, and how many of the next sets
+/// fail (Windows refuses one just after a wake).
+pub struct FakeDisplays(pub Display, pub usize);
 
 impl Default for FakeDisplays {
     fn default() -> Self {
@@ -100,12 +101,15 @@ impl Default for FakeDisplays {
             height: 2400,
             hz,
         };
-        Self(Display {
-            name: r"\\.\DISPLAY1".into(),
-            technology: OutputTechnology::Internal,
-            current: mode(240),
-            modes: vec![mode(60), mode(120), mode(240)],
-        })
+        Self(
+            Display {
+                name: r"\\.\DISPLAY1".into(),
+                technology: OutputTechnology::Internal,
+                current: mode(240),
+                modes: vec![mode(60), mode(120), mode(240)],
+            },
+            0,
+        )
     }
 }
 
@@ -115,6 +119,10 @@ impl DisplayApi for FakeDisplays {
     }
 
     fn set_mode(&mut self, _name: &str, mode: DisplayMode, _life: ModeLife) -> io::Result<()> {
+        if self.1 > 0 {
+            self.1 -= 1;
+            return Err(io::ErrorKind::Other.into());
+        }
         self.0.current = mode;
         Ok(())
     }

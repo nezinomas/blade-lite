@@ -67,6 +67,7 @@ Do these in one go, on AC, with "Start with Windows" on and Num Lock off. First 
 10. **Brightness drag (68).** In the window, drag the keyboard brightness slider slowly and hold it. The percent beside it follows. The keyboard light changes only when you let go. Do the same in the flyout.
 11. **Fans on battery (86).** Unplug the charger. In Balanced, run a CPU load (such as a game or a big build) for 2 minutes. When the app shows the CPU above about 65 °C, the fans show RPM (not 0) and you hear them. If they stay at 0 RPM, stop the load at once and note the CPU temperature.
 12. **Custom fan, then Silent (37).** On AC, pick Custom and set the fan to about 3000 RPM. Wait 1 minute. Click Silent. Within 2 minutes the fans slow to about 1600 RPM or stop, as after Performance.
+14. **60 Hz after a lid wake (82).** On battery, with "Switch to 60 Hz on battery" on, close the lid, wait 10 s and open it. Within about 15 s the panel is at 60 Hz, no error stays, and the window answers clicks the whole time.
 13. **Touchpad popup after a wake (49).** Sleep the laptop and wake it. No "Touchpad" popup shows. If Windows shows its own touchpad popup with the key, note whether the two together bother you.
 
 ## Publishing on GitHub

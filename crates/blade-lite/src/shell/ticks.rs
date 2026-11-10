@@ -18,13 +18,31 @@ impl<P: Parts> Shell<P> {
     /// on Num Lock, then reads the sensors if a view shows them.
     pub fn tick(self: &Rc<Self>) {
         self.follow_own_power();
-        // Windows can refuse 60 Hz just after a wake.
         if self.resuming.get() == 0 && self.app.borrow().battery_rate_pending() {
-            self.act(blade_lite::App::retry_battery_rate);
+            self.retry_battery_rate();
         }
         self.follow_num_lock(num_lock_on());
         if self.schedule.borrow_mut().poll_due(Instant::now()) {
             self.tick_readings();
+        }
+    }
+
+    /// Tries a wake's refused 60 Hz again: Windows can refuse it just after
+    /// a wake. Only the last failed try is shown, so a quiet try does not
+    /// clear the wake's other errors or read the controller. When the tries
+    /// end, the rate buttons show the panel's rate.
+    fn retry_battery_rate(self: &Rc<Self>) {
+        let tried = self.app.borrow_mut().retry_battery_rate();
+        if let Err(error) = tried {
+            self.act(|_| Err(error));
+            return;
+        }
+        let mut app = self.app.borrow_mut();
+        if app.battery_rate_pending() {
+            return;
+        }
+        if let Ok(view) = app.display_view() {
+            bind::display(&self.window, &view);
         }
     }
 

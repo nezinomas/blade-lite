@@ -23,8 +23,9 @@ pub struct BatteryRate {
 
 impl BatteryRate {
     /// Sets the rate for a change of power source, and sets 60 Hz again
-    /// after a wake on battery. Other events, and every event while the
-    /// option is off, change nothing.
+    /// after a wake on battery. A refused set after a wake is not an error
+    /// yet: it starts the tries ([`Self::retry`]), which AC stops. Other
+    /// events, and every event while the option is off, change nothing.
     ///
     /// # Errors
     ///
@@ -35,16 +36,16 @@ impl BatteryRate {
         config: &Config,
         api: &mut impl DisplayApi,
     ) -> Result<(), DisplayError> {
-        self.tries = 0;
         match event {
             PowerEvent::OnBattery if config.sixty_hz_on_battery => self.on_battery(api),
-            PowerEvent::OnAc => self.put_back(api),
+            PowerEvent::OnAc => {
+                self.tries = 0;
+                self.put_back(api)
+            }
             PowerEvent::Resumed if config.sixty_hz_on_battery => {
-                let result = self.after_resume(api);
-                if result.is_err() {
-                    self.tries = RESUME_RATE_TRIES;
-                }
-                result
+                let refused = self.after_resume(api).is_err();
+                self.tries = if refused { RESUME_RATE_TRIES } else { 0 };
+                Ok(())
             }
             _ => Ok(()),
         }
@@ -91,7 +92,7 @@ impl BatteryRate {
 
     /// Tries the wake's 60 Hz again, once per poll. Only the last failed
     /// try is an error, so a set refused while the panel wakes is not shown
-    /// each time. A power event or the option turned off stops the tries.
+    /// each time. AC or the option turned off stops the tries.
     ///
     /// # Errors
     ///
