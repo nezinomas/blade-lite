@@ -183,6 +183,16 @@ impl<P: Parts> Shell<P> {
         }
     }
 
+    /// Runs a change the user asked for: a click or the power-mode key.
+    /// While a resume waits it does nothing: the controller may not be awake
+    /// yet, and the charger may have been pulled in the sleep. The resume
+    /// fills the windows again, which puts back a switch the click flipped.
+    pub fn user_act(self: &Rc<Self>, change: impl FnOnce(&mut AppOn<P>) -> Result<(), AppError>) {
+        if self.resuming.get() == 0 {
+            self.act(change);
+        }
+    }
+
     /// Fills both windows again. `error` is shown above the groups, if any.
     pub fn refresh(&self, error: Option<&AppError>) {
         let mut app = self.app.borrow_mut();

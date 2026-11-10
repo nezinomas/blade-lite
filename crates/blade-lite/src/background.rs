@@ -172,7 +172,7 @@ fn step_the_preset() -> bool {
         if let Some(power) = POWER.with(|cell| cell.borrow().clone()) {
             shell.follow_power(&power);
         }
-        shell.act(blade_lite::App::on_power_key);
+        shell.user_act(blade_lite::App::on_power_key);
     })
     .is_ok()
 }

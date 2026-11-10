@@ -136,14 +136,14 @@ fn on<P: Parts>(shell: &Weak<Shell<P>>, act: impl FnOnce(&Rc<Shell<P>>)) {
 }
 
 fn pick_preset<P: Parts>(shell: &Rc<Shell<P>>, i: i32) {
-    shell.act(|app| match app.performance_view().pick_preset(index(i)) {
+    shell.user_act(|app| match app.performance_view().pick_preset(index(i)) {
         Some(command) => app.on_performance(command),
         None => Ok(()),
     });
 }
 
 fn pick_rate<P: Parts>(shell: &Rc<Shell<P>>, i: i32) {
-    shell.act(|app| match app.display_view()?.pick_rate(index(i)) {
+    shell.user_act(|app| match app.display_view()?.pick_rate(index(i)) {
         Some(command) => app.on_display(command),
         None => Ok(()),
     });
@@ -151,18 +151,18 @@ fn pick_rate<P: Parts>(shell: &Rc<Shell<P>>, i: i32) {
 
 fn move_brightness<P: Parts>(shell: &Rc<Shell<P>>, percent: i32) {
     let percent = u8::try_from(percent).unwrap_or(u8::MAX);
-    shell.act(|app| match app.keyboard_view()?.move_brightness(percent) {
+    shell.user_act(|app| match app.keyboard_view()?.move_brightness(percent) {
         Some(command) => app.on_keyboard(command),
         None => Ok(()),
     });
 }
 
 fn toggle_sixty_hz<P: Parts>(shell: &Rc<Shell<P>>) {
-    shell.act(AppOn::<P>::toggle_sixty_hz_on_battery);
+    shell.user_act(AppOn::<P>::toggle_sixty_hz_on_battery);
 }
 
 fn toggle_touchpad<P: Parts>(shell: &Rc<Shell<P>>) {
-    shell.act(|app| {
+    shell.user_act(|app| {
         let command = app.keyboard_view()?.toggle_touchpad();
         app.on_keyboard(command)
     });
@@ -190,7 +190,7 @@ fn flyout_callbacks<P: Parts>(shell: &Rc<Shell<P>>) {
     let s = Rc::downgrade(shell);
     flyout.on_reset(move || {
         on(&s, |shell| {
-            shell.act(|app| {
+            shell.user_act(|app| {
                 let view = app.performance_view();
                 let reset = ui::FlyoutView::new(&view, &app.display_view()?, &app.keyboard_view()?);
                 match reset.reset_to_balanced() {
@@ -215,7 +215,7 @@ fn window_callbacks<P: Parts>(shell: &Rc<Shell<P>>) {
     let s = Rc::downgrade(shell);
     window.on_move_slider(move |i, position| {
         on(&s, |shell| {
-            shell.act(|app| {
+            shell.user_act(|app| {
                 let view = app.performance_view();
                 match view.move_slider(index(i), index(position)) {
                     Some(command) => app.on_performance(command),
@@ -227,7 +227,7 @@ fn window_callbacks<P: Parts>(shell: &Rc<Shell<P>>) {
     let s = Rc::downgrade(shell);
     window.on_toggle_charge_limit(move || {
         on(&s, |shell| {
-            shell.act(|app| match app.performance_view().toggle_charge_limit() {
+            shell.user_act(|app| match app.performance_view().toggle_charge_limit() {
                 Some(command) => app.on_performance(command),
                 None => Ok(()),
             });
@@ -240,7 +240,7 @@ fn window_callbacks<P: Parts>(shell: &Rc<Shell<P>>) {
     let s = Rc::downgrade(shell);
     window.on_pick_native(move |i| {
         on(&s, |shell| {
-            shell.act(|app| match app.display_view()?.pick_native_mode(index(i)) {
+            shell.user_act(|app| match app.display_view()?.pick_native_mode(index(i)) {
                 Some(command) => app.on_display(command),
                 None => Ok(()),
             });
@@ -251,7 +251,7 @@ fn window_callbacks<P: Parts>(shell: &Rc<Shell<P>>) {
     let s = Rc::downgrade(shell);
     window.on_pick_swatch(move |i| {
         on(&s, |shell| {
-            shell.act(|app| match app.keyboard_view()?.pick_swatch(index(i)) {
+            shell.user_act(|app| match app.keyboard_view()?.pick_swatch(index(i)) {
                 Some(command) => app.on_keyboard(command),
                 None => Ok(()),
             });
@@ -260,7 +260,7 @@ fn window_callbacks<P: Parts>(shell: &Rc<Shell<P>>) {
     let s = Rc::downgrade(shell);
     window.on_pick_custom(move |hex| {
         on(&s, |shell| {
-            shell.act(|app| match app.keyboard_view()?.pick_custom(&hex) {
+            shell.user_act(|app| match app.keyboard_view()?.pick_custom(&hex) {
                 Some(command) => app.on_keyboard(command),
                 None => Ok(()),
             });
@@ -271,7 +271,7 @@ fn window_callbacks<P: Parts>(shell: &Rc<Shell<P>>) {
     let s = Rc::downgrade(shell);
     window.on_toggle_logo(move || {
         on(&s, |shell| {
-            shell.act(|app| match app.keyboard_view()?.toggle_logo() {
+            shell.user_act(|app| match app.keyboard_view()?.toggle_logo() {
                 Some(command) => app.on_keyboard(command),
                 None => Ok(()),
             });
@@ -280,7 +280,7 @@ fn window_callbacks<P: Parts>(shell: &Rc<Shell<P>>) {
     let s = Rc::downgrade(shell);
     window.on_toggle_vapor_light(move || {
         on(&s, |shell| {
-            shell.act(|app| match app.keyboard_view()?.toggle_vapor_light() {
+            shell.user_act(|app| match app.keyboard_view()?.toggle_vapor_light() {
                 Some(command) => app.on_keyboard(command),
                 None => Ok(()),
             });
