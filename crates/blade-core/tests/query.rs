@@ -152,7 +152,7 @@ fn good_reads_have_no_errors() {
 
 #[test]
 fn the_cpu_temperature_alone_is_read() {
-    let mut controller = FakeQuery::default().reply(Celsius::query(), &[0, 96]);
+    let mut controller = FakeQuery::default().reply(Celsius::query(), &[2, 96, 0, 0]);
 
     let (cpu, errors) = read_cpu_temperature(&mut controller);
 

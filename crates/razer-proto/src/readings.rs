@@ -8,6 +8,8 @@ const GET_FAN_RPM: u16 = 0x0D88;
 const GET_TEMPERATURES: u16 = 0x0D85;
 /// Position of the CPU temperature in a temperature reply.
 const CPU_INDEX: usize = 1;
+/// Byte 0 of every temperature reply read so far (`docs/NOTES.md`).
+const REPLY_KIND: u8 = 0x02;
 
 /// A measured fan speed. Unlike a target `Rpm`, any value can be read.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -57,9 +59,13 @@ impl Celsius {
     }
 
     /// The CPU temperature in a query's reply args. `None` if the controller
-    /// does not report it: the args are too short, or it reads 0.
+    /// does not report it: the args are too short, byte 0 is not the `02`
+    /// every reply has had, or it reads 0.
     #[must_use]
     pub fn cpu_from_reply(args: &[u8]) -> Option<Self> {
+        if args.first() != Some(&REPLY_KIND) {
+            return None;
+        }
         let celsius = *args.get(CPU_INDEX)?;
         (celsius != 0).then_some(Self(celsius))
     }

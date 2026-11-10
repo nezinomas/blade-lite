@@ -90,9 +90,9 @@ mod heat {
     }
 
     #[test]
-    fn the_limits_are_100_for_the_cpu_87_for_the_gpu_and_the_hold_3_minutes() {
+    fn the_limits_are_100_for_the_cpu_89_for_the_gpu_and_the_hold_3_minutes() {
         assert_eq!(Sensor::Cpu.limit(), 100);
-        assert_eq!(Sensor::Gpu.limit(), 87);
+        assert_eq!(Sensor::Gpu.limit(), 89);
         assert_eq!(HEAT_HOLD, Duration::from_secs(180));
     }
 
@@ -162,14 +162,16 @@ mod heat {
     }
 
     #[test]
-    fn after_a_gap_a_new_spell_can_warn_again() {
+    fn a_gap_in_a_hot_spell_does_not_warn_again() {
+        // Such as failed reads now and then: only cooling down (or a wake,
+        // in the shell) starts a new spell.
         let (mut watch, mut clock) = (HeatWatch::default(), Instant::now());
         run(&mut watch, &mut clock, Some(101), HEAT_HOLD * 2);
 
         clock += Duration::from_secs(600);
         let warnings = run(&mut watch, &mut clock, Some(101), HEAT_HOLD * 2);
 
-        assert_eq!(warnings, ["CPU 101°"]);
+        assert_eq!(warnings, NO_WARNINGS);
     }
 
     #[test]
@@ -208,7 +210,7 @@ mod heat {
     }
 
     #[test]
-    fn the_gpu_warns_at_87_and_not_at_86() {
+    fn the_gpu_warns_at_89_and_not_at_88() {
         let start = Instant::now();
         let hot_for_the_hold = |celsius| {
             let mut watch = HeatWatch::default();
@@ -220,7 +222,7 @@ mod heat {
                 .collect::<Vec<_>>()
         };
 
-        assert_eq!(hot_for_the_hold(87), ["GPU 87°"]);
-        assert_eq!(hot_for_the_hold(86), NO_WARNINGS);
+        assert_eq!(hot_for_the_hold(89), ["GPU 89°"]);
+        assert_eq!(hot_for_the_hold(88), NO_WARNINGS);
     }
 }

@@ -60,8 +60,8 @@ pub const HEAT_HOLD: Duration = Duration::from_secs(180);
 /// A hot spell ends only this far below the limit, so a sensor near the
 /// limit does not warn again and again.
 const HEAT_COOL_MARGIN: u32 = 5;
-/// A longer time without a reading starts a new spell: the sensor was not
-/// watched in between (no view polled, a failed read, or a sleep).
+/// A longer time without a reading starts the hold again: the sensor was
+/// not watched in between (failed reads, or the event loop stood still).
 const HEAT_GAP: Duration = Duration::from_secs(30);
 /// Readings above this, in °C, are not believed.
 const HEAT_MAX: u32 = 125;
@@ -74,16 +74,16 @@ pub enum Sensor {
 }
 
 impl Sensor {
-    /// A reading at or above this, in °C, is hot: each chip's own top.
-    /// The CPU sits near 100 °C under a long full load on Performance; the
-    /// RTX 5090 Laptop GPU's max operating and target temperature is 87 °C
-    /// (`nvidia-smi -q -d TEMPERATURE`). App policy, not model data: it says
-    /// when to tell the user, and sends nothing.
+    /// A reading at or above this, in °C, is hot: where each chip slows
+    /// itself down. The CPU sits near 100 °C under a long full load on
+    /// Performance; the RTX 5090 Laptop GPU holds 87 °C (its target) and
+    /// slows down at 89 °C (`nvidia-smi -q -d TEMPERATURE`). App policy, not
+    /// model data: it says when to tell the user, and sends nothing.
     #[must_use]
     pub fn limit(self) -> u32 {
         match self {
             Self::Cpu => 100,
-            Self::Gpu => 87,
+            Self::Gpu => 89,
         }
     }
 
@@ -109,7 +109,7 @@ struct Spell {
     hot_since: Option<Instant>,
     /// When it was last read.
     last_reading: Option<Instant>,
-    /// Whether this spell has warned. Cleared when a new spell starts.
+    /// Whether this spell has warned. Cleared when the sensor cools down.
     warned: bool,
 }
 
@@ -130,18 +130,18 @@ impl HeatWatch {
 }
 
 impl Spell {
-    /// Whether to warn now. A reading under the limit stops the hold; one
-    /// after a gap starts a new spell.
+    /// Whether to warn now. A reading under the limit, or one after a gap,
+    /// starts the hold again; cooling down ends the spell.
     fn note(&mut self, celsius: u32, limit: u32, now: Instant) -> bool {
         let gap = self
             .last_reading
             .is_none_or(|last| now.saturating_duration_since(last) > HEAT_GAP);
         self.last_reading = Some(now);
-        if gap || celsius < limit.saturating_sub(HEAT_COOL_MARGIN) {
-            *self = Self {
-                last_reading: Some(now),
-                ..Self::default()
-            };
+        if celsius < limit.saturating_sub(HEAT_COOL_MARGIN) {
+            self.warned = false;
+        }
+        if gap {
+            self.hot_since = None;
         }
         if celsius < limit {
             self.hot_since = None;

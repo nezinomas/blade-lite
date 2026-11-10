@@ -2,7 +2,7 @@
 
 use std::rc::Rc;
 use std::sync::mpsc::Receiver;
-use std::time::Instant;
+use std::time::{Instant, SystemTime};
 
 use blade_core::RESUME_PAUSE;
 use blade_lite::report;
@@ -19,11 +19,12 @@ impl<P: Parts> Shell<P> {
     /// on Num Lock, then reads the sensors if a view shows them, or only
     /// the temperatures now and then if none does.
     pub fn tick(self: &Rc<Self>) {
-        self.tick_at(Instant::now());
+        self.tick_at(Instant::now(), SystemTime::now());
     }
 
-    /// [`tick`](Self::tick) at `now`.
-    pub fn tick_at(self: &Rc<Self>, now: Instant) {
+    /// [`tick`](Self::tick) at `now`, with the wall clock at `wall`. The
+    /// window tests give their own times.
+    pub(crate) fn tick_at(self: &Rc<Self>, now: Instant, wall: SystemTime) {
         self.follow_own_power();
         if self.resuming.get() == 0 && self.app.borrow().battery_rate_pending() {
             self.retry_battery_rate();
@@ -31,7 +32,7 @@ impl<P: Parts> Shell<P> {
         self.follow_num_lock(num_lock_on());
         if self.schedule.borrow_mut().poll_due(now) {
             self.tick_readings(now);
-        } else if self.heat_reads_allowed() && self.schedule.borrow_mut().heat_due(now) {
+        } else if self.heat_reads_allowed() && self.schedule.borrow_mut().heat_due(now, wall) {
             self.tick_heat(now);
         }
     }

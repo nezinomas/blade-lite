@@ -1,7 +1,7 @@
 //! Scripted clicks in the window and the flyout: what is sent, saved and
 //! shown after each one.
 
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime};
 
 use blade_core::{Config, Preset};
 use blade_lite::Rect;
@@ -933,9 +933,10 @@ fn no_temperature_read_while_a_wake_waits() {
 /// Ticks every `step` from `start` for `duration`, as the 1 s timer would
 /// at those times.
 fn tick_for(f: &Fixture, start: Instant, step: Duration, duration: Duration) {
+    let wall = SystemTime::now();
     let mut at = Duration::ZERO;
     while at <= duration {
-        f.shell.tick_at(start + at);
+        f.shell.tick_at(start + at, wall + at);
         at += step;
     }
 }

@@ -93,7 +93,7 @@ impl Query for FakeController {
                 .ok_or(DeviceError::Busy)
         } else if *command == Celsius::query() {
             self.cpu_celsius
-                .map(|celsius| vec![0, celsius])
+                .map(|celsius| vec![2, celsius, 0, 0])
                 .ok_or(DeviceError::Busy)
         } else {
             Err(DeviceError::Busy)
