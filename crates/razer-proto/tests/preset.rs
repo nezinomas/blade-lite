@@ -1,6 +1,6 @@
 mod common;
 
-use razer_proto::{BLADE_18, ModelProfile, PerfMode, PresetError, Request};
+use razer_proto::{BLADE_18, ModelProfile, PerfMode, PerfModeBytes, PresetError, Request};
 
 /// The captured presets: the fixture and the preset Synapse set.
 const STEPS: [(&str, PerfMode); 3] = [
@@ -56,7 +56,10 @@ fn a_reply_reads_back_as_its_preset() {
         for command in preset.commands(&BLADE_18).unwrap() {
             let zone = command.args[1];
 
-            assert_eq!(PerfMode::from_reply(zone, &command.args), Some(preset));
+            assert_eq!(
+                PerfMode::from_reply(&BLADE_18, zone, &command.args),
+                Some(preset)
+            );
         }
     }
 }
@@ -64,15 +67,24 @@ fn a_reply_reads_back_as_its_preset() {
 #[test]
 fn an_unknown_mode_reads_back_as_none() {
     // 4 is Custom, which this stage does not read yet.
-    assert_eq!(PerfMode::from_reply(0x01, &[0x01, 0x01, 0x04, 0x01]), None);
-    assert_eq!(PerfMode::from_reply(0x01, &[0x01]), None);
+    assert_eq!(
+        PerfMode::from_reply(&BLADE_18, 0x01, &[0x01, 0x01, 0x04, 0x01]),
+        None
+    );
+    assert_eq!(PerfMode::from_reply(&BLADE_18, 0x01, &[0x01]), None);
 }
 
 #[test]
 fn a_reply_for_another_zone_or_storage_is_none() {
     // Balanced (0) for zone 2, read as zone 1's reply.
-    assert_eq!(PerfMode::from_reply(0x01, &[0x01, 0x02, 0x00, 0x00]), None);
-    assert_eq!(PerfMode::from_reply(0x01, &[0x00, 0x01, 0x00, 0x00]), None);
+    assert_eq!(
+        PerfMode::from_reply(&BLADE_18, 0x01, &[0x01, 0x02, 0x00, 0x00]),
+        None
+    );
+    assert_eq!(
+        PerfMode::from_reply(&BLADE_18, 0x01, &[0x00, 0x01, 0x00, 0x00]),
+        None
+    );
 }
 
 #[test]
@@ -85,5 +97,55 @@ fn a_preset_the_model_lacks_cannot_be_built() {
     assert_eq!(
         PerfMode::Silent.commands(&no_silent),
         Err(PresetError::NotOffered(PerfMode::Silent))
+    );
+}
+
+/// A model whose controller takes other mode bytes.
+const OTHER_BYTES: ModelProfile = ModelProfile {
+    mode_bytes: PerfModeBytes {
+        silent: 0x03,
+        balanced: 0x00,
+        performance: 0x01,
+    },
+    ..BLADE_18
+};
+
+#[test]
+fn the_mode_byte_comes_from_the_model() {
+    let modes: Vec<u8> = PerfMode::Silent
+        .commands(&OTHER_BYTES)
+        .unwrap()
+        .iter()
+        .map(|command| command.args[2])
+        .collect();
+
+    assert_eq!(modes, [0x03; 4]);
+}
+
+#[test]
+fn a_reply_is_read_with_the_model_bytes() {
+    let reply = [0x01, 0x01, 0x03, 0x00];
+
+    assert_eq!(
+        PerfMode::from_reply(&OTHER_BYTES, 0x01, &reply),
+        Some(PerfMode::Silent)
+    );
+    // 0x05 is Silent on the Blade 18 only.
+    assert_eq!(
+        PerfMode::from_reply(&OTHER_BYTES, 0x01, &[0x01, 0x01, 0x05, 0x00]),
+        None
+    );
+}
+
+#[test]
+fn a_reply_with_a_preset_the_model_lacks_is_none() {
+    let no_performance = ModelProfile {
+        presets: &[PerfMode::Silent, PerfMode::Balanced],
+        ..BLADE_18
+    };
+
+    assert_eq!(
+        PerfMode::from_reply(&no_performance, 0x01, &[0x01, 0x01, 0x02, 0x00]),
+        None
     );
 }

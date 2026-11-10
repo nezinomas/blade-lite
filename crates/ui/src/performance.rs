@@ -87,7 +87,7 @@ impl PerformanceView {
     /// Builds the group from the state.
     #[must_use]
     pub fn new(state: &PerformanceState) -> Self {
-        let running = state.preset.running(state.on_battery);
+        let running = state.preset.running(state.on_battery, state.model);
         let sliders = if running == Preset::Custom {
             sliders(state.model, state.custom)
         } else {
@@ -152,7 +152,7 @@ fn preset_options(model: &ModelProfile, current: Preset, on_battery: bool) -> Ve
             preset,
             label: preset_label(preset),
             selected: preset == current,
-            enabled: !on_battery || preset.offered_on_battery(),
+            enabled: !on_battery || preset.offered_on_battery(model),
         })
         .collect()
 }

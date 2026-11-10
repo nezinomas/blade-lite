@@ -8,10 +8,6 @@ const SET_LOGO: u16 = 0x0300;
 const GET_LOGO: u16 = 0x0380;
 /// Set the logo effect. Args are `[storage, led, effect]`.
 const SET_LOGO_EFFECT: u16 = 0x0302;
-/// Synapse sends 0 for the logo, not the 1 it sends for the keyboard. On
-/// the laptop a read with 0 gives the state just set; a read with 1 gives
-/// another stored value that the set does not change.
-const STORAGE: u8 = 0x00;
 const STATIC: u8 = 0x00;
 const OFF: u8 = 0x00;
 const ON: u8 = 0x01;
@@ -20,6 +16,8 @@ const ON: u8 = 0x01;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Logo {
     pub led: u8,
+    /// The storage byte of its commands and reads.
+    pub storage: u8,
 }
 
 impl Logo {
@@ -30,11 +28,11 @@ impl Logo {
         vec![
             Command {
                 id: SET_LOGO_EFFECT,
-                args: vec![STORAGE, self.led, STATIC],
+                args: vec![self.storage, self.led, STATIC],
             },
             Command {
                 id: SET_LOGO,
-                args: vec![STORAGE, self.led, if on { ON } else { OFF }],
+                args: vec![self.storage, self.led, if on { ON } else { OFF }],
             },
         ]
     }
@@ -44,7 +42,7 @@ impl Logo {
     pub fn query(self) -> Command {
         Command {
             id: GET_LOGO,
-            args: vec![STORAGE, self.led, OFF],
+            args: vec![self.storage, self.led, OFF],
         }
     }
 
@@ -53,8 +51,8 @@ impl Logo {
     #[must_use]
     pub fn from_reply(self, args: &[u8]) -> Option<bool> {
         match args {
-            [STORAGE, led, OFF, ..] if *led == self.led => Some(false),
-            [STORAGE, led, ON, ..] if *led == self.led => Some(true),
+            [storage, led, OFF, ..] if *storage == self.storage && *led == self.led => Some(false),
+            [storage, led, ON, ..] if *storage == self.storage && *led == self.led => Some(true),
             _ => None,
         }
     }

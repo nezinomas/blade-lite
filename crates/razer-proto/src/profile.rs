@@ -2,8 +2,8 @@
 //! Adding a model means adding a profile, not changing the code.
 
 use crate::{
-    ChargeLimit, CustomLimits, Logo, NativeMode, PerfMode, PowerKey, RpmRange, TouchpadKey,
-    VaporLight,
+    ChargeLimit, CustomLimits, Logo, NativeMode, PerfMode, PerfModeBytes, PowerKey, RpmRange,
+    TouchpadKey, VaporLight,
 };
 
 /// How the controller shows up on USB.
@@ -50,6 +50,13 @@ pub struct ModelProfile {
     pub keys: KeyGrid,
     /// The presets the model offers.
     pub presets: &'static [PerfMode],
+    /// The controller's mode byte of each preset. Each one, and
+    /// [`CustomLimits::mode`], must differ from the others.
+    pub mode_bytes: PerfModeBytes,
+    /// The presets that run on battery. They must be in
+    /// [`ModelProfile::presets`] and hold Balanced, which runs in place of
+    /// the others. Custom never runs on battery.
+    pub battery_presets: &'static [PerfMode],
     /// The zones a preset change sets, in the order Synapse sets them.
     pub perf_zones: &'static [u8],
     /// What the Custom preset accepts.
@@ -66,6 +73,57 @@ pub struct ModelProfile {
     /// The key that steps through [`ModelProfile::presets`], or `None` if
     /// the model has none.
     pub power_key: Option<PowerKey>,
+}
+
+impl ModelProfile {
+    /// Whether the profile keeps the rules its fields name: each mode byte
+    /// differs from the others and from Custom's, and the battery presets
+    /// are offered presets that hold Balanced. Each profile is checked with
+    /// it at build time.
+    #[must_use]
+    pub const fn is_valid(&self) -> bool {
+        let bytes = self.mode_bytes;
+        let mut rest: &[u8] = &[
+            bytes.silent,
+            bytes.balanced,
+            bytes.performance,
+            self.custom.mode,
+        ];
+        while let [first, others @ ..] = rest {
+            if holds_byte(others, *first) {
+                return false;
+            }
+            rest = others;
+        }
+        let mut battery = self.battery_presets;
+        while let [first, others @ ..] = battery {
+            if !holds(self.presets, *first) {
+                return false;
+            }
+            battery = others;
+        }
+        holds(self.battery_presets, PerfMode::Balanced)
+    }
+}
+
+const fn holds_byte(mut bytes: &[u8], byte: u8) -> bool {
+    while let [first, others @ ..] = bytes {
+        if *first == byte {
+            return true;
+        }
+        bytes = others;
+    }
+    false
+}
+
+const fn holds(mut modes: &[PerfMode], mode: PerfMode) -> bool {
+    while let [first, others @ ..] = modes {
+        if *first as u8 == mode as u8 {
+            return true;
+        }
+        modes = others;
+    }
+    false
 }
 
 /// The Blade 18 (RZ09-0529), from the stage 1 capture.
@@ -107,9 +165,19 @@ pub const BLADE_18: ModelProfile = ModelProfile {
         ],
     },
     presets: &[PerfMode::Silent, PerfMode::Balanced, PerfMode::Performance],
+    // From the Synapse capture of this laptop.
+    mode_bytes: PerfModeBytes {
+        silent: 0x05,
+        balanced: 0x00,
+        performance: 0x02,
+    },
+    // Performance and Custom run as Balanced on battery.
+    battery_presets: &[PerfMode::Silent, PerfMode::Balanced],
     // Synapse sets all four. r-helper sets only 1 and 2.
     perf_zones: &[1, 2, 3, 4],
     custom: CustomLimits {
+        // From the Synapse capture.
+        mode: 0x04,
         // Synapse sent levels 0 to 3 for both.
         cpu_max: 3,
         gpu_max: 3,
@@ -137,8 +205,14 @@ pub const BLADE_18: ModelProfile = ModelProfile {
             hz: 440,
         },
     ],
-    // The capture's logo LED.
-    logo: Some(Logo { led: 0x04 }),
+    // The capture's logo LED. Synapse sends storage 0 for the logo, not
+    // the 1 it sends for the keyboard. On the laptop a read with 0 gives
+    // the state just set; a read with 1 gives another stored value that the
+    // set does not change.
+    logo: Some(Logo {
+        led: 0x04,
+        storage: 0x00,
+    }),
     // Synapse offers only 80% on this model.
     charge_limit: Some(ChargeLimit { percent: 80 }),
     // Numpad ".", with a touchpad icon on the second layer (Num Lock off).
@@ -162,3 +236,5 @@ pub const BLADE_18: ModelProfile = ModelProfile {
         fn_code: 0x0A,
     }),
 };
+
+const _: () = assert!(BLADE_18.is_valid());

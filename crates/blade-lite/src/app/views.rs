@@ -57,7 +57,7 @@ where
     /// runs as another one.
     #[must_use]
     pub fn running_preset(&self) -> Preset {
-        self.config.preset.running(self.on_battery)
+        self.config.preset.running(self.on_battery, self.model)
     }
 
     /// # Errors

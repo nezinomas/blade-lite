@@ -16,6 +16,14 @@ pub enum PresetError {
     NotOffered(PerfMode),
 }
 
+/// The controller's mode byte of each preset. They differ between models.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PerfModeBytes {
+    pub silent: u8,
+    pub balanced: u8,
+    pub performance: u8,
+}
+
 /// A performance preset. The fans stay on auto.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PerfMode {
@@ -25,14 +33,13 @@ pub enum PerfMode {
 }
 
 impl PerfMode {
-    const ALL: [Self; 3] = [Self::Silent, Self::Balanced, Self::Performance];
-
-    /// The controller's mode byte.
-    fn byte(self) -> u8 {
+    /// The model's mode byte for it.
+    fn byte(self, model: &ModelProfile) -> u8 {
+        let bytes = model.mode_bytes;
         match self {
-            Self::Silent => 0x05,
-            Self::Balanced => 0x00,
-            Self::Performance => 0x02,
+            Self::Silent => bytes.silent,
+            Self::Balanced => bytes.balanced,
+            Self::Performance => bytes.performance,
         }
     }
 
@@ -50,7 +57,7 @@ impl PerfMode {
             .iter()
             .map(|&zone| Command {
                 id: SET_PRESET,
-                args: vec![VARIABLE_STORAGE, zone, self.byte(), FAN_AUTO],
+                args: vec![VARIABLE_STORAGE, zone, self.byte(model), FAN_AUTO],
             })
             .collect())
     }
@@ -68,14 +75,17 @@ impl PerfMode {
             .collect()
     }
 
-    /// The preset of `zone` in a query's reply args. `None` for a mode this
-    /// does not know, or a reply for another storage or zone.
+    /// The preset of `zone` in a query's reply args, read with the model's
+    /// mode bytes. `None` for a mode the model does not offer, or a reply
+    /// for another storage or zone.
     #[must_use]
-    pub fn from_reply(zone: u8, args: &[u8]) -> Option<Self> {
+    pub fn from_reply(model: &ModelProfile, zone: u8, args: &[u8]) -> Option<Self> {
         match args {
-            [VARIABLE_STORAGE, echoed, mode, ..] if *echoed == zone => {
-                Self::ALL.into_iter().find(|preset| preset.byte() == *mode)
-            }
+            [VARIABLE_STORAGE, echoed, mode, ..] if *echoed == zone => model
+                .presets
+                .iter()
+                .copied()
+                .find(|preset| preset.byte(model) == *mode),
             _ => None,
         }
     }

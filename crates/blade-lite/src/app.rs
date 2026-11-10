@@ -157,7 +157,7 @@ where
     /// The config with the preset that runs in place of its saved one.
     fn running(&self, config: Config) -> Config {
         Config {
-            preset: config.preset.running(self.on_battery),
+            preset: config.preset.running(self.on_battery, self.model),
             ..config
         }
     }

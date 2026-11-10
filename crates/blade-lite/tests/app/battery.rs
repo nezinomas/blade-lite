@@ -17,7 +17,7 @@ const SET_BOOST: u16 = 0x0D07;
 /// Sets the preset of one zone.
 const SET_PRESET: u16 = 0x0D02;
 /// The Custom mode byte in a preset set.
-const CUSTOM_MODE: u8 = 0x04;
+const CUSTOM_MODE: u8 = BLADE_18.custom.mode;
 
 #[test]
 fn on_battery_performance_runs_as_balanced_and_comes_back_on_ac() {

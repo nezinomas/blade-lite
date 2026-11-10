@@ -26,7 +26,7 @@ where
         let mut config = self.config;
         match command {
             PerformanceCommand::SetPreset(preset) => {
-                if self.on_battery && !preset.offered_on_battery() {
+                if self.on_battery && !preset.offered_on_battery(self.model) {
                     return Err(AppError::NotOnBattery(preset));
                 }
                 config.preset = preset;
@@ -56,7 +56,7 @@ where
         if self.model.power_key.is_none() {
             return Ok(());
         }
-        let running = self.config.preset.running(self.on_battery);
+        let running = self.config.preset.running(self.on_battery, self.model);
         match next_preset(running, self.model, self.on_battery) {
             Some(next) if next != running => {
                 self.on_performance(PerformanceCommand::SetPreset(next))

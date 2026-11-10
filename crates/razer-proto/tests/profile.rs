@@ -1,6 +1,6 @@
 mod common;
 
-use razer_proto::BLADE_18;
+use razer_proto::{BLADE_18, ModelProfile, PerfMode};
 
 #[test]
 fn every_captured_report_went_through_the_profile_interface() {
@@ -82,4 +82,65 @@ fn the_vapor_light_is_not_a_keyboard_brightness_led() {
 
     assert_eq!(light.led, 0x26);
     assert!(!BLADE_18.brightness_leds.contains(&light.led));
+}
+
+#[test]
+fn the_blade_18_mode_bytes_are_the_captured_ones() {
+    let bytes = BLADE_18.mode_bytes;
+
+    assert_eq!(
+        (
+            bytes.silent,
+            bytes.balanced,
+            bytes.performance,
+            BLADE_18.custom.mode
+        ),
+        (0x05, 0x00, 0x02, 0x04)
+    );
+}
+
+#[test]
+fn the_blade_18_logo_is_in_storage_0() {
+    assert_eq!(BLADE_18.logo.unwrap().storage, 0x00);
+}
+
+#[test]
+fn the_blade_18_profile_is_valid() {
+    assert!(BLADE_18.is_valid());
+}
+
+#[test]
+fn two_presets_with_one_mode_byte_are_not_valid() {
+    let mut model = BLADE_18;
+    model.mode_bytes.silent = model.mode_bytes.balanced;
+
+    assert!(!model.is_valid());
+}
+
+#[test]
+fn a_custom_byte_of_a_preset_is_not_valid() {
+    let mut model = BLADE_18;
+    model.custom.mode = model.mode_bytes.performance;
+
+    assert!(!model.is_valid());
+}
+
+#[test]
+fn battery_presets_without_balanced_are_not_valid() {
+    let model = ModelProfile {
+        battery_presets: &[PerfMode::Silent],
+        ..BLADE_18
+    };
+
+    assert!(!model.is_valid());
+}
+
+#[test]
+fn a_battery_preset_the_model_lacks_is_not_valid() {
+    let model = ModelProfile {
+        presets: &[PerfMode::Balanced, PerfMode::Performance],
+        ..BLADE_18
+    };
+
+    assert!(!model.is_valid());
 }

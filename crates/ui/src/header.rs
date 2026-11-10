@@ -61,7 +61,7 @@ impl Header {
     pub fn new(state: &HeaderState) -> Self {
         Self {
             title: state.model.name.to_owned(),
-            preset: preset_label(state.preset.running(state.on_battery)),
+            preset: preset_label(state.preset.running(state.on_battery, state.model)),
             power: if state.on_battery {
                 PowerPill::OnBattery
             } else {

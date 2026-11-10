@@ -260,7 +260,7 @@ proptest! {
             .presets
             .iter()
             .any(|preset| preset.commands(&BLADE_18).unwrap()[0].args[2] == value);
-        prop_assert_eq!(PerfMode::from_reply(asked, &args).is_some(), ours && known_mode);
+        prop_assert_eq!(PerfMode::from_reply(&BLADE_18, asked, &args).is_some(), ours && known_mode);
     }
 
     #[test]
@@ -293,7 +293,7 @@ proptest! {
         let _ = ChargeLimit { percent: 80 }.from_reply(&args);
         let _ = BLADE_18.logo.map(|logo| logo.from_reply(&args));
         let _ = NativeMode::from_reply(&args, &BLADE_18);
-        let _ = PerfMode::from_reply(0x01, &args);
+        let _ = PerfMode::from_reply(&BLADE_18, 0x01, &args);
         let _ = FanRpm::from_reply(0x01, &args);
         let _ = Celsius::cpu_from_reply(&args);
     }

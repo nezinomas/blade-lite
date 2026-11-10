@@ -34,7 +34,7 @@ pub use firmware::FirmwareVersion;
 pub use logo::Logo;
 pub use native_mode::NativeMode;
 pub use power_key::PowerKey;
-pub use preset::{PerfMode, PresetError};
+pub use preset::{PerfMode, PerfModeBytes, PresetError};
 pub use profile::{BLADE_18, KeyGrid, ModelProfile, UsbId};
 pub use readings::{Celsius, FanRpm};
 pub use touchpad_key::{TOUCHPAD_OFF, TouchpadKey};

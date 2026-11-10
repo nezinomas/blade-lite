@@ -213,7 +213,7 @@ fn each_preset_is_set_and_read_back_and_the_old_one_restored() {
             let zones: Vec<_> = preset_args(&mut device)
                 .iter()
                 .zip(razer_proto::BLADE_18.perf_zones)
-                .map(|(args, &zone)| PerfMode::from_reply(zone, args))
+                .map(|(args, &zone)| PerfMode::from_reply(&razer_proto::BLADE_18, zone, args))
                 .collect();
             (preset, zones)
         })

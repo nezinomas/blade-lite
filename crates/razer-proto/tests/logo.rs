@@ -71,3 +71,19 @@ fn a_reply_for_another_led_or_an_odd_value_is_not_read() {
     assert_eq!(logo().from_reply(&[0x01, 0x04, 0x00]), None);
     assert_eq!(logo().from_reply(&[]), None);
 }
+
+/// A logo kept in storage 1, as on older models.
+const STORAGE_1: Logo = Logo {
+    led: 0x04,
+    storage: 0x01,
+};
+
+#[test]
+fn the_logo_storage_comes_from_the_model() {
+    let commands = STORAGE_1.commands(true);
+
+    assert!(commands.iter().all(|command| command.args[0] == 0x01));
+    assert_eq!(STORAGE_1.query().args, [0x01, 0x04, 0x00]);
+    assert_eq!(STORAGE_1.from_reply(&[0x01, 0x04, 0x01]), Some(true));
+    assert_eq!(STORAGE_1.from_reply(&[0x00, 0x04, 0x01]), None);
+}
