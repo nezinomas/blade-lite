@@ -106,6 +106,7 @@ Checks only a person can do on the laptop wait in "Still to check on the laptop"
 - [ ] 83 A crash on battery, then an app start without a Windows restart, leaves 60 Hz on AC: the start reads 60 Hz, so no rate is kept to put back. When the panel is at 60 Hz on battery and the saved rate differs, take the saved rate as the one to put back. Also: the put-back saves the rate it sets, so a rate that was never saved (set by another tool) then overwrites the user's saved rate; decide whether the put-back should keep the saved rate instead. Both reviewers
 - [ ] 84 A Narrator set-value on the brightness slider stays shown, unsent, when the window is minimised and restored or brought back with Alt+Tab: ticket 79 puts the slider back only in `show_window` and `toggle_flyout` (ticket 79 review). Put it back on focus too, if it matters. Display only. Both reviewers
 - [ ] 85 Fn + F10 / F11 change the keyboard brightness in the laptop itself, and the app does not follow: the slider in the window and the flyout stay at the old value (user, 2026-11-10). Find the key codes in the keyboard's `04` input report (as the power-mode key, no hook), then read the level back with `0383 [01, 05, 00]` and show it. Decide whether the vapor light (`0x26`) must follow and the new level be saved. Both reviewers
+- [x] 86 Fans still after the app was ended in Task Manager on battery (user, 2026-11-10): not an app fault. The read after (Balanced, fan byte auto on all 4 zones, no manual fan in the config) shows the app left the fans on auto; the controller stops them below about 54 °C. The app sets a fixed fan only in Custom, never below 1600 RPM, and not on battery, so a killed app can't leave a fan stopped (notes)
 
 ## Still to check on the laptop
 Do these in one go, on AC, with "Start with Windows" on and Num Lock off. First note your preset, keyboard colour, lid logo and native mode; the last step puts them back.
@@ -118,6 +119,7 @@ Do these in one go, on AC, with "Start with Windows" on and Num Lock off. First 
 6. **App after ticket 70.** Start the app. Open the window and the flyout once, and click one preset. They work as before (ticket 70 changed only types in the shell code).
 7. **Busy (55).** Nothing to do now. If the log ever shows a Busy error, check whether the command took effect.
 8. **Brightness drag (68).** In the window, drag the keyboard brightness slider slowly and hold it. The percent beside it follows. The keyboard light changes only when you let go. Do the same in the flyout.
+9. **Fans on battery (86).** Unplug the charger. In Balanced, run a CPU load (such as a game or a big build) for 2 minutes. When the app shows the CPU above about 65 °C, the fans show RPM (not 0) and you hear them.
 
 ## Publishing on GitHub
 - [ ] 39 Release and installer
