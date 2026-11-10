@@ -45,6 +45,7 @@ impl<P: Parts> Shell<P> {
 
     pub fn show_window(self: &Rc<Self>) {
         self.hide_flyout();
+        self.window.invoke_show_brightness();
         if let Err(error) = self.window.show() {
             report(&format!("cannot show the window: {error}"));
             return;
@@ -81,6 +82,7 @@ impl<P: Parts> Shell<P> {
             return;
         }
         self.refresh(None);
+        self.flyout.invoke_show_brightness();
         if let Err(error) = self.flyout.show() {
             report(&format!("cannot show the flyout: {error}"));
             return;
