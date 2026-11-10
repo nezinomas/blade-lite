@@ -5,7 +5,7 @@ description: Build one stage or ticket from docs/PLAN.md end to end (branch, TDD
 
 # Build a stage
 
-1. Read `CLAUDE.md`, then find the stage or ticket in `docs/PLAN.md`. Take the number from `PLAN.md`, not from memory or a brief. A ticket's `PLAN.md` line is its brief. Read the full plan artifact only for a stage whose line has no brief.
+1. Read `CLAUDE.md`, then find the stage or ticket in `docs/PLAN.md`. Take the number from `PLAN.md`, not from memory or a brief. A ticket's `PLAN.md` line is its brief. Read the full plan artifact only for a stage whose line has no brief. Note the start time and, if the `get_usage` tool is there, the 5-hour limit percent (for the report in step 11).
 2. Check the plan against the code: is anything it relies on missing or different?
 3. Check the folder is free. A worktree of this thread's own is free (`git rev-parse --git-dir` differs from `git rev-parse --git-common-dir`). The main folder is free when `git status --short` is empty and `git branch --show-current` is `master` or this stage's branch. If it is not free, another thread works here: stop and ask the user to wait, or to start this thread with the Worktree option on. Then `git fetch origin master` and branch from `origin/master`, named for the stage (`feature/...` or `fix/...`). In a worktree, merge in step 10 from the main folder with `git -C <main folder> merge --no-ff <branch>` once that folder is free, or give the user the commands; remove the worktree (`git worktree remove <path>`) before you delete its branch. For git in another folder, use `git -C <folder>`, not `cd <folder> &&` (the allow rules match only commands that start with `git`).
 4. TDD in small commits: red test, green code, refactor. Short commit messages, no AI attribution. Edit files with the Edit tool. A scripted edit must fail when its old text is not found (a bare `str.replace` changes nothing and says nothing).
@@ -14,11 +14,24 @@ description: Build one stage or ticket from docs/PLAN.md end to end (branch, TDD
 7. Review with subagents, never yourself. Pick the tier from "Review tiers" in `CLAUDE.md`: both reviewers when the diff can change what is sent to the laptop, the `informed-reviewer` alone when it can't, both if in doubt. Write the diff with `git diff master...HEAD > target/review.diff`, then run them (in parallel):
    - `informed-reviewer` (`.claude/agents/informed-reviewer.md`): give it the stage brief and the diff path. It reads the plan, notes and repo, checks the diff for bugs and missing guards, and hunts edge cases and paths unsafe for the hardware.
    - `fresh-reviewer` (`.claude/agents/fresh-reviewer.md`): give it only the diff path, no brief. It checks the code against the open-source protocol findings in `docs/protocol-findings.md` (copy of https://claude.ai/artifact/W9Z1Dxcp4Agbxd3r2tEtwX).
-   Fix what they find, or add it to `PLAN.md` as a new ticket, with its brief in the line and the next free number.
+   Fix what they find, or add it to `PLAN.md` as a new ticket, with its brief in the line and the next number after the highest in `PLAN.md` and `docs/PLAN-done.md`.
 8. Check yourself what the window tests can see; ask the user only about what they can't (below). `cargo t` runs the window tests (`crates/blade-lite/src/window_tests`): scripted clicks over fakes, and pictures of the window, flyout and popup compared with saved ones. When a picture changes, look at the new one and its diff in `target/screens/` (Read shows a PNG). If the change is meant, save them (`BLESS_SCREENS=1`, see "Commands" in `CLAUDE.md`), look at the saved pictures, and commit them; if not, fix the code. A new control gets an accessible label (the tests find controls by it) and a click test; a new look gets a picture.
    Then list the checks only a person can do on the laptop (what to do, what to see): what software can't see, such as the keyboard, lid logo and vapor light colours, the fans, the physical touchpad and keys, the screen really switching rate or mode, and sleep and hibernate. Ask the user to do them before merge, with any running Blade Lite quit first and the app started by `cargo app` (see "Commands" in `CLAUDE.md`). Put any not done yet in "Still to check on the laptop" in `PLAN.md`, and remove the ones the user confirms. When the diff changes how windows are made, placed or shown (window attributes, show and focus code, placement, the tray, or `.slint` Window properties; for example `crates/blade-lite/src/main.rs`, `shell.rs`, `placement.rs`, `tray.rs`, `crates/platform/src/popup.rs`, `backdrop.rs`), the checks are all of `docs/window-check.md`: the window tests draw off screen, so they can't see Mica, placement, focus, the caption buttons or the tray.
 9. Tick the stage `[x]` in `PLAN.md` in the same branch, with a one-line result (details go in `docs/NOTES.md`). Add new laptop facts to `docs/NOTES.md`.
 10. `git merge --no-ff` into master, push, delete the branch locally (and on GitHub only if it was pushed). The pre-push hook refuses a stage merge without a `PLAN.md` change.
-11. Report: the result, each reviewer's findings listed separately, what still needs the user, and plainly whether anything was blocked (permissions, push, merge, branch delete, cargo) or "nothing was blocked".
+11. Report in this form, one line each ("none" when there is nothing):
+   ```
+   Result: <one line>
+   Time: <start to merge>, of which about <time> waiting on the user
+   Tokens: <context tokens at the end>; 5-hour limit <start>% to <end>%
+   Waste: <round trips to the user, failed tool calls, redone work>
+   Workflow fix: <one change to a rule or skill that would have saved it>
+   Code quality: checks <pass or fail>; reviewers found <n> (fixed <n>, new tickets <n>); tests added <n>; lint allows added <n>
+   Informed reviewer: <findings>
+   Fresh reviewer: <findings, or "not needed (tier)">
+   Still needs the user: <checks>
+   Blocked: <permissions, push, merge, branch delete, cargo, or "nothing was blocked">
+   ```
+   Tokens come from the `get_usage` tool; without it, write "not available". Time comes from the start time (step 1) and the merge commit; the wait is the time from each question to the user's answer. A workflow fix is only a proposal: say it, don't apply it. In a batch run, one block per stage, and one Blocked line at the end.
 
 In a batch run, repeat for each stage and stop early when a step needs the user. Skip tickets that need the user (see "Working style" in `docs/NOTES.md`).

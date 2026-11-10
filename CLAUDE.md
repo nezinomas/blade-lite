@@ -1,6 +1,6 @@
 # synapse
 
-Stage list and status: `docs/PLAN.md` (the only place for status). Full plan: https://claude.ai/artifact/JSzNYRpwZJyywztJtBSk2P
+Stage list and status: `docs/PLAN.md` (open work), `docs/PLAN-done.md` (done lines, moved there at each retro). No other place holds status. Full plan: https://claude.ai/artifact/JSzNYRpwZJyywztJtBSk2P
 Laptop and protocol facts, lessons: `docs/NOTES.md`.
 Building a stage or ticket: follow the `stage` skill (`.claude/skills/stage/SKILL.md`).
 
@@ -38,7 +38,7 @@ Building a stage or ticket: follow the `stage` skill (`.claude/skills/stage/SKIL
 - Every report ends with one plain line: what was blocked (permissions, push, merge, branch delete, cargo), or "nothing was blocked".
 
 ## Skills
-- `/retro` (`.claude/skills/retro`) needs the `mattpocock-skills` plugin installed.
+- `/retro` (`.claude/skills/retro`) needs the `mattpocock-skills` plugin installed. In the retro's branch, also move the `[x]` lines from `docs/PLAN.md` to `docs/PLAN-done.md`.
 
 ## How to work
 - TDD: red, green, refactor, in small stages, per the plan.
