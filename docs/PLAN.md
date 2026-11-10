@@ -110,7 +110,7 @@ Do these in one go, on AC, with "Start with Windows" on and Num Lock off (the po
 5. **Put it back.** Set your native mode, keyboard colour, lid logo and preset back as you noted them. Restart once more for the native mode.
 6. **App after ticket 70.** Start the app. Open the window and the flyout once, and click one preset. They work as before (ticket 70 changed only types in the shell code).
 7. **Busy (55).** Nothing to do now. If the log ever shows a Busy error, check whether the command took effect.
-8. **Hide the Razer driver updates (74).** In an admin PowerShell in the repo folder: `powershell -ExecutionPolicy Bypass -File .	ools\Block-RazerDriverUpdates.ps1 -Apply`. It must end with `Result: DONE`. Windows Update then lists no Razer driver.
+8. **Hide the Razer driver updates (74).** In an admin PowerShell in the repo folder: `powershell -ExecutionPolicy Bypass -File .\tools\Block-RazerDriverUpdates.ps1 -Apply`. It must end with `Result: DONE`. Windows Update then lists no Razer driver.
 
 ## Publishing on GitHub
 - [ ] 39 Release and installer
