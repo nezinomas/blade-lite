@@ -2,7 +2,9 @@
 
 mod common;
 
-use blade_core::{Controller, NativeModeState, native_mode_state, set_native_mode};
+use blade_core::{
+    Controller, NativeModeError, NativeModeState, native_mode_state, set_native_mode,
+};
 use common::{FakeDisplays, mode, panel};
 use platform::DisplayMode;
 use razer_device::DeviceError;
@@ -67,7 +69,29 @@ fn the_running_mode_is_found_by_the_largest_resolution() {
 fn setting_a_mode_sends_its_command() {
     let mut controller = FakeController::default();
 
-    set_native_mode(FHD, &mut controller).unwrap();
+    set_native_mode(FHD, &mut controller, &BLADE_18).unwrap();
 
     assert_eq!(controller.0, [FHD.command()]);
+}
+
+#[test]
+fn a_mode_the_model_lacks_is_refused_and_nothing_is_sent() {
+    let mut controller = FakeController::default();
+    let unknown = NativeMode { id: 0x7F, ..FHD };
+
+    let result = set_native_mode(unknown, &mut controller, &BLADE_18);
+
+    assert!(matches!(result, Err(NativeModeError::NotOffered)));
+    assert_eq!(controller.0, []);
+}
+
+#[test]
+fn a_known_id_with_other_sizes_is_refused() {
+    let mut controller = FakeController::default();
+    let changed = NativeMode { hz: 999, ..FHD };
+
+    let result = set_native_mode(changed, &mut controller, &BLADE_18);
+
+    assert!(matches!(result, Err(NativeModeError::NotOffered)));
+    assert_eq!(controller.0, []);
 }
