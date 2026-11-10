@@ -16,7 +16,10 @@ fn the_cpu_and_battery_are_read() {
     assert!(first.idle <= first.total);
     let percent = power.battery_percent.expect("the battery charge is known");
     assert!(percent <= 100);
-    assert!(power.charging.is_some(), "the charging flag is known");
+    // The flag is read only on AC.
+    if let Some(on_battery) = platform::on_battery() {
+        assert_eq!(power.charging.is_some(), !on_battery, "{power:?}");
+    }
 }
 
 #[test]

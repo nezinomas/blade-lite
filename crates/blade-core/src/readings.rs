@@ -11,8 +11,8 @@ pub struct Readings {
     pub battery_percent: Option<u8>,
     /// Milliwatts drawn from the battery. `None` while it is not draining.
     pub power_draw_mw: Option<u32>,
-    /// Whether the battery charges now. `None` with no battery, or if it
-    /// could not be read.
+    /// Whether the battery charges now. `None` with no battery, off AC, or
+    /// if it could not be read.
     pub charging: Option<bool>,
     /// `None` while the GPU sleeps, so that reading it does not wake it.
     pub gpu: Option<GpuReading>,
