@@ -29,10 +29,7 @@ mod refresh;
 mod touchpad;
 mod touchpad_key;
 
-pub use apply::{
-    ApplyError, Controller, RESUME_PAUSE, apply, apply_lighting, apply_performance,
-    reapply_on_resume,
-};
+pub use apply::{ApplyError, Controller, RESUME_PAUSE, apply, apply_lighting, apply_performance};
 pub use autostart::{
     APPROVED_KEY, Autostart, AutostartError, RUN_KEY, RUN_VALUE, SHOWN_COMMAND_CHARS, TRAY_FLAG,
     autostart, set_autostart, starts_in_tray,
