@@ -8,13 +8,14 @@ mod windows;
 
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
+use std::sync::mpsc::Receiver;
 use std::time::{Duration, Instant};
 
 use blade_core::{Controller, PollSchedule, Query, Readings, ReadingsSampler};
 use blade_lite::{App, AppError, SaidLately, ShownErrors, report, took_effect};
 use platform::{
-    DisplayApi, KeyInjector, Programs, Registry, WindowsDisplays, WindowsKeys, WindowsPrograms,
-    WindowsRegistry, WindowsSensors,
+    DisplayApi, KeyInjector, PowerEvent, Programs, Registry, WindowsDisplays, WindowsKeys,
+    WindowsPrograms, WindowsRegistry, WindowsSensors,
 };
 use razer_device::{Device, HidTransport, SystemClock};
 use ui::{FlyoutView, ModeWatch};
@@ -78,10 +79,13 @@ pub struct Shell<P: Parts = Laptop> {
     popups: Cell<u32>,
     /// Whether the popup has been made click-through.
     popup_ready: Cell<bool>,
-    /// The resumes still waiting out their pause. The touchpad key is not
-    /// painted on a Num Lock or touchpad change then, as the controller is
-    /// not ready; the resume paints it.
+    /// The resumes still waiting out their pause. The controller may not be
+    /// ready then: clicks and the power-mode key do nothing, and the touchpad
+    /// key is not painted on a Num Lock or touchpad change (the resume
+    /// paints it). Power events still go through (ticket 88).
     resuming: Cell<u32>,
+    /// The power events, read on each poll and before each click or key.
+    power: RefCell<Option<Rc<Receiver<PowerEvent>>>>,
     programs: P::Programs,
     /// The warning for the Razer software last found, shown above the
     /// groups while it runs.
@@ -114,6 +118,7 @@ impl<P: Parts> Shell<P> {
             popups: Cell::new(0),
             popup_ready: Cell::new(false),
             resuming: Cell::new(0),
+            power: RefCell::new(None),
             programs: P::Programs::default(),
             razer_warning: RefCell::new(None),
             razer_opened: Cell::new(false),
@@ -184,10 +189,13 @@ impl<P: Parts> Shell<P> {
     }
 
     /// Runs a change the user asked for: a click or the power-mode key.
-    /// While a resume waits it does nothing: the controller may not be awake
-    /// yet, and the charger may have been pulled in the sleep. The resume
-    /// fills the windows again, which puts back a switch the click flipped.
+    /// The power events that came first are followed first, so a wake or a
+    /// new power source not yet polled is seen. While a resume waits it does
+    /// nothing: the controller may not be awake yet, and the charger may have
+    /// been pulled in the sleep. The resume fills the windows again, which
+    /// puts back a switch the click flipped.
     pub fn user_act(self: &Rc<Self>, change: impl FnOnce(&mut AppOn<P>) -> Result<(), AppError>) {
+        self.follow_own_power();
         if self.resuming.get() == 0 {
             self.act(change);
         }

@@ -11,7 +11,7 @@ use platform::{PowerEvent, PowerEvents, RegistryWatch, WakeListener, WindowsPowe
 use razer_device::HidKeyReports;
 use razer_proto::BLADE_18;
 
-use crate::{POWER, SHELL};
+use crate::SHELL;
 
 /// Opens the window each time a second copy asks, from a thread that waits.
 pub fn open_window_on_wake(listener: WakeListener) {
@@ -167,11 +167,8 @@ fn step_the_preset() -> bool {
         let Some(shell) = SHELL.with(|cell| cell.borrow().clone()) else {
             return;
         };
-        // A power source change not yet seen would let a preset run that
-        // the new source does not offer.
-        if let Some(power) = POWER.with(|cell| cell.borrow().clone()) {
-            shell.follow_power(&power);
-        }
+        // It follows the power events first: a power source change not yet
+        // seen would let a preset run that the new source does not offer.
         shell.user_act(blade_lite::App::on_power_key);
     })
     .is_ok()
