@@ -53,17 +53,26 @@ fn one_query_is_built_per_zone() {
 #[test]
 fn a_reply_reads_back_as_its_preset() {
     for (_, preset) in STEPS {
-        let args = &preset.commands(&BLADE_18).unwrap()[0].args;
+        for command in preset.commands(&BLADE_18).unwrap() {
+            let zone = command.args[1];
 
-        assert_eq!(PerfMode::from_reply(args), Some(preset));
+            assert_eq!(PerfMode::from_reply(zone, &command.args), Some(preset));
+        }
     }
 }
 
 #[test]
 fn an_unknown_mode_reads_back_as_none() {
     // 4 is Custom, which this stage does not read yet.
-    assert_eq!(PerfMode::from_reply(&[0x01, 0x01, 0x04, 0x01]), None);
-    assert_eq!(PerfMode::from_reply(&[0x01]), None);
+    assert_eq!(PerfMode::from_reply(0x01, &[0x01, 0x01, 0x04, 0x01]), None);
+    assert_eq!(PerfMode::from_reply(0x01, &[0x01]), None);
+}
+
+#[test]
+fn a_reply_for_another_zone_or_storage_is_none() {
+    // Balanced (0) for zone 2, read as zone 1's reply.
+    assert_eq!(PerfMode::from_reply(0x01, &[0x01, 0x02, 0x00, 0x00]), None);
+    assert_eq!(PerfMode::from_reply(0x01, &[0x00, 0x01, 0x00, 0x00]), None);
 }
 
 #[test]

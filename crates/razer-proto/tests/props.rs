@@ -244,6 +244,20 @@ proptest! {
     }
 
     #[test]
+    fn a_fan_or_preset_reply_for_another_storage_or_echo_is_not_read(
+        storage in any::<u8>(),
+        echoed in any::<u8>(),
+        asked in any::<u8>(),
+        value in any::<u8>(),
+    ) {
+        let args = [storage, echoed, value, 0];
+        let ours = storage == 0x01 && echoed == asked;
+        prop_assert_eq!(FanRpm::from_reply(asked, &args).is_some(), ours);
+        let known_mode = [0x00, 0x02, 0x05].contains(&value);
+        prop_assert_eq!(PerfMode::from_reply(asked, &args).is_some(), ours && known_mode);
+    }
+
+    #[test]
     fn a_charge_limit_reads_on_or_off_only_for_the_model_percent(value in any::<u8>()) {
         let limit = ChargeLimit { percent: 80 };
         let expected = (value & 0x7F == 80).then_some(value & 0x80 != 0);
@@ -273,8 +287,8 @@ proptest! {
         let _ = ChargeLimit { percent: 80 }.from_reply(&args);
         let _ = BLADE_18.logo.map(|logo| logo.from_reply(&args));
         let _ = NativeMode::from_reply(&args, &BLADE_18);
-        let _ = PerfMode::from_reply(&args);
-        let _ = FanRpm::from_reply(&args);
+        let _ = PerfMode::from_reply(0x01, &args);
+        let _ = FanRpm::from_reply(0x01, &args);
         let _ = Celsius::cpu_from_reply(&args);
     }
 }
