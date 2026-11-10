@@ -14,6 +14,7 @@ mod autostart;
 mod battery_preset;
 mod battery_rate;
 mod charge;
+mod charger;
 mod config;
 mod instance;
 mod keyboard_brightness;
@@ -38,6 +39,7 @@ pub use autostart::{
 };
 pub use battery_rate::{BATTERY_RATE, BatteryRate, RESUME_RATE_TRIES};
 pub use charge::{ChargeError, charge_limit_on, set_charge_limit};
+pub use charger::full_power_charger;
 pub use config::{Config, ConfigError, CustomSettings, Lighting, Preset};
 pub use instance::{APP_NAME, Start, start_instance};
 pub use keyboard_brightness::{keyboard_brightness, set_vapor_light};
