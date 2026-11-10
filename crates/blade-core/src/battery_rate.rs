@@ -3,7 +3,7 @@
 use platform::{DisplayApi, ModeLife, PowerEvent};
 
 use crate::Config;
-use crate::refresh::{DisplayError, RefreshRate, current_rate, set_rate, set_refresh_rate};
+use crate::refresh::{DisplayError, RefreshRate, current_rate, saved_rate, set_rate};
 
 /// The rate the panel runs at on battery.
 pub const BATTERY_RATE: RefreshRate = RefreshRate(60);
@@ -60,6 +60,9 @@ impl BatteryRate {
         }
         let rate = current_rate(api)?;
         if rate == BATTERY_RATE {
+            // A crash on battery leaves 60 Hz, not saved: the rate Windows
+            // has saved is the one to put back.
+            self.saved = saved_rate(api).filter(|&saved| saved != BATTERY_RATE);
             return Ok(());
         }
         set_rate(api, BATTERY_RATE, ModeLife::UntilRestart)?;
@@ -121,6 +124,8 @@ impl BatteryRate {
     /// on AC, and when the app quits. Nothing is sent if the panel no
     /// longer runs at 60 Hz, as the rate was then changed outside the app.
     /// Each saved rate is tried once, so a failed put-back is not retried.
+    /// It is not saved, so the rate Windows has saved stays the user's,
+    /// even when the one put back was set by another program.
     ///
     /// # Errors
     ///
@@ -132,6 +137,6 @@ impl BatteryRate {
         if current_rate(api)? != BATTERY_RATE {
             return Ok(());
         }
-        set_refresh_rate(api, rate)
+        set_rate(api, rate, ModeLife::UntilRestart)
     }
 }

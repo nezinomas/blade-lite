@@ -192,6 +192,10 @@ pub trait DisplayApi {
     ///
     /// The Windows error if the display did not take the mode.
     fn set_mode(&mut self, name: &str, mode: DisplayMode, life: ModeLife) -> io::Result<()>;
+
+    /// The mode saved for the display named `name`, which a restart starts
+    /// at, or `None` if Windows has none.
+    fn saved_mode(&self, name: &str) -> Option<DisplayMode>;
 }
 
 /// How long the CPUs have run since boot, in 100 ns units, summed over all.

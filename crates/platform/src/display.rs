@@ -29,16 +29,11 @@ const QUERY_TRIES: usize = 3;
 /// The displays Windows has turned on.
 pub struct WindowsDisplays;
 
-impl WindowsDisplays {
-    /// The mode saved for the display named `name`, which a restart starts
-    /// at, or `None` if Windows has none.
-    #[must_use]
-    pub fn saved_mode(&self, name: &str) -> Option<DisplayMode> {
+impl DisplayApi for WindowsDisplays {
+    fn saved_mode(&self, name: &str) -> Option<DisplayMode> {
         mode(&wide(name), ENUM_REGISTRY_SETTINGS)
     }
-}
 
-impl DisplayApi for WindowsDisplays {
     fn displays(&self) -> io::Result<Vec<Display>> {
         active_paths()?.iter().map(display).collect()
     }

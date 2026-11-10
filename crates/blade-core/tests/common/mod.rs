@@ -52,6 +52,9 @@ pub struct FakeDisplays {
     /// How many of the next sets fail, as Windows refuses one just after a
     /// wake.
     pub failing_sets: usize,
+    /// The mode Windows has saved for every display, which a restart
+    /// starts at.
+    pub saved: Option<DisplayMode>,
 }
 
 impl FakeDisplays {
@@ -60,11 +63,16 @@ impl FakeDisplays {
             displays,
             set: Vec::new(),
             failing_sets: 0,
+            saved: None,
         }
     }
 }
 
 impl DisplayApi for FakeDisplays {
+    fn saved_mode(&self, _name: &str) -> Option<DisplayMode> {
+        self.saved
+    }
+
     fn displays(&self) -> io::Result<Vec<Display>> {
         self.displays.clone().ok_or(io::ErrorKind::Other.into())
     }

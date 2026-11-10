@@ -49,6 +49,18 @@ pub fn current_rate(api: &impl DisplayApi) -> Result<RefreshRate, DisplayError> 
     Ok(RefreshRate(panel.current.hz))
 }
 
+/// The rate Windows has saved for the panel, which a restart starts at.
+/// `None` if there is none, or it is not one the panel offers at its
+/// current resolution, as nothing else can be put back.
+pub(crate) fn saved_rate(api: &impl DisplayApi) -> Option<RefreshRate> {
+    let displays = api.displays().ok()?;
+    let panel = internal_panel(&displays)?;
+    let saved = api.saved_mode(&panel.name)?;
+    let rate = RefreshRate(saved.hz);
+    let same_size = (saved.width, saved.height) == (panel.current.width, panel.current.height);
+    (same_size && rates_at_current_resolution(panel).contains(&rate)).then_some(rate)
+}
+
 /// Switches the panel to `rate` and keeps its resolution, also after a
 /// restart. A rate the panel does not offer is refused before Windows is
 /// asked.

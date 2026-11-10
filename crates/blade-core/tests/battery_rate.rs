@@ -4,7 +4,7 @@ mod common;
 
 use blade_core::{BatteryRate, Config, RefreshRate, set_refresh_rate};
 use common::{FakeDisplays, mode, panel};
-use platform::{ModeLife, PowerEvent};
+use platform::{DisplayMode, ModeLife, PowerEvent};
 
 fn config(sixty_hz_on_battery: bool) -> Config {
     Config {
@@ -36,7 +36,7 @@ fn battery_sets_60_hz() {
 }
 
 #[test]
-fn the_battery_rate_is_not_saved_but_the_put_back_rate_is() {
+fn neither_the_battery_rate_nor_the_put_back_rate_is_saved() {
     let mut api = panel_at(240);
 
     feed(
@@ -52,7 +52,7 @@ fn the_battery_rate_is_not_saved_but_the_put_back_rate_is() {
         .collect();
     assert_eq!(
         lives,
-        [(60, ModeLife::UntilRestart), (240, ModeLife::Saved)]
+        [(60, ModeLife::UntilRestart), (240, ModeLife::UntilRestart)]
     );
 }
 
@@ -352,4 +352,69 @@ fn a_battery_event_keeps_the_tries_after_a_wake() {
     battery_rate.retry(&config(true), &mut api).unwrap();
 
     assert_eq!(api.panel_mode(), mode(3840, 2400, 60));
+}
+
+/// The panel at 60 Hz, as a crash on battery leaves it, with `saved` the
+/// mode Windows has saved.
+fn left_at_60(saved: Option<DisplayMode>) -> FakeDisplays {
+    let mut api = panel_at(60);
+    api.saved = saved;
+    api
+}
+
+#[test]
+fn a_start_on_battery_at_60_hz_puts_the_saved_rate_back_on_ac() {
+    let mut api = left_at_60(Some(mode(3840, 2400, 240)));
+
+    feed(
+        &[PowerEvent::OnBattery, PowerEvent::OnAc],
+        config(true),
+        &mut api,
+    );
+
+    let lives: Vec<(u32, ModeLife)> = api
+        .set
+        .iter()
+        .map(|(_, mode, life)| (mode.hz, *life))
+        .collect();
+    assert_eq!(lives, [(240, ModeLife::UntilRestart)]);
+}
+
+#[test]
+fn a_saved_60_hz_is_nothing_to_put_back() {
+    let mut api = left_at_60(Some(mode(3840, 2400, 60)));
+
+    feed(
+        &[PowerEvent::OnBattery, PowerEvent::OnAc],
+        config(true),
+        &mut api,
+    );
+
+    assert_eq!(api.set, []);
+}
+
+#[test]
+fn a_saved_mode_at_another_resolution_is_not_put_back() {
+    let mut api = left_at_60(Some(mode(1920, 1200, 240)));
+
+    feed(
+        &[PowerEvent::OnBattery, PowerEvent::OnAc],
+        config(true),
+        &mut api,
+    );
+
+    assert_eq!(api.set, []);
+}
+
+#[test]
+fn a_saved_rate_the_panel_does_not_offer_is_not_put_back() {
+    let mut api = left_at_60(Some(mode(3840, 2400, 75)));
+
+    feed(
+        &[PowerEvent::OnBattery, PowerEvent::OnAc],
+        config(true),
+        &mut api,
+    );
+
+    assert_eq!(api.set, []);
 }
