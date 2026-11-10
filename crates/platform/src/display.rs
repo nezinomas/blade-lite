@@ -17,7 +17,8 @@ use windows_sys::Win32::Foundation::{ERROR_INSUFFICIENT_BUFFER, ERROR_SUCCESS};
 use windows_sys::Win32::Graphics::Gdi::{
     CDS_TYPE, CDS_UPDATEREGISTRY, ChangeDisplaySettingsExW, DEVMODEW, DISP_CHANGE,
     DISP_CHANGE_SUCCESSFUL, DM_DISPLAYFREQUENCY, DM_PELSHEIGHT, DM_PELSWIDTH,
-    ENUM_CURRENT_SETTINGS, ENUM_DISPLAY_SETTINGS_MODE, EnumDisplaySettingsW,
+    ENUM_CURRENT_SETTINGS, ENUM_DISPLAY_SETTINGS_MODE, ENUM_REGISTRY_SETTINGS,
+    EnumDisplaySettingsW,
 };
 
 use crate::{Display, DisplayApi, DisplayMode, ModeLife, OutputTechnology, wide, windows_error};
@@ -27,6 +28,15 @@ const QUERY_TRIES: usize = 3;
 
 /// The displays Windows has turned on.
 pub struct WindowsDisplays;
+
+impl WindowsDisplays {
+    /// The mode saved for the display named `name`, which a restart starts
+    /// at, or `None` if Windows has none.
+    #[must_use]
+    pub fn saved_mode(&self, name: &str) -> Option<DisplayMode> {
+        mode(&wide(name), ENUM_REGISTRY_SETTINGS)
+    }
+}
 
 impl DisplayApi for WindowsDisplays {
     fn displays(&self) -> io::Result<Vec<Display>> {

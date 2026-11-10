@@ -11,7 +11,7 @@ use blade_core::{
     set_logo, set_native_mode, set_refresh_rate, set_touchpad, touchpad_on,
 };
 use platform::{
-    DisplayApi, InstanceLock, OutputTechnology, PowerEvent, PowerEvents, RegistryWatch,
+    Display, DisplayApi, InstanceLock, OutputTechnology, PowerEvent, PowerEvents, RegistryWatch,
     WindowsDisplays, WindowsInstance, WindowsKeys, WindowsPowerEvents, WindowsRegistry,
 };
 use razer_device::{Device, HidKeyReports, HidTransport, SystemClock};
@@ -105,11 +105,23 @@ fn the_panel_offers_its_current_rate() {
 
 /// The panel's current refresh rate, or the error as text.
 fn read_panel_rate() -> Result<RefreshRate, String> {
+    read_panel().map(|panel| RefreshRate(panel.current.hz))
+}
+
+/// The rate saved for the panel, which a restart starts at.
+fn read_saved_rate() -> Result<RefreshRate, String> {
+    let panel = read_panel()?;
+    WindowsDisplays
+        .saved_mode(&panel.name)
+        .map(|mode| RefreshRate(mode.hz))
+        .ok_or_else(|| "no saved mode for the panel".to_string())
+}
+
+fn read_panel() -> Result<Display, String> {
     let displays = WindowsDisplays.displays().map_err(text)?;
     displays
-        .iter()
+        .into_iter()
         .find(|display| display.technology == OutputTechnology::Internal)
-        .map(|panel| RefreshRate(panel.current.hz))
         .ok_or_else(|| "no internal panel found".to_string())
 }
 
@@ -310,14 +322,21 @@ fn battery_drops_to_60_hz_and_ac_puts_the_rate_back() {
     let restored = restored.unwrap_or_else(|error| panic!("{error}; {put_back}"));
     assert_eq!(restored, before, "{put_back}");
     let (on_battery, after_ac) = seen.unwrap();
-    assert_eq!(on_battery, Some(RefreshRate(60)), "no 60 Hz on battery");
+    assert_eq!(
+        on_battery,
+        Some((RefreshRate(60), before)),
+        "no 60 Hz on battery, or it was saved"
+    );
     assert_eq!(after_ac, Some(before), "the rate was not put back on AC");
 }
 
+/// The panel's rate, and the rate saved for it.
+type RateAndSaved = (RefreshRate, RefreshRate);
+
 /// Feeds the power events to a `BatteryRate` until the charger goes back in
-/// (or none comes), and returns the panel's rate on battery and after AC.
-/// Stops at the first error.
-fn rates_until_ac(config: &Config) -> Result<(Option<RefreshRate>, Option<RefreshRate>), String> {
+/// (or none comes), and returns the panel's rate and saved rate on battery,
+/// and its rate after AC. Stops at the first error.
+fn rates_until_ac(config: &Config) -> Result<(Option<RateAndSaved>, Option<RefreshRate>), String> {
     let mut battery_rate = BatteryRate::default();
     let events = power_events();
     let (mut on_battery, mut after_ac) = (None, None);
@@ -333,7 +352,7 @@ fn rates_until_ac(config: &Config) -> Result<(Option<RefreshRate>, Option<Refres
         let rate = read_panel_rate()?;
         eprintln!("{event:?}: panel at {rate:?}");
         match event {
-            PowerEvent::OnBattery => on_battery = Some(rate),
+            PowerEvent::OnBattery => on_battery = Some((rate, read_saved_rate()?)),
             PowerEvent::OnAc if on_battery.is_some() => {
                 after_ac = Some(rate);
                 break;

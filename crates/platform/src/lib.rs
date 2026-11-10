@@ -150,7 +150,9 @@ pub struct DisplayMode {
 pub enum ModeLife {
     /// Saved in the user's settings, so it is kept after a restart.
     Saved,
-    /// Not saved: a restart or a sign-in starts at the saved mode.
+    /// Not saved: a restart or a sign-in starts at the saved mode. Windows
+    /// or another program (such as a game on exit) can also put the saved
+    /// mode back sooner, for example after a display is plugged in.
     UntilRestart,
 }
 
