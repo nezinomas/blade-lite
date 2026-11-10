@@ -8,7 +8,7 @@ use blade_lite::{Rect, popup_position, report};
 use platform::work_area;
 use slint::winit_030::{WinitWindowAccessor, winit};
 use slint::{ComponentHandle, PhysicalPosition, Timer};
-use ui::Sensor;
+use ui::{HEAT_HOLD, Sensor};
 use winit::platform::windows::WindowExtWindows;
 
 use super::{Parts, Shell};
@@ -16,7 +16,9 @@ use crate::tray::px;
 
 /// How long the popup stays before it fades, and how long the
 /// fade takes (a little longer than its animation in the markup).
-const POPUP_HOLD: Duration = Duration::from_millis(1500);
+pub(super) const POPUP_HOLD: Duration = Duration::from_millis(1500);
+/// The heat warning stays longer: it shows once per hot spell.
+const HEAT_POPUP_HOLD: Duration = Duration::from_secs(10);
 const POPUP_FADE: Duration = Duration::from_millis(300);
 
 /// The popup's captions.
@@ -26,21 +28,30 @@ pub(super) const TOO_HOT: &str = "Too hot";
 
 impl<P: Parts> Shell<P> {
     /// Notes the CPU and GPU temperatures read at `now`, `None` for one not
-    /// read, and shows the popup when one has stayed hot. Nothing is sent.
+    /// read, and shows and logs the warnings of the sensors that have stayed
+    /// hot, in one popup. Nothing is sent.
     pub fn watch_heat(self: &Rc<Self>, cpu: Option<u32>, gpu: Option<u32>, now: Instant) {
         let mut watch = self.heat_watch.get();
-        let warnings = [(Sensor::Cpu, cpu), (Sensor::Gpu, gpu)]
-            .map(|(sensor, celsius)| watch.note(sensor, celsius, now));
+        let warnings: Vec<String> = [(Sensor::Cpu, cpu), (Sensor::Gpu, gpu)]
+            .into_iter()
+            .filter_map(|(sensor, celsius)| watch.note(sensor, celsius, now))
+            .collect();
         self.heat_watch.set(watch);
-        for warning in warnings.iter().flatten() {
-            self.pop_up(TOO_HOT, warning);
+        if warnings.is_empty() {
+            return;
         }
+        let text = warnings.join(" · ");
+        report(&format!(
+            "too hot for {} min: {text}",
+            HEAT_HOLD.as_secs() / 60
+        ));
+        self.pop_up(TOO_HOT, &text, HEAT_POPUP_HOLD);
     }
 
     /// Shows the popup with `caption` over `mode` above the taskbar clock,
-    /// without taking the focus, then fades it out. A new one starts the
-    /// time again.
-    pub(super) fn pop_up(self: &Rc<Self>, caption: &str, mode: &str) {
+    /// without taking the focus, for `hold`, then fades it out. A new one
+    /// starts the time again.
+    pub(super) fn pop_up(self: &Rc<Self>, caption: &str, mode: &str, hold: Duration) {
         self.popup.set_caption(caption.into());
         self.popup.set_mode(mode.into());
         let count = self.popups.get().wrapping_add(1);
@@ -62,7 +73,7 @@ impl<P: Parts> Shell<P> {
                 |shell, _| shell.set_up_popup(),
             );
         }
-        self.after(POPUP_HOLD, count, move |shell| {
+        self.after(hold, count, move |shell| {
             shell.popup.set_shown(false);
             shell.after(POPUP_FADE, count, |shell| {
                 let _ = shell.popup.hide();

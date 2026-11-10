@@ -20,7 +20,7 @@ use platform::{
 use razer_device::{Device, HidTransport, SystemClock};
 use ui::{FlyoutView, HeatWatch, ModeWatch, TouchpadWatch};
 
-use popup::POWER_MODE;
+use popup::{POPUP_HOLD, POWER_MODE};
 
 use crate::{FlyoutWindow, MainWindow, ModePopup, bind};
 
@@ -199,7 +199,7 @@ impl<P: Parts> Shell<P> {
         let changed = watch.changed(self.app.borrow().running_preset(), worked);
         self.mode_watch.set(watch);
         if let Some(mode) = changed {
-            self.pop_up(POWER_MODE, mode);
+            self.pop_up(POWER_MODE, mode, POPUP_HOLD);
         }
     }
 

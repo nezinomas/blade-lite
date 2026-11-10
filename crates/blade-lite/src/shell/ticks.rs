@@ -8,8 +8,9 @@ use blade_core::RESUME_PAUSE;
 use blade_lite::report;
 use platform::{PowerEvent, num_lock_on};
 use slint::Timer;
+use ui::HeatWatch;
 
-use super::popup::TOUCHPAD;
+use super::popup::{POPUP_HOLD, TOUCHPAD};
 use super::{Parts, Shell};
 use crate::bind;
 
@@ -18,21 +19,31 @@ impl<P: Parts> Shell<P> {
     /// on Num Lock, then reads the sensors if a view shows them, or only
     /// the temperatures now and then if none does.
     pub fn tick(self: &Rc<Self>) {
+        self.tick_at(Instant::now());
+    }
+
+    /// [`tick`](Self::tick) at `now`.
+    pub fn tick_at(self: &Rc<Self>, now: Instant) {
         self.follow_own_power();
         if self.resuming.get() == 0 && self.app.borrow().battery_rate_pending() {
             self.retry_battery_rate();
         }
         self.follow_num_lock(num_lock_on());
-        let now = Instant::now();
         if self.schedule.borrow_mut().poll_due(now) {
-            self.tick_readings();
-        } else if self.resuming.get() == 0 && self.schedule.borrow_mut().heat_due(now) {
+            self.tick_readings(now);
+        } else if self.heat_reads_allowed() && self.schedule.borrow_mut().heat_due(now) {
             self.tick_heat(now);
         }
     }
 
-    /// Reads only the temperatures, for the heat warning. Not while a
-    /// resume waits: the controller may not be ready.
+    /// Whether the controller may be read in the background: not while a
+    /// resume waits (it may not be ready), nor while Razer's own software
+    /// runs (it may talk to the controller at the same time).
+    fn heat_reads_allowed(&self) -> bool {
+        self.resuming.get() == 0 && self.razer_warning.borrow().is_none()
+    }
+
+    /// Reads only the temperatures, for the heat warning.
     fn tick_heat(self: &Rc<Self>, now: Instant) {
         let (gpu, mut errors) = {
             let (sampler, sensors) = &mut *self.sampler.borrow_mut();
@@ -99,7 +110,7 @@ impl<P: Parts> Shell<P> {
         let changed = watch.changed(self.app.borrow().touchpad_on());
         self.touchpad_watch.set(watch);
         if let Some(state) = changed {
-            self.pop_up(TOUCHPAD, state);
+            self.pop_up(TOUCHPAD, state, POPUP_HOLD);
         }
     }
 
@@ -127,6 +138,9 @@ impl<P: Parts> Shell<P> {
     fn power_event(self: &Rc<Self>, event: PowerEvent) {
         self.forget_charging();
         if event == PowerEvent::Resumed {
+            // The time asleep may not count in `Instant`, so a spell before
+            // the sleep is not carried over.
+            self.heat_watch.set(HeatWatch::default());
             // The controller needs a moment after the wake.
             self.resuming.set(self.resuming.get().saturating_add(1));
             let shell = Rc::clone(self);
@@ -161,7 +175,7 @@ impl<P: Parts> Shell<P> {
     /// Reads the sensors, then shows the header and the keyboard group,
     /// since the touchpad key can change it at any time, and watches the
     /// temperatures. The reads that failed are logged once in a while.
-    fn tick_readings(self: &Rc<Self>) {
+    fn tick_readings(self: &Rc<Self>, now: Instant) {
         let (readings, mut errors) = {
             let (sampler, sensors) = &mut *self.sampler.borrow_mut();
             (sampler.sample(sensors), sampler.errors().to_vec())
@@ -178,7 +192,7 @@ impl<P: Parts> Shell<P> {
         let cpu = app.cpu_celsius();
         drop(app);
         let gpu = readings.gpu.map(|gpu| gpu.celsius);
-        self.watch_heat(cpu, gpu, Instant::now());
+        self.watch_heat(cpu, gpu, now);
     }
 
     /// Logs the failed reads not logged in the quiet time.

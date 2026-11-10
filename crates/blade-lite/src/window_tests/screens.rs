@@ -114,7 +114,8 @@ fn heat_popup() {
     let start = Instant::now();
     for second in (0..=ui::HEAT_HOLD.as_secs()).step_by(10) {
         let now = start + Duration::from_secs(second);
-        f.shell.watch_heat(Some(96), None, now);
+        // Both at once: the widest text.
+        f.shell.watch_heat(Some(105), Some(105), now);
     }
     // Shown here, as in `touchpad_popup`.
     let popup = f.shell.popup();

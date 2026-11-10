@@ -54,18 +54,24 @@ impl PollSchedule {
     }
 
     /// Whether to read only the temperatures now: never while a view polls,
-    /// since each poll reads them. A `true` moves the next read one
-    /// [`HEAT_INTERVAL`] on.
+    /// since each poll reads them. A read due moves the next one
+    /// [`HEAT_INTERVAL`] on. A read more than one interval late is skipped,
+    /// and the next waits one interval: the event loop stood still, as in
+    /// a sleep, so the controller may not be awake and the wake not known.
     pub fn heat_due(&mut self, now: Instant) -> bool {
         if self.next.is_some() {
             self.next_heat = None;
             return false;
         }
-        let due = self.next_heat.is_none_or(|next| now >= next);
-        if due {
+        let Some(next) = self.next_heat else {
             self.next_heat = Some(now + HEAT_INTERVAL);
+            return true;
+        };
+        if now < next {
+            return false;
         }
-        due
+        self.next_heat = Some(now + HEAT_INTERVAL);
+        now <= next + HEAT_INTERVAL
     }
 
     /// When the next poll is due, or `None` while polling is stopped.

@@ -200,3 +200,31 @@ fn heat_reads_start_when_the_last_view_closes() {
         secs(&[15, 25])
     );
 }
+
+#[test]
+fn a_heat_read_long_overdue_waits_one_more_interval() {
+    // The event loop stood still, as in a sleep: the controller may not be
+    // awake yet, and the wake may not be known yet.
+    let mut clock = FakeClock::new();
+    let mut schedule = PollSchedule::default();
+    assert!(schedule.heat_due(clock.now));
+
+    clock.now += Duration::from_secs(60);
+
+    assert!(!schedule.heat_due(clock.now));
+    assert_eq!(
+        heat_reads(&mut clock, &mut schedule, Duration::from_secs(11)),
+        secs(&[70])
+    );
+}
+
+#[test]
+fn a_heat_read_a_little_late_still_runs() {
+    let mut clock = FakeClock::new();
+    let mut schedule = PollSchedule::default();
+    assert!(schedule.heat_due(clock.now));
+
+    clock.now += HEAT_INTERVAL * 2;
+
+    assert!(schedule.heat_due(clock.now));
+}
