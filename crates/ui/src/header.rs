@@ -149,12 +149,11 @@ fn health_line(readings: &Readings) -> String {
         return String::new();
     }
     let percent = health.percent.map_or_else(|| MISSING.to_owned(), percent);
-    let mut line = format!("Battery health {percent}");
-    if let Some(cycles) = health.cycles {
+    let cycles = health.cycles.map_or_else(String::new, |cycles| {
         let noun = if cycles == 1 { "cycle" } else { "cycles" };
-        line.push_str(&format!(" \u{b7} {cycles} {noun}"));
-    }
-    line
+        format!(" \u{b7} {cycles} {noun}")
+    });
+    format!("Battery health {percent}{cycles}")
 }
 
 fn stat(label: &str, value: Option<String>) -> Stat {
