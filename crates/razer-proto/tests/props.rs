@@ -17,6 +17,7 @@ const KNOWN_STATUS: [u8; 4] = [0x01, 0x02, 0x03, 0x05];
 const SUCCESS: u8 = 0x02;
 const SET_FAN: u16 = 0x0D01;
 const SET_PRESET: u16 = 0x0D02;
+const SET_BOOST: u16 = 0x0D07;
 
 fn report() -> impl Strategy<Value = [u8; REPORT_LEN]> {
     prop::collection::vec(any::<u8>(), REPORT_LEN)
@@ -145,15 +146,13 @@ proptest! {
     }
 
     #[test]
-    fn every_colour_reads_back_from_its_hex_with_space_around(
+    fn every_colour_reads_back_from_its_hex(
         red in any::<u8>(),
         green in any::<u8>(),
         blue in any::<u8>(),
-        space in "[ \t\n]{0,3}",
     ) {
-        // The colour field trims what the user typed before it parses it.
-        let typed = format!("{space}#{red:02X}{green:02X}{blue:02x}{space}");
-        prop_assert_eq!(typed.trim().parse(), Ok(Rgb::new(red, green, blue)));
+        let text = format!("#{red:02X}{green:02X}{blue:02x}");
+        prop_assert_eq!(text.parse(), Ok(Rgb::new(red, green, blue)));
     }
 
     #[test]
@@ -164,8 +163,8 @@ proptest! {
     }
 
     #[test]
-    fn a_manual_fan_speed_is_sent_as_rpm_over_100_after_every_mode_write(
-        hundreds in BLADE_18.custom.fan_rpm.min / 100..=BLADE_18.custom.fan_rpm.max / 100,
+    fn a_manual_fan_speed_is_sent_as_rpm_over_100_after_the_mode_and_boosts(
+        hundreds in BLADE_18.custom.fan_rpm.min.div_ceil(100)..=BLADE_18.custom.fan_rpm.max / 100,
     ) {
         let rpm = hundreds * 100;
         let custom = Custom {
@@ -180,9 +179,16 @@ proptest! {
         for (command, &zone) in fans.iter().zip(zones) {
             prop_assert_eq!(&command.args, &vec![0x01, zone, u8::try_from(hundreds).unwrap()]);
         }
-        let last_mode = commands.iter().rposition(|command| command.id == SET_PRESET);
-        let first_fan = commands.iter().position(|command| command.id == SET_FAN);
-        prop_assert!(last_mode < first_fan);
+        let modes: Vec<_> = commands.iter().filter(|command| command.id == SET_PRESET).collect();
+        prop_assert_eq!(modes.len(), BLADE_18.perf_zones.len());
+        for (command, &zone) in modes.iter().zip(BLADE_18.perf_zones) {
+            // Custom mode, with the manual fan flag.
+            prop_assert_eq!(&command.args, &vec![0x01, zone, 0x04, 0x01]);
+        }
+        let last = |id| commands.iter().rposition(|command| command.id == id).unwrap();
+        let first_fan = commands.iter().position(|command| command.id == SET_FAN).unwrap();
+        prop_assert!(last(SET_PRESET) < first_fan);
+        prop_assert!(last(SET_BOOST) < first_fan);
     }
 
     #[test]
@@ -220,8 +226,29 @@ proptest! {
         let higher = Brightness::new(percent + 1).unwrap();
         prop_assert!(lower.level() <= higher.level());
         let led = BLADE_18.brightness_leds[0];
-        let read = Brightness::from_reply(&BLADE_18, &[0x01, led, lower.level()]);
-        prop_assert_eq!(read, Some(lower));
+        for brightness in [lower, higher] {
+            let read = Brightness::from_reply(&BLADE_18, &[0x01, led, brightness.level()]);
+            prop_assert_eq!(read, Some(brightness));
+        }
+    }
+
+    #[test]
+    fn a_brightness_reply_for_another_storage_or_led_is_not_read(
+        storage in any::<u8>(),
+        led in any::<u8>(),
+        level in any::<u8>(),
+    ) {
+        let ours = storage == 0x01 && led == BLADE_18.brightness_leds[0];
+        let read = Brightness::from_reply(&BLADE_18, &[storage, led, level]);
+        prop_assert_eq!(read.is_some(), ours);
+    }
+
+    #[test]
+    fn a_charge_limit_reads_on_or_off_only_for_the_model_percent(value in any::<u8>()) {
+        let limit = ChargeLimit { percent: 80 };
+        let expected = (value & 0x7F == 80).then_some(value & 0x80 != 0);
+        prop_assert_eq!(limit.from_reply(&[value]), expected);
+        prop_assert_eq!(limit.from_reply(&[]), None);
     }
 
     #[test]
