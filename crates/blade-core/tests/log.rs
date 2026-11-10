@@ -144,7 +144,7 @@ fn a_path_that_is_a_folder_gives_an_error_not_a_panic() {
 #[test]
 fn a_century_that_is_not_a_leap_year_is_dated_right() {
     // 2100-03-01 00:00:00 UTC: 2100 has no 29 February.
-    let march = SystemTime::UNIX_EPOCH + Duration::from_secs(4_107_542_400);
+    let march = SystemTime::UNIX_EPOCH + Duration::from_hours(1_140_984);
     assert_eq!(log_line(march, "x"), "2100-03-01 00:00:00Z x\n");
 }
 

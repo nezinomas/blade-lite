@@ -59,7 +59,7 @@ pub type AppOn<P> = App<
 
 /// A sensor or fan read error is logged once, then not again for this long,
 /// since it can come and go on each read.
-const READ_ERROR_QUIET: Duration = Duration::from_secs(10 * 60);
+const READ_ERROR_QUIET: Duration = Duration::from_mins(10);
 
 pub struct Shell<P: Parts = Laptop> {
     window: MainWindow,

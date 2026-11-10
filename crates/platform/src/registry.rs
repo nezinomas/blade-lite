@@ -45,9 +45,10 @@ impl Registry for WindowsRegistry {
 impl UserStrings for WindowsRegistry {
     fn read_user_string(&self, key: &str, name: &str) -> io::Result<String> {
         let bytes = read_value(key, name, RRF_RT_REG_SZ)?;
-        let text: Vec<u16> = bytes
-            .chunks_exact(2)
-            .map(|pair| u16::from_le_bytes([pair[0], pair[1]]))
+        let (pairs, _) = bytes.as_chunks::<2>();
+        let text: Vec<u16> = pairs
+            .iter()
+            .map(|&pair| u16::from_le_bytes(pair))
             .take_while(|&unit| unit != 0)
             .collect();
         String::from_utf16(&text).map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))
