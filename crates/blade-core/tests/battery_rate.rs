@@ -109,3 +109,27 @@ fn resume_does_not_touch_the_rate() {
 
     assert_eq!(api.set, []);
 }
+
+#[test]
+fn put_back_restores_the_rate_from_before_battery_once() {
+    let mut api = panel_at(240);
+    let mut battery_rate = BatteryRate::default();
+    battery_rate
+        .on_event(PowerEvent::OnBattery, &config(true), &mut api)
+        .unwrap();
+
+    battery_rate.put_back(&mut api).unwrap();
+    battery_rate.put_back(&mut api).unwrap();
+
+    let rates: Vec<u32> = api.set.iter().map(|(_, mode)| mode.hz).collect();
+    assert_eq!(rates, [60, 240]);
+}
+
+#[test]
+fn put_back_without_battery_first_changes_nothing() {
+    let mut api = panel_at(240);
+
+    BatteryRate::default().put_back(&mut api).unwrap();
+
+    assert_eq!(api.set, []);
+}
