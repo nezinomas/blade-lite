@@ -2,6 +2,7 @@
 //! shown after each one.
 
 use blade_core::{Config, Preset};
+use blade_lite::Rect;
 use i_slint_backend_testing::AccessibleRole::{Button, Slider, Switch};
 use i_slint_backend_testing::{ElementHandle, ElementRoot};
 use platform::{Key, PowerEvent};
@@ -286,6 +287,116 @@ fn the_flyout_slider_follows_a_change_from_the_window_after_its_own_drag() {
 
     assert_eq!(flyout.accessible_value().unwrap(), "100");
     assert_eq!(percent_shown(f.shell.flyout(), "FlyoutWindow"), "100%");
+}
+
+/// Presses the brightness slider `label` in its middle and never lets it
+/// go, as when the window hides mid-drag: the slider shows 50%, unsent.
+fn press_without_release<R: ElementRoot + ComponentHandle>(root: &R, label: &str) {
+    let slider = control(root, Slider, label);
+    let start = slider.absolute_position();
+    let size = slider.size();
+    root.window().dispatch_event(WindowEvent::PointerPressed {
+        position: LogicalPosition::new(start.x + size.width / 2.0, start.y + size.height / 2.0),
+        button: PointerEventButton::Left,
+    });
+}
+
+/// A tray icon for opening the flyout.
+const ICON: Rect = Rect {
+    x: 1800,
+    y: 1100,
+    width: 24,
+    height: 24,
+};
+
+/// After a show: the slider `label` and its text show the laptop's 100%,
+/// and moving the mouse to the slider's left end and letting go (the old
+/// drag's mouse-up) neither moves it nor sends anything since `before`.
+/// That mouse-up calls `released` with 100, which sends nothing because
+/// `move_brightness` skips the brightness the laptop already has.
+fn shows_the_laptop_brightness<R: ElementRoot + ComponentHandle>(
+    f: &Fixture,
+    root: &R,
+    label: &str,
+    component: &str,
+    before: usize,
+) {
+    let slider = control(root, Slider, label);
+    assert_eq!(slider.accessible_value().unwrap(), "100");
+    assert_eq!(percent_shown(root, component), "100%");
+    let start = slider.absolute_position();
+    let left_end = LogicalPosition::new(start.x, start.y + slider.size().height / 2.0);
+
+    root.window()
+        .dispatch_event(WindowEvent::PointerMoved { position: left_end });
+    root.window().dispatch_event(WindowEvent::PointerReleased {
+        position: left_end,
+        button: PointerEventButton::Left,
+    });
+
+    assert_eq!(slider.accessible_value().unwrap(), "100");
+    assert_eq!(percent_shown(root, component), "100%");
+    assert_eq!(sent_since(f, before), []);
+}
+
+#[test]
+fn showing_the_window_puts_back_a_brightness_drag_cut_short() {
+    let f = fixture(Config::default());
+    press_without_release(f.shell.window(), "Brightness");
+    assert_eq!(percent_shown(f.shell.window(), "KeyboardGroup"), "50%");
+    let before = sent_count(&f);
+
+    f.shell.show_window();
+
+    shows_the_laptop_brightness(&f, f.shell.window(), "Brightness", "KeyboardGroup", before);
+}
+
+#[test]
+fn showing_the_window_puts_back_a_brightness_set_by_narrator() {
+    let f = fixture(Config::default());
+    let before = sent_count(&f);
+    control(f.shell.window(), Slider, "Brightness").set_accessible_value("30");
+    assert_eq!(percent_shown(f.shell.window(), "KeyboardGroup"), "30%");
+
+    f.shell.show_window();
+
+    shows_the_laptop_brightness(&f, f.shell.window(), "Brightness", "KeyboardGroup", before);
+}
+
+#[test]
+fn opening_the_flyout_puts_back_a_brightness_drag_cut_short() {
+    let f = fixture(Config::default());
+    press_without_release(f.shell.flyout(), "Keyboard light");
+    assert_eq!(percent_shown(f.shell.flyout(), "FlyoutWindow"), "50%");
+    let before = sent_count(&f);
+
+    f.shell.toggle_flyout(ICON);
+
+    shows_the_laptop_brightness(
+        &f,
+        f.shell.flyout(),
+        "Keyboard light",
+        "FlyoutWindow",
+        before,
+    );
+}
+
+#[test]
+fn opening_the_flyout_puts_back_a_brightness_set_by_narrator() {
+    let f = fixture(Config::default());
+    let before = sent_count(&f);
+    control(f.shell.flyout(), Slider, "Keyboard light").set_accessible_value("30");
+    assert_eq!(percent_shown(f.shell.flyout(), "FlyoutWindow"), "30%");
+
+    f.shell.toggle_flyout(ICON);
+
+    shows_the_laptop_brightness(
+        &f,
+        f.shell.flyout(),
+        "Keyboard light",
+        "FlyoutWindow",
+        before,
+    );
 }
 
 #[test]
