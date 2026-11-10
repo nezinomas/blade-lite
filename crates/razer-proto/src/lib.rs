@@ -208,7 +208,7 @@ impl Report {
     }
 
     /// The args the controller sent back: as many bytes as the data size says.
-    /// [`Response::parse`] refuses a data size above [`MAX_ARGS`], so the
+    /// [`Report::parse`] refuses a data size above [`MAX_ARGS`], so the
     /// empty fallback is never reached; if it were, a short reply fails to
     /// read rather than guessing.
     #[must_use]
