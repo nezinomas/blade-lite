@@ -539,6 +539,54 @@ fn a_touchpad_change_during_the_resume_pause_sends_nothing() {
     assert_eq!(sent_since(&f, before), []);
 }
 
+/// The fixture with a resume waiting out its pause.
+fn resuming(f: &Fixture) {
+    let (sender, receiver) = std::sync::mpsc::channel();
+    sender.send(PowerEvent::Resumed).unwrap();
+    f.shell.follow_power(&receiver);
+}
+
+#[test]
+fn a_preset_click_during_the_resume_pause_sends_nothing() {
+    let f = fixture(Config::default());
+    resuming(&f);
+    let before = sent_count(&f);
+
+    click(f.shell.window(), Button, "Silent");
+
+    assert_eq!(sent_since(&f, before), []);
+    assert_eq!(f.shell.app().config().preset, Preset::Balanced);
+}
+
+#[test]
+fn the_power_mode_key_during_the_resume_pause_sends_nothing() {
+    let f = fixture(Config::default());
+    resuming(&f);
+    let before = sent_count(&f);
+
+    f.shell.user_act(blade_lite::App::on_power_key);
+
+    assert_eq!(sent_since(&f, before), []);
+    assert_eq!(f.shell.app().config().preset, Preset::Balanced);
+}
+
+#[test]
+fn a_preset_click_after_the_resume_pause_sends_it() {
+    let f = fixture(Config::default());
+    resuming(&f);
+    i_slint_backend_testing::mock_elapsed_time(
+        blade_core::RESUME_PAUSE + std::time::Duration::from_millis(1),
+    );
+    let before = sent_count(&f);
+
+    click(f.shell.window(), Button, "Silent");
+
+    assert_eq!(
+        sent_since(&f, before),
+        PerfMode::Silent.commands(&BLADE_18).unwrap()
+    );
+}
+
 #[test]
 fn a_touchpad_change_paints_the_key_outside_a_resume() {
     let f = touchpad_off_fixture();
