@@ -3,3 +3,6 @@
 hw = "test --workspace -- --ignored --test-threads=1"
 # Quiet test run: prints only failures and the totals.
 t = "test --workspace -q"
+# The app for a laptop check, built from this checkout in its own folder,
+# so a running check app does not lock the exe that `cargo t` and pre-push rebuild.
+app = "run -p blade-lite --target-dir target/app"

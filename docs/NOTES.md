@@ -68,6 +68,7 @@ Status lives in `docs/PLAN.md` only. Commands and git rules are in `CLAUDE.md`.
 
 ## Lessons
 
+- When the user reports a strange laptop state (still fans, wrong mode), ask them to change nothing, and read the state (read only) first. In ticket 86 a mode change came first, so the cause was never proven.
 - Check `docs/PLAN.md` against what is actually built. Stage 5 found the order did not match.
 - Threads can share this folder. A merge failed because another worktree held `master`. Check the folder is free before you branch (`stage` skill, step 3).
 - In Git Bash, a Windows path written through a heredoc into Python can turn `\b` into a backspace byte. Write such scripts with the Write tool, then check with `grep -c $'\x08' <file>`.
