@@ -245,15 +245,21 @@ proptest! {
 
     #[test]
     fn a_fan_or_preset_reply_for_another_storage_or_echo_is_not_read(
-        storage in any::<u8>(),
-        echoed in any::<u8>(),
+        storage in prop_oneof![Just(0x01_u8), any::<u8>()],
         asked in any::<u8>(),
+        other in any::<u8>(),
+        same_echo in any::<bool>(),
         value in any::<u8>(),
     ) {
+        let echoed = if same_echo { asked } else { other };
         let args = [storage, echoed, value, 0];
         let ours = storage == 0x01 && echoed == asked;
         prop_assert_eq!(FanRpm::from_reply(asked, &args).is_some(), ours);
-        let known_mode = [0x00, 0x02, 0x05].contains(&value);
+        // The mode bytes of the presets, as the set commands send them.
+        let known_mode = BLADE_18
+            .presets
+            .iter()
+            .any(|preset| preset.commands(&BLADE_18).unwrap()[0].args[2] == value);
         prop_assert_eq!(PerfMode::from_reply(asked, &args).is_some(), ours && known_mode);
     }
 

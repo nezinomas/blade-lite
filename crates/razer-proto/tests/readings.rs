@@ -18,6 +18,11 @@ fn each_captured_fan_reply_parses_into_its_speed() {
         let args = &reply.bytes[8..11];
         let speed = FanRpm::from_reply(args[1], args);
 
+        assert!(
+            BLADE_18.custom.fan_zones.contains(&args[1]),
+            "{}",
+            reply.fixture
+        );
         assert_eq!(
             speed,
             Some(FanRpm(u16::from(args[2]) * 100)),
