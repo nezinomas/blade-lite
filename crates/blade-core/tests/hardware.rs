@@ -164,7 +164,7 @@ fn choose_native_mode(
     mode: NativeMode,
     device: &mut Device<HidTransport, SystemClock>,
 ) -> Result<NativeModeState, String> {
-    set_native_mode(mode, device).map_err(text)?;
+    set_native_mode(mode, device, &BLADE_18).map_err(text)?;
     native_state(device)
 }
 

@@ -8,6 +8,17 @@ use razer_proto::{ModelProfile, NativeMode};
 use crate::refresh::internal_panel;
 use crate::{Controller, DisplayError};
 
+/// Why the native mode could not be chosen.
+#[derive(Debug, thiserror::Error)]
+pub enum NativeModeError {
+    /// The mode is not one of the model's native modes.
+    #[error("the model has no such native mode: {0:?}")]
+    NotOffered(NativeMode),
+    /// The controller did not take the command.
+    #[error("the controller did not take a command: {0}")]
+    Device(DeviceError),
+}
+
 /// The chosen native mode, and whether the panel runs it yet.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum NativeModeState {
@@ -41,12 +52,19 @@ pub fn native_mode_state(
 ///
 /// # Errors
 ///
-/// See [`DeviceError`].
+/// See [`NativeModeError`]. Nothing is sent for a mode the model lacks; the
+/// controller keeps its current choice for the next boot.
 pub fn set_native_mode(
     mode: NativeMode,
     controller: &mut impl Controller,
-) -> Result<(), DeviceError> {
-    controller.run(&[mode.command()])
+    model: &ModelProfile,
+) -> Result<(), NativeModeError> {
+    if !model.native_modes.contains(&mode) {
+        return Err(NativeModeError::NotOffered(mode));
+    }
+    controller
+        .run(&[mode.command()])
+        .map_err(NativeModeError::Device)
 }
 
 /// The model's mode that matches the panel's largest resolution.

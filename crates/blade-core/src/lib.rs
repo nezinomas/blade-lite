@@ -44,7 +44,7 @@ pub use instance::{APP_NAME, Start, start_instance};
 pub use keyboard_brightness::{keyboard_brightness, set_vapor_light};
 pub use log::{LOG_FILES, LOG_LINE_MAX, LOG_MAX_BYTES, Log, log_line};
 pub use logo::{LogoError, logo_on, set_logo};
-pub use native_mode::{NativeModeState, native_mode_state, set_native_mode};
+pub use native_mode::{NativeModeError, NativeModeState, native_mode_state, set_native_mode};
 pub use poll::{POLL_INTERVAL, PollSchedule, View};
 pub use power_key::{
     BRIGHTNESS_HOLD_LIMIT, BRIGHTNESS_READ_GAP, FN_HOLD_LIMIT, POWER_KEY_PAUSE, PowerKeyPresses,
