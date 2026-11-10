@@ -40,7 +40,8 @@ pub use logo::{LogoError, logo_on, set_logo};
 pub use native_mode::{NativeModeState, native_mode_state, set_native_mode};
 pub use poll::{POLL_INTERVAL, PollSchedule, View};
 pub use power_key::{
-    BRIGHTNESS_READ_GAP, FN_HOLD_LIMIT, POWER_KEY_PAUSE, PowerKeyPresses, next_preset,
+    BRIGHTNESS_HOLD_LIMIT, BRIGHTNESS_READ_GAP, FN_HOLD_LIMIT, POWER_KEY_PAUSE, PowerKeyPresses,
+    next_preset,
 };
 pub use query::{ControllerReadings, Query, chosen_native_mode, read_controller};
 pub use razer_software::{razer_software, razer_warning};

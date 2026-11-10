@@ -18,8 +18,14 @@ pub const FN_HOLD_LIMIT: Duration = Duration::from_secs(5);
 
 /// How often the keyboard brightness is read while Fn is held, so the
 /// app follows Fn + F10 or F11 as the laptop steps the level. Reads stop
-/// at [`FN_HOLD_LIMIT`]; Fn coming up reads once more.
+/// at [`BRIGHTNESS_HOLD_LIMIT`]; Fn coming up reads once more.
 pub const BRIGHTNESS_READ_GAP: Duration = Duration::from_millis(250);
+
+/// How long after Fn goes down the brightness is still read. Longer than
+/// [`FN_HOLD_LIMIT`], as Fn may stay held while F11 is pressed many times,
+/// and a read changes nothing on the laptop; still a limit, so a lost
+/// release can't keep reading for ever.
+pub const BRIGHTNESS_HOLD_LIMIT: Duration = Duration::from_secs(30);
 
 /// The preset after `running` in the model's presets, wrapping round. On
 /// battery only the presets offered there count. Custom is never stepped
@@ -99,10 +105,13 @@ impl PowerKeyPresses {
     }
 
     /// Whether the keyboard brightness should be read now: Fn is held,
-    /// not past [`FN_HOLD_LIMIT`], and [`BRIGHTNESS_READ_GAP`] has passed
-    /// since Fn went down or since the last read. Noted when true.
+    /// not past [`BRIGHTNESS_HOLD_LIMIT`], and [`BRIGHTNESS_READ_GAP`] has
+    /// passed since Fn went down or since the last read. Noted when true.
     pub fn brightness_due(&mut self, now: Instant) -> bool {
-        if !self.watching_enter(now) {
+        let held = self
+            .fn_since
+            .is_some_and(|since| now.saturating_duration_since(since) < BRIGHTNESS_HOLD_LIMIT);
+        if !held {
             return false;
         }
         let since = self.brightness_at.or(self.fn_since);

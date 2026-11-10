@@ -1,7 +1,8 @@
 use std::time::{Duration, Instant};
 
 use blade_core::{
-    BRIGHTNESS_READ_GAP, FN_HOLD_LIMIT, POWER_KEY_PAUSE, PowerKeyPresses, Preset, next_preset,
+    BRIGHTNESS_HOLD_LIMIT, BRIGHTNESS_READ_GAP, FN_HOLD_LIMIT, POWER_KEY_PAUSE, PowerKeyPresses,
+    Preset, next_preset,
 };
 use razer_proto::{BLADE_18, ModelProfile, PerfMode};
 
@@ -335,12 +336,21 @@ fn the_brightness_is_not_read_without_fn() {
 }
 
 #[test]
-fn the_brightness_is_not_read_past_the_fn_hold_limit() {
+fn the_brightness_is_still_read_past_the_enter_limit() {
+    // Fn may stay held while F11 is pressed many times (laptop, 2026-11-10).
+    let start = Instant::now();
+    let mut presses = fn_down_at(start);
+
+    assert!(presses.brightness_due(start + FN_HOLD_LIMIT + BRIGHTNESS_READ_GAP));
+}
+
+#[test]
+fn the_brightness_is_not_read_past_its_hold_limit() {
     // A lost release must not keep reading for ever; Fn up reads once more.
     let start = Instant::now();
     let mut presses = fn_down_at(start);
 
-    assert!(!presses.brightness_due(start + FN_HOLD_LIMIT));
+    assert!(!presses.brightness_due(start + BRIGHTNESS_HOLD_LIMIT));
 }
 
 #[test]
