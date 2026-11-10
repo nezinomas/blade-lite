@@ -43,7 +43,8 @@ impl FromStr for Rgb {
             .filter(|hex| hex.len() == 6 && hex.bytes().all(|byte| byte.is_ascii_hexdigit()))
             .ok_or(ParseRgbError)?;
         let channel = |start: usize| {
-            u8::from_str_radix(&hex[start..start + 2], 16).map_err(|_| ParseRgbError)
+            let pair = hex.get(start..start + 2).ok_or(ParseRgbError)?;
+            u8::from_str_radix(pair, 16).map_err(|_| ParseRgbError)
         };
         Ok(Self::new(channel(0)?, channel(2)?, channel(4)?))
     }
@@ -71,20 +72,29 @@ pub fn static_colour_touchpad_off(colour: Rgb, model: &ModelProfile) -> Vec<Comm
 }
 
 /// The custom frame effect, then one frame row per row of the key grid,
-/// with `red` painted [`TOUCHPAD_OFF`].
+/// with `red` painted [`TOUCHPAD_OFF`]. Nothing for a grid with no columns.
 fn frame(colour: Rgb, red: Option<(u8, u8)>, model: &ModelProfile) -> Vec<Command> {
+    let Some(last_column) = model.keys.columns.checked_sub(1) else {
+        return Vec::new();
+    };
     let effect = Command {
         id: SET_EFFECT,
         args: CUSTOM_FRAME.to_vec(),
     };
-    let rows = (0..model.keys.rows).map(|row| frame_row(row, colour, red, model));
+    let rows = (0..model.keys.rows).map(|row| frame_row(row, last_column, colour, red, model));
     std::iter::once(effect).chain(rows).collect()
 }
 
 /// One frame row: the colour on each key, black where there is no key.
-fn frame_row(row: u8, colour: Rgb, red: Option<(u8, u8)>, model: &ModelProfile) -> Command {
+fn frame_row(
+    row: u8,
+    last_column: u8,
+    colour: Rgb,
+    red: Option<(u8, u8)>,
+    model: &ModelProfile,
+) -> Command {
     let grid = &model.keys;
-    let mut args = vec![FRAME_ROW_MARKER, row, FIRST_COLUMN, grid.columns - 1];
+    let mut args = vec![FRAME_ROW_MARKER, row, FIRST_COLUMN, last_column];
     for column in 0..grid.columns {
         let rgb = if red == Some((row, column)) {
             TOUCHPAD_OFF
