@@ -62,7 +62,8 @@ pub enum KeyEvent {
     PowerKey,
     /// Fn is still held, and [`blade_core::BRIGHTNESS_READ_GAP`] has
     /// passed: Fn + F10 or F11 may be changing the keyboard brightness, so
-    /// read it, to follow it live.
+    /// read it, to follow it live. Up to
+    /// [`blade_core::BRIGHTNESS_HOLD_LIMIT`] of a hold.
     FnHeld,
     /// Fn came up: Fn + F10 or F11 may have changed the keyboard
     /// brightness, so read it.

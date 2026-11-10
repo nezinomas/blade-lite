@@ -22,9 +22,10 @@ pub const FN_HOLD_LIMIT: Duration = Duration::from_secs(5);
 pub const BRIGHTNESS_READ_GAP: Duration = Duration::from_millis(250);
 
 /// How long after Fn goes down the brightness is still read. Longer than
-/// [`FN_HOLD_LIMIT`], as Fn may stay held while F11 is pressed many times,
-/// and a read changes nothing on the laptop; still a limit, so a lost
-/// release can't keep reading for ever.
+/// [`FN_HOLD_LIMIT`], as Fn may stay held while F11 is pressed many times.
+/// A read alone writes nothing; only a changed level sends the vapor
+/// light at it. Still a limit, so a lost release can't keep reading for
+/// ever.
 pub const BRIGHTNESS_HOLD_LIMIT: Duration = Duration::from_secs(30);
 
 /// The preset after `running` in the model's presets, wrapping round. On
