@@ -100,7 +100,7 @@ Checks only a person can do on the laptop wait in "Still to check on the laptop"
 - [ ] 76 Battery health in the header: wear (full charge capacity against design capacity) and cycle count, read from Windows (WMI `BatteryFullChargedCapacity`, `BatteryStaticData`, `BatteryCycleCount`). Read only, no controller command
 - [ ] 77 Export and import settings, and "Reset to defaults". Import goes through the same checks as loading `config.toml` (an invalid file changes nothing), then applies as a start does. Both reviewers
 - [ ] 79 A brightness drag cut short (no mouse-up, such as the flyout hiding mid-drag) or a Narrator set-value leaves the slider and its percent at a value never sent, until the brightness next changes (ticket 68 review). Put the slider back to the laptop's value when the window or flyout is shown (a Slint function called from the show code, so the `docs/window-check.md` checks apply). Display only, nothing is sent. Both reviewers
-- [x] 80 Quitting from the tray on battery puts back the rate from before battery, unless the panel left 60 Hz since (changed outside the app); a failure goes to the log
+- [x] 80 Quitting from the tray on battery puts back the rate from before battery, unless the panel left 60 Hz since (changed outside the app); a failure goes to the log (checked on the laptop)
 - [ ] 81 Shutdown, logoff or a crash on battery with "60 Hz on battery" on leave the panel at 60 Hz after the restart, also on AC: the rate is set with `CDS_UPDATEREGISTRY` and the rate to put back lives only in memory (ticket 80 review). Options: set 60 Hz without `CDS_UPDATEREGISTRY`, or put the rate back on `WM_ENDSESSION`. Both reviewers
 
 ## Still to check on the laptop
@@ -114,8 +114,6 @@ Do these in one go, on AC, with "Start with Windows" on and Num Lock off. First 
 6. **App after ticket 70.** Start the app. Open the window and the flyout once, and click one preset. They work as before (ticket 70 changed only types in the shell code).
 7. **Busy (55).** Nothing to do now. If the log ever shows a Busy error, check whether the command took effect.
 8. **Brightness drag (68).** In the window, drag the keyboard brightness slider slowly and hold it. The percent beside it follows. The keyboard light changes only when you let go. Do the same in the flyout.
-
-9. **Quit on battery (80).** Turn "60 Hz on battery" on. Pull the charger: the screen goes to 60 Hz. Quit from the tray. The screen goes back to its old rate (such as 240 Hz).
 
 ## Publishing on GitHub
 - [ ] 39 Release and installer
