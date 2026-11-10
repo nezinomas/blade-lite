@@ -19,7 +19,7 @@ use crate::{InstanceLock, wide};
 /// A Windows handle, closed on drop.
 pub(crate) struct Handle(pub(crate) *mut c_void);
 
-// SAFETY: a mutex or event handle is a plain value that any thread may use.
+// SAFETY: a kernel object handle is a plain value that any thread may use.
 unsafe impl Send for Handle {}
 
 impl Handle {

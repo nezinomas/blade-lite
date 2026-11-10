@@ -74,8 +74,13 @@ impl Sensors for WindowsSensors {
     }
 
     fn battery_health(&mut self) -> io::Result<BatteryHealth> {
-        let path = battery_path()?.ok_or(io::ErrorKind::NotFound)?;
-        Ok(battery_health(&battery_information(&path)?))
+        let Some(path) = battery_path()? else {
+            return Ok(BatteryHealth::default());
+        };
+        Ok(battery_information(&path)?
+            .as_ref()
+            .map(battery_health)
+            .unwrap_or_default())
     }
 
     fn gpu_awake(&mut self) -> io::Result<bool> {
@@ -202,8 +207,9 @@ fn battery_path() -> io::Result<Option<String>> {
     Ok(split_ids(&buffer).into_iter().next())
 }
 
-/// The battery's static data, through its read-only queries.
-fn battery_information(path: &str) -> io::Result<BATTERY_INFORMATION> {
+/// The battery's static data, through its read-only queries, or `None`
+/// with no battery in.
+fn battery_information(path: &str) -> io::Result<Option<BATTERY_INFORMATION>> {
     let path = wide(path);
     // SAFETY: the path ends in a nul; the battery is opened to read only.
     let raw = unsafe {
@@ -224,14 +230,14 @@ fn battery_information(path: &str) -> io::Result<BATTERY_INFORMATION> {
     // Wait 0 ms: the tag of the battery in now, or none.
     let tag: u32 = ioctl(&battery, IOCTL_BATTERY_QUERY_TAG, &0_u32)?;
     if tag == BATTERY_TAG_INVALID {
-        return Err(io::ErrorKind::NotFound.into());
+        return Ok(None);
     }
     let query = BATTERY_QUERY_INFORMATION {
         BatteryTag: tag,
         InformationLevel: BatteryInformation,
         AtRate: 0,
     };
-    ioctl(&battery, IOCTL_BATTERY_QUERY_INFORMATION, &query)
+    ioctl(&battery, IOCTL_BATTERY_QUERY_INFORMATION, &query).map(Some)
 }
 
 /// Sends a query to a device and reads back a whole `Out`.
@@ -255,9 +261,10 @@ fn ioctl<In, Out: Default>(device: &Handle, code: u32, input: &In) -> io::Result
     if ok == 0 {
         return Err(io::Error::last_os_error());
     }
-    if returned != size(size_of::<Out>()) {
+    let expected = size(size_of::<Out>());
+    if returned != expected {
         return Err(io::Error::other(format!(
-            "battery query returned {returned} bytes"
+            "device query returned {returned} of {expected} bytes"
         )));
     }
     Ok(output)

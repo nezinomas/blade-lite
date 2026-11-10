@@ -254,12 +254,12 @@ pub trait Sensors {
     /// The Windows error if it could not be read.
     fn power(&mut self) -> io::Result<PowerReading>;
 
-    /// The battery's wear and cycle count.
+    /// The battery's wear and cycle count. Nothing is known with no
+    /// battery.
     ///
     /// # Errors
     ///
-    /// The Windows error if it could not be read, or `NotFound` with no
-    /// battery.
+    /// The Windows error if it could not be read.
     fn battery_health(&mut self) -> io::Result<BatteryHealth>;
 
     /// Whether the NVIDIA GPU is awake. Asking does not wake it.
