@@ -1,8 +1,7 @@
-//! Sends the saved settings to the controller, and again after each resume.
+//! Sends the saved settings to the controller.
 
 use std::time::Duration;
 
-use platform::{PowerEvent, PowerEvents};
 use razer_device::{Clock, Device, DeviceError, Transport};
 use razer_proto::{
     Brightness, BrightnessError, Command, CpuBoost, Custom, CustomError, FanMode, GpuBoost,
@@ -93,29 +92,6 @@ pub fn apply_lighting(
 ) -> Result<(), ApplyError> {
     let commands = lighting_commands(lighting, model, touchpad_off)?;
     controller.run(&commands).map_err(ApplyError::Device)
-}
-
-/// Applies the settings again after each resume, once [`RESUME_PAUSE`] has
-/// passed, with the touchpad key in the plain colour. Returns when no more
-/// events will come.
-///
-/// # Errors
-///
-/// Stops at the first re-apply that fails and returns its [`ApplyError`].
-pub fn reapply_on_resume(
-    events: &mut impl PowerEvents,
-    clock: &impl Clock,
-    config: &Config,
-    model: &ModelProfile,
-    controller: &mut impl Controller,
-) -> Result<(), ApplyError> {
-    while let Some(event) = events.next_event() {
-        if event == PowerEvent::Resumed {
-            clock.sleep(RESUME_PAUSE);
-            apply(config, model, controller, false)?;
-        }
-    }
-    Ok(())
 }
 
 /// The commands that set the saved preset, then the saved lid logo, then
