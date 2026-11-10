@@ -80,6 +80,10 @@ fn finds_razer_driver_services_by_their_rz_names() {
 
 #[test]
 fn leaves_this_repo_s_own_test_programs_alone() {
-    let names = vec!["razer_device-1a2b3c.exe", "razer_proto-4d5e6f.exe"];
+    let names = vec![
+        "razer_device-1a2b3c.exe",
+        "razer_proto-4d5e6f.exe",
+        "razer_software-7a8b9c.exe",
+    ];
     assert_eq!(found(names), Vec::<String>::new());
 }

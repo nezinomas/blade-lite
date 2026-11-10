@@ -90,3 +90,25 @@ fn a_failed_look_keeps_the_warning() {
 
     assert!(f.shell.window().get_error().contains(SYNAPSE));
 }
+
+#[test]
+fn the_warning_is_logged_when_it_comes_and_goes() {
+    // A name no other test uses, as the log is shared.
+    const ONLY_HERE: &str = "RazerLogTest.exe";
+    let lines = |text: &str| {
+        let log = std::fs::read_to_string(log_path()).unwrap();
+        log.lines().filter(|line| line.contains(text)).count()
+    };
+    let f = fixture(Config::default());
+    f.shell.programs().set(&[ONLY_HERE]);
+    let gone_before = lines("Razer software no longer runs");
+
+    look(&f);
+    look(&f);
+    f.shell.programs().set(&[]);
+    look(&f);
+
+    assert_eq!(lines(ONLY_HERE), 1);
+    // Other tests may log it too, at the same time.
+    assert!(lines("Razer software no longer runs") > gone_before);
+}

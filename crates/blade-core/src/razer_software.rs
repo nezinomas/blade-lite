@@ -12,7 +12,7 @@ const MARKS: [&str; 2] = ["razer", "synapse"];
 /// start: the THX audio service `thx_rznb11_svc` has it inside.
 const RZ: &str = "rz";
 /// This repo's own test programs, such as `razer_device-<hash>.exe`.
-const OWN_TESTS: [&str; 2] = ["razer_device-", "razer_proto-"];
+const OWN_TESTS: [&str; 3] = ["razer_device-", "razer_proto-", "razer_software-"];
 
 /// The running programs and services that look like Razer's, sorted, each
 /// once.
