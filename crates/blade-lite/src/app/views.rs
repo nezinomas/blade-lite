@@ -95,6 +95,13 @@ where
         }))
     }
 
+    /// The lid logo state last read or set, or `None` if the model has no
+    /// logo or it could not be read.
+    #[must_use]
+    pub fn logo_on(&self) -> Option<bool> {
+        self.logo_on
+    }
+
     /// The saved vapor light switch, or `None` if the model has no light.
     #[must_use]
     pub fn vapor_light_on(&self) -> Option<bool> {

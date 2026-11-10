@@ -436,6 +436,18 @@ fn the_lid_logo_switch_turns_it_off() {
 }
 
 #[test]
+fn the_lid_logo_switch_keeps_the_logo_state_when_the_touchpad_cant_be_read() {
+    let f = fixture(Config::default());
+    f.shell.app().machine_mut().registry.touchpad = None;
+    let before = sent_count(&f);
+
+    click(f.shell.window(), Switch, "Lid logo");
+
+    assert_eq!(sent_since(&f, before), []);
+    assert!(f.shell.window().get_logo_on());
+}
+
+#[test]
 fn the_charge_limit_switch_turns_it_on() {
     let f = fixture(Config::default());
     let before = sent_count(&f);
@@ -467,8 +479,8 @@ fn the_flyout_sets_a_preset_and_resets_to_balanced() {
 #[test]
 fn a_failed_click_shows_the_error_and_logs_it() {
     let f = fixture(Config::default());
-    // No other test fails this way, so the line in the shared log is this
-    // test's own.
+    // Other tests fail the touchpad read too, so the shared log check shows
+    // only that such a line is logged, not that this test wrote it.
     f.shell.app().machine_mut().registry.touchpad = None;
 
     click(f.shell.window(), Switch, "Touchpad");
