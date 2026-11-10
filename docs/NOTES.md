@@ -16,6 +16,7 @@ Status lives in `docs/PLAN.md` (open) and `docs/PLAN-done.md` (done) only. Comma
 - `UISettings` gives the accent colour as RGB 0, 120, 212.
 - The accent colour is also in the registry, `Explorer\Accent\AccentColorMenu`, as ABGR (`FFD47800`). The app reads it there, so it needs no WinRT.
 - Silent works on the CPU (checked 2026-11-06, CPU on full load, on AC). On Performance the CPU ran at 176% speed and 100 °C, fans 3200 RPM. After Silent it fell to 94% and 60 °C at once. The fans took about 45 s to slow to 1600 RPM.
+- After a game in Performance, then Silent (ticket 37, 2026-11-10, on AC, charge limit on): 66 °C and fans 2300 and 2400 RPM at the click, 53 °C and 1600 and 1700 RPM after 1 min, then 44 to 50 °C and 1500 to 1600 RPM for 12 min (CPU load 1 to 5%). The fans did not stop, though the 2026-11-06 idle check saw them stop at idle in every preset (Balanced below about 54 °C). Silent always sends fans on auto (`Preset::commands`), so the controller picks this speed; the fan byte was not read back. Maybe a warm part the app does not read keeps them on (the GPU read failed). The app's lowest manual fan is 1600 RPM, so it can't make them quieter. Only auto fans were checked: Custom with a manual fan, then Silent, was not.
 - Silent and Balanced do not change the CPU and GPU boost values (`0D87`) or the fan target (`0D81`). They stay as Custom left them. The controller seems to use them only in Custom.
 - With fans on auto, the fans can stop (0 RPM) at idle in every preset: Silent, Balanced, Performance and Custom (checked 2026-11-06, on AC, CPU load 1–12%, about 2 min each). They start at about 1300–1600 RPM when the CPU gets to about 55–65 °C, and stop again when it cools. Balanced stopped and stayed off below about 54 °C. Performance and Custom switched on and off more often, up to 2000 RPM. The controller has no idle speed between 0 and about 1300 RPM.
 - A manual Custom fan never stops: the lowest target is 1600 RPM.
@@ -63,7 +64,7 @@ Status lives in `docs/PLAN.md` (open) and `docs/PLAN-done.md` (done) only. Comma
 ## Working style
 
 - The user starts one stage or ticket with "next", or asks for a batch run. A batch run stops early if anything needs the user.
-- Tickets that need the user (37) are skipped by "next ticket".
+- Tickets that need the user are skipped by "next ticket".
 - Run a retro about every 5 stages, or sooner if the same thing goes wrong twice.
 - The user hibernates the laptop, not sleeps it. A laptop check after a power change (resume, re-apply) must cover hibernate as well as sleep.
 - Num Lock after a wake comes from Windows, not the app (the app sends no Num Lock key). The lock screen value `HKU\.DEFAULT\Control Panel\Keyboard\InitialKeyboardIndicators` must be `2`; at the default `0x80000000` the numpad woke as arrows. With `2`, Num Lock keeps its state over a hibernate (on stays on, off stays off). Set to `2` on 2026-11-08 (needs admin).

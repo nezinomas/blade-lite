@@ -14,7 +14,7 @@ Checks only a person can do on the laptop wait in "Still to check on the laptop"
 - [x] 110 The header and flyout say "Plugged in · Charging" or "Plugged in · Not charging" (the charge limit), from `SYSTEM_BATTERY_STATE.Charging` read with the other readings, only on AC; unknown shows "Plugged in". A power event clears it until the next poll. Checked on the laptop 2026-11-10: the limit switch changes it in about 15 s (Windows updates its battery state that slowly), unplugging at once
 
 ## Bug fixes
-- [ ] 37 Fans stay loud after Performance to Silent
+- [x] 37 Fans stay loud after Performance to Silent: not an app bug. Checked 2026-11-10 after a game: Silent drops the fans to about 1600 RPM in 1 min, and after the app sent fans on auto the controller kept them there for 12 min at 44 to 50 °C. The app's lowest manual fan is 1600 RPM, so it can't make them quieter. Custom with a manual fan, then Silent, is still to check (`docs/NOTES.md`)
 - [x] 46 Charge limit: on AC with the battery above 80% and the limit on, check Windows says "not charging". If it still charges, try sending `070F` after the limit as Synapse does. Checked 2026-11-10: limit on (set in the BIOS), on AC at 79.5%, Windows read not charging with no app running; the app's off made it charge at about 90 W, to 84%, and the app's on stopped it again. No `070F` needed (`docs/NOTES.md`)
 - [ ] 47 Physical touchpad key: it switches the touchpad in the laptop itself, and Windows is not told, so the red key does not follow it. The keyboard sends report `04 DD` on press and `04 00` on release (Synapse capture, steps 23 and 26). Find where the real touchpad state can be read, then read that report (not a keyboard hook) and repaint the key
 - [ ] 60 On a weak charge (no charger, but a monitor powers the laptop over USB-C, so it charges slowly), Synapse did not allow Performance, for lack of power. Do the same
@@ -65,6 +65,7 @@ Do these in one go, on AC, with "Start with Windows" on and Num Lock off. First 
 9. **Busy (55).** Nothing to do now. If the log ever shows a Busy error, check whether the command took effect.
 10. **Brightness drag (68).** In the window, drag the keyboard brightness slider slowly and hold it. The percent beside it follows. The keyboard light changes only when you let go. Do the same in the flyout.
 11. **Fans on battery (86).** Unplug the charger. In Balanced, run a CPU load (such as a game or a big build) for 2 minutes. When the app shows the CPU above about 65 °C, the fans show RPM (not 0) and you hear them. If they stay at 0 RPM, stop the load at once and note the CPU temperature.
+12. **Custom fan, then Silent (37).** On AC, pick Custom and set the fan to about 3000 RPM. Wait 1 minute. Click Silent. Within 2 minutes the fans slow to about 1600 RPM or stop, as after Performance.
 
 ## Publishing on GitHub
 - [ ] 39 Release and installer
