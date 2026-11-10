@@ -50,6 +50,18 @@ impl From<PerfMode> for Preset {
     }
 }
 
+impl Preset {
+    /// The controller's mode for the preset, or `None` for Custom.
+    pub(crate) fn perf_mode(self) -> Option<PerfMode> {
+        match self {
+            Self::Silent => Some(PerfMode::Silent),
+            Self::Balanced => Some(PerfMode::Balanced),
+            Self::Performance => Some(PerfMode::Performance),
+            Self::Custom => None,
+        }
+    }
+}
+
 /// The Custom values. They are kept while another preset is active.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
