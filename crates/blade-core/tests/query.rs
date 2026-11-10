@@ -131,7 +131,11 @@ fn a_reply_for_the_other_fan_is_not_read() {
     let readings = read_controller(&mut controller, &BLADE_18);
 
     assert_eq!(readings.fans, [None, Some(FanRpm(1800))]);
-    assert!(readings.errors.contains(&"fan 1: reply not understood".to_owned()));
+    assert!(
+        readings
+            .errors
+            .contains(&"fan 1: reply not understood".to_owned())
+    );
 }
 
 #[test]

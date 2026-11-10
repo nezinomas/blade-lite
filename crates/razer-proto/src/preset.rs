@@ -8,8 +8,6 @@ pub(crate) const SET_PRESET: u16 = 0x0D02;
 const GET_PRESET: u16 = 0x0D82;
 /// The fan byte: the controller picks the fan speed.
 pub(crate) const FAN_AUTO: u8 = 0x00;
-/// Position of the mode byte in the args.
-const MODE_INDEX: usize = 2;
 
 /// Why a preset could not be built.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -70,10 +68,15 @@ impl PerfMode {
             .collect()
     }
 
-    /// The preset in a query's reply args, or `None` for a mode this does not know.
+    /// The preset of `zone` in a query's reply args. `None` for a mode this
+    /// does not know, or a reply for another storage or zone.
     #[must_use]
-    pub fn from_reply(args: &[u8]) -> Option<Self> {
-        let mode = *args.get(MODE_INDEX)?;
-        Self::ALL.into_iter().find(|preset| preset.byte() == mode)
+    pub fn from_reply(zone: u8, args: &[u8]) -> Option<Self> {
+        match args {
+            [VARIABLE_STORAGE, echoed, mode, ..] if *echoed == zone => {
+                Self::ALL.into_iter().find(|preset| preset.byte() == *mode)
+            }
+            _ => None,
+        }
     }
 }

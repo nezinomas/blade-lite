@@ -6,8 +6,6 @@ use crate::{Command, ModelProfile, VARIABLE_STORAGE};
 const GET_FAN_RPM: u16 = 0x0D88;
 /// Get the temperatures. The reply's args are `[2, cpu, gpu, 0]`.
 const GET_TEMPERATURES: u16 = 0x0D85;
-/// Position of the speed byte in a fan reply.
-const RPM_INDEX: usize = 2;
 /// Position of the CPU temperature in a temperature reply.
 const CPU_INDEX: usize = 1;
 
@@ -30,11 +28,16 @@ impl FanRpm {
             .collect()
     }
 
-    /// The speed in a query's reply args, or `None` if they are too short.
+    /// The speed of `fan` in a query's reply args. `None` if they are too
+    /// short, or for another storage or fan.
     #[must_use]
-    pub fn from_reply(args: &[u8]) -> Option<Self> {
-        let hundreds = *args.get(RPM_INDEX)?;
-        Some(Self(u16::from(hundreds) * 100))
+    pub fn from_reply(fan: u8, args: &[u8]) -> Option<Self> {
+        match args {
+            [VARIABLE_STORAGE, echoed, hundreds, ..] if *echoed == fan => {
+                Some(Self(u16::from(*hundreds) * 100))
+            }
+            _ => None,
+        }
     }
 }
 
