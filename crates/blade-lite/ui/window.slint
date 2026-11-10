@@ -253,7 +253,7 @@ export component FlyoutWindow inherits Window {
             }
             brightness-slider := Slider {
                 accessible-label: "Keyboard light";
-                minimum: 0;
+                minimum: BrightnessRange.minimum;
                 maximum: BrightnessRange.maximum;
                 step: BrightnessRange.step;
                 value: root.brightness;

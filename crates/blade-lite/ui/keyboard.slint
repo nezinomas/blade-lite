@@ -57,7 +57,7 @@ export component KeyboardGroup inherits VerticalLayout {
                 }
                 brightness-slider := Slider {
                     accessible-label: "Brightness";
-                    minimum: 0;
+                    minimum: BrightnessRange.minimum;
                     maximum: BrightnessRange.maximum;
                     step: BrightnessRange.step;
                     value: root.brightness;
