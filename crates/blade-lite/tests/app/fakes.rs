@@ -11,8 +11,8 @@ use platform::{
 };
 use razer_device::DeviceError;
 use razer_proto::{
-    BLADE_18, Brightness, Celsius, ChargeLimit, Command, Logo, ModelProfile, NativeMode, Rgb,
-    static_colour,
+    BLADE_18, Brightness, Celsius, ChargeLimit, Charger, Command, Logo, ModelProfile, NativeMode,
+    Rgb, static_colour,
 };
 use tempfile::TempDir;
 
@@ -23,10 +23,21 @@ pub fn logo() -> Logo {
     BLADE_18.logo.unwrap()
 }
 
+/// What the charger read gives, as read on the laptop.
+#[derive(Debug, Default, Clone, Copy)]
+pub enum FakeCharger {
+    #[default]
+    Razer,
+    /// A USB-C monitor that powers the laptop: a weak charge.
+    UsbC,
+    Fails,
+}
+
 /// Records the commands it runs. It answers the native mode query with
 /// mode 0, the logo query with `logo_reply`, the charge limit query with
 /// `charge`, the brightness query with `brightness_level` and the
-/// temperature query with `cpu_celsius`, and fails
+/// temperature query with `cpu_celsius`, the charger query with the Razer
+/// `charger`, and fails
 /// every run while `fails` is set. A logo command
 /// changes `logo_reply`. While `fails_after` is set, a run takes only
 /// that many commands, then fails.
@@ -49,6 +60,7 @@ pub struct FakeController {
     pub brightness_level: Option<u8>,
     /// The CPU temperature the controller reads back. `None` fails the query.
     pub cpu_celsius: Option<u8>,
+    pub charger: FakeCharger,
     /// Every query asked, in order.
     pub asked: Vec<Command>,
 }
@@ -91,6 +103,12 @@ impl Query for FakeController {
             self.brightness_level
                 .map(|level| vec![1, led, level])
                 .ok_or(DeviceError::Busy)
+        } else if *command == Charger::query() {
+            match self.charger {
+                FakeCharger::Razer => Ok(vec![0x13, 0x13]),
+                FakeCharger::UsbC => Ok(vec![0x04, 0x13]),
+                FakeCharger::Fails => Err(DeviceError::Busy),
+            }
         } else if *command == Celsius::query() {
             self.cpu_celsius
                 .map(|celsius| vec![2, celsius, 0, 0])

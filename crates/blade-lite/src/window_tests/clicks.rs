@@ -8,12 +8,12 @@ use blade_lite::Rect;
 use i_slint_backend_testing::AccessibleRole::{Button, Slider, Switch, TextInput};
 use i_slint_backend_testing::{ElementHandle, ElementRoot};
 use platform::{Key, PowerEvent};
-use razer_proto::{BLADE_18, Celsius, Command, PerfMode, Rgb, static_colour};
+use razer_proto::{BLADE_18, Celsius, Charger, Command, PerfMode, Rgb, static_colour};
 use slint::platform::{PointerEventButton, WindowEvent};
 use slint::{ComponentHandle, LogicalPosition};
 
 use super::{FAKE_ON_BATTERY, Fixture, click, control, fixture, log_path};
-use crate::fakes::{brightness_commands, lighting_commands, logo};
+use crate::fakes::{FakeCharger, brightness_commands, lighting_commands, logo};
 
 const WHITE: Rgb = Rgb::new(0xFF, 0xFF, 0xFF);
 
@@ -893,14 +893,17 @@ fn asked_count(f: &Fixture) -> usize {
 }
 
 #[test]
-fn with_no_view_open_a_tick_reads_only_the_cpu_temperature() {
+fn with_no_view_open_a_tick_reads_only_the_cpu_temperature_and_the_charger() {
     let f = fixture(Config::default());
     let (asked, sent) = (asked_count(&f), sent_count(&f));
 
     f.shell.tick();
 
     let app = f.shell.app();
-    assert_eq!(app.machine().controller.asked[asked..], [Celsius::query()]);
+    assert_eq!(
+        app.machine().controller.asked[asked..],
+        [Celsius::query(), Charger::query()]
+    );
     drop(app);
     assert_eq!(sent_since(&f, sent), []);
     assert_eq!(f.shell.app().cpu_celsius(), None, "the fake can't read it");
@@ -1179,4 +1182,102 @@ fn a_custom_slider_goes_back_after_a_failed_send() {
     // The rows are made again after a change, so find the slider again.
     let slider = control(f.shell.window(), Slider, "CPU boost");
     assert_eq!(slider.accessible_value().unwrap(), "1");
+}
+
+fn charger_reads_since(f: &Fixture, before: usize) -> usize {
+    let app = f.shell.app();
+    let asked = &app.machine().controller.asked[before..];
+    asked.iter().filter(|&c| *c == Charger::query()).count()
+}
+
+#[test]
+fn a_weak_charge_seen_on_a_tick_runs_balanced_and_says_so() {
+    let f = fixture(Config {
+        preset: Preset::Performance,
+        ..Config::default()
+    });
+    f.shell.app().machine_mut().controller.charger = FakeCharger::UsbC;
+    let sent = sent_count(&f);
+
+    f.shell.tick();
+
+    let balanced = PerfMode::Balanced.commands(&BLADE_18).unwrap();
+    assert_eq!(sent_since(&f, sent), balanced);
+    assert_eq!(
+        f.shell.window().get_power(),
+        "Plugged in \u{b7} Weak charger"
+    );
+    assert_eq!(f.shell.popup().get_mode(), "Balanced");
+    assert_eq!(f.shell.app().config().preset, Preset::Performance);
+}
+
+#[test]
+fn the_full_charger_back_on_a_tick_runs_the_saved_preset_again() {
+    let f = fixture(Config {
+        preset: Preset::Performance,
+        ..Config::default()
+    });
+    f.shell.app().machine_mut().controller.charger = FakeCharger::UsbC;
+    let start = Instant::now();
+    tick_for(&f, start, Duration::from_secs(1), Duration::ZERO);
+    f.shell.app().machine_mut().controller.charger = FakeCharger::Razer;
+    let sent = sent_count(&f);
+
+    // Two full power reads in a row bring it back.
+    tick_for(
+        &f,
+        start + blade_core::HEAT_INTERVAL,
+        blade_core::HEAT_INTERVAL,
+        blade_core::HEAT_INTERVAL,
+    );
+
+    let performance = PerfMode::Performance.commands(&BLADE_18).unwrap();
+    assert_eq!(sent_since(&f, sent), performance);
+    assert_eq!(f.shell.window().get_power(), "Plugged in");
+}
+
+#[test]
+fn no_charger_read_while_a_wake_waits() {
+    let f = fixture(Config::default());
+    let (sender, receiver) = std::sync::mpsc::channel();
+    f.shell.listen_for_power(receiver);
+    sender.send(PowerEvent::Resumed).unwrap();
+    let asked = asked_count(&f);
+
+    f.shell.tick();
+
+    assert_eq!(charger_reads_since(&f, asked), 0);
+}
+
+#[test]
+fn no_background_charger_read_while_razer_software_runs() {
+    let f = fixture(Config::default());
+    f.shell.programs().set(&["Razer Synapse Service"]);
+    f.shell.look_for_razer();
+    let asked = asked_count(&f);
+
+    f.shell.tick();
+
+    assert_eq!(charger_reads_since(&f, asked), 0);
+}
+
+#[test]
+fn a_weak_charge_with_balanced_saved_greys_out_performance_and_says_so() {
+    let f = fixture(Config::default());
+    f.shell.app().machine_mut().controller.charger = FakeCharger::UsbC;
+    let sent = sent_count(&f);
+
+    f.shell.tick();
+
+    assert_eq!(sent_since(&f, sent), []);
+    assert_eq!(
+        f.shell.flyout().get_power(),
+        "Plugged in \u{b7} Weak charger"
+    );
+    let view = f.shell.app().performance_view();
+    let performance = view
+        .presets
+        .iter()
+        .find(|o| o.preset == Preset::Performance);
+    assert!(!performance.unwrap().enabled);
 }

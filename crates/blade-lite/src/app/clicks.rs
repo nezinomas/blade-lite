@@ -26,7 +26,12 @@ where
         let mut config = self.config;
         match command {
             PerformanceCommand::SetPreset(preset) => {
-                if self.on_battery && !preset.offered_on_battery(self.model) {
+                if !preset.offered_on_battery(self.model) {
+                    // A charger swap gives no power event, and the last
+                    // poll may be 10 s old.
+                    self.read_charger();
+                }
+                if self.battery_presets() && !preset.offered_on_battery(self.model) {
                     return Err(AppError::NotOnBattery(preset));
                 }
                 config.preset = preset;
@@ -56,8 +61,11 @@ where
         if self.model.power_key.is_none() {
             return Ok(());
         }
-        let running = self.config.preset.running(self.on_battery, self.model);
-        match next_preset(running, self.model, self.on_battery) {
+        // The step depends on the charger, which the last poll may have
+        // read 10 s ago.
+        self.read_charger();
+        let running = self.running_preset();
+        match next_preset(running, self.model, self.battery_presets()) {
             Some(next) if next != running => {
                 self.on_performance(PerformanceCommand::SetPreset(next))
             }
@@ -201,7 +209,7 @@ where
             sixty_hz_on_battery: on,
             ..old
         })?;
-        if !self.on_battery {
+        if !self.on_battery() {
             return Ok(());
         }
         // As if the laptop had just gone on battery, or back on AC.
