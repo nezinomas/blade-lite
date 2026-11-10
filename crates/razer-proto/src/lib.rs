@@ -13,6 +13,7 @@ use std::ops::Range;
 
 mod brightness;
 mod charge;
+mod charger;
 mod colour;
 mod command;
 mod custom;
@@ -27,6 +28,7 @@ mod touchpad_key;
 
 pub use brightness::{Brightness, BrightnessError, VaporLight};
 pub use charge::{ChargeLimit, ChargeLimitError};
+pub use charger::Charger;
 pub use colour::{ParseRgbError, Rgb, static_colour, static_colour_touchpad_off};
 pub use command::Command;
 pub use custom::{CpuBoost, Custom, CustomError, CustomLimits, FanMode, GpuBoost, Rpm, RpmRange};

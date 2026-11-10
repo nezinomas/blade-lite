@@ -2,8 +2,8 @@
 //! Adding a model means adding a profile, not changing the code.
 
 use crate::{
-    ChargeLimit, CustomLimits, Logo, NativeMode, PerfMode, PerfModeBytes, PowerKey, RpmRange,
-    TouchpadKey, VaporLight,
+    ChargeLimit, Charger, CustomLimits, Logo, NativeMode, PerfMode, PerfModeBytes, PowerKey,
+    RpmRange, TouchpadKey, VaporLight,
 };
 
 /// How the controller shows up on USB.
@@ -67,6 +67,9 @@ pub struct ModelProfile {
     pub logo: Option<Logo>,
     /// The battery charge limit, or `None` if the model has none.
     pub charge_limit: Option<ChargeLimit>,
+    /// The charger read, or `None` if the model has none: then any
+    /// charger counts as full power.
+    pub charger: Option<Charger>,
     /// The key painted red while the touchpad is off, or `None` if the
     /// model has none. It must be a key of [`ModelProfile::keys`].
     pub touchpad_key: Option<TouchpadKey>,
@@ -215,6 +218,9 @@ pub const BLADE_18: ModelProfile = ModelProfile {
     }),
     // Synapse offers only 80% on this model.
     charge_limit: Some(ChargeLimit { percent: 80 }),
+    // Read on the laptop (2026-11-10): `13` with the Razer charger, `04`
+    // with a USB-C monitor that charges it, `00` with no charger.
+    charger: Some(Charger { full_power: 0x13 }),
     // Numpad ".", with a touchpad icon on the second layer (Num Lock off).
     // Found by eye on the laptop.
     touchpad_key: Some(TouchpadKey {
