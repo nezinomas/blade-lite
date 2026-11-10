@@ -21,7 +21,7 @@ use std::io;
 pub use backdrop::{hide_caption_buttons, round_corners, set_mica};
 pub use display::WindowsDisplays;
 pub use instance::{WakeListener, WindowsInstance};
-pub use keys::{WindowsKeys, num_lock_on};
+pub use keys::{WindowsKeys, enter_down, num_lock_on};
 pub use popup::work_area;
 pub use power::WindowsPowerEvents;
 pub use programs::WindowsPrograms;

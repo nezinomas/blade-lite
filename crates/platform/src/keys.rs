@@ -1,10 +1,11 @@
-//! Key presses sent to Windows with `SendInput`, and the Num Lock state.
+//! Key presses sent to Windows with `SendInput`, the Num Lock state, and
+//! whether Enter is down.
 
 use std::io;
 
 use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
-    GetKeyState, INPUT, INPUT_0, INPUT_KEYBOARD, KEYBD_EVENT_FLAGS, KEYBDINPUT, KEYEVENTF_KEYUP,
-    SendInput, VIRTUAL_KEY, VK_CONTROL, VK_F24, VK_LWIN, VK_NUMLOCK,
+    GetAsyncKeyState, GetKeyState, INPUT, INPUT_0, INPUT_KEYBOARD, KEYBD_EVENT_FLAGS, KEYBDINPUT,
+    KEYEVENTF_KEYUP, SendInput, VIRTUAL_KEY, VK_CONTROL, VK_F24, VK_LWIN, VK_NUMLOCK, VK_RETURN,
 };
 
 use crate::{Key, KeyInjector};
@@ -20,6 +21,19 @@ pub fn num_lock_on() -> bool {
     let state = unsafe { GetKeyState(i32::from(VK_NUMLOCK)) };
     // The low bit is the toggle.
     state & 1 == 1
+}
+
+/// Whether Enter (either one) is down now, from any thread. Only its state
+/// is read: no hook, and the Enter still goes where it goes. Windows
+/// gives it to a process without focus (checked on the laptop
+/// 2026-11-10).
+#[must_use]
+pub fn enter_down() -> bool {
+    // SAFETY: GetAsyncKeyState takes a key code by value and touches no
+    // memory of ours.
+    let state = unsafe { GetAsyncKeyState(i32::from(VK_RETURN)) };
+    // The high bit is set while the key is down.
+    state < 0
 }
 
 /// Key presses that reach Windows as if typed on the keyboard.

@@ -5,7 +5,7 @@ use std::sync::mpsc::{self, Receiver};
 use std::time::Duration;
 
 use blade_core::{PowerKeyPresses, TOUCHPAD_KEY};
-use blade_lite::{ReaderEnd, ShownErrors, report, step_on_presses};
+use blade_lite::{ReaderEnd, ShownErrors, WindowsEnter, report, step_on_presses};
 use platform::{PowerEvent, PowerEvents, RegistryWatch, WakeListener, WindowsPowerEvents};
 use razer_device::HidKeyReports;
 use razer_proto::BLADE_18;
@@ -110,7 +110,8 @@ pub fn follow_the_power_key() {
             let problem = match HidKeyReports::open(&BLADE_18) {
                 Ok(mut reports) => {
                     let presses = PowerKeyPresses::new(key);
-                    match step_on_presses(&mut reports, presses, step_the_preset) {
+                    match step_on_presses(&mut reports, &mut WindowsEnter, presses, step_the_preset)
+                    {
                         ReaderEnd::Quit => return,
                         ReaderEnd::Reopen => String::new(),
                         ReaderEnd::Failed(error) => format!("the key reports stopped: {error}"),
