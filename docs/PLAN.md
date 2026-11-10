@@ -33,7 +33,7 @@ Checks only a person can do on the laptop wait in "Still to check on the laptop"
 - [x] 89 `clippy::undocumented_unsafe_blocks = "deny"` in the workspace lints: clippy is clean, and an `unsafe` block without a SAFETY note now fails the build (checked by removing one note)
 - [x] 90 `expect_used`, `panic` and `indexing_slicing` denied in `razer-proto`, `razer-device` and `blade-core` (tests allowed in `clippy.toml`). Only 5 library sites, not about 100 (the rest were tests): `Rpm` keeps its checked byte, so a too-wide profile range is refused in `new`; `Request::new`, `Response::args` and the key reader use checked slices. Review: a grid with no rows or no columns now sends no frame (it wrapped to a bad frame row in release), and a lost key source is an error
 - [x] 91 `proptest` property tests in `razer-proto/tests/props.rs` (20): checksum covers only bytes 2 to 87; a reply with a valid checksum refuses unknown status and data size above 80; request header bytes and round trip; too many args; colour text (only `#` and 6 hex digits); Custom mode, boost and fan bytes in order; fan speed, boost, brightness and charge limit (50 to 80) ranges; brightness and charge limit replies read only for their LED or percent; any reply args read without a panic. No bug found; breaking the hex, data size or charge mask check fails them. Licence entry added
-- [ ] 92 CI: `cargo-deny` (licences, known security advisories, duplicate and banned crates) with a `deny.toml`, and a job that builds on the MSRV (`rust-version` in `Cargo.toml`, 1.85; raise it if the dependencies need more)
+- [x] 92 CI runs `cargo deny check` (`deny.toml`: permissive licences plus Slint royalty-free, advisories, duplicates warned, crates.io only) and builds on the MSRV, read from `Cargo.toml`. MSRV raised 1.85 to 1.92 (Slint 1.18 needs it); crates marked `publish = false`. No banned crates listed yet. CI also runs weekly, for new advisories
 - [ ] 93 Run `cargo-mutants` on `razer-proto` and `razer-device`: each change to the code that no test catches is a missing test, most of all near a guard. Add the tests, or note why a mutant is harmless. A one-off run first; decide after it whether to run it in CI. Both reviewers
 - [ ] 94 `FanRpm::from_reply` and `PerfMode::from_reply` read the value without checking that the echoed fan or zone (`args[1]`) is the one asked for, as `Brightness::from_reply` does. Pass the expected fan or zone, return `None` when the echo differs, and add a property test (ticket 91 review). Both reviewers
 
@@ -54,6 +54,7 @@ Do these in one go, on AC, with "Start with Windows" on and Num Lock off. First 
 - [ ] 39 Release and installer
 - [ ] 40 Signing
 - [ ] 78 Installer: uninstall closes the app, removes the "Blade Lite" Run value, and asks whether to keep `%APPDATA%\blade-lite` (config and log). Part of 39 or a ticket beside it
+- [ ] 95 Slint attribution: the royalty-free licence asks for the `AboutSlint` widget in an About screen, or the Slint badge on the page the binaries are downloaded from. Add one before the first release (ticket 92 review)
 
 ## Maybe later (not tickets yet)
 - "Open log folder" in the tray menu

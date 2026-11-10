@@ -92,7 +92,7 @@ impl Rpm {
     /// [`CustomError::RpmOutOfRange`] if it is outside the model's range or
     /// does not fit in the byte.
     pub fn new(rpm: u16, model: &ModelProfile) -> Result<Self, CustomError> {
-        if rpm % RPM_STEP != 0 {
+        if !rpm.is_multiple_of(RPM_STEP) {
             return Err(CustomError::RpmNotHundreds(rpm));
         }
         let range = model.custom.fan_rpm;
