@@ -1,5 +1,6 @@
 //! The sensors Windows offers: CPU time from `GetSystemTimes`, the battery
-//! from `GetSystemPowerStatus` and `CallNtPowerInformation`, and the NVIDIA
+//! from `GetSystemPowerStatus`, `CallNtPowerInformation` and its read-only
+//! battery queries, and the NVIDIA
 //! GPU from its device power state and NVML.
 
 use std::io;
@@ -8,20 +9,28 @@ use std::ptr;
 use nvml_wrapper::Nvml;
 use nvml_wrapper::enum_wrappers::device::TemperatureSensor;
 use windows_sys::Win32::Devices::DeviceAndDriverInstallation::{
-    CM_GETIDLIST_FILTER_CLASS, CM_GETIDLIST_FILTER_PRESENT, CM_Get_DevNode_PropertyW,
-    CM_Get_Device_ID_List_SizeW, CM_Get_Device_ID_ListW, CM_LOCATE_DEVNODE_NORMAL,
+    CM_GET_DEVICE_INTERFACE_LIST_PRESENT, CM_GETIDLIST_FILTER_CLASS, CM_GETIDLIST_FILTER_PRESENT,
+    CM_Get_DevNode_PropertyW, CM_Get_Device_ID_List_SizeW, CM_Get_Device_ID_ListW,
+    CM_Get_Device_Interface_List_SizeW, CM_Get_Device_Interface_ListW, CM_LOCATE_DEVNODE_NORMAL,
     CM_Locate_DevNodeW, CONFIGRET, CR_SUCCESS,
 };
 use windows_sys::Win32::Devices::Properties::DEVPKEY_Device_PowerData;
-use windows_sys::Win32::Foundation::FILETIME;
+use windows_sys::Win32::Foundation::{FILETIME, GENERIC_READ, INVALID_HANDLE_VALUE};
+use windows_sys::Win32::Storage::FileSystem::{
+    CreateFileW, FILE_ATTRIBUTE_NORMAL, FILE_SHARE_READ, FILE_SHARE_WRITE, OPEN_EXISTING,
+};
+use windows_sys::Win32::System::IO::DeviceIoControl;
 use windows_sys::Win32::System::Power::{
-    BATTERY_UNKNOWN_RATE, CM_POWER_DATA, CallNtPowerInformation, DEVICE_POWER_STATE,
-    GetSystemPowerStatus, PowerDeviceD0, SYSTEM_BATTERY_STATE, SYSTEM_POWER_STATUS,
+    BATTERY_INFORMATION, BATTERY_QUERY_INFORMATION, BATTERY_TAG_INVALID, BATTERY_UNKNOWN_CAPACITY,
+    BATTERY_UNKNOWN_RATE, BatteryInformation, CM_POWER_DATA, CallNtPowerInformation,
+    DEVICE_POWER_STATE, GUID_DEVICE_BATTERY, GetSystemPowerStatus, IOCTL_BATTERY_QUERY_INFORMATION,
+    IOCTL_BATTERY_QUERY_TAG, PowerDeviceD0, SYSTEM_BATTERY_STATE, SYSTEM_POWER_STATUS,
     SystemBatteryState,
 };
 use windows_sys::Win32::System::Threading::GetSystemTimes;
 
-use crate::{CpuTimes, GpuReading, PowerReading, Sensors, wide};
+use crate::instance::Handle;
+use crate::{BatteryHealth, CpuTimes, GpuReading, PowerReading, Sensors, wide};
 
 /// The display adapter class, as `CM_Get_Device_ID_ListW` takes it.
 const DISPLAY_CLASS: &str = "{4d36e968-e325-11ce-bfc1-08002be10318}";
@@ -29,6 +38,9 @@ const DISPLAY_CLASS: &str = "{4d36e968-e325-11ce-bfc1-08002be10318}";
 const NVIDIA_ID: &str = r"PCI\VEN_10DE";
 /// What `GetSystemPowerStatus` says when it does not know the charge.
 const UNKNOWN_PERCENT: u8 = 255;
+/// The highest health believed: a full charge well over the design
+/// capacity is a bad reading.
+const MAX_HEALTH_PERCENT: u32 = 150;
 
 /// The sensors of this PC. NVML is loaded on the first GPU read.
 #[derive(Default)]
@@ -59,6 +71,16 @@ impl Sensors for WindowsSensors {
             battery_rate_mw: battery_rate(&state),
             charging: charging_flag(&state),
         })
+    }
+
+    fn battery_health(&mut self) -> io::Result<BatteryHealth> {
+        let Some(path) = battery_path()? else {
+            return Ok(BatteryHealth::default());
+        };
+        Ok(battery_information(&path)?
+            .as_ref()
+            .map(battery_health)
+            .unwrap_or_default())
     }
 
     fn gpu_awake(&mut self) -> io::Result<bool> {
@@ -135,6 +157,117 @@ fn battery_rate(state: &SYSTEM_BATTERY_STATE) -> Option<i32> {
 /// on battery says nothing about charging on AC).
 fn charging_flag(state: &SYSTEM_BATTERY_STATE) -> Option<bool> {
     (state.BatteryPresent && state.AcOnLine).then_some(state.Charging)
+}
+
+/// The health from the battery's static data. A capacity Windows does not
+/// know, of 0, or a full charge over [`MAX_HEALTH_PERCENT`] of the design
+/// gives no percent; a cycle count of 0 means the battery counts none.
+fn battery_health(info: &BATTERY_INFORMATION) -> BatteryHealth {
+    BatteryHealth {
+        percent: health_percent(info.FullChargedCapacity, info.DesignedCapacity),
+        cycles: (info.CycleCount != 0).then_some(info.CycleCount),
+    }
+}
+
+fn health_percent(full: u32, design: u32) -> Option<u32> {
+    let known = |capacity| capacity != 0 && capacity != BATTERY_UNKNOWN_CAPACITY;
+    if !known(full) || !known(design) {
+        return None;
+    }
+    let (full, design) = (u64::from(full), u64::from(design));
+    let percent = (full * 100 + design / 2) / design;
+    u32::try_from(percent)
+        .ok()
+        .filter(|&percent| percent <= MAX_HEALTH_PERCENT)
+}
+
+/// The path of the first battery, or `None` with no battery.
+fn battery_path() -> io::Result<Option<String>> {
+    let mut length = 0;
+    // SAFETY: Windows writes only the length.
+    check(unsafe {
+        CM_Get_Device_Interface_List_SizeW(
+            &raw mut length,
+            &GUID_DEVICE_BATTERY,
+            ptr::null(),
+            CM_GET_DEVICE_INTERFACE_LIST_PRESENT,
+        )
+    })?;
+    let mut buffer = vec![0_u16; length as usize];
+    // SAFETY: the buffer is `length` wide characters long.
+    check(unsafe {
+        CM_Get_Device_Interface_ListW(
+            &GUID_DEVICE_BATTERY,
+            ptr::null(),
+            buffer.as_mut_ptr(),
+            length,
+            CM_GET_DEVICE_INTERFACE_LIST_PRESENT,
+        )
+    })?;
+    Ok(split_ids(&buffer).into_iter().next())
+}
+
+/// The battery's static data, through its read-only queries, or `None`
+/// with no battery in.
+fn battery_information(path: &str) -> io::Result<Option<BATTERY_INFORMATION>> {
+    let path = wide(path);
+    // SAFETY: the path ends in a nul; the battery is opened to read only.
+    let raw = unsafe {
+        CreateFileW(
+            path.as_ptr(),
+            GENERIC_READ,
+            FILE_SHARE_READ | FILE_SHARE_WRITE,
+            ptr::null(),
+            OPEN_EXISTING,
+            FILE_ATTRIBUTE_NORMAL,
+            ptr::null_mut(),
+        )
+    };
+    if raw == INVALID_HANDLE_VALUE {
+        return Err(io::Error::last_os_error());
+    }
+    let battery = Handle::new(raw)?;
+    // Wait 0 ms: the tag of the battery in now, or none.
+    let tag: u32 = ioctl(&battery, IOCTL_BATTERY_QUERY_TAG, &0_u32)?;
+    if tag == BATTERY_TAG_INVALID {
+        return Ok(None);
+    }
+    let query = BATTERY_QUERY_INFORMATION {
+        BatteryTag: tag,
+        InformationLevel: BatteryInformation,
+        AtRate: 0,
+    };
+    ioctl(&battery, IOCTL_BATTERY_QUERY_INFORMATION, &query).map(Some)
+}
+
+/// Sends a query to a device and reads back a whole `Out`.
+fn ioctl<In, Out: Default>(device: &Handle, code: u32, input: &In) -> io::Result<Out> {
+    let mut output = Out::default();
+    let mut returned = 0;
+    let size = |bytes: usize| u32::try_from(bytes).unwrap_or(u32::MAX);
+    // SAFETY: the input and output are whole values of their sizes.
+    let ok = unsafe {
+        DeviceIoControl(
+            device.0,
+            code,
+            ptr::from_ref(input).cast(),
+            size(size_of::<In>()),
+            ptr::from_mut(&mut output).cast(),
+            size(size_of::<Out>()),
+            &raw mut returned,
+            ptr::null_mut(),
+        )
+    };
+    if ok == 0 {
+        return Err(io::Error::last_os_error());
+    }
+    let expected = size(size_of::<Out>());
+    if returned != expected {
+        return Err(io::Error::other(format!(
+            "device query returned {returned} of {expected} bytes"
+        )));
+    }
+    Ok(output)
 }
 
 /// The device ID of the NVIDIA display adapter, if there is one.
@@ -287,6 +420,60 @@ mod tests {
         assert_eq!(charging_flag(&on_ac), Some(false));
         assert_eq!(charging_flag(&absent), None);
         assert_eq!(charging_flag(&on_battery), None);
+    }
+
+    fn information(design: u32, full: u32, cycles: u32) -> BATTERY_INFORMATION {
+        BATTERY_INFORMATION {
+            DesignedCapacity: design,
+            FullChargedCapacity: full,
+            CycleCount: cycles,
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn health_is_the_full_charge_against_the_design_capacity() {
+        assert_eq!(
+            // This laptop's battery, 2026-11-10.
+            battery_health(&information(97_094, 96_363, 86)),
+            BatteryHealth {
+                percent: Some(99),
+                cycles: Some(86)
+            }
+        );
+        // Rounded to the nearest percent, and a new battery may hold more.
+        assert_eq!(battery_health(&information(1000, 994, 1)).percent, Some(99));
+        assert_eq!(
+            battery_health(&information(1000, 1020, 1)).percent,
+            Some(102)
+        );
+    }
+
+    #[test]
+    fn an_unknown_or_zero_capacity_gives_no_health() {
+        for (design, full) in [
+            (0, 900),
+            (BATTERY_UNKNOWN_CAPACITY, 900),
+            (1000, 0),
+            (1000, BATTERY_UNKNOWN_CAPACITY),
+        ] {
+            let health = battery_health(&information(design, full, 5));
+            assert_eq!(health.percent, None, "{design}, {full}");
+        }
+    }
+
+    #[test]
+    fn health_well_over_the_design_capacity_is_not_believed() {
+        assert_eq!(
+            battery_health(&information(1000, 1500, 1)).percent,
+            Some(150)
+        );
+        assert_eq!(battery_health(&information(1000, 1506, 1)).percent, None);
+    }
+
+    #[test]
+    fn no_cycle_counter_gives_no_cycles() {
+        assert_eq!(battery_health(&information(1000, 900, 0)).cycles, None);
     }
 
     #[test]

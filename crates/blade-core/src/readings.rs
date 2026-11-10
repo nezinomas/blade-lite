@@ -2,7 +2,7 @@
 
 use std::io;
 
-use platform::{CpuTimes, GpuReading, Sensors};
+use platform::{BatteryHealth, CpuTimes, GpuReading, Sensors};
 
 /// One snapshot. A value is `None` when it could not be read.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -14,14 +14,24 @@ pub struct Readings {
     /// Whether the battery charges now. `None` with no battery, off AC, or
     /// if it could not be read.
     pub charging: Option<bool>,
+    /// Read once per [`HEALTH_EVERY`] snapshots, as it changes slowly.
+    pub battery_health: BatteryHealth,
     /// `None` while the GPU sleeps, so that reading it does not wake it.
     pub gpu: Option<GpuReading>,
 }
 
-/// Takes snapshots. It keeps the last CPU times, since load is a difference.
+/// How many snapshots share one battery health read: a minute at the 1 s
+/// poll.
+pub const HEALTH_EVERY: usize = 60;
+
+/// Takes snapshots. It keeps the last CPU times, since load is a difference,
+/// and the last battery health.
 #[derive(Debug, Default)]
 pub struct ReadingsSampler {
     last_cpu: Option<CpuTimes>,
+    health: BatteryHealth,
+    /// Snapshots until the next battery health read; 0 reads it now.
+    health_in: usize,
     errors: Vec<String>,
 }
 
@@ -38,6 +48,7 @@ impl ReadingsSampler {
                 .filter(|&rate| rate < 0)
                 .map(i32::unsigned_abs),
             charging: power.charging,
+            battery_health: self.battery_health(sensors),
             cpu_load_percent: self.cpu_load(sensors),
             gpu: self.gpu_if_awake(sensors),
         }
@@ -56,6 +67,19 @@ impl ReadingsSampler {
     #[must_use]
     pub fn errors(&self) -> &[String] {
         &self.errors
+    }
+
+    /// The battery health, read on the first snapshot and then once per
+    /// [`HEALTH_EVERY`]. A failed read keeps the last one.
+    fn battery_health(&mut self, sensors: &mut impl Sensors) -> BatteryHealth {
+        if self.health_in == 0 {
+            self.health_in = HEALTH_EVERY;
+            if let Some(health) = self.note("battery health", sensors.battery_health()) {
+                self.health = health;
+            }
+        }
+        self.health_in -= 1;
+        self.health
     }
 
     /// The load since the last snapshot, or `None` on the first.

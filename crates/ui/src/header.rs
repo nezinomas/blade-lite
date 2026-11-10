@@ -66,6 +66,8 @@ pub struct Header {
     pub power: PowerPill,
     /// In the order they are shown.
     pub stats: Vec<Stat>,
+    /// Such as "Battery health 99% · 86 cycles". Empty when neither is known.
+    pub health: String,
 }
 
 impl Header {
@@ -81,6 +83,7 @@ impl Header {
             ),
             power: power_pill(state),
             stats: stats(state),
+            health: health_line(&state.readings),
         }
     }
 }
@@ -138,6 +141,19 @@ fn battery_stats(readings: &Readings) -> [Stat; 2] {
         ),
         stat("Power", readings.power_draw_mw.map(watts)),
     ]
+}
+
+fn health_line(readings: &Readings) -> String {
+    let health = readings.battery_health;
+    if health.percent.is_none() && health.cycles.is_none() {
+        return String::new();
+    }
+    let percent = health.percent.map_or_else(|| MISSING.to_owned(), percent);
+    let cycles = health.cycles.map_or_else(String::new, |cycles| {
+        let noun = if cycles == 1 { "cycle" } else { "cycles" };
+        format!(" \u{b7} {cycles} {noun}")
+    });
+    format!("Battery health {percent}{cycles}")
 }
 
 fn stat(label: &str, value: Option<String>) -> Stat {

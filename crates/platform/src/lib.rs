@@ -221,6 +221,16 @@ pub struct PowerReading {
     pub charging: Option<bool>,
 }
 
+/// The battery's wear, as Windows reports it.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct BatteryHealth {
+    /// The full charge capacity against the design capacity, in percent.
+    /// `None` if Windows does not know either.
+    pub percent: Option<u32>,
+    /// The charge cycles. `None` if the battery does not count them.
+    pub cycles: Option<u32>,
+}
+
 /// What the NVIDIA GPU reports.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct GpuReading {
@@ -243,6 +253,14 @@ pub trait Sensors {
     ///
     /// The Windows error if it could not be read.
     fn power(&mut self) -> io::Result<PowerReading>;
+
+    /// The battery's wear and cycle count. Nothing is known with no
+    /// battery.
+    ///
+    /// # Errors
+    ///
+    /// The Windows error if it could not be read.
+    fn battery_health(&mut self) -> io::Result<BatteryHealth>;
 
     /// Whether the NVIDIA GPU is awake. Asking does not wake it.
     ///

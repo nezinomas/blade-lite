@@ -81,6 +81,16 @@ fn not_charging() {
     check("flyout-not-charging", f.shell.flyout().window());
 }
 
+/// The battery health line under the power pill.
+#[test]
+fn window_with_the_battery_health() {
+    let f = fixture(Config::default());
+    f.shell
+        .window()
+        .set_health("Battery health 99% \u{b7} 86 cycles".into());
+    check("window-health", f.shell.window().window());
+}
+
 #[test]
 fn popup() {
     let f = fixture(Config::default());

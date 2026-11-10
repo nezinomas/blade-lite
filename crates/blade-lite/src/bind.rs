@@ -51,6 +51,7 @@ pub fn header(window: &MainWindow, header: &Header) {
     window.set_device(text(&header.title));
     window.set_preset(text(header.preset));
     window.set_power(text(header.power.label()));
+    window.set_health(text(&header.health));
     window.set_stats_top(model(top.to_vec()));
     window.set_stats_bottom(model(bottom.to_vec()));
 }

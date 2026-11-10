@@ -18,6 +18,7 @@ export component MainWindow inherits Window {
     in property <string> device;
     in property <string> preset;
     in property <string> power;
+    in property <string> health;
     in property <[Stat]> stats-top;
     in property <[Stat]> stats-bottom;
     // Display
@@ -102,6 +103,7 @@ export component MainWindow inherits Window {
                 device: root.device;
                 preset: root.preset;
                 power: root.power;
+                health: root.health;
                 stats-top: root.stats-top;
                 stats-bottom: root.stats-bottom;
             }

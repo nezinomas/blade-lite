@@ -38,3 +38,14 @@ fn the_gpu_is_read_only_when_awake() {
     // The check itself must not have woken a sleeping GPU.
     assert_eq!(sensors.gpu_awake().unwrap(), awake);
 }
+
+#[test]
+#[ignore = "needs a laptop with a battery"]
+fn the_battery_health_is_read() {
+    let health = WindowsSensors::default().battery_health().unwrap();
+    eprintln!("{health:?}");
+
+    let percent = health.percent.expect("the capacities are known");
+    assert!((50..=150).contains(&percent), "{health:?}");
+    assert!(health.cycles.is_some(), "{health:?}");
+}
