@@ -1,6 +1,6 @@
-//! Reads the power-mode key's reports and calls back on each press. With
-//! Num Lock on the keyboard sends only Fn, so while Fn is held, Enter's
-//! state is read too.
+//! Reads the power-mode key's reports and calls back on each press, and
+//! each time Fn comes up. With Num Lock on the keyboard sends only Fn, so
+//! while Fn is held, Enter's state is read too.
 
 use std::io;
 use std::time::{Duration, Instant};
