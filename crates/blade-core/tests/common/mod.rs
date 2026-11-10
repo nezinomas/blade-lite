@@ -4,7 +4,7 @@
 
 use std::io;
 
-use platform::{Display, DisplayApi, DisplayMode, OutputTechnology};
+use platform::{Display, DisplayApi, DisplayMode, ModeLife, OutputTechnology};
 
 pub const fn mode(width: u32, height: u32, hz: u32) -> DisplayMode {
     DisplayMode { width, height, hz }
@@ -47,8 +47,8 @@ pub fn monitor() -> Display {
 pub struct FakeDisplays {
     /// `None` means the query fails.
     pub displays: Option<Vec<Display>>,
-    /// Each display name and the mode it was asked to take.
-    pub set: Vec<(String, DisplayMode)>,
+    /// Each display name, the mode it was asked to take, and for how long.
+    pub set: Vec<(String, DisplayMode, ModeLife)>,
 }
 
 impl FakeDisplays {
@@ -65,8 +65,8 @@ impl DisplayApi for FakeDisplays {
         self.displays.clone().ok_or(io::ErrorKind::Other.into())
     }
 
-    fn set_mode(&mut self, name: &str, mode: DisplayMode) -> io::Result<()> {
-        self.set.push((name.into(), mode));
+    fn set_mode(&mut self, name: &str, mode: DisplayMode, life: ModeLife) -> io::Result<()> {
+        self.set.push((name.into(), mode, life));
         // The display now runs in the new mode, as on Windows.
         let displays = self.displays.iter_mut().flatten();
         for display in displays.filter(|display| display.name == name) {

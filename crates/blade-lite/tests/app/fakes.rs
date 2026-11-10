@@ -6,7 +6,9 @@ use std::path::PathBuf;
 
 use blade_core::{Config, Controller, Query};
 use blade_lite::{App, Machine};
-use platform::{Display, DisplayApi, DisplayMode, Key, KeyInjector, OutputTechnology, Registry};
+use platform::{
+    Display, DisplayApi, DisplayMode, Key, KeyInjector, ModeLife, OutputTechnology, Registry,
+};
 use razer_device::DeviceError;
 use razer_proto::{
     BLADE_18, Brightness, ChargeLimit, Command, Logo, ModelProfile, NativeMode, Rgb, static_colour,
@@ -92,7 +94,7 @@ impl DisplayApi for FakeDisplays {
         Ok(vec![self.0.clone()])
     }
 
-    fn set_mode(&mut self, _name: &str, mode: DisplayMode) -> io::Result<()> {
+    fn set_mode(&mut self, _name: &str, mode: DisplayMode, _life: ModeLife) -> io::Result<()> {
         self.0.current = mode;
         Ok(())
     }

@@ -1,9 +1,9 @@
 //! Drops the panel to 60 Hz on battery, and puts the old rate back on AC.
 
-use platform::{DisplayApi, PowerEvent};
+use platform::{DisplayApi, ModeLife, PowerEvent};
 
 use crate::Config;
-use crate::refresh::{DisplayError, RefreshRate, current_rate, set_refresh_rate};
+use crate::refresh::{DisplayError, RefreshRate, current_rate, set_rate, set_refresh_rate};
 
 /// The rate the panel runs at on battery.
 pub const BATTERY_RATE: RefreshRate = RefreshRate(60);
@@ -36,6 +36,8 @@ impl BatteryRate {
     }
 
     /// Remembers the rate once, then sets 60 Hz if the panel is not there yet.
+    /// The 60 Hz is not saved, so a shutdown or a crash on battery does not
+    /// leave the panel at 60 Hz after the restart.
     fn on_battery(&mut self, api: &mut impl DisplayApi) -> Result<(), DisplayError> {
         if self.saved.is_some() {
             return Ok(());
@@ -44,7 +46,7 @@ impl BatteryRate {
         if rate == BATTERY_RATE {
             return Ok(());
         }
-        set_refresh_rate(api, BATTERY_RATE)?;
+        set_rate(api, BATTERY_RATE, ModeLife::UntilRestart)?;
         self.saved = Some(rate);
         Ok(())
     }

@@ -15,12 +15,12 @@ use windows_sys::Win32::Devices::Display::{
 };
 use windows_sys::Win32::Foundation::{ERROR_INSUFFICIENT_BUFFER, ERROR_SUCCESS};
 use windows_sys::Win32::Graphics::Gdi::{
-    CDS_UPDATEREGISTRY, ChangeDisplaySettingsExW, DEVMODEW, DISP_CHANGE, DISP_CHANGE_SUCCESSFUL,
-    DM_DISPLAYFREQUENCY, DM_PELSHEIGHT, DM_PELSWIDTH, ENUM_CURRENT_SETTINGS,
-    ENUM_DISPLAY_SETTINGS_MODE, EnumDisplaySettingsW,
+    CDS_TYPE, CDS_UPDATEREGISTRY, ChangeDisplaySettingsExW, DEVMODEW, DISP_CHANGE,
+    DISP_CHANGE_SUCCESSFUL, DM_DISPLAYFREQUENCY, DM_PELSHEIGHT, DM_PELSWIDTH,
+    ENUM_CURRENT_SETTINGS, ENUM_DISPLAY_SETTINGS_MODE, EnumDisplaySettingsW,
 };
 
-use crate::{Display, DisplayApi, DisplayMode, OutputTechnology, wide, windows_error};
+use crate::{Display, DisplayApi, DisplayMode, ModeLife, OutputTechnology, wide, windows_error};
 
 /// How many times the query is tried when the displays change under it.
 const QUERY_TRIES: usize = 3;
@@ -33,7 +33,7 @@ impl DisplayApi for WindowsDisplays {
         active_paths()?.iter().map(display).collect()
     }
 
-    fn set_mode(&mut self, name: &str, mode: DisplayMode) -> io::Result<()> {
+    fn set_mode(&mut self, name: &str, mode: DisplayMode, life: ModeLife) -> io::Result<()> {
         let device = wide(name);
         // Start from the current settings, so colour depth and position stay.
         let mut devmode =
@@ -49,11 +49,20 @@ impl DisplayApi for WindowsDisplays {
                 device.as_ptr(),
                 &raw const devmode,
                 ptr::null_mut(),
-                CDS_UPDATEREGISTRY,
+                change_flags(life),
                 ptr::null(),
             )
         };
         change_result(result)
+    }
+}
+
+/// A saved mode goes to the user's settings too; any other changes only
+/// the screen now.
+fn change_flags(life: ModeLife) -> CDS_TYPE {
+    match life {
+        ModeLife::Saved => CDS_UPDATEREGISTRY,
+        ModeLife::UntilRestart => 0,
     }
 }
 
@@ -199,6 +208,12 @@ mod tests {
         assert!(change_result(DISP_CHANGE_SUCCESSFUL).is_ok());
         assert!(change_result(DISP_CHANGE_RESTART).is_err());
         assert!(change_result(DISP_CHANGE_BADMODE).is_err());
+    }
+
+    #[test]
+    fn only_a_saved_mode_goes_to_the_registry() {
+        assert_eq!(change_flags(ModeLife::Saved), CDS_UPDATEREGISTRY);
+        assert_eq!(change_flags(ModeLife::UntilRestart), 0);
     }
 
     #[test]

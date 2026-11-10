@@ -4,7 +4,7 @@ mod common;
 
 use blade_core::{BatteryRate, Config, RefreshRate, set_refresh_rate};
 use common::{FakeDisplays, mode, panel};
-use platform::PowerEvent;
+use platform::{ModeLife, PowerEvent};
 
 fn config(sixty_hz_on_battery: bool) -> Config {
     Config {
@@ -33,6 +33,27 @@ fn battery_sets_60_hz() {
     feed(&[PowerEvent::OnBattery], config(true), &mut api);
 
     assert_eq!(api.panel_mode(), mode(3840, 2400, 60));
+}
+
+#[test]
+fn the_battery_rate_is_not_saved_but_the_put_back_rate_is() {
+    let mut api = panel_at(240);
+
+    feed(
+        &[PowerEvent::OnBattery, PowerEvent::OnAc],
+        config(true),
+        &mut api,
+    );
+
+    let lives: Vec<(u32, ModeLife)> = api
+        .set
+        .iter()
+        .map(|(_, mode, life)| (mode.hz, *life))
+        .collect();
+    assert_eq!(
+        lives,
+        [(60, ModeLife::UntilRestart), (240, ModeLife::Saved)]
+    );
 }
 
 #[test]
@@ -121,7 +142,7 @@ fn put_back_restores_the_rate_from_before_battery_once() {
     battery_rate.put_back(&mut api).unwrap();
     battery_rate.put_back(&mut api).unwrap();
 
-    let rates: Vec<u32> = api.set.iter().map(|(_, mode)| mode.hz).collect();
+    let rates: Vec<u32> = api.set.iter().map(|(_, mode, _)| mode.hz).collect();
     assert_eq!(rates, [60, 240]);
 }
 
@@ -149,6 +170,6 @@ fn a_rate_changed_outside_the_app_on_battery_is_kept() {
         .on_event(PowerEvent::OnAc, &config(true), &mut api)
         .unwrap();
 
-    let rates: Vec<u32> = api.set.iter().map(|(_, mode)| mode.hz).collect();
+    let rates: Vec<u32> = api.set.iter().map(|(_, mode, _)| mode.hz).collect();
     assert_eq!(rates, [60, 120]);
 }
