@@ -8,7 +8,7 @@ use platform::FileDialog;
 use razer_proto::{BLADE_18, PerfMode};
 use tempfile::TempDir;
 
-use super::{FAKE_DIALOGS, FAKE_PICKED, FakePick, Fixture, click, fixture};
+use super::{FAKE_DIALOGS, FAKE_HELD, FAKE_HOLD, FAKE_PICKED, FakePick, Fixture, click, fixture};
 
 /// The user picks `name` in a folder of its own, which lasts as long as
 /// the `TempDir`.
@@ -118,4 +118,29 @@ fn reset_sends_and_shows_the_defaults() {
     assert!(sent.starts_with(&PerfMode::Balanced.commands(&BLADE_18).unwrap()));
     assert_eq!(f.shell.app().config().preset, Preset::Balanced);
     assert_eq!(f.shell.window().get_preset(), "Balanced");
+}
+
+#[test]
+fn one_dialog_at_a_time_and_its_answer_comes_later() {
+    let f = fixture(Config::default());
+    let (_dir, path) = pick("in.toml");
+    Config {
+        preset: Preset::Silent,
+        ..Config::default()
+    }
+    .save(&path)
+    .unwrap();
+    FAKE_HOLD.set(true);
+
+    click(f.shell.window(), Button, "Import…");
+    click(f.shell.window(), Button, "Export…");
+
+    assert_eq!(FAKE_DIALOGS.take(), [FileDialog::Open]);
+    assert_eq!(f.shell.app().config().preset, Preset::Balanced);
+
+    FAKE_HELD.take().unwrap()();
+
+    assert_eq!(f.shell.app().config().preset, Preset::Silent);
+    click(f.shell.window(), Button, "Export…");
+    assert_eq!(FAKE_DIALOGS.take(), [FileDialog::Save]);
 }

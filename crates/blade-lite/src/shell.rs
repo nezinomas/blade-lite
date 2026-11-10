@@ -38,14 +38,15 @@ pub trait Parts: 'static {
     type Programs: Programs + Default;
     /// Whether the laptop runs on its battery now. Read only.
     fn on_battery() -> bool;
-    /// Asks the user for a file in the `dialog` over the `owner` window.
-    /// `None` if the user cancels.
-    ///
-    /// # Errors
-    ///
-    /// If the dialog fails.
-    fn pick_file(owner: Option<isize>, dialog: FileDialog) -> io::Result<Option<PathBuf>>;
+    /// Asks the user for a file in the `dialog` over the `owner` window,
+    /// then calls `done` on the app's thread with the file, `None` if the
+    /// user cancels, or the dialog's error. The app keeps running while
+    /// the dialog is open.
+    fn pick_file(owner: Option<isize>, dialog: FileDialog, done: PickedFile);
 }
+
+/// What [`Parts::pick_file`] calls with the user's answer.
+pub type PickedFile = Box<dyn FnOnce(io::Result<Option<PathBuf>>)>;
 
 /// The real laptop.
 pub struct Laptop;
@@ -61,8 +62,26 @@ impl Parts for Laptop {
         crate::background::on_battery_now()
     }
 
-    fn pick_file(owner: Option<isize>, dialog: FileDialog) -> io::Result<Option<PathBuf>> {
-        platform::pick_file(owner, dialog)
+    /// The dialog runs on a thread of its own, so the polls, power events
+    /// and popups go on while it is open. Without the window's handle no
+    /// dialog opens, as it would then not block the window.
+    fn pick_file(owner: Option<isize>, dialog: FileDialog, done: PickedFile) {
+        let Some(owner) = owner else {
+            done(Err(io::Error::other("the window has no handle yet")));
+            return;
+        };
+        settings::PICKED.set(Some(done));
+        std::thread::spawn(move || {
+            let picked = platform::pick_file(Some(owner), dialog);
+            let posted = slint::invoke_from_event_loop(move || {
+                if let Some(done) = settings::PICKED.take() {
+                    done(picked);
+                }
+            });
+            if let Err(error) = posted {
+                report(&format!("the picked file was lost: {error}"));
+            }
+        });
     }
 }
 
@@ -112,6 +131,8 @@ pub struct Shell<P: Parts = Laptop> {
     razer_warning: RefCell<Option<String>>,
     /// Whether the window was opened for Razer software. Only once per run.
     razer_opened: Cell<bool>,
+    /// Whether a file dialog is open, so a second one is not opened.
+    dialog_open: Cell<bool>,
 }
 
 impl<P: Parts> Shell<P> {
@@ -145,6 +166,7 @@ impl<P: Parts> Shell<P> {
             programs: P::Programs::default(),
             razer_warning: RefCell::new(None),
             razer_opened: Cell::new(false),
+            dialog_open: Cell::new(false),
         })
     }
 

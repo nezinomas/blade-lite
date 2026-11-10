@@ -26,7 +26,7 @@ use slint::{ComponentHandle, LogicalSize};
 use tempfile::TempDir;
 
 use crate::fakes::{FakeController, FakeDisplays, FakeKeys, FakeRegistry, app_on};
-use crate::shell::{Parts, Shell};
+use crate::shell::{Parts, PickedFile, Shell};
 use crate::{FlyoutWindow, MainWindow, ModePopup, bind};
 
 /// The fakes in place of the laptop.
@@ -43,13 +43,19 @@ impl Parts for Fakes {
         FAKE_ON_BATTERY.get()
     }
 
-    fn pick_file(_owner: Option<isize>, dialog: FileDialog) -> io::Result<Option<PathBuf>> {
+    /// Answers at once, unless the test holds the answer back.
+    fn pick_file(_owner: Option<isize>, dialog: FileDialog, done: PickedFile) {
         FAKE_DIALOGS.with_borrow_mut(|dialogs| dialogs.push(dialog));
-        FAKE_PICKED.with_borrow(|picked| match picked {
+        let picked = FAKE_PICKED.with_borrow(|picked| match picked {
             FakePick::File(path) => Ok(Some(path.clone())),
             FakePick::Cancel => Ok(None),
             FakePick::Fail => Err(io::ErrorKind::Other.into()),
-        })
+        });
+        if FAKE_HOLD.get() {
+            FAKE_HELD.set(Some(Box::new(move || done(picked))));
+        } else {
+            done(picked);
+        }
     }
 }
 
@@ -59,6 +65,10 @@ thread_local! {
     pub static FAKE_ON_BATTERY: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
     /// What the user does in a file dialog: cancel unless a test sets it.
     pub static FAKE_PICKED: RefCell<FakePick> = const { RefCell::new(FakePick::Cancel) };
+    /// Whether the dialog stays open until the test answers it.
+    pub static FAKE_HOLD: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    /// The answer of a dialog held open.
+    pub static FAKE_HELD: RefCell<Option<Box<dyn FnOnce()>>> = const { RefCell::new(None) };
     /// The file dialogs shown.
     pub static FAKE_DIALOGS: RefCell<Vec<FileDialog>> = const { RefCell::new(Vec::new()) };
 }

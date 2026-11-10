@@ -5,6 +5,9 @@ use std::io;
 use std::os::windows::ffi::OsStringExt;
 use std::path::PathBuf;
 
+use windows_sys::Win32::System::Com::{
+    COINIT_APARTMENTTHREADED, COINIT_DISABLE_OLE1DDE, CoInitializeEx, CoUninitialize,
+};
 use windows_sys::Win32::UI::Controls::Dialogs::{
     CommDlgExtendedError, GetOpenFileNameW, GetSaveFileNameW, OFN_EXPLORER, OFN_FILEMUSTEXIST,
     OFN_NOCHANGEDIR, OFN_OVERWRITEPROMPT, OFN_PATHMUSTEXIST, OPENFILENAMEW,
@@ -28,7 +31,9 @@ const PATH_UNITS: usize = 4096;
 const SUGGESTED_NAME: &str = "blade-lite-settings.toml";
 
 /// Shows the dialog over the `owner` window (which it blocks while open)
-/// and waits for the user. `None` if the user cancels.
+/// and waits for the user. `None` if the user cancels. It may run on a
+/// thread of its own, so the app's own thread keeps running meanwhile: it
+/// starts COM on the thread it runs on, as the dialog needs.
 ///
 /// # Errors
 ///
@@ -58,6 +63,14 @@ pub fn pick_file(owner: Option<isize>, dialog: FileDialog) -> io::Result<Option<
         Flags: flags,
         ..OPENFILENAMEW::default()
     };
+    // SAFETY: no pointer is passed. A thread that already has COM gets
+    // S_FALSE or RPC_E_CHANGED_MODE, and the dialog still works.
+    let com = unsafe {
+        CoInitializeEx(
+            std::ptr::null(),
+            (COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE).cast_unsigned(),
+        )
+    };
     // SAFETY: `info` and the buffers it points to (`filter`, `extension`,
     // `path`, each ending in a NUL) live until the call returns, and
     // `nMaxFile` is `path`'s length, so the dialog writes inside it. A bad
@@ -68,11 +81,20 @@ pub fn pick_file(owner: Option<isize>, dialog: FileDialog) -> io::Result<Option<
             FileDialog::Open => GetOpenFileNameW(&raw mut info),
         }
     };
+    let error = if picked == 0 {
+        // SAFETY: no arguments; it reads the error the dialog just left.
+        unsafe { CommDlgExtendedError() }
+    } else {
+        0
+    };
+    if com >= 0 {
+        // SAFETY: pairs the CoInitializeEx above that worked.
+        unsafe { CoUninitialize() };
+    }
     if picked != 0 {
         return Ok(Some(until_nul(&path)));
     }
-    // SAFETY: no arguments; it reads the error the dialog just left.
-    match unsafe { CommDlgExtendedError() } {
+    match error {
         0 => Ok(None),
         code => Err(io::Error::other(format!(
             "the file dialog failed, code {code:#X}"
