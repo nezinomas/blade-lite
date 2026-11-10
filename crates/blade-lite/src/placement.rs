@@ -13,11 +13,15 @@ pub struct Rect {
 }
 
 /// The flyout's top-left corner: centred over the tray icon and above it,
-/// or below it when the taskbar is at the top, and always inside the screen.
+/// or below it when the taskbar is at the top, and inside the screen. On a
+/// screen narrower than the flyout, its left edge stays on the screen.
 #[must_use]
 pub fn flyout_position(icon: Rect, (width, height): (i32, i32), screen: Rect) -> (i32, i32) {
     let centred = icon.x + icon.width / 2 - width / 2;
-    let x = centred.clamp(screen.x + GAP, screen.x + screen.width - width - GAP);
+    // Not `clamp`: it panics when the screen is narrower than the flyout.
+    let x = centred
+        .min(screen.x + screen.width - width - GAP)
+        .max(screen.x + GAP);
     let above = icon.y - height - GAP;
     let y = if above >= screen.y {
         above
