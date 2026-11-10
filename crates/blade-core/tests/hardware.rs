@@ -102,14 +102,19 @@ fn the_panel_offers_its_current_rate() {
     assert!(rates.contains(&RefreshRate(panel.current.hz)));
 }
 
-/// The panel's current refresh rate.
-fn panel_rate() -> RefreshRate {
-    let displays = WindowsDisplays.displays().unwrap();
-    let panel = displays
+/// The panel's current refresh rate, or the error as text.
+fn read_panel_rate() -> Result<RefreshRate, String> {
+    let displays = WindowsDisplays.displays().map_err(text)?;
+    displays
         .iter()
         .find(|display| display.technology == OutputTechnology::Internal)
-        .unwrap();
-    RefreshRate(panel.current.hz)
+        .map(|panel| RefreshRate(panel.current.hz))
+        .ok_or_else(|| "no internal panel found".to_string())
+}
+
+/// The panel's current refresh rate.
+fn panel_rate() -> RefreshRate {
+    read_panel_rate().unwrap()
 }
 
 #[test]
@@ -286,31 +291,53 @@ fn battery_drops_to_60_hz_and_ac_puts_the_rate_back() {
         sixty_hz_on_battery: true,
         ..Config::default()
     };
+    eprintln!("rate before: {before:?}");
+
+    let seen = rates_until_ac(&config);
+    // Put the rate back even if a step failed.
+    let restored = put_rate_back(before);
+
+    // The lasting state first, so its error is never hidden.
+    let put_back = format!("the panel may be left at 60 Hz: set {before:?} in Windows");
+    let restored = restored.unwrap_or_else(|error| panic!("{error}; {put_back}"));
+    assert_eq!(restored, before, "{put_back}");
+    let (on_battery, after_ac) = seen.unwrap();
+    assert_eq!(on_battery, Some(RefreshRate(60)), "no 60 Hz on battery");
+    assert_eq!(after_ac, Some(before), "the rate was not put back on AC");
+}
+
+/// Feeds the power events to a `BatteryRate` until the charger goes back in
+/// (or none comes), and returns the panel's rate on battery and after AC.
+/// Stops at the first error.
+fn rates_until_ac(config: &Config) -> Result<(Option<RefreshRate>, Option<RefreshRate>), String> {
     let mut battery_rate = BatteryRate::default();
     let events = power_events();
     let (mut on_battery, mut after_ac) = (None, None);
-    eprintln!("rate before: {before:?}");
-
     while let Ok(event) = events.recv_timeout(PLUG_IN_WAIT) {
         battery_rate
-            .on_event(event, &config, &mut WindowsDisplays)
-            .unwrap();
-        eprintln!("{event:?}: panel at {:?}", panel_rate());
+            .on_event(event, config, &mut WindowsDisplays)
+            .map_err(text)?;
+        let rate = read_panel_rate()?;
+        eprintln!("{event:?}: panel at {rate:?}");
         match event {
-            PowerEvent::OnBattery => on_battery = Some(panel_rate()),
+            PowerEvent::OnBattery => on_battery = Some(rate),
             PowerEvent::OnAc if on_battery.is_some() => {
-                after_ac = Some(panel_rate());
+                after_ac = Some(rate);
                 break;
             }
             _ => {}
         }
     }
-    if panel_rate() != before {
-        set_refresh_rate(&mut WindowsDisplays, before).unwrap();
-    }
+    Ok((on_battery, after_ac))
+}
 
-    assert_eq!(on_battery, Some(RefreshRate(60)), "no 60 Hz on battery");
-    assert_eq!(after_ac, Some(before), "the rate was not put back on AC");
+/// Sets the panel back to `before` unless it is there already (or can't be
+/// read), and returns the rate it has then.
+fn put_rate_back(before: RefreshRate) -> Result<RefreshRate, String> {
+    if read_panel_rate() != Ok(before) {
+        set_refresh_rate(&mut WindowsDisplays, before).map_err(text)?;
+    }
+    read_panel_rate()
 }
 
 /// How long the power-mode key test waits for the press.
