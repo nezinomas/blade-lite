@@ -44,7 +44,9 @@ pub struct PowerKeyPresses {
     /// `None` until the first key report. A key held before then is not
     /// a new press: it may have been down while the reports were opened.
     held: Option<bool>,
-    /// When Fn went down, while it is held.
+    /// When Fn went down, while it is held. If a release report is lost,
+    /// the next Fn press keeps the old time, so Enter is not watched until
+    /// a report without Fn comes: a missed press, never a made-up one.
     fn_since: Option<Instant>,
     /// Enter as last seen while Fn is held. `None` until seen, so an
     /// Enter already down when Fn came is not a press.
@@ -86,6 +88,8 @@ impl PowerKeyPresses {
     /// True if Enter, read as `down` now, is a new press while Fn is held,
     /// so it should step the preset.
     pub fn on_enter(&mut self, down: bool, now: Instant) -> bool {
+        // The reader checks this too, before it reads Enter; kept here so
+        // no caller can step on an Enter outside an Fn hold.
         if !self.watching_enter(now) {
             self.enter = None;
             return false;

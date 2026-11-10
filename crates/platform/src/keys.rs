@@ -13,7 +13,8 @@ use crate::{Key, KeyInjector};
 /// Whether Num Lock is on now, as the calling thread sees it. Call it from
 /// a thread that runs a message loop, such as the UI thread's poll. A
 /// process without focus sees the changes (checked on the laptop
-/// 2026-11-09).
+/// 2026-11-09). A thread with no message loop saw them too (a key-report
+/// probe, 2026-11-10); the power-key reader reads it so.
 #[must_use]
 pub fn num_lock_on() -> bool {
     // SAFETY: GetKeyState takes a key code by value and touches no memory

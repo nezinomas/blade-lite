@@ -213,6 +213,15 @@ fn enter_and_the_power_key_of_one_press_step_once() {
 }
 
 #[test]
+fn enter_then_the_power_key_of_one_press_step_once() {
+    let now = Instant::now();
+    let mut presses = fn_held_enter_up(now);
+
+    assert!(presses.on_enter(true, now));
+    assert!(!presses.on_report(&report(&KEY_DOWN), now));
+}
+
+#[test]
 fn an_fn_held_past_the_limit_is_not_watched() {
     // A release report lost, such as over a sleep, must not leave every
     // Enter stepping the preset.

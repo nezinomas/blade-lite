@@ -12,7 +12,8 @@ use razer_device::HidKeyReports;
 pub const KEY_READ_WAIT: Duration = Duration::from_millis(100);
 
 /// How long one read waits while Fn is held, so Enter is read often. A
-/// quick tap of Enter is down for about 30 ms (read on the laptop).
+/// quick tap of Enter is down for about 30 ms (read on the laptop). The
+/// short reads last at most [`blade_core::FN_HOLD_LIMIT`] per Fn press.
 pub const ENTER_READ_WAIT: Duration = Duration::from_millis(5);
 
 /// Quiet reads in a row after which the reports are opened again, about a
@@ -42,12 +43,15 @@ pub trait EnterKey {
     fn down(&mut self) -> bool;
 }
 
-/// Enter as Windows sees it now.
+/// Enter as Windows sees it now, counted only while Num Lock is on. With
+/// Num Lock off the keyboard sends the power key itself, and either Enter
+/// key, or one sent by another program, reads the same here, so this
+/// keeps the Enter path to the one case it is for.
 pub struct WindowsEnter;
 
 impl EnterKey for WindowsEnter {
     fn down(&mut self) -> bool {
-        platform::enter_down()
+        platform::num_lock_on() && platform::enter_down()
     }
 }
 
