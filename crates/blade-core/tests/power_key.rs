@@ -350,7 +350,10 @@ fn the_brightness_is_not_read_past_its_hold_limit() {
     let start = Instant::now();
     let mut presses = fn_down_at(start);
 
-    assert!(presses.brightness_due(start + BRIGHTNESS_HOLD_LIMIT - Duration::from_millis(1)));
+    assert!(
+        presses
+            .brightness_due(start + BRIGHTNESS_HOLD_LIMIT.saturating_sub(Duration::from_millis(1)))
+    );
     assert!(!presses.brightness_due(start + BRIGHTNESS_HOLD_LIMIT + BRIGHTNESS_READ_GAP));
 }
 
