@@ -44,6 +44,53 @@ fn it_stays_inside_the_left_edge() {
 }
 
 #[test]
+fn on_a_screen_narrower_than_the_flyout_it_keeps_the_left_edge() {
+    let narrow = Rect {
+        width: 300,
+        ..SCREEN
+    };
+
+    let (x, _) = flyout_position(icon(100, 1552), FLYOUT, narrow);
+
+    assert_eq!(x, 12);
+}
+
+#[test]
+fn on_a_screen_of_no_width_it_keeps_the_left_edge() {
+    let none = Rect { width: 0, ..SCREEN };
+
+    let (x, _) = flyout_position(icon(0, 1552), FLYOUT, none);
+
+    assert_eq!(x, 12);
+}
+
+#[test]
+fn on_a_narrow_screen_left_of_the_main_one_it_keeps_that_left_edge() {
+    let narrow = Rect {
+        x: -1920,
+        width: 300,
+        ..SCREEN
+    };
+
+    let (x, _) = flyout_position(icon(-1820, 1552), FLYOUT, narrow);
+
+    assert_eq!(x, -1920 + 12);
+}
+
+#[test]
+fn a_broken_huge_screen_size_does_not_overflow() {
+    let huge = Rect {
+        x: i32::MAX,
+        y: i32::MAX,
+        width: i32::MAX,
+        height: i32::MAX,
+    };
+
+    let _ = flyout_position(icon(i32::MAX, i32::MAX), (i32::MAX, i32::MAX), huge);
+    let _ = popup_position(huge, (i32::MIN, i32::MIN));
+}
+
+#[test]
 fn with_the_taskbar_at_the_top_it_opens_below_the_icon() {
     let (_, y) = flyout_position(icon(1000, 0), FLYOUT, SCREEN);
 
