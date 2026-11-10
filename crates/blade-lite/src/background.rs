@@ -98,7 +98,7 @@ fn wait_for_quiet_change(watch: &RegistryWatch) -> std::io::Result<bool> {
 const KEY_REOPEN_PAUSE: Duration = Duration::from_secs(5);
 
 /// Steps the preset each time the power-mode key is pressed, and reads the
-/// keyboard brightness each time Fn comes up, from a thread that reads the
+/// keyboard brightness while Fn is held and as it comes up, from a thread that reads the
 /// keyboard's key reports (no keyboard hook). Nothing if the model has no
 /// key.
 pub fn follow_the_power_key() {
@@ -133,7 +133,7 @@ pub fn follow_the_power_key() {
 fn on_key(event: KeyEvent) -> bool {
     match event {
         KeyEvent::PowerKey => step_the_preset(),
-        KeyEvent::FnUp => follow_the_brightness_keys(),
+        KeyEvent::FnHeld | KeyEvent::FnUp => follow_the_brightness_keys(),
     }
 }
 

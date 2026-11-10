@@ -16,6 +16,11 @@ pub const POWER_KEY_PAUSE: Duration = Duration::from_millis(300);
 /// stepping the preset.
 pub const FN_HOLD_LIMIT: Duration = Duration::from_secs(5);
 
+/// How often the keyboard brightness is read while Fn is held, so the
+/// app follows Fn + F10 or F11 as the laptop steps the level. Reads stop
+/// at [`FN_HOLD_LIMIT`]; Fn coming up reads once more.
+pub const BRIGHTNESS_READ_GAP: Duration = Duration::from_millis(250);
+
 /// The preset after `running` in the model's presets, wrapping round. On
 /// battery only the presets offered there count. Custom is never stepped
 /// to, since it may hold a manual fan speed; from Custom the first preset
@@ -53,6 +58,9 @@ pub struct PowerKeyPresses {
     enter: Option<bool>,
     /// Whether the last key report let Fn go after a report that held it.
     fn_up: bool,
+    /// When the brightness was last due in this Fn hold, or when Fn went
+    /// down.
+    brightness_at: Option<Instant>,
     last_step: Option<Instant>,
 }
 
@@ -65,6 +73,7 @@ impl PowerKeyPresses {
             fn_since: None,
             enter: None,
             fn_up: false,
+            brightness_at: None,
             last_step: None,
         }
     }
@@ -87,6 +96,21 @@ impl PowerKeyPresses {
     #[must_use]
     pub fn fn_came_up(&self) -> bool {
         self.fn_up
+    }
+
+    /// Whether the keyboard brightness should be read now: Fn is held,
+    /// not past [`FN_HOLD_LIMIT`], and [`BRIGHTNESS_READ_GAP`] has passed
+    /// since Fn went down or since the last read. Noted when true.
+    pub fn brightness_due(&mut self, now: Instant) -> bool {
+        if !self.watching_enter(now) {
+            return false;
+        }
+        let since = self.brightness_at.or(self.fn_since);
+        let due = since.is_some_and(|at| now.saturating_duration_since(at) >= BRIGHTNESS_READ_GAP);
+        if due {
+            self.brightness_at = Some(now);
+        }
+        due
     }
 
     /// Whether Enter should be read now: Fn is held, and not for longer
@@ -118,6 +142,7 @@ impl PowerKeyPresses {
         } else {
             self.fn_up = self.fn_since.is_some();
             self.fn_since = None;
+            self.brightness_at = None;
             self.enter = None;
         }
     }

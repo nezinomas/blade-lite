@@ -1,5 +1,5 @@
 //! Reads the power-mode key's reports and calls back on each press, and
-//! each time Fn comes up. With Num Lock on the keyboard sends only Fn, so
+//! while Fn is held or as it comes up. With Num Lock on the keyboard sends only Fn, so
 //! while Fn is held, Enter's state is read too.
 
 use std::io;
@@ -60,6 +60,10 @@ impl EnterKey for WindowsEnter {
 pub enum KeyEvent {
     /// The power-mode key was pressed: step the preset.
     PowerKey,
+    /// Fn is still held, and [`blade_core::BRIGHTNESS_READ_GAP`] has
+    /// passed: Fn + F10 or F11 may be changing the keyboard brightness, so
+    /// read it, to follow it live.
+    FnHeld,
     /// Fn came up: Fn + F10 or F11 may have changed the keyboard
     /// brightness, so read it.
     FnUp,
@@ -77,7 +81,8 @@ pub enum ReaderEnd {
 }
 
 /// Reads reports, and Enter while Fn is held, and calls `on_key` for
-/// each press and each time Fn comes up. `on_key` returns false once the
+/// each press, every [`blade_core::BRIGHTNESS_READ_GAP`] while Fn is held,
+/// and each time Fn comes up. `on_key` returns false once the
 /// app is quitting.
 pub fn step_on_presses(
     source: &mut impl KeyReportSource,
@@ -114,6 +119,9 @@ pub fn step_on_presses(
             return ReaderEnd::Quit;
         }
         if fn_up && !on_key(KeyEvent::FnUp) {
+            return ReaderEnd::Quit;
+        }
+        if presses.brightness_due(now) && !on_key(KeyEvent::FnHeld) {
             return ReaderEnd::Quit;
         }
     }

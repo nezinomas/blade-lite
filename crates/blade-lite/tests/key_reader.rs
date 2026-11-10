@@ -4,7 +4,7 @@ use std::collections::VecDeque;
 use std::io;
 use std::time::Duration;
 
-use blade_core::PowerKeyPresses;
+use blade_core::{BRIGHTNESS_READ_GAP, PowerKeyPresses};
 use blade_lite::{
     ENTER_READ_WAIT, EnterKey, KEY_IDLE_READS, KEY_READ_WAIT, KeyEvent, KeyReportSource, ReaderEnd,
     step_on_presses,
@@ -242,4 +242,54 @@ fn the_loop_ends_when_the_app_quits_on_fn_up() {
 
     assert_eq!(end, ReaderEnd::Quit);
     assert_eq!(source.0.len(), 1);
+}
+
+/// Fn down, then quiet reads that take their full wait, so time passes as
+/// on the laptop, then Fn up once Fn was held `release_after`, then a
+/// failed read.
+struct HeldFn {
+    reads: u32,
+    release_after: Duration,
+    fn_down: Option<std::time::Instant>,
+    released: bool,
+}
+
+impl KeyReportSource for HeldFn {
+    fn read(&mut self, wait: Duration) -> io::Result<Option<Vec<u8>>> {
+        self.reads += 1;
+        if self.reads == 1 {
+            return Ok(Some(report(&[0x04])));
+        }
+        let Some(fn_down) = self.fn_down else {
+            self.fn_down = Some(std::time::Instant::now());
+            return Ok(Some(report(&[0x04, 0x0A])));
+        };
+        if self.released {
+            return Err(io::Error::other("no more reads"));
+        }
+        if fn_down.elapsed() >= self.release_after {
+            self.released = true;
+            return Ok(Some(report(&[0x04])));
+        }
+        std::thread::sleep(wait);
+        Ok(None)
+    }
+}
+
+#[test]
+fn the_brightness_is_read_while_fn_is_held_then_once_more_on_fn_up() {
+    let mut source = HeldFn {
+        reads: 0,
+        release_after: BRIGHTNESS_READ_GAP * 2 + BRIGHTNESS_READ_GAP / 2,
+        fn_down: None,
+        released: false,
+    };
+    let mut events = Vec::new();
+
+    step_on_presses(&mut source, &mut FakeEnter::default(), presses(), |event| {
+        events.push(event);
+        true
+    });
+
+    assert_eq!(events, [KeyEvent::FnHeld, KeyEvent::FnHeld, KeyEvent::FnUp]);
 }
