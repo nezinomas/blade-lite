@@ -307,11 +307,12 @@ fn battery_drops_to_60_hz_and_ac_puts_the_rate_back() {
     hold_lock();
     let before = panel_rate();
     assert_ne!(before, RefreshRate(60), "set another rate first");
+    let saved = read_saved_rate().unwrap();
     let config = Config {
         sixty_hz_on_battery: true,
         ..Config::default()
     };
-    eprintln!("rate before: {before:?}");
+    eprintln!("rate before: {before:?}, saved: {saved:?}");
 
     let seen = rates_until_ac(&config);
     // Put the rate back even if a step failed.
@@ -324,7 +325,7 @@ fn battery_drops_to_60_hz_and_ac_puts_the_rate_back() {
     let (on_battery, after_ac) = seen.unwrap();
     assert_eq!(
         on_battery,
-        Some((RefreshRate(60), before)),
+        Some((RefreshRate(60), saved)),
         "no 60 Hz on battery, or it was saved"
     );
     assert_eq!(after_ac, Some(before), "the rate was not put back on AC");
