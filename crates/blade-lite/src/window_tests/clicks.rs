@@ -169,6 +169,69 @@ fn the_flyout_brightness_text_follows_the_slider_while_it_is_dragged() {
     drag_shows_the_percent(&f, f.shell.flyout(), "Keyboard light", "FlyoutWindow");
 }
 
+/// Drags the brightness slider `label` to its left end and lets it go
+/// while every send fails: nothing is sent, and the slider and its text
+/// go back to the brightness the laptop has.
+fn failed_send_shows_the_brightness_again<R: ElementRoot + ComponentHandle>(
+    f: &Fixture,
+    root: &R,
+    label: &str,
+    component: &str,
+) {
+    f.shell.app().machine_mut().controller.fails = true;
+    let slider = control(root, Slider, label);
+    let start = slider.absolute_position();
+    let left_end = LogicalPosition::new(start.x, start.y + slider.size().height / 2.0);
+
+    slider.mock_drag(left_end, PointerEventButton::Left);
+
+    assert_eq!(slider.accessible_value().unwrap(), "100");
+    assert_eq!(percent_shown(root, component), "100%");
+}
+
+#[test]
+fn the_window_brightness_goes_back_after_a_failed_send() {
+    let f = fixture(Config::default());
+    let before = sent_count(&f);
+    failed_send_shows_the_brightness_again(&f, f.shell.window(), "Brightness", "KeyboardGroup");
+    assert_eq!(sent_since(&f, before), []);
+}
+
+#[test]
+fn the_flyout_brightness_goes_back_after_a_failed_send() {
+    let f = fixture(Config::default());
+    let before = sent_count(&f);
+    failed_send_shows_the_brightness_again(&f, f.shell.flyout(), "Keyboard light", "FlyoutWindow");
+    assert_eq!(sent_since(&f, before), []);
+}
+
+#[test]
+fn a_drag_cut_short_gives_way_to_a_change_from_the_flyout() {
+    let f = fixture(Config::default());
+    let window = f.shell.window();
+    let slider = control(window, Slider, "Brightness");
+    let start = slider.absolute_position();
+    let middle = LogicalPosition::new(
+        start.x + slider.size().width / 2.0,
+        start.y + slider.size().height / 2.0,
+    );
+    // Pressed, but never let go: the window lost the mouse.
+    window.window().dispatch_event(WindowEvent::PointerPressed {
+        position: middle,
+        button: PointerEventButton::Left,
+    });
+    assert_eq!(percent_shown(window, "KeyboardGroup"), "50%");
+    let flyout = control(f.shell.flyout(), Slider, "Keyboard light");
+    let flyout_start = flyout.absolute_position();
+    let flyout_left_end =
+        LogicalPosition::new(flyout_start.x, flyout_start.y + flyout.size().height / 2.0);
+
+    flyout.mock_drag(flyout_left_end, PointerEventButton::Left);
+
+    assert_eq!(slider.accessible_value().unwrap(), "0");
+    assert_eq!(percent_shown(window, "KeyboardGroup"), "Off");
+}
+
 #[test]
 fn a_swatch_click_sends_and_saves_that_colour() {
     let f = fixture(Config::default());

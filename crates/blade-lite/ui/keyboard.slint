@@ -28,9 +28,11 @@ export component KeyboardGroup inherits VerticalLayout {
         custom-field.text = root.custom-hex;
     }
 
-    // The slider's value while it is moved, -1 when it is not. Only the
-    // text shows it; the brightness is sent when the slider is let go.
-    property <int> held: -1;
+    // The laptop's brightness changed (a send, the other window, a
+    // re-apply): the slider goes there, even after a drag broke its binding.
+    changed brightness => {
+        brightness-slider.value = root.brightness;
+    }
 
     // The same spacing as the window's own list, so nothing moves.
     spacing: 4px;
@@ -47,20 +49,23 @@ export component KeyboardGroup inherits VerticalLayout {
                     width: 110px;
                     vertical-alignment: center;
                 }
-                Slider {
+                brightness-slider := Slider {
                     accessible-label: "Brightness";
                     minimum: 0;
                     maximum: 100;
                     step: 5;
                     value: root.brightness;
-                    changed(value) => { root.held = round(value); }
+                    // Sent only when the slider is let go. Then the slider goes
+                    // back to what the laptop has, so a failed send does not
+                    // leave it at the new value.
                     released(value) => {
-                        root.held = -1;
                         root.move-brightness(round(value));
+                        self.value = root.brightness;
                     }
                 }
                 brightness-percent := Text {
-                    text: Show.brightness(root.held < 0 ? root.brightness : root.held);
+                    // Follows the slider, also while it is dragged.
+                    text: Show.brightness(round(brightness-slider.value));
                     width: 84px;
                     horizontal-alignment: right;
                     vertical-alignment: center;
