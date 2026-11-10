@@ -8,8 +8,6 @@ use crate::{Command, ModelProfile};
 const SET_BOOST: u16 = 0x0D07;
 /// Set a fan's target speed. Args are `[1, fan, rpm / 100]`.
 const SET_FAN: u16 = 0x0D01;
-/// The preset mode byte of Custom.
-const CUSTOM_MODE: u8 = 0x04;
 /// The fan byte: the fan follows the target set with [`SET_FAN`].
 const FAN_MANUAL: u8 = 0x01;
 const CPU_CLUSTER: u8 = 0x01;
@@ -20,6 +18,8 @@ const RPM_STEP: u16 = 100;
 /// What the model accepts in Custom.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct CustomLimits {
+    /// The preset mode byte of Custom.
+    pub mode: u8,
     /// The highest CPU boost level. The lowest is 0.
     pub cpu_max: u8,
     /// The highest GPU boost level. The lowest is 0.
@@ -159,7 +159,7 @@ impl Custom {
             .iter()
             .map(|&zone| Command {
                 id: SET_PRESET,
-                args: vec![VARIABLE_STORAGE, zone, CUSTOM_MODE, self.fan.byte()],
+                args: vec![VARIABLE_STORAGE, zone, model.custom.mode, self.fan.byte()],
             })
             .collect()
     }

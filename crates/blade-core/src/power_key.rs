@@ -38,7 +38,7 @@ pub fn next_preset(running: Preset, model: &ModelProfile, on_battery: bool) -> O
         .presets
         .iter()
         .map(|&mode| Preset::from(mode))
-        .filter(|preset| !on_battery || preset.offered_on_battery())
+        .filter(|preset| !on_battery || preset.offered_on_battery(model))
         .collect();
     let after = cycle
         .iter()

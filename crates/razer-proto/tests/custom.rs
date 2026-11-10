@@ -152,12 +152,12 @@ fn a_fan_speed_must_be_whole_hundreds() {
 fn the_custom_mode_byte_comes_from_the_model() {
     let mut model = BLADE_18;
     model.custom.mode = 0x09;
-    let modes: Vec<u8> = custom(1, 1, FanMode::Auto)
+    let sent: Vec<u8> = custom(1, 1, FanMode::Auto)
         .commands(&model)
         .iter()
         .filter(|command| command.id == 0x0D02)
         .map(|command| command.args[2])
         .collect();
 
-    assert_eq!(modes, [0x09; 4]);
+    assert_eq!(sent, [0x09; 4]);
 }
