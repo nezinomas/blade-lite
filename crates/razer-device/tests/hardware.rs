@@ -212,7 +212,8 @@ fn each_preset_is_set_and_read_back_and_the_old_one_restored() {
                 .unwrap();
             let zones: Vec<_> = preset_args(&mut device)
                 .iter()
-                .map(|args| PerfMode::from_reply(args))
+                .zip(razer_proto::BLADE_18.perf_zones)
+                .map(|(args, &zone)| PerfMode::from_reply(zone, args))
                 .collect();
             (preset, zones)
         })
@@ -310,9 +311,10 @@ fn both_fans_and_the_cpu_temperature_are_read() {
     let mut device = Device::new(open(), SystemClock);
     let fans: Vec<_> = FanRpm::queries(&BLADE_18)
         .iter()
-        .map(|query| {
+        .zip(BLADE_18.custom.fan_zones)
+        .map(|(query, &fan)| {
             let reply = device.send(query.id, &query.args).unwrap();
-            FanRpm::from_reply(reply.args()).unwrap()
+            FanRpm::from_reply(fan, reply.args()).unwrap()
         })
         .collect();
     let query = Celsius::query();

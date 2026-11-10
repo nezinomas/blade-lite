@@ -54,10 +54,12 @@ pub fn read_controller(controller: &mut impl Query, model: &ModelProfile) -> Con
     );
     let fans = FanRpm::queries(model)
         .iter()
+        .zip(model.custom.fan_zones)
         .enumerate()
-        .map(|(index, query)| {
+        .map(|(index, (query, &fan))| {
             let name = format!("fan {}", index + 1);
-            read_value(controller, query, FanRpm::from_reply, &name, &mut errors)
+            let parse = |args: &[u8]| FanRpm::from_reply(fan, args);
+            read_value(controller, query, parse, &name, &mut errors)
         })
         .collect();
     ControllerReadings { cpu, fans, errors }

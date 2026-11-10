@@ -123,6 +123,22 @@ fn a_reply_that_is_not_understood_is_an_error_too() {
 }
 
 #[test]
+fn a_reply_for_the_other_fan_is_not_read() {
+    let mut controller = FakeQuery::default()
+        .reply(fan_query(0), &[1, 2, 18])
+        .reply(fan_query(1), &[1, 2, 18]);
+
+    let readings = read_controller(&mut controller, &BLADE_18);
+
+    assert_eq!(readings.fans, [None, Some(FanRpm(1800))]);
+    assert!(
+        readings
+            .errors
+            .contains(&"fan 1: reply not understood".to_owned())
+    );
+}
+
+#[test]
 fn good_reads_have_no_errors() {
     let mut controller = FakeQuery::default()
         .reply(Celsius::query(), &[2, 52, 0, 0])

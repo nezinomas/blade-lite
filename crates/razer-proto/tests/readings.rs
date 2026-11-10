@@ -16,8 +16,13 @@ fn each_captured_fan_reply_parses_into_its_speed() {
 
     for reply in &replies {
         let args = &reply.bytes[8..11];
-        let speed = FanRpm::from_reply(args);
+        let speed = FanRpm::from_reply(args[1], args);
 
+        assert!(
+            BLADE_18.custom.fan_zones.contains(&args[1]),
+            "{}",
+            reply.fixture
+        );
         assert_eq!(
             speed,
             Some(FanRpm(u16::from(args[2]) * 100)),
@@ -31,8 +36,20 @@ fn each_captured_fan_reply_parses_into_its_speed() {
 #[test]
 fn the_idle_capture_reads_both_fans() {
     // 00-idle-dashboard: fan 1 replied 11, fan 2 replied 12.
-    assert_eq!(FanRpm::from_reply(&[0x01, 0x01, 0x11]), Some(FanRpm(1700)));
-    assert_eq!(FanRpm::from_reply(&[0x01, 0x02, 0x12]), Some(FanRpm(1800)));
+    assert_eq!(
+        FanRpm::from_reply(0x01, &[0x01, 0x01, 0x11]),
+        Some(FanRpm(1700))
+    );
+    assert_eq!(
+        FanRpm::from_reply(0x02, &[0x01, 0x02, 0x12]),
+        Some(FanRpm(1800))
+    );
+}
+
+#[test]
+fn a_reply_for_another_fan_or_storage_is_none() {
+    assert_eq!(FanRpm::from_reply(0x01, &[0x01, 0x02, 0x12]), None);
+    assert_eq!(FanRpm::from_reply(0x01, &[0x00, 0x01, 0x11]), None);
 }
 
 #[test]
@@ -59,7 +76,7 @@ fn the_fan_queries_match_the_captured_requests() {
 
 #[test]
 fn a_short_fan_reply_is_none() {
-    assert_eq!(FanRpm::from_reply(&[0x01, 0x01]), None);
+    assert_eq!(FanRpm::from_reply(0x01, &[0x01, 0x01]), None);
 }
 
 #[test]
