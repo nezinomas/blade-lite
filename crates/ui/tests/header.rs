@@ -23,6 +23,7 @@ fn state() -> HeaderState<'static> {
         model: &BLADE_18,
         preset: Preset::Balanced,
         on_battery: false,
+        weak_charge: false,
         readings: readings(),
         cpu_celsius: Some(Celsius(66)),
         fans: vec![Some(FanRpm(3100)), Some(FanRpm(3300))],
@@ -191,4 +192,27 @@ fn on_battery_shows_the_battery_pill_and_the_draw_in_watts() {
     assert_eq!(header.power, PowerPill::OnBattery);
     assert_eq!(header.power.label(), "On battery");
     assert_eq!(value(&header, "Power"), "32 W");
+}
+
+#[test]
+fn a_weak_charge_shows_its_pill_and_runs_performance_as_balanced() {
+    let mut weak = state();
+    weak.weak_charge = true;
+    weak.preset = Preset::Performance;
+    weak.readings.charging = Some(true);
+
+    let header = Header::new(&weak);
+
+    assert_eq!(header.power, PowerPill::WeakCharge);
+    assert_eq!(header.power.label(), "Plugged in \u{b7} Weak charger");
+    assert_eq!(header.preset, "Balanced");
+}
+
+#[test]
+fn on_battery_the_weak_charge_is_not_shown() {
+    let mut on_battery = state();
+    on_battery.on_battery = true;
+    on_battery.weak_charge = true;
+
+    assert_eq!(Header::new(&on_battery).power, PowerPill::OnBattery);
 }

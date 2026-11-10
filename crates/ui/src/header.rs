@@ -13,6 +13,9 @@ pub struct HeaderState<'a> {
     /// The saved preset. On battery it may run as another.
     pub preset: Preset,
     pub on_battery: bool,
+    /// On the charger, whether it gives too little power for every preset
+    /// (such as a USB-C monitor): then only the battery presets run.
+    pub weak_charge: bool,
     pub readings: Readings,
     /// `None` when the controller does not report it.
     pub cpu_celsius: Option<Celsius>,
@@ -29,6 +32,8 @@ pub enum PowerPill {
     NotCharging,
     /// On the charger, charging unknown.
     PluggedIn,
+    /// On a charger too weak for every preset, such as a USB-C monitor.
+    WeakCharge,
     OnBattery,
 }
 
@@ -40,6 +45,7 @@ impl PowerPill {
             Self::Charging => "Plugged in \u{b7} Charging",
             Self::NotCharging => "Plugged in \u{b7} Not charging",
             Self::PluggedIn => "Plugged in",
+            Self::WeakCharge => "Plugged in \u{b7} Weak charger",
             Self::OnBattery => "On battery",
         }
     }
@@ -68,7 +74,11 @@ impl Header {
     pub fn new(state: &HeaderState) -> Self {
         Self {
             title: state.model.name.to_owned(),
-            preset: preset_label(state.preset.running(state.on_battery, state.model)),
+            preset: preset_label(
+                state
+                    .preset
+                    .running(state.on_battery || state.weak_charge, state.model),
+            ),
             power: power_pill(state),
             stats: stats(state),
         }
@@ -78,6 +88,7 @@ impl Header {
 fn power_pill(state: &HeaderState) -> PowerPill {
     match (state.on_battery, state.readings.charging) {
         (true, _) => PowerPill::OnBattery,
+        (false, _) if state.weak_charge => PowerPill::WeakCharge,
         (false, Some(true)) => PowerPill::Charging,
         (false, Some(false)) => PowerPill::NotCharging,
         (false, None) => PowerPill::PluggedIn,
