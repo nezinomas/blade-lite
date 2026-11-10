@@ -127,7 +127,7 @@ static colour were not in this batch.
 | Keyboard brightness | Tested round trip | Works (their tests; read works here) |
 | Static keyboard colour | Tested red, green, blue | Works (their tests only) |
 | Lid logo on/off | Tested | Works (their tests and ours) |
-| Battery charge limit | On/off at 80% only | Partly. Cutoff at 80% not proven. No other limits seen |
+| Battery charge limit | On/off at 80% only | Works. Cutoff at 80% checked 2026-11-10 (`NOTES.md`). No other limits seen |
 | Red touchpad key | Per-key frame exists (`030B`) | Lead only. Key position and how Synapse does it are unknown |
 | Fan RPM reading | `0D88`, both zones, plus a third channel | Works (their tests and ours) |
 | CPU temperature | `0D85` field A | Lead. Accuracy not proven |

@@ -14,7 +14,7 @@ Checks only a person can do on the laptop wait in "Still to check on the laptop"
 
 ## Bug fixes
 - [ ] 37 Fans stay loud after Performance to Silent
-- [ ] 46 Charge limit: on AC with the battery above 80% and the limit on, check Windows says "not charging". If it still charges, try sending `070F` after the limit as Synapse does
+- [x] 46 Charge limit: on AC with the battery above 80% and the limit on, check Windows says "not charging". If it still charges, try sending `070F` after the limit as Synapse does. Checked 2026-11-10: limit on (set in the BIOS), on AC at 79.5%, Windows read not charging with no app running; the app's off made it charge at about 90 W, to 84%, and the app's on stopped it again. No `070F` needed (`docs/NOTES.md`)
 - [ ] 47 Physical touchpad key: it switches the touchpad in the laptop itself, and Windows is not told, so the red key does not follow it. The keyboard sends report `04 DD` on press and `04 00` on release (Synapse capture, steps 23 and 26). Find where the real touchpad state can be read, then read that report (not a keyboard hook) and repaint the key
 - [ ] 60 On a weak charge (no charger, but a monitor powers the laptop over USB-C, so it charges slowly), Synapse did not allow Performance, for lack of power. Do the same
 - [ ] 62 A send that fails part way (such as the zones sent, then a boost Busy) leaves the controller with part of the new state, but the app keeps the old one until the next resume sends it again. Decide whether to read back or say so in the error The lid logo is one such send: `set_logo` sends more than one packet, and on a failure part way the app keeps the old logo state (ticket 100 review).
