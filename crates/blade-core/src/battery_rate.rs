@@ -50,15 +50,20 @@ impl BatteryRate {
     }
 
     /// Puts back the rate that was active before battery, if there is one:
-    /// on AC, and when the app quits. Each saved rate is sent once.
+    /// on AC, and when the app quits. Nothing is sent if the panel no
+    /// longer runs at 60 Hz, as the rate was then changed outside the app.
+    /// Each saved rate is tried once, so a failed put-back is not retried.
     ///
     /// # Errors
     ///
     /// See [`DisplayError`].
     pub fn put_back(&mut self, api: &mut impl DisplayApi) -> Result<(), DisplayError> {
-        match self.saved.take() {
-            Some(rate) => set_refresh_rate(api, rate),
-            None => Ok(()),
+        let Some(rate) = self.saved.take() else {
+            return Ok(());
+        };
+        if current_rate(api)? != BATTERY_RATE {
+            return Ok(());
         }
+        set_refresh_rate(api, rate)
     }
 }

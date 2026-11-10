@@ -184,11 +184,30 @@ fn quitting_on_battery_puts_the_rate_back() {
 }
 
 #[test]
-fn quitting_on_ac_leaves_the_rate() {
+fn quitting_after_the_charger_is_back_leaves_the_rate_picked_since() {
     let (mut app, _dir, _) = app_with(Config {
         sixty_hz_on_battery: true,
         ..Config::default()
     });
+    app.on_power(PowerEvent::OnBattery).unwrap();
+    app.on_power(PowerEvent::OnAc).unwrap();
+    app.on_display(DisplayCommand::SetRefreshRate(RefreshRate(120)))
+        .unwrap();
+
+    app.on_quit().unwrap();
+
+    assert_eq!(panel_hz(&app), 120);
+}
+
+#[test]
+fn quitting_after_the_switch_is_turned_off_on_battery_leaves_the_rate() {
+    let (mut app, _dir, _) = app_with(Config {
+        sixty_hz_on_battery: true,
+        ..Config::default()
+    });
+    app.on_power(PowerEvent::OnBattery).unwrap();
+    app.on_display(DisplayCommand::SetSixtyHzOnBattery(false))
+        .unwrap();
     app.on_display(DisplayCommand::SetRefreshRate(RefreshRate(120)))
         .unwrap();
 

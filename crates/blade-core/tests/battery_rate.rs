@@ -2,7 +2,7 @@
 
 mod common;
 
-use blade_core::{BatteryRate, Config};
+use blade_core::{BatteryRate, Config, RefreshRate, set_refresh_rate};
 use common::{FakeDisplays, mode, panel};
 use platform::PowerEvent;
 
@@ -132,4 +132,23 @@ fn put_back_without_battery_first_changes_nothing() {
     BatteryRate::default().put_back(&mut api).unwrap();
 
     assert_eq!(api.set, []);
+}
+
+#[test]
+fn a_rate_changed_outside_the_app_on_battery_is_kept() {
+    let mut api = panel_at(240);
+    let mut battery_rate = BatteryRate::default();
+    battery_rate
+        .on_event(PowerEvent::OnBattery, &config(true), &mut api)
+        .unwrap();
+    // Such as in Windows Settings.
+    set_refresh_rate(&mut api, RefreshRate(120)).unwrap();
+
+    battery_rate.put_back(&mut api).unwrap();
+    battery_rate
+        .on_event(PowerEvent::OnAc, &config(true), &mut api)
+        .unwrap();
+
+    let rates: Vec<u32> = api.set.iter().map(|(_, mode)| mode.hz).collect();
+    assert_eq!(rates, [60, 120]);
 }
