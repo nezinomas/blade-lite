@@ -53,9 +53,11 @@ impl Sensors for WindowsSensors {
         if unsafe { GetSystemPowerStatus(&raw mut status) } == 0 {
             return Err(io::Error::last_os_error());
         }
+        let state = battery_state()?;
         Ok(PowerReading {
             battery_percent: battery_percent(status.BatteryLifePercent),
-            battery_rate_mw: battery_rate(&battery_state()?),
+            battery_rate_mw: battery_rate(&state),
+            charging: charging_flag(&state),
         })
     }
 
@@ -126,6 +128,13 @@ fn battery_rate(state: &SYSTEM_BATTERY_STATE) -> Option<i32> {
         return None;
     }
     Some(i32::from_ne_bytes(state.Rate.to_ne_bytes()))
+}
+
+/// Whether the battery charges now. On AC with the charge limit reached,
+/// Windows says it does not. `None` with no battery, or off AC (a reading
+/// on battery says nothing about charging on AC).
+fn charging_flag(state: &SYSTEM_BATTERY_STATE) -> Option<bool> {
+    (state.BatteryPresent && state.AcOnLine).then_some(state.Charging)
 }
 
 /// The device ID of the NVIDIA display adapter, if there is one.
@@ -252,6 +261,32 @@ mod tests {
 
         assert_eq!(battery_rate(&unknown), None);
         assert_eq!(battery_rate(&absent), None);
+    }
+
+    #[test]
+    fn the_charging_flag_needs_a_battery_and_ac() {
+        let on_ac = SYSTEM_BATTERY_STATE {
+            BatteryPresent: true,
+            AcOnLine: true,
+            ..Default::default()
+        };
+        let charging = SYSTEM_BATTERY_STATE {
+            Charging: true,
+            ..on_ac
+        };
+        let absent = SYSTEM_BATTERY_STATE {
+            BatteryPresent: false,
+            ..charging
+        };
+        let on_battery = SYSTEM_BATTERY_STATE {
+            AcOnLine: false,
+            ..on_ac
+        };
+
+        assert_eq!(charging_flag(&charging), Some(true));
+        assert_eq!(charging_flag(&on_ac), Some(false));
+        assert_eq!(charging_flag(&absent), None);
+        assert_eq!(charging_flag(&on_battery), None);
     }
 
     #[test]

@@ -792,3 +792,22 @@ fn a_failed_vapor_send_after_fn_shows_the_error_and_the_new_level() {
     assert!(error.contains("busy"), "{error}");
     assert_eq!(percent_shown(f.shell.window(), "KeyboardGroup"), "100%");
 }
+
+#[test]
+fn plugging_in_does_not_show_the_old_charging_flag() {
+    let f = fixture(Config::default());
+    FAKE_ON_BATTERY.set(true);
+    f.shell.act(|app| app.on_power(PowerEvent::OnBattery));
+    f.shell.set_readings(blade_core::Readings {
+        charging: Some(false),
+        ..Default::default()
+    });
+    let (sender, receiver) = std::sync::mpsc::channel();
+    FAKE_ON_BATTERY.set(false);
+    sender.send(PowerEvent::OnAc).unwrap();
+
+    f.shell.follow_power(&receiver);
+
+    assert_eq!(f.shell.window().get_power(), "Plugged in");
+    assert_eq!(f.shell.flyout().get_power(), "Plugged in");
+}

@@ -10,6 +10,7 @@ fn readings() -> Readings {
         cpu_load_percent: Some(18),
         battery_percent: Some(84),
         power_draw_mw: None,
+        charging: None,
         gpu: Some(GpuReading {
             celsius: 58,
             load_percent: 9,
@@ -149,6 +150,34 @@ fn plugged_in_shows_the_plugged_in_pill() {
 
     assert_eq!(header.power, PowerPill::PluggedIn);
     assert_eq!(header.power.label(), "Plugged in");
+}
+
+/// The header plugged in, with the battery's charging flag.
+fn plugged_in(charging: Option<bool>) -> Header {
+    let mut plugged_in = state();
+    plugged_in.readings.charging = charging;
+    Header::new(&plugged_in)
+}
+
+#[test]
+fn plugged_in_says_whether_the_battery_charges() {
+    assert_eq!(plugged_in(Some(true)).power, PowerPill::Charging);
+    assert_eq!(PowerPill::Charging.label(), "Plugged in \u{b7} Charging");
+    assert_eq!(plugged_in(Some(false)).power, PowerPill::NotCharging);
+    assert_eq!(
+        PowerPill::NotCharging.label(),
+        "Plugged in \u{b7} Not charging"
+    );
+    assert_eq!(plugged_in(None).power, PowerPill::PluggedIn);
+}
+
+#[test]
+fn on_battery_the_charging_flag_is_not_shown() {
+    let mut on_battery = state();
+    on_battery.on_battery = true;
+    on_battery.readings.charging = Some(true);
+
+    assert_eq!(Header::new(&on_battery).power, PowerPill::OnBattery);
 }
 
 #[test]

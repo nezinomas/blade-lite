@@ -211,6 +211,8 @@ pub struct PowerReading {
     /// Milliwatts into the battery: below zero while it drains. `None` if
     /// Windows does not know it.
     pub battery_rate_mw: Option<i32>,
+    /// Whether the battery charges now. `None` with no battery, or off AC.
+    pub charging: Option<bool>,
 }
 
 /// What the NVIDIA GPU reports.

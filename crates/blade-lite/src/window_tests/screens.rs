@@ -16,6 +16,7 @@ use blade_core::{Config, Preset};
 use i_slint_backend_testing::AccessibleRole::Button;
 use platform::PowerEvent;
 use slint::{ComponentHandle, Rgba8Pixel, SharedPixelBuffer};
+use ui::PowerPill;
 
 use super::{click, fixture};
 
@@ -67,6 +68,17 @@ fn window_with_the_razer_warning() {
 fn flyout() {
     let f = fixture(Config::default());
     check("flyout", f.shell.flyout().window());
+}
+
+/// The longest power pill text fits in the window and the flyout.
+#[test]
+fn not_charging() {
+    let f = fixture(Config::default());
+    let label = slint::SharedString::from(PowerPill::NotCharging.label());
+    f.shell.window().set_power(label.clone());
+    f.shell.flyout().set_power(label);
+    check("window-not-charging", f.shell.window().window());
+    check("flyout-not-charging", f.shell.flyout().window());
 }
 
 #[test]

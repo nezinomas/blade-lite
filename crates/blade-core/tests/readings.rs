@@ -25,6 +25,7 @@ impl FakeSensors {
             power: Some(PowerReading {
                 battery_percent: Some(80),
                 battery_rate_mw: Some(-45_000),
+                charging: Some(false),
             }),
             gpu_awake: true,
             gpu_awake_fails: false,
@@ -86,6 +87,7 @@ fn the_sensors_make_a_snapshot() {
             cpu_load_percent: Some(75),
             battery_percent: Some(80),
             power_draw_mw: Some(45_000),
+            charging: Some(false),
             gpu: Some(GpuReading {
                 celsius: 61,
                 load_percent: 37,
@@ -122,11 +124,15 @@ fn charging_has_no_power_draw() {
         power: Some(PowerReading {
             battery_percent: Some(80),
             battery_rate_mw: Some(20_000),
+            charging: Some(true),
         }),
         ..FakeSensors::new()
     };
 
-    assert_eq!(second_snapshot(&mut sensors).power_draw_mw, None);
+    let readings = second_snapshot(&mut sensors);
+
+    assert_eq!(readings.power_draw_mw, None);
+    assert_eq!(readings.charging, Some(true));
 }
 
 #[test]
