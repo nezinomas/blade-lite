@@ -137,10 +137,8 @@ fn hid_info(device: &DeviceInfo) -> HidInfo {
 
 impl Transport for HidTransport {
     fn send_report(&mut self, report: &[u8; REPORT_LEN]) -> io::Result<()> {
-        let mut buffer = [REPORT_ID; REPORT_LEN + 1];
-        buffer[1..].copy_from_slice(report);
         self.device
-            .send_feature_report(&buffer)
+            .send_feature_report(&feature_buffer(report))
             .map_err(io::Error::other)
     }
 
@@ -152,6 +150,13 @@ impl Transport for HidTransport {
             .map_err(io::Error::other)?;
         feature_report(&buffer, read)
     }
+}
+
+/// What a feature send writes: the report ID, then the report.
+fn feature_buffer(report: &[u8; REPORT_LEN]) -> [u8; REPORT_LEN + 1] {
+    let mut buffer = [REPORT_ID; REPORT_LEN + 1];
+    buffer[1..].copy_from_slice(report);
+    buffer
 }
 
 /// The report from a feature read of `read` bytes into `buffer`, without
@@ -185,6 +190,13 @@ mod tests {
             feature_report(&read_buffer(), REPORT_LEN + 1).unwrap(),
             [0xAB; REPORT_LEN]
         );
+    }
+
+    #[test]
+    fn a_report_is_sent_after_its_id() {
+        let buffer = feature_buffer(&[0xAB; REPORT_LEN]);
+        assert_eq!(buffer[0], REPORT_ID);
+        assert_eq!(buffer[1..], [0xAB; REPORT_LEN]);
     }
 
     #[test]

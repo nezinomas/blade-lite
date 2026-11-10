@@ -278,3 +278,27 @@ fn random_id() -> u8 {
     let random = RandomState::new().build_hasher().finish();
     random.to_le_bytes()[0] % TRANSACTION_IDS
 }
+
+#[cfg(test)]
+mod tests {
+    use std::time::Instant;
+
+    use super::*;
+
+    #[test]
+    fn the_system_clock_really_waits() {
+        // A read right after a send fails on the laptop (`cargo hw`).
+        let start = Instant::now();
+        SystemClock.sleep(Duration::from_millis(20));
+        assert!(start.elapsed() >= Duration::from_millis(20));
+    }
+
+    #[test]
+    fn random_ids_spread_over_all_transaction_ids() {
+        // A wide spread makes a stale reply from an earlier run less likely
+        // to match. 200 draws all below 8 has odds of about 4^-200.
+        let ids: Vec<u8> = (0..200).map(|_| random_id()).collect();
+        assert!(ids.iter().all(|&id| id < TRANSACTION_IDS));
+        assert!(ids.iter().any(|&id| id >= 8));
+    }
+}
