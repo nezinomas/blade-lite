@@ -4,7 +4,7 @@ The window tests (`crates/blade-lite/src/window_tests`, ticket 70) draw the wind
 
 A change to how windows are made or shown can break all of them (the flyout header showed min, max and close buttons after ticket 48, fixed in ticket 58). After such a change, do every section here, the popup too.
 
-Start it:
+Quit any running Blade Lite (tray, Quit). Then start it from `D:\rust\synapse`:
 
 ```
 cargo app
