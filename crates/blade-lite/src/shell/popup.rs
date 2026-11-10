@@ -1,12 +1,14 @@
-//! The popup above the taskbar clock: a new power mode, or the touchpad on or off.
+//! The popup above the taskbar clock: a new power mode, the touchpad on or
+//! off, or a CPU or GPU that stays hot.
 
 use std::rc::Rc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use blade_lite::{Rect, popup_position, report};
 use platform::work_area;
 use slint::winit_030::{WinitWindowAccessor, winit};
 use slint::{ComponentHandle, PhysicalPosition, Timer};
+use ui::Sensor;
 use winit::platform::windows::WindowExtWindows;
 
 use super::{Parts, Shell};
@@ -20,8 +22,21 @@ const POPUP_FADE: Duration = Duration::from_millis(300);
 /// The popup's captions.
 pub(super) const POWER_MODE: &str = "Power mode";
 pub(super) const TOUCHPAD: &str = "Touchpad";
+pub(super) const TOO_HOT: &str = "Too hot";
 
 impl<P: Parts> Shell<P> {
+    /// Notes the CPU and GPU temperatures read at `now`, `None` for one not
+    /// read, and shows the popup when one has stayed hot. Nothing is sent.
+    pub fn watch_heat(self: &Rc<Self>, cpu: Option<u32>, gpu: Option<u32>, now: Instant) {
+        let mut watch = self.heat_watch.get();
+        let warnings = [(Sensor::Cpu, cpu), (Sensor::Gpu, gpu)]
+            .map(|(sensor, celsius)| watch.note(sensor, celsius, now));
+        self.heat_watch.set(watch);
+        for warning in warnings.iter().flatten() {
+            self.pop_up(TOO_HOT, warning);
+        }
+    }
+
     /// Shows the popup with `caption` over `mode` above the taskbar clock,
     /// without taking the focus, then fades it out. A new one starts the
     /// time again.

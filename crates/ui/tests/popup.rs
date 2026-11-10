@@ -69,6 +69,9 @@ mod heat {
     use ui::{HEAT_HOLD, HEAT_LIMIT, HeatWatch, Sensor};
 
     const SECOND: Duration = Duration::from_secs(1);
+    const NO_WARNINGS: [String; 0] = [];
+    /// One reading short of the hold.
+    const JUST_UNDER: Duration = HEAT_HOLD.saturating_sub(SECOND);
 
     /// Feeds `celsius` once a second for `duration`, and returns each warning.
     fn run(
@@ -96,9 +99,9 @@ mod heat {
     fn a_short_peak_shows_nothing() {
         let (mut watch, mut clock) = (HeatWatch::default(), Instant::now());
 
-        let warnings = run(&mut watch, &mut clock, Some(99), HEAT_HOLD - SECOND);
+        let warnings = run(&mut watch, &mut clock, Some(99), JUST_UNDER);
 
-        assert!(warnings.is_empty());
+        assert_eq!(warnings, NO_WARNINGS);
     }
 
     #[test]
@@ -114,11 +117,11 @@ mod heat {
     fn a_dip_below_the_limit_starts_the_hold_again() {
         let (mut watch, mut clock) = (HeatWatch::default(), Instant::now());
 
-        let mut warnings = run(&mut watch, &mut clock, Some(96), HEAT_HOLD - SECOND);
+        let mut warnings = run(&mut watch, &mut clock, Some(96), JUST_UNDER);
         warnings.extend(run(&mut watch, &mut clock, Some(94), SECOND));
-        warnings.extend(run(&mut watch, &mut clock, Some(96), HEAT_HOLD - SECOND));
+        warnings.extend(run(&mut watch, &mut clock, Some(96), JUST_UNDER));
 
-        assert!(warnings.is_empty());
+        assert_eq!(warnings, NO_WARNINGS);
     }
 
     #[test]
@@ -128,7 +131,7 @@ mod heat {
         run(&mut watch, &mut clock, Some(96), HEAT_HOLD * 2);
         let mut warnings = run(&mut watch, &mut clock, Some(91), SECOND);
         warnings.extend(run(&mut watch, &mut clock, Some(96), HEAT_HOLD * 2));
-        assert!(warnings.is_empty(), "91 °C does not end the spell");
+        assert_eq!(warnings, NO_WARNINGS, "91 °C does not end the spell");
 
         run(&mut watch, &mut clock, Some(89), SECOND);
         let warnings = run(&mut watch, &mut clock, Some(97), HEAT_HOLD * 2);
@@ -139,11 +142,11 @@ mod heat {
     fn a_reading_that_cant_be_read_starts_the_hold_again() {
         let (mut watch, mut clock) = (HeatWatch::default(), Instant::now());
 
-        let mut warnings = run(&mut watch, &mut clock, Some(96), HEAT_HOLD - SECOND);
+        let mut warnings = run(&mut watch, &mut clock, Some(96), JUST_UNDER);
         warnings.extend(run(&mut watch, &mut clock, None, SECOND));
-        warnings.extend(run(&mut watch, &mut clock, Some(96), HEAT_HOLD - SECOND));
+        warnings.extend(run(&mut watch, &mut clock, Some(96), JUST_UNDER));
 
-        assert!(warnings.is_empty());
+        assert_eq!(warnings, NO_WARNINGS);
     }
 
     #[test]
@@ -162,7 +165,7 @@ mod heat {
 
         let warnings = run(&mut watch, &mut clock, Some(200), HEAT_HOLD * 2);
 
-        assert!(warnings.is_empty());
+        assert_eq!(warnings, NO_WARNINGS);
     }
 
     #[test]

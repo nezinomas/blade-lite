@@ -26,3 +26,25 @@ fn the_header_keeps_the_controller_read_errors() {
         app.read_errors()
     );
 }
+
+#[test]
+fn the_header_keeps_the_cpu_temperature_for_the_heat_warning() {
+    let (mut app, _dir, _) = app();
+    app.machine_mut().controller.cpu_celsius = Some(96);
+
+    app.header(Readings::default());
+
+    assert_eq!(app.cpu_celsius(), Some(96));
+}
+
+#[test]
+fn a_cpu_temperature_that_cant_be_read_is_none() {
+    let (mut app, _dir, _) = app();
+    app.machine_mut().controller.cpu_celsius = Some(96);
+    app.header(Readings::default());
+    app.machine_mut().controller.cpu_celsius = None;
+
+    app.header(Readings::default());
+
+    assert_eq!(app.cpu_celsius(), None);
+}

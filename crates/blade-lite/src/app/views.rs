@@ -25,6 +25,7 @@ where
     pub fn header(&mut self, readings: Readings) -> Header {
         let controller = read_controller(&mut self.machine.controller, self.model);
         self.read_errors = controller.errors;
+        self.cpu_celsius = controller.cpu.map(|celsius| u32::from(celsius.0));
         Header::new(&HeaderState {
             model: self.model,
             preset: self.config.preset,
@@ -40,6 +41,13 @@ where
     #[must_use]
     pub fn read_errors(&self) -> &[String] {
         &self.read_errors
+    }
+
+    /// The CPU temperature in °C read when the header was last made, or
+    /// `None` if it could not be read.
+    #[must_use]
+    pub fn cpu_celsius(&self) -> Option<u32> {
+        self.cpu_celsius
     }
 
     #[must_use]

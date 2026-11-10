@@ -138,9 +138,9 @@ impl<P: Parts> Shell<P> {
     }
 
     /// Reads the sensors, then shows the header and the keyboard group,
-    /// since the touchpad key can change it at any time. The reads that
-    /// failed are logged once in a while.
-    fn tick_readings(&self) {
+    /// since the touchpad key can change it at any time, and watches the
+    /// temperatures. The reads that failed are logged once in a while.
+    fn tick_readings(self: &Rc<Self>) {
         let (readings, mut errors) = {
             let (sampler, sensors) = &mut *self.sampler.borrow_mut();
             (sampler.sample(sensors), sampler.errors().to_vec())
@@ -154,6 +154,10 @@ impl<P: Parts> Shell<P> {
         if let Ok(view) = app.keyboard_view() {
             bind::keyboard(&self.window, &view);
         }
+        let cpu = app.cpu_celsius();
+        drop(app);
+        let gpu = readings.gpu.map(|gpu| gpu.celsius);
+        self.watch_heat(cpu, gpu, Instant::now());
     }
 
     /// Logs the failed reads not logged in the quiet time.

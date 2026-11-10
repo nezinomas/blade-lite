@@ -1,6 +1,8 @@
 //! Scripted clicks in the window and the flyout: what is sent, saved and
 //! shown after each one.
 
+use std::time::{Duration, Instant};
+
 use blade_core::{Config, Preset};
 use blade_lite::Rect;
 use i_slint_backend_testing::AccessibleRole::{Button, Slider, Switch, TextInput};
@@ -859,6 +861,39 @@ fn a_touchpad_change_with_a_wake_not_yet_followed_shows_the_popup_and_sends_noth
     assert_eq!(sent_since(&f, before), []);
     assert_eq!(f.shell.popup().get_caption(), "Touchpad");
     assert_eq!(f.shell.popup().get_mode(), "Off");
+}
+
+#[test]
+fn a_hot_spell_shows_the_heat_popup_once() {
+    let f = fixture(Config::default());
+    let start = Instant::now();
+
+    for second in 0..=ui::HEAT_HOLD.as_secs() * 2 {
+        f.shell
+            .watch_heat(Some(96), None, start + Duration::from_secs(second));
+        if second == ui::HEAT_HOLD.as_secs() {
+            assert_eq!(f.shell.popup().get_caption(), "Too hot");
+            assert_eq!(f.shell.popup().get_mode(), "CPU 96 °C");
+            f.shell.popup().set_mode("".into());
+        }
+    }
+
+    assert_eq!(f.shell.popup().get_mode(), "", "once per spell");
+}
+
+#[test]
+fn a_short_peak_shows_no_heat_popup_and_sends_nothing() {
+    let f = fixture(Config::default());
+    let start = Instant::now();
+    let before = sent_count(&f);
+
+    for second in 0..ui::HEAT_HOLD.as_secs() {
+        f.shell
+            .watch_heat(None, Some(99), start + Duration::from_secs(second));
+    }
+
+    assert_eq!(f.shell.popup().get_mode(), "");
+    assert_eq!(sent_since(&f, before), []);
 }
 
 #[test]
