@@ -3,14 +3,17 @@
 use std::cell::Cell;
 use std::io;
 
-use blade_core::{Readings, ReadingsSampler};
-use platform::{CpuTimes, GpuReading, PowerReading, Sensors};
+use blade_core::{HEALTH_EVERY, Readings, ReadingsSampler};
+use platform::{BatteryHealth, CpuTimes, GpuReading, PowerReading, Sensors};
 
 /// Sensor values to hand out. `None` means that read fails.
 struct FakeSensors {
     /// Handed out in turn, one per read.
     cpu: Vec<Option<CpuTimes>>,
     power: Option<PowerReading>,
+    health: Option<BatteryHealth>,
+    /// How many times the battery health was read.
+    health_reads: Cell<usize>,
     gpu_awake: bool,
     gpu_awake_fails: bool,
     gpu: Option<GpuReading>,
@@ -27,6 +30,8 @@ impl FakeSensors {
                 battery_rate_mw: Some(-45_000),
                 charging: Some(false),
             }),
+            health: Some(HEALTH),
+            health_reads: Cell::new(0),
             gpu_awake: true,
             gpu_awake_fails: false,
             gpu: Some(GpuReading {
@@ -51,6 +56,11 @@ impl Sensors for FakeSensors {
         failed(self.power)
     }
 
+    fn battery_health(&mut self) -> io::Result<BatteryHealth> {
+        self.health_reads.set(self.health_reads.get() + 1);
+        failed(self.health)
+    }
+
     fn gpu_awake(&mut self) -> io::Result<bool> {
         if self.gpu_awake_fails {
             return Err(io::ErrorKind::Other.into());
@@ -63,6 +73,11 @@ impl Sensors for FakeSensors {
         failed(self.gpu)
     }
 }
+
+const HEALTH: BatteryHealth = BatteryHealth {
+    percent: Some(99),
+    cycles: Some(86),
+};
 
 const fn times(idle: u64, total: u64) -> CpuTimes {
     CpuTimes { idle, total }
@@ -88,6 +103,7 @@ fn the_sensors_make_a_snapshot() {
             battery_percent: Some(80),
             power_draw_mw: Some(45_000),
             charging: Some(false),
+            battery_health: HEALTH,
             gpu: Some(GpuReading {
                 celsius: 61,
                 load_percent: 37,
@@ -140,6 +156,7 @@ fn failed_reads_leave_their_values_empty() {
     let mut sensors = FakeSensors {
         cpu: vec![Some(times(0, 0)), None],
         power: None,
+        health: None,
         gpu: None,
         ..FakeSensors::new()
     };
@@ -152,19 +169,70 @@ fn each_failed_read_is_named_in_the_errors() {
     let mut sensors = FakeSensors {
         cpu: vec![Some(times(0, 0)), None],
         power: None,
+        health: None,
         gpu: None,
         ..FakeSensors::new()
     };
     let mut sampler = ReadingsSampler::default();
-    sampler.sample(&mut sensors);
 
     sampler.sample(&mut sensors);
+    let errors = sampler.errors();
+    assert_eq!(errors.len(), 3, "{errors:?}");
+    assert!(errors[0].starts_with("battery: "));
+    assert!(errors[1].starts_with("battery health: "));
+    assert!(errors[2].starts_with("GPU: "));
 
+    sampler.sample(&mut sensors);
     let errors = sampler.errors();
     assert_eq!(errors.len(), 3, "{errors:?}");
     assert!(errors[0].starts_with("battery: "));
     assert!(errors[1].starts_with("CPU load: "));
     assert!(errors[2].starts_with("GPU: "));
+}
+
+#[test]
+fn the_battery_health_is_read_once_per_health_every_snapshots() {
+    let mut sensors = FakeSensors::new();
+    sensors.cpu = vec![None; 2 * HEALTH_EVERY + 1];
+    let mut sampler = ReadingsSampler::default();
+
+    let first = sampler.sample(&mut sensors);
+    sensors.health = Some(BatteryHealth {
+        percent: Some(98),
+        cycles: Some(87),
+    });
+    for _ in 1..HEALTH_EVERY {
+        assert_eq!(sampler.sample(&mut sensors).battery_health, HEALTH);
+    }
+    let next = sampler.sample(&mut sensors);
+
+    assert_eq!(first.battery_health, HEALTH);
+    assert_eq!(next.battery_health.cycles, Some(87));
+    assert_eq!(sensors.health_reads.get(), 2);
+}
+
+#[test]
+fn a_failed_health_read_keeps_the_last_health() {
+    let mut sensors = FakeSensors::new();
+    sensors.cpu = vec![None; HEALTH_EVERY + 1];
+    let mut sampler = ReadingsSampler::default();
+    sampler.sample(&mut sensors);
+    sensors.health = None;
+    for _ in 1..HEALTH_EVERY {
+        sampler.sample(&mut sensors);
+    }
+
+    let readings = sampler.sample(&mut sensors);
+
+    assert_eq!(readings.battery_health, HEALTH);
+    assert!(
+        sampler
+            .errors()
+            .iter()
+            .any(|e| e.starts_with("battery health: ")),
+        "{:?}",
+        sampler.errors()
+    );
 }
 
 #[test]
@@ -211,6 +279,7 @@ fn the_gpu_temperature_alone_is_read_when_it_is_awake() {
     let mut sensors = FakeSensors::new();
     sensors.cpu.clear();
     sensors.power = None;
+    sensors.health = None;
     let mut sampler = ReadingsSampler::default();
 
     assert_eq!(sampler.gpu_celsius(&mut sensors), Some(61));

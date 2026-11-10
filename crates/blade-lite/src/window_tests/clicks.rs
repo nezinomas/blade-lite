@@ -796,6 +796,26 @@ fn a_failed_vapor_send_after_fn_shows_the_error_and_the_new_level() {
 }
 
 #[test]
+fn the_header_shows_the_battery_health() {
+    let f = fixture(Config::default());
+    assert_eq!(f.shell.window().get_health(), "", "nothing known yet");
+    f.shell.set_readings(blade_core::Readings {
+        battery_health: platform::BatteryHealth {
+            percent: Some(99),
+            cycles: Some(86),
+        },
+        ..Default::default()
+    });
+
+    f.shell.refresh(None);
+
+    assert_eq!(
+        f.shell.window().get_health(),
+        "Battery health 99% \u{b7} 86 cycles"
+    );
+}
+
+#[test]
 fn plugging_in_does_not_show_the_old_charging_flag() {
     let f = fixture(Config::default());
     FAKE_ON_BATTERY.set(true);

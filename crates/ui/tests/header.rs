@@ -1,7 +1,7 @@
 //! The header card's view model.
 
 use blade_core::{Preset, Readings};
-use platform::GpuReading;
+use platform::{BatteryHealth, GpuReading};
 use razer_proto::{BLADE_18, Celsius, FanRpm};
 use ui::{Header, HeaderState, PowerPill, Stat};
 
@@ -11,11 +11,16 @@ fn readings() -> Readings {
         battery_percent: Some(84),
         power_draw_mw: None,
         charging: None,
+        battery_health: health(Some(99), Some(86)),
         gpu: Some(GpuReading {
             celsius: 58,
             load_percent: 9,
         }),
     }
+}
+
+fn health(percent: Option<u32>, cycles: Option<u32>) -> BatteryHealth {
+    BatteryHealth { percent, cycles }
 }
 
 fn state() -> HeaderState<'static> {
@@ -215,4 +220,28 @@ fn on_battery_the_weak_charge_is_not_shown() {
     on_battery.weak_charge = true;
 
     assert_eq!(Header::new(&on_battery).power, PowerPill::OnBattery);
+}
+
+#[test]
+fn the_battery_health_shows_its_percent_and_cycles() {
+    let health_line = |percent, cycles| {
+        let mut state = state();
+        state.readings.battery_health = health(percent, cycles);
+        Header::new(&state).health
+    };
+
+    assert_eq!(
+        health_line(Some(99), Some(86)),
+        "Battery health 99% \u{b7} 86 cycles"
+    );
+    assert_eq!(
+        health_line(Some(99), Some(1)),
+        "Battery health 99% \u{b7} 1 cycle"
+    );
+    assert_eq!(health_line(Some(99), None), "Battery health 99%");
+    assert_eq!(
+        health_line(None, Some(86)),
+        "Battery health \u{2014} \u{b7} 86 cycles"
+    );
+    assert_eq!(health_line(None, None), "", "nothing known shows no line");
 }
