@@ -23,7 +23,7 @@ pub use display::WindowsDisplays;
 pub use instance::{WakeListener, WindowsInstance};
 pub use keys::{WindowsKeys, enter_down, num_lock_on};
 pub use popup::work_area;
-pub use power::WindowsPowerEvents;
+pub use power::{WindowsPowerEvents, on_battery};
 pub use programs::WindowsPrograms;
 pub use registry::WindowsRegistry;
 pub use sensors::WindowsSensors;

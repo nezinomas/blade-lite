@@ -36,7 +36,10 @@ where
             PerformanceCommand::SetChargeLimit(on) => return self.set_charge_limit(on),
         }
         let running = self.running(config);
-        apply_performance(&running, self.model, &mut self.machine.controller)?;
+        let applied = apply_performance(&running, self.model, &mut self.machine.controller);
+        // A failed send may have changed part of it.
+        self.preset_unsure = applied.is_err();
+        applied?;
         self.keep_sent(config)
     }
 

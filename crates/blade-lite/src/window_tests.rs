@@ -37,6 +37,16 @@ impl Parts for Fakes {
     type Registry = FakeRegistry;
     type Keys = FakeKeys;
     type Programs = FakePrograms;
+
+    fn on_battery() -> bool {
+        FAKE_ON_BATTERY.get()
+    }
+}
+
+thread_local! {
+    /// The power source the fakes report: AC unless a test sets it. Each
+    /// test runs on its own thread.
+    pub static FAKE_ON_BATTERY: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
 }
 
 /// What runs: nothing at first. `None` fails the read.
@@ -93,6 +103,7 @@ pub fn fixture(config: Config) -> Fixture {
     })))
     .expect("the first Slint call on this thread");
     log_path();
+    FAKE_ON_BATTERY.set(false);
     let (mut app, dir, _) = app_on(&BLADE_18, config);
     let controller = &mut app.machine_mut().controller;
     controller.logo_reply = Some(vec![0, 4, 1]);

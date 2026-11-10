@@ -1,14 +1,23 @@
 //! Presets on battery, and the charge limit.
 
-use blade_core::Preset;
+use blade_core::{Config, CustomSettings, Preset};
 use platform::PowerEvent;
 use razer_proto::{BLADE_18, PerfMode};
 use ui::PerformanceCommand;
 
 use crate::{
-    LIMIT_OFF, LIMIT_ON, SET_CHARGE_LIMIT, app, charge_limit, charge_limit_on, performance_app,
-    sent,
+    LIMIT_OFF, LIMIT_ON, SET_CHARGE_LIMIT, app, app_with, charge_limit, charge_limit_on, panel_hz,
+    performance_app, sent,
 };
+
+/// Sets a fan's target speed.
+const SET_FAN: u16 = 0x0D01;
+/// Sets a CPU or GPU boost.
+const SET_BOOST: u16 = 0x0D07;
+/// Sets the preset of one zone.
+const SET_PRESET: u16 = 0x0D02;
+/// The Custom mode byte in a preset set.
+const CUSTOM_MODE: u8 = 0x04;
 
 #[test]
 fn on_battery_performance_runs_as_balanced_and_comes_back_on_ac() {
@@ -154,4 +163,135 @@ fn the_running_preset_is_the_one_the_power_source_lets_run() {
     app.on_power(PowerEvent::OnBattery).unwrap();
 
     assert_eq!(app.running_preset(), Preset::Balanced);
+}
+
+#[test]
+fn a_start_on_battery_sends_balanced_for_a_saved_custom_fan() {
+    let (mut app, _dir, _) = app_with(Config {
+        preset: Preset::Custom,
+        custom: CustomSettings {
+            fan_rpm: Some(1600),
+            ..CustomSettings::default()
+        },
+        ..Config::default()
+    });
+    app.take_on_battery(true);
+
+    app.start().unwrap();
+
+    let balanced = PerfMode::Balanced.commands(&BLADE_18).unwrap();
+    assert!(
+        sent(&app)
+            .windows(balanced.len())
+            .any(|run| run == balanced)
+    );
+    assert!(sent(&app).iter().all(|command| {
+        command.id != SET_FAN
+            && command.id != SET_BOOST
+            && !(command.id == SET_PRESET
+                && (command.args.get(2) == Some(&CUSTOM_MODE) || command.args.get(3) != Some(&0)))
+    }));
+    assert_eq!(app.config().preset, Preset::Custom);
+}
+
+#[test]
+fn the_power_event_after_a_start_on_battery_sends_nothing() {
+    let (mut app, _dir, _) = performance_app();
+    app.take_on_battery(true);
+    app.start().unwrap();
+    app.machine_mut().controller.sent.clear();
+
+    app.on_power(PowerEvent::OnBattery).unwrap();
+
+    assert_eq!(sent(&app), []);
+}
+
+#[test]
+fn an_ac_event_after_a_start_taken_as_battery_sends_the_saved_preset_once() {
+    let (mut app, _dir, _) = performance_app();
+    app.take_on_battery(true);
+    app.start().unwrap();
+    app.machine_mut().controller.sent.clear();
+
+    app.on_power(PowerEvent::OnAc).unwrap();
+
+    assert_eq!(
+        sent(&app),
+        PerfMode::Performance.commands(&BLADE_18).unwrap()
+    );
+    assert_eq!(app.config().preset, Preset::Performance);
+}
+
+#[test]
+fn a_resume_taken_as_battery_sends_balanced_for_a_saved_performance() {
+    let (mut app, _dir, _) = performance_app();
+    app.take_on_battery(true);
+
+    app.on_power(PowerEvent::Resumed).unwrap();
+
+    let balanced = PerfMode::Balanced.commands(&BLADE_18).unwrap();
+    assert!(
+        sent(&app)
+            .windows(balanced.len())
+            .any(|run| run == balanced)
+    );
+    let performance = PerfMode::Performance.commands(&BLADE_18).unwrap();
+    assert!(
+        !sent(&app)
+            .windows(performance.len())
+            .any(|run| run == performance)
+    );
+}
+
+#[test]
+fn a_power_event_sends_again_after_a_failed_start() {
+    let (mut app, _dir, _) = performance_app();
+    app.take_on_battery(true);
+    app.machine_mut().controller.fails = true;
+    assert!(app.start().is_err());
+    app.machine_mut().controller.fails = false;
+    app.machine_mut().controller.sent.clear();
+
+    app.on_power(PowerEvent::OnBattery).unwrap();
+
+    assert_eq!(sent(&app), PerfMode::Balanced.commands(&BLADE_18).unwrap());
+}
+
+#[test]
+fn a_power_event_sends_again_after_a_failed_switch() {
+    let (mut app, _dir, _) = performance_app();
+    app.machine_mut().controller.fails = true;
+    assert!(app.on_power(PowerEvent::OnBattery).is_err());
+    app.machine_mut().controller.fails = false;
+
+    app.on_power(PowerEvent::OnBattery).unwrap();
+
+    assert_eq!(sent(&app), PerfMode::Balanced.commands(&BLADE_18).unwrap());
+}
+
+#[test]
+fn a_power_event_sends_again_after_a_failed_preset_click() {
+    let (mut app, _dir, _) = app();
+    app.machine_mut().controller.fails = true;
+    let click = app.on_performance(PerformanceCommand::SetPreset(Preset::Performance));
+    assert!(click.is_err());
+    app.machine_mut().controller.fails = false;
+
+    app.on_power(PowerEvent::OnBattery).unwrap();
+
+    assert_eq!(sent(&app), PerfMode::Balanced.commands(&BLADE_18).unwrap());
+}
+
+#[test]
+fn the_rate_follows_the_battery_even_when_the_preset_send_fails() {
+    let (mut app, _dir, _) = app_with(Config {
+        sixty_hz_on_battery: true,
+        ..Config::default()
+    });
+    app.machine_mut().controller.fails = true;
+    assert!(app.start().is_err());
+
+    assert!(app.on_power(PowerEvent::OnBattery).is_err());
+
+    assert_eq!(panel_hz(&app), 60);
 }

@@ -8,9 +8,10 @@ use std::sync::mpsc::{self, Receiver, Sender};
 
 use windows_sys::Win32::Foundation::ERROR_SUCCESS;
 use windows_sys::Win32::System::Power::{
-    DEVICE_NOTIFY_SUBSCRIBE_PARAMETERS, HPOWERNOTIFY, POWERBROADCAST_SETTING,
+    DEVICE_NOTIFY_SUBSCRIBE_PARAMETERS, GetSystemPowerStatus, HPOWERNOTIFY, POWERBROADCAST_SETTING,
     PowerRegisterSuspendResumeNotification, PowerSettingRegisterNotification,
     PowerSettingUnregisterNotification, PowerUnregisterSuspendResumeNotification,
+    SYSTEM_POWER_STATUS,
 };
 use windows_sys::Win32::System::SystemServices::GUID_ACDC_POWER_SOURCE;
 use windows_sys::Win32::UI::WindowsAndMessaging::{
@@ -20,6 +21,33 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
 use windows_sys::core::GUID;
 
 use crate::{PowerEvent, PowerEvents, windows_error};
+
+/// The AC line status while the laptop runs on its battery.
+const AC_OFFLINE: u8 = 0;
+/// The AC line status while the charger is plugged in.
+const AC_ONLINE: u8 = 1;
+
+/// Whether the laptop runs on its battery now, or `None` if Windows does
+/// not know or the read fails. The caller picks the safe side.
+#[must_use]
+pub fn on_battery() -> Option<bool> {
+    let mut status = SYSTEM_POWER_STATUS::default();
+    // SAFETY: Windows writes only the status.
+    if unsafe { GetSystemPowerStatus(&raw mut status) } == 0 {
+        return None;
+    }
+    on_battery_for(status.ACLineStatus)
+}
+
+/// Whether an AC line status means battery. Unknown (255) and any other
+/// value give `None`.
+fn on_battery_for(ac_line_status: u8) -> Option<bool> {
+    match ac_line_status {
+        AC_OFFLINE => Some(true),
+        AC_ONLINE => Some(false),
+        _ => None,
+    }
+}
 
 /// Power events from Windows, from [`register`](Self::register) until drop.
 ///
@@ -194,6 +222,14 @@ mod tests {
         // SAFETY: the context is a live sender and the setting a whole
         // change, as Windows would pass them.
         unsafe { on_power_event(context, kind, setting) };
+    }
+
+    #[test]
+    fn the_ac_line_status_gives_the_power_source() {
+        assert_eq!(on_battery_for(0), Some(true));
+        assert_eq!(on_battery_for(1), Some(false));
+        assert_eq!(on_battery_for(255), None);
+        assert_eq!(on_battery_for(2), None);
     }
 
     #[test]

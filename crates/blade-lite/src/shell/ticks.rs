@@ -63,7 +63,13 @@ impl<P: Parts> Shell<P> {
             let shell = Rc::clone(self);
             Timer::single_shot(RESUME_PAUSE, move || {
                 shell.resuming.set(shell.resuming.get().saturating_sub(1));
-                shell.app.borrow_mut().set_num_lock(num_lock_on());
+                {
+                    let mut app = shell.app.borrow_mut();
+                    app.set_num_lock(num_lock_on());
+                    // The charger may have been pulled in the sleep, and the
+                    // power event may come after this resume.
+                    app.take_on_battery(P::on_battery());
+                }
                 let first = shell.look_for_razer();
                 shell.act(|app| app.on_power(PowerEvent::Resumed));
                 if first {

@@ -10,7 +10,7 @@ use razer_proto::{BLADE_18, Command, PerfMode, Rgb, static_colour};
 use slint::platform::{PointerEventButton, WindowEvent};
 use slint::{ComponentHandle, LogicalPosition};
 
-use super::{Fixture, click, control, fixture, log_path};
+use super::{FAKE_ON_BATTERY, Fixture, click, control, fixture, log_path};
 use crate::fakes::{brightness_commands, lighting_commands, logo};
 
 const WHITE: Rgb = Rgb::new(0xFF, 0xFF, 0xFF);
@@ -549,5 +549,36 @@ fn a_touchpad_change_paints_the_key_outside_a_resume() {
     assert_eq!(
         sent_since(&f, before),
         razer_proto::static_colour_touchpad_off(WHITE, &BLADE_18)
+    );
+}
+
+#[test]
+fn a_wake_on_battery_sends_balanced_for_a_saved_performance() {
+    let f = fixture(Config {
+        preset: Preset::Performance,
+        ..Config::default()
+    });
+    let before = sent_count(&f);
+    FAKE_ON_BATTERY.set(true);
+    let (sender, receiver) = std::sync::mpsc::channel();
+    sender.send(PowerEvent::Resumed).unwrap();
+
+    f.shell.follow_power(&receiver);
+    i_slint_backend_testing::mock_elapsed_time(
+        blade_core::RESUME_PAUSE + std::time::Duration::from_millis(1),
+    );
+
+    let sent = sent_since(&f, before);
+    let balanced = PerfMode::Balanced.commands(&BLADE_18).unwrap();
+    let performance = PerfMode::Performance.commands(&BLADE_18).unwrap();
+    assert!(
+        sent.windows(balanced.len()).any(|run| run == balanced),
+        "{sent:?}"
+    );
+    assert!(
+        !sent
+            .windows(performance.len())
+            .any(|run| run == performance),
+        "{sent:?}"
     );
 }

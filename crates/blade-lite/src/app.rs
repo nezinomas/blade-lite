@@ -41,6 +41,11 @@ pub struct App<C, D, R, K> {
     machine: Machine<C, D, R, K>,
     battery_rate: BatteryRate,
     on_battery: bool,
+    /// Whether the last start, preset change or power switch failed, so
+    /// the controller may not run the preset the app shows (a failed start
+    /// may also be a lighting send; a resend then does no harm). The next
+    /// power event sends it, even if the source is the same.
+    preset_unsure: bool,
     /// The lid logo state, read after the settings are sent at start and
     /// after each resume. `None` if the model has none or it could not be
     /// read.
@@ -79,6 +84,7 @@ where
             machine,
             battery_rate: BatteryRate::default(),
             on_battery: false,
+            preset_unsure: false,
             logo_on: None,
             charge_limit_on: None,
             key_red: None,
@@ -110,6 +116,13 @@ where
     /// [`start`](Self::start).
     pub fn set_num_lock(&mut self, on: bool) {
         self.num_lock_on = on;
+    }
+
+    /// Takes the power source without sending, for use before
+    /// [`start`](Self::start), so a start on battery sends the battery
+    /// preset, not the saved one.
+    pub fn take_on_battery(&mut self, on_battery: bool) {
+        self.on_battery = on_battery;
     }
 
     /// Whether the touchpad key should be red. If the touchpad state can't

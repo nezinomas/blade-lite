@@ -29,6 +29,7 @@ where
         let red = self.key_should_be_red();
         let applied = apply(&config, self.model, &mut self.machine.controller, red);
         self.key_red = applied.is_ok().then_some(red);
+        self.preset_unsure = applied.is_err();
         self.logo_on = logo_on(&mut self.machine.controller, self.model)
             .ok()
             .flatten();
@@ -100,19 +101,28 @@ where
         match event {
             PowerEvent::Resumed => self.start(),
             PowerEvent::OnBattery | PowerEvent::OnAc => {
-                self.set_on_battery(event == PowerEvent::OnBattery)?;
-                self.follow_power(event)
+                // The rate follows even if the preset send fails.
+                let preset = self.set_on_battery(event == PowerEvent::OnBattery);
+                let rate = self.follow_power(event);
+                if let (Err(_), Err(error)) = (&preset, &rate) {
+                    // Only the preset error is shown, so this one is logged.
+                    crate::report(&format!("the 60 Hz on battery failed too: {error}"));
+                }
+                preset.and(rate)
             }
         }
     }
 
-    /// Sends the preset again if the power source changes the one that runs.
+    /// Sends the preset again if the power source changes the one that
+    /// runs, or the last start or switch failed.
     fn set_on_battery(&mut self, on_battery: bool) -> Result<(), AppError> {
         let before = self.running(self.config).preset;
         self.on_battery = on_battery;
         let config = self.running(self.config);
-        if config.preset != before {
-            apply_performance(&config, self.model, &mut self.machine.controller)?;
+        if config.preset != before || self.preset_unsure {
+            let applied = apply_performance(&config, self.model, &mut self.machine.controller);
+            self.preset_unsure = applied.is_err();
+            applied?;
         }
         Ok(())
     }
