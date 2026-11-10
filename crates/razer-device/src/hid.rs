@@ -137,10 +137,8 @@ fn hid_info(device: &DeviceInfo) -> HidInfo {
 
 impl Transport for HidTransport {
     fn send_report(&mut self, report: &[u8; REPORT_LEN]) -> io::Result<()> {
-        let mut buffer = [REPORT_ID; REPORT_LEN + 1];
-        buffer[1..].copy_from_slice(report);
         self.device
-            .send_feature_report(&buffer)
+            .send_feature_report(&feature_buffer(report))
             .map_err(io::Error::other)
     }
 
@@ -150,14 +148,62 @@ impl Transport for HidTransport {
             .device
             .get_feature_report(&mut buffer)
             .map_err(io::Error::other)?;
-        if read < buffer.len() {
-            return Err(io::Error::new(
-                io::ErrorKind::UnexpectedEof,
-                format!("short feature report: {read} bytes"),
-            ));
+        feature_report(&buffer, read)
+    }
+}
+
+/// What a feature send writes: the report ID, then the report.
+fn feature_buffer(report: &[u8; REPORT_LEN]) -> [u8; REPORT_LEN + 1] {
+    let mut buffer = [REPORT_ID; REPORT_LEN + 1];
+    buffer[1..].copy_from_slice(report);
+    buffer
+}
+
+/// The report from a feature read of `read` bytes into `buffer`, without
+/// its report ID. A short read is an error.
+fn feature_report(buffer: &[u8; REPORT_LEN + 1], read: usize) -> io::Result<[u8; REPORT_LEN]> {
+    if read < buffer.len() {
+        return Err(io::Error::new(
+            io::ErrorKind::UnexpectedEof,
+            format!("short feature report: {read} bytes"),
+        ));
+    }
+    let mut report = [0; REPORT_LEN];
+    report.copy_from_slice(&buffer[1..]);
+    Ok(report)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A feature read: the report ID, then the report.
+    fn read_buffer() -> [u8; REPORT_LEN + 1] {
+        let mut buffer = [0xAB; REPORT_LEN + 1];
+        buffer[0] = REPORT_ID;
+        buffer
+    }
+
+    #[test]
+    fn a_full_read_gives_the_report_without_its_id() {
+        assert_eq!(
+            feature_report(&read_buffer(), REPORT_LEN + 1).unwrap(),
+            [0xAB; REPORT_LEN]
+        );
+    }
+
+    #[test]
+    fn a_report_is_sent_after_its_id() {
+        let buffer = feature_buffer(&[0xAB; REPORT_LEN]);
+        assert_eq!(buffer[0], REPORT_ID);
+        assert_eq!(buffer[1..], [0xAB; REPORT_LEN]);
+    }
+
+    #[test]
+    fn a_short_read_is_an_error() {
+        for read in [0, 1, REPORT_LEN] {
+            let error = feature_report(&read_buffer(), read).unwrap_err();
+            assert_eq!(error.kind(), io::ErrorKind::UnexpectedEof, "{read}");
         }
-        let mut report = [0; REPORT_LEN];
-        report.copy_from_slice(&buffer[1..]);
-        Ok(report)
     }
 }
