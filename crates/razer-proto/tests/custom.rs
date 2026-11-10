@@ -127,6 +127,19 @@ fn a_fan_speed_outside_the_model_range_cannot_be_built() {
 }
 
 #[test]
+fn a_fan_speed_that_does_not_fit_in_a_byte_cannot_be_built() {
+    // A profile mistake must not let a speed through that the byte can't hold.
+    let mut model = BLADE_18;
+    model.custom.fan_rpm.max = u16::MAX;
+
+    assert_eq!(
+        Rpm::new(25_600, &model),
+        Err(CustomError::RpmOutOfRange(25_600))
+    );
+    assert!(Rpm::new(25_500, &model).is_ok());
+}
+
+#[test]
 fn a_fan_speed_must_be_whole_hundreds() {
     // The controller takes rpm / 100 in one byte.
     assert_eq!(

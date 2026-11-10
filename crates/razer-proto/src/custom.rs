@@ -80,15 +80,17 @@ fn checked_boost(level: u8, max: u8) -> Result<u8, CustomError> {
     Ok(level)
 }
 
-/// A manual fan speed the model accepts.
+/// A manual fan speed the model accepts, kept as the byte the controller
+/// takes: rpm / 100.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Rpm(u16);
+pub struct Rpm(u8);
 
 impl Rpm {
     /// # Errors
     ///
     /// [`CustomError::RpmNotHundreds`] if it is not whole hundreds,
-    /// [`CustomError::RpmOutOfRange`] if it is outside the model's range.
+    /// [`CustomError::RpmOutOfRange`] if it is outside the model's range or
+    /// does not fit in the byte.
     pub fn new(rpm: u16, model: &ModelProfile) -> Result<Self, CustomError> {
         if rpm % RPM_STEP != 0 {
             return Err(CustomError::RpmNotHundreds(rpm));
@@ -97,12 +99,14 @@ impl Rpm {
         if !(range.min..=range.max).contains(&rpm) {
             return Err(CustomError::RpmOutOfRange(rpm));
         }
-        Ok(Self(rpm))
+        u8::try_from(rpm / RPM_STEP)
+            .map(Self)
+            .map_err(|_| CustomError::RpmOutOfRange(rpm))
     }
 
     /// The byte the controller takes: rpm / 100.
     fn byte(self) -> u8 {
-        u8::try_from(self.0 / RPM_STEP).expect("the model range fits in a byte")
+        self.0
     }
 }
 

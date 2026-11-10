@@ -1,6 +1,13 @@
 //! Builds and parses the 90-byte HID feature reports of the Blade 18 controller.
 
-#![deny(clippy::unwrap_used, clippy::print_stdout, clippy::print_stderr)]
+#![deny(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::indexing_slicing,
+    clippy::print_stdout,
+    clippy::print_stderr
+)]
 
 use std::ops::Range;
 
@@ -77,12 +84,13 @@ impl Request {
     ///
     /// [`BuildError::TooManyArgs`] if there are more than [`MAX_ARGS`] args.
     pub fn new(transaction_id: u8, command: u16, args: &[u8]) -> Result<Self, BuildError> {
-        let data_size = match u8::try_from(args.len()) {
-            Ok(size) if usize::from(size) <= MAX_ARGS => size,
-            _ => return Err(BuildError::TooManyArgs(args.len())),
-        };
+        let too_many = || BuildError::TooManyArgs(args.len());
+        let data_size = u8::try_from(args.len()).map_err(|_| too_many())?;
         let mut padded = [0; MAX_ARGS];
-        padded[..args.len()].copy_from_slice(args);
+        padded
+            .get_mut(..args.len())
+            .ok_or_else(too_many)?
+            .copy_from_slice(args);
         Ok(Self {
             transaction_id,
             command,
@@ -200,8 +208,11 @@ impl Report {
     }
 
     /// The args the controller sent back: as many bytes as the data size says.
+    /// [`Report::parse`] refuses a data size above [`MAX_ARGS`], so the
+    /// empty fallback is never reached; if it were, a short reply fails to
+    /// read rather than guessing.
     #[must_use]
     pub fn args(&self) -> &[u8] {
-        &self.args[..self.data_size]
+        self.args.get(..self.data_size).unwrap_or_default()
     }
 }

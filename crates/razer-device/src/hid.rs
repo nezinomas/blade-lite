@@ -94,21 +94,30 @@ impl HidKeyReports {
     ///
     /// # Errors
     ///
-    /// Any hidapi error, such as the keyboard going away.
+    /// Any hidapi error, such as the keyboard going away, or the collection
+    /// that sent last no longer being in the list (it can't today: the list
+    /// never changes after `open`).
     pub fn read(&mut self, wait: Duration) -> io::Result<Option<Vec<u8>>> {
         let millis = i32::try_from(wait.as_millis()).unwrap_or(i32::MAX);
         let mut buffer = [0; KEY_REPORT_ROOM];
-        let indexes = match self.source {
-            Some(index) => index..index + 1,
-            None => 0..self.devices.len(),
+        let first = self.source.unwrap_or(0);
+        let devices = match self.source {
+            Some(index) => self
+                .devices
+                .get(index..=index)
+                .ok_or_else(|| io::Error::other("the key source is gone"))?,
+            None => self.devices.as_slice(),
         };
-        for index in indexes {
-            let read = self.devices[index]
+        for (index, device) in (first..).zip(devices) {
+            let read = device
                 .read_timeout(&mut buffer, millis)
                 .map_err(io::Error::other)?;
             if read > 0 {
                 self.source = Some(index);
-                return Ok(Some(buffer[..read].to_vec()));
+                let report = buffer
+                    .get(..read)
+                    .ok_or_else(|| io::Error::other("hidapi read more than the buffer"))?;
+                return Ok(Some(report.to_vec()));
             }
         }
         Ok(None)

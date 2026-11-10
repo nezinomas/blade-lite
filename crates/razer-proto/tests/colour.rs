@@ -2,6 +2,7 @@ mod common;
 
 use razer_proto::{
     BLADE_18, KeyGrid, ModelProfile, ParseRgbError, REPORT_LEN, Request, Rgb, static_colour,
+    static_colour_touchpad_off,
 };
 
 /// The captured colour steps: the fixture and the colour Synapse set last.
@@ -93,4 +94,26 @@ fn other_text_is_not_an_rgb() {
     ] {
         assert_eq!(text.parse::<Rgb>(), Err(ParseRgbError), "{text}");
     }
+}
+
+#[test]
+fn a_grid_with_no_columns_sends_nothing() {
+    // A profile mistake must not send a malformed frame row.
+    let mut model = BLADE_18;
+    model.keys.columns = 0;
+
+    assert_eq!(static_colour(Rgb::new(0xFF, 0x00, 0x00), &model), []);
+    assert_eq!(
+        static_colour_touchpad_off(Rgb::new(0xFF, 0x00, 0x00), &model),
+        []
+    );
+}
+
+#[test]
+fn a_grid_with_no_rows_sends_nothing() {
+    // The effect alone would switch the keyboard to an empty frame.
+    let mut model = BLADE_18;
+    model.keys.rows = 0;
+
+    assert_eq!(static_colour(Rgb::new(0xFF, 0x00, 0x00), &model), []);
 }
