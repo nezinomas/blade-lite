@@ -35,21 +35,3 @@ fn the_power_source_comes_once_at_register() {
         Some(PowerEvent::OnAc | PowerEvent::OnBattery)
     ));
 }
-
-#[test]
-fn only_a_charger_windows_reports_counts_as_ac() {
-    use platform::on_battery_for;
-
-    assert!(!on_battery_for(Some(1)));
-    assert!(on_battery_for(Some(0)));
-    assert!(on_battery_for(Some(255)), "unknown runs the battery preset");
-    assert!(
-        on_battery_for(None),
-        "a failed read runs the battery preset"
-    );
-}
-
-#[test]
-fn the_power_source_can_be_read() {
-    let _ = platform::on_battery();
-}

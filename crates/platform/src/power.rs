@@ -22,24 +22,31 @@ use windows_sys::core::GUID;
 
 use crate::{PowerEvent, PowerEvents, windows_error};
 
-/// What `GetSystemPowerStatus` says while the charger is plugged in.
+/// The AC line status while the laptop runs on its battery.
+const AC_OFFLINE: u8 = 0;
+/// The AC line status while the charger is plugged in.
 const AC_ONLINE: u8 = 1;
 
-/// Whether the laptop runs on its battery now. A failed read counts as
-/// battery, so the app then runs the battery preset (fail safe).
+/// Whether the laptop runs on its battery now, or `None` if Windows does
+/// not know or the read fails. The caller picks the safe side.
 #[must_use]
-pub fn on_battery() -> bool {
+pub fn on_battery() -> Option<bool> {
     let mut status = SYSTEM_POWER_STATUS::default();
     // SAFETY: Windows writes only the status.
-    let read = unsafe { GetSystemPowerStatus(&raw mut status) } != 0;
-    on_battery_for(read.then_some(status.ACLineStatus))
+    if unsafe { GetSystemPowerStatus(&raw mut status) } == 0 {
+        return None;
+    }
+    on_battery_for(status.ACLineStatus)
 }
 
-/// Whether an AC line status (`None` for a failed read) means battery. Only
-/// "online" counts as AC; "offline" and "unknown" (255) count as battery.
-#[must_use]
-pub fn on_battery_for(ac_line_status: Option<u8>) -> bool {
-    ac_line_status != Some(AC_ONLINE)
+/// Whether an AC line status means battery. Unknown (255) and any other
+/// value give `None`.
+fn on_battery_for(ac_line_status: u8) -> Option<bool> {
+    match ac_line_status {
+        AC_OFFLINE => Some(true),
+        AC_ONLINE => Some(false),
+        _ => None,
+    }
 }
 
 /// Power events from Windows, from [`register`](Self::register) until drop.
@@ -215,6 +222,14 @@ mod tests {
         // SAFETY: the context is a live sender and the setting a whole
         // change, as Windows would pass them.
         unsafe { on_power_event(context, kind, setting) };
+    }
+
+    #[test]
+    fn the_ac_line_status_gives_the_power_source() {
+        assert_eq!(on_battery_for(0), Some(true));
+        assert_eq!(on_battery_for(1), Some(false));
+        assert_eq!(on_battery_for(255), None);
+        assert_eq!(on_battery_for(2), None);
     }
 
     #[test]

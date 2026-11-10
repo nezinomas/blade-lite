@@ -42,7 +42,8 @@ use razer_proto::{BLADE_18, Rgb};
 use slint::{Timer, TimerMode};
 
 use crate::background::{
-    follow_the_power_key, follow_the_touchpad, open_window_on_wake, power_events, watch_touchpad,
+    follow_the_power_key, follow_the_touchpad, on_battery_now, open_window_on_wake, power_events,
+    watch_touchpad,
 };
 use crate::shell::Shell;
 use crate::tray::Tray;
@@ -122,7 +123,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     app.set_num_lock(num_lock_on());
     // Before the start sends the preset, so a start on battery sends the
     // battery one. The power events come only after the start.
-    app.take_on_battery(platform::on_battery());
+    app.take_on_battery(on_battery_now());
     // Before the start reads the touchpad, so no switch is missed.
     let touchpad = watch_touchpad();
     let started = app.start();

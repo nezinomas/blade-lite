@@ -5,13 +5,19 @@ use platform::PowerEvent;
 use razer_proto::{BLADE_18, PerfMode};
 use ui::PerformanceCommand;
 
-/// Sets a fan's target speed.
-const SET_FAN: u16 = 0x0D01;
-
 use crate::{
     LIMIT_OFF, LIMIT_ON, SET_CHARGE_LIMIT, app, app_with, charge_limit, charge_limit_on,
     performance_app, sent,
 };
+
+/// Sets a fan's target speed.
+const SET_FAN: u16 = 0x0D01;
+/// Sets a CPU or GPU boost.
+const SET_BOOST: u16 = 0x0D07;
+/// Sets the preset of one zone.
+const SET_PRESET: u16 = 0x0D02;
+/// The Custom mode byte in a preset set.
+const CUSTOM_MODE: u8 = 0x04;
 
 #[test]
 fn on_battery_performance_runs_as_balanced_and_comes_back_on_ac() {
@@ -179,7 +185,11 @@ fn a_start_on_battery_sends_balanced_for_a_saved_custom_fan() {
             .windows(balanced.len())
             .any(|run| run == balanced)
     );
-    assert!(sent(&app).iter().all(|command| command.id != SET_FAN));
+    assert!(sent(&app).iter().all(|command| {
+        command.id != SET_FAN
+            && command.id != SET_BOOST
+            && !(command.id == SET_PRESET && command.args.get(2) == Some(&CUSTOM_MODE))
+    }));
     assert_eq!(app.config().preset, Preset::Custom);
 }
 
@@ -193,4 +203,41 @@ fn the_power_event_after_a_start_on_battery_sends_nothing() {
     app.on_power(PowerEvent::OnBattery).unwrap();
 
     assert_eq!(sent(&app), []);
+}
+
+#[test]
+fn an_ac_event_after_a_start_taken_as_battery_sends_the_saved_preset_once() {
+    let (mut app, _dir, _) = performance_app();
+    app.take_on_battery(true);
+    app.start().unwrap();
+    app.machine_mut().controller.sent.clear();
+
+    app.on_power(PowerEvent::OnAc).unwrap();
+
+    assert_eq!(
+        sent(&app),
+        PerfMode::Performance.commands(&BLADE_18).unwrap()
+    );
+    assert_eq!(app.config().preset, Preset::Performance);
+}
+
+#[test]
+fn a_resume_taken_as_battery_sends_balanced_for_a_saved_performance() {
+    let (mut app, _dir, _) = performance_app();
+    app.take_on_battery(true);
+
+    app.on_power(PowerEvent::Resumed).unwrap();
+
+    let balanced = PerfMode::Balanced.commands(&BLADE_18).unwrap();
+    assert!(
+        sent(&app)
+            .windows(balanced.len())
+            .any(|run| run == balanced)
+    );
+    let performance = PerfMode::Performance.commands(&BLADE_18).unwrap();
+    assert!(
+        !sent(&app)
+            .windows(performance.len())
+            .any(|run| run == performance)
+    );
 }

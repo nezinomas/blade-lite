@@ -10,6 +10,7 @@ use platform::{PowerEvent, num_lock_on};
 use slint::Timer;
 
 use super::{Parts, Shell};
+use crate::background::on_battery_now;
 use crate::bind;
 
 impl<P: Parts> Shell<P> {
@@ -63,7 +64,13 @@ impl<P: Parts> Shell<P> {
             let shell = Rc::clone(self);
             Timer::single_shot(RESUME_PAUSE, move || {
                 shell.resuming.set(shell.resuming.get().saturating_sub(1));
-                shell.app.borrow_mut().set_num_lock(num_lock_on());
+                {
+                    let mut app = shell.app.borrow_mut();
+                    app.set_num_lock(num_lock_on());
+                    // The charger may have been pulled in the sleep, and the
+                    // power event may come after this resume.
+                    app.take_on_battery(on_battery_now());
+                }
                 let first = shell.look_for_razer();
                 shell.act(|app| app.on_power(PowerEvent::Resumed));
                 if first {

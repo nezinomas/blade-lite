@@ -144,6 +144,15 @@ fn step_the_preset() -> bool {
     .is_ok()
 }
 
+/// Whether the laptop runs on its battery now. If Windows can't tell, the
+/// battery preset runs (fail safe) until the next power event.
+pub fn on_battery_now() -> bool {
+    platform::on_battery().unwrap_or_else(|| {
+        report("power source unknown: the battery preset runs");
+        true
+    })
+}
+
 /// Power events, read on their own thread. No events come if Windows
 /// refuses to send them.
 pub fn power_events() -> Receiver<PowerEvent> {
