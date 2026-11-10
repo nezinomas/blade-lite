@@ -99,6 +99,7 @@ Checks only a person can do on the laptop wait in "Still to check on the laptop"
 - [ ] 75 Temperature warning: a popup when the CPU or GPU stays above a limit (such as 95 °C) for a few minutes, from the readings the app already polls. Once per hot spell, not on each poll
 - [ ] 76 Battery health in the header: wear (full charge capacity against design capacity) and cycle count, read from Windows (WMI `BatteryFullChargedCapacity`, `BatteryStaticData`, `BatteryCycleCount`). Read only, no controller command
 - [ ] 77 Export and import settings, and "Reset to defaults". Import goes through the same checks as loading `config.toml` (an invalid file changes nothing), then applies as a start does. Both reviewers
+- [ ] 79 A brightness drag cut short (no mouse-up, such as the flyout hiding mid-drag) or a Narrator set-value leaves the slider and its percent at a value never sent, until the brightness next changes (ticket 68 review). Put the slider back to the laptop's value when the window or flyout is shown (a Slint function called from the show code, so the `docs/window-check.md` checks apply). Display only, nothing is sent. Both reviewers
 
 ## Still to check on the laptop
 Do these in one go, on AC, with "Start with Windows" on and Num Lock off (the power-mode key needs it, ticket 59). First note your preset, keyboard colour, lid logo and native mode; the last step puts them back.
