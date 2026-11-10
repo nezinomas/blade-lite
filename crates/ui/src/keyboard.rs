@@ -5,8 +5,6 @@ use razer_proto::{Brightness, Rgb};
 
 /// The brightness slider's highest stop, in percent.
 const BRIGHTNESS_MAX: u8 = 100;
-/// The brightness text at 0.
-const OFF: &str = "Off";
 /// The colours offered as swatches, from the mockup.
 const SWATCHES: [Rgb; 8] = [
     Rgb::new(0xFF, 0xFF, 0xFF),
@@ -54,7 +52,6 @@ pub struct KeyboardView {
     /// The slider runs from 0 to this, in percent.
     pub brightness_max: u8,
     pub brightness: u8,
-    pub brightness_text: String,
     /// `false` while the lights are off.
     pub colours_enabled: bool,
     pub swatches: Vec<Swatch>,
@@ -78,7 +75,6 @@ impl KeyboardView {
         Self {
             brightness_max: BRIGHTNESS_MAX,
             brightness: percent,
-            brightness_text: brightness_text(percent),
             colours_enabled: percent > 0,
             custom_selected: !swatches.iter().any(|swatch| swatch.selected),
             swatches,
@@ -153,12 +149,4 @@ fn swatches(current: Rgb) -> Vec<Swatch> {
             selected: colour == current,
         })
         .collect()
-}
-
-fn brightness_text(percent: u8) -> String {
-    if percent == 0 {
-        OFF.to_owned()
-    } else {
-        format!("{percent}%")
-    }
 }

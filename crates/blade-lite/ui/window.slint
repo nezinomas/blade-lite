@@ -3,7 +3,7 @@
 // a view-model command. Each group lives in its own file.
 
 import { Button, ScrollView, Slider, Switch } from "std-widgets.slint";
-import { Choice, Segments, SliderRow, Stat, SwatchItem, Theme } from "parts.slint";
+import { Choice, Segments, Show, SliderRow, Stat, SwatchItem, Theme } from "parts.slint";
 import { Header } from "header.slint";
 import { DisplayGroup } from "display.slint";
 import { PerformanceGroup } from "performance.slint";
@@ -35,7 +35,6 @@ export component MainWindow inherits Window {
     in property <string> charge-limit-note;
     // Keyboard and touchpad
     in property <int> brightness;
-    in property <string> brightness-text;
     in property <bool> colours-enabled;
     in property <[SwatchItem]> swatches;
     in property <bool> custom-selected;
@@ -125,7 +124,6 @@ export component MainWindow inherits Window {
 
             KeyboardGroup {
                 brightness: root.brightness;
-                brightness-text: root.brightness-text;
                 colours-enabled: root.colours-enabled;
                 swatches: root.swatches;
                 custom-selected: root.custom-selected;
@@ -159,10 +157,13 @@ export component FlyoutWindow inherits Window {
     in property <bool> rates-enabled;
     in-out property <bool> sixty-hz-on-battery;
     in property <int> brightness;
-    in property <string> brightness-text;
     in-out property <bool> touchpad-on;
     in property <bool> reset-enabled;
     in property <color> accent: #0078d4;
+
+    // The slider's value while it is moved, -1 when it is not. Only the
+    // text shows it; the brightness is sent when the slider is let go.
+    property <int> held: -1;
 
     callback pick-preset(int);
     callback pick-rate(int);
@@ -242,10 +243,14 @@ export component FlyoutWindow inherits Window {
                 maximum: 100;
                 step: 5;
                 value: root.brightness;
-                released(value) => { root.move-brightness(round(value)); }
+                changed(value) => { root.held = round(value); }
+                released(value) => {
+                    root.held = -1;
+                    root.move-brightness(round(value));
+                }
             }
-            Text {
-                text: root.brightness-text;
+            brightness-percent := Text {
+                text: Show.brightness(root.held < 0 ? root.brightness : root.held);
                 width: 44px;
                 horizontal-alignment: right;
                 vertical-alignment: center;

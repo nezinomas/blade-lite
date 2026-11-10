@@ -32,6 +32,14 @@ export global Theme {
     out property <brush> secondary: Palette.foreground.transparentize(0.35);
 }
 
+// Values as the window and the flyout write them.
+export global Show {
+    // The keyboard brightness: "Off" at 0, else the percent.
+    public pure function brightness(percent: int) -> string {
+        percent == 0 ? "Off" : percent + "%"
+    }
+}
+
 // One white card with a thin border, as in Windows Settings.
 export component Card inherits Rectangle {
     background: Theme.card;

@@ -1,11 +1,10 @@
 // The Keyboard and touchpad group of the settings window.
 
 import { LineEdit, Slider, Switch } from "std-widgets.slint";
-import { Card, GroupTitle, Row, SwatchItem, Theme } from "parts.slint";
+import { Card, GroupTitle, Row, Show, SwatchItem, Theme } from "parts.slint";
 
 export component KeyboardGroup inherits VerticalLayout {
     in property <int> brightness;
-    in property <string> brightness-text;
     in property <bool> colours-enabled;
     in property <[SwatchItem]> swatches;
     in property <bool> custom-selected;
@@ -29,6 +28,10 @@ export component KeyboardGroup inherits VerticalLayout {
         custom-field.text = root.custom-hex;
     }
 
+    // The slider's value while it is moved, -1 when it is not. Only the
+    // text shows it; the brightness is sent when the slider is let go.
+    property <int> held: -1;
+
     // The same spacing as the window's own list, so nothing moves.
     spacing: 4px;
 
@@ -50,10 +53,14 @@ export component KeyboardGroup inherits VerticalLayout {
                     maximum: 100;
                     step: 5;
                     value: root.brightness;
-                    released(value) => { root.move-brightness(round(value)); }
+                    changed(value) => { root.held = round(value); }
+                    released(value) => {
+                        root.held = -1;
+                        root.move-brightness(round(value));
+                    }
                 }
-                Text {
-                    text: root.brightness-text;
+                brightness-percent := Text {
+                    text: Show.brightness(root.held < 0 ? root.brightness : root.held);
                     width: 84px;
                     horizontal-alignment: right;
                     vertical-alignment: center;

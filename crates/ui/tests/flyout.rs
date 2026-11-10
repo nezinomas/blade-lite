@@ -50,7 +50,6 @@ fn it_lists_the_preset_the_rate_the_lighting_and_the_touchpad() {
     assert_eq!(flyout.rates, display().rates);
     assert!(flyout.rates_enabled);
     assert_eq!(flyout.brightness, 40);
-    assert_eq!(flyout.brightness_text, "40%");
     assert!(!flyout.touchpad_on);
 }
 

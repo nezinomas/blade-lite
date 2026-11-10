@@ -45,12 +45,11 @@ fn dark() -> KeyboardView {
 }
 
 #[test]
-fn the_brightness_slider_runs_from_0_to_100_and_shows_the_percent() {
+fn the_brightness_slider_runs_from_0_to_100() {
     let view = view();
 
     assert_eq!(view.brightness_max, 100);
     assert_eq!(view.brightness, 70);
-    assert_eq!(view.brightness_text, "70%");
 }
 
 #[test]
@@ -79,7 +78,6 @@ fn a_brightness_move_that_changes_nothing_or_goes_off_the_end_does_nothing() {
 fn at_0_the_lights_are_off_and_the_colour_choice_is_disabled() {
     let view = dark();
 
-    assert_eq!(view.brightness_text, "Off");
     assert!(!view.colours_enabled);
     assert_eq!(view.pick_swatch(0), None);
     assert_eq!(view.pick_custom("#FF69B4"), None);

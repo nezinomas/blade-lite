@@ -18,7 +18,6 @@ pub struct FlyoutView {
     pub rates_enabled: bool,
     pub sixty_hz_on_battery: bool,
     pub brightness: u8,
-    pub brightness_text: String,
     pub touchpad_on: bool,
     /// `false` while the preset is already Balanced.
     pub reset_enabled: bool,
@@ -42,7 +41,6 @@ impl FlyoutView {
             rates_enabled: display.rates_enabled,
             sixty_hz_on_battery: display.sixty_hz_on_battery,
             brightness: keyboard.brightness,
-            brightness_text: keyboard.brightness_text.clone(),
             touchpad_on: keyboard.touchpad_on,
             reset_enabled: !balanced,
         }
