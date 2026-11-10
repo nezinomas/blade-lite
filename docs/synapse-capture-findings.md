@@ -39,7 +39,8 @@ Args are bytes 8 onwards. Data size is byte 5.
 | Logo on/off | `0300` | `[00, 04, on]` | Storage byte `00`, not `01` |
 | Logo effect | `0302` | `[00, 04, 00]` | Static |
 | Touchpad key | `0059` | `[00, 01, x]`, x 0 or 1 | New command. Sent when the touchpad key is pressed. The key turned red with Synapse, but no frame painted it red. Without Synapse it stays unlit, so Synapse caused it, likely through `0059` |
-| Other reads | `078C`, `0084`, `0086`, `0D87` | | Sent once when a page opens |
+| Charger | `078C` | `[00, 00]` | Reply `[kind, 13]`: kind `13` Razer charger, `04` USB-C monitor, `00` none (read on the laptop 2026-11-10, ticket 60). Synapse read `[13, 13]` in the capture |
+| Other reads | `0084`, `0086`, `0D87` | | Sent once when a page opens |
 
 ### Lighting frame (`030B`)
 
