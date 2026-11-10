@@ -1,6 +1,6 @@
 # synapse
 
-Stage list and status: `docs/PLAN.md` (the only place for status). Full plan: https://claude.ai/artifact/JSzNYRpwZJyywztJtBSk2P
+Stage list and status: `docs/PLAN.md` (the only place for status). Done lines move to `docs/PLAN-done.md` at each retro. Full plan: https://claude.ai/artifact/JSzNYRpwZJyywztJtBSk2P
 Laptop and protocol facts, lessons: `docs/NOTES.md`.
 Building a stage or ticket: follow the `stage` skill (`.claude/skills/stage/SKILL.md`).
 
