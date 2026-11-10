@@ -44,6 +44,27 @@ fn it_stays_inside_the_left_edge() {
 }
 
 #[test]
+fn on_a_screen_narrower_than_the_flyout_it_keeps_the_left_edge() {
+    let narrow = Rect {
+        width: 300,
+        ..SCREEN
+    };
+
+    let (x, _) = flyout_position(icon(100, 1552), FLYOUT, narrow);
+
+    assert_eq!(x, 12);
+}
+
+#[test]
+fn on_a_screen_of_no_width_it_keeps_the_left_edge() {
+    let none = Rect { width: 0, ..SCREEN };
+
+    let (x, _) = flyout_position(icon(0, 1552), FLYOUT, none);
+
+    assert_eq!(x, 12);
+}
+
+#[test]
 fn with_the_taskbar_at_the_top_it_opens_below_the_icon() {
     let (_, y) = flyout_position(icon(1000, 0), FLYOUT, SCREEN);
 
