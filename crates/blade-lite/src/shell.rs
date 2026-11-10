@@ -3,10 +3,13 @@
 
 mod popup;
 mod razer;
+mod settings;
 mod ticks;
 mod windows;
 
 use std::cell::{Cell, RefCell};
+use std::io;
+use std::path::PathBuf;
 use std::rc::Rc;
 use std::sync::mpsc::Receiver;
 use std::time::{Duration, Instant};
@@ -14,8 +17,8 @@ use std::time::{Duration, Instant};
 use blade_core::{Controller, PollSchedule, Query, Readings, ReadingsSampler};
 use blade_lite::{App, AppError, SaidLately, ShownErrors, report, took_effect};
 use platform::{
-    DisplayApi, KeyInjector, PowerEvent, Programs, Registry, WindowsDisplays, WindowsKeys,
-    WindowsPrograms, WindowsRegistry, WindowsSensors,
+    DisplayApi, FileDialog, KeyInjector, PowerEvent, Programs, Registry, WindowsDisplays,
+    WindowsKeys, WindowsPrograms, WindowsRegistry, WindowsSensors,
 };
 use razer_device::{Device, HidTransport, SystemClock};
 use ui::{FlyoutView, HeatWatch, ModeWatch, TouchpadWatch};
@@ -35,6 +38,13 @@ pub trait Parts: 'static {
     type Programs: Programs + Default;
     /// Whether the laptop runs on its battery now. Read only.
     fn on_battery() -> bool;
+    /// Asks the user for a file in the `dialog` over the `owner` window.
+    /// `None` if the user cancels.
+    ///
+    /// # Errors
+    ///
+    /// If the dialog fails.
+    fn pick_file(owner: Option<isize>, dialog: FileDialog) -> io::Result<Option<PathBuf>>;
 }
 
 /// The real laptop.
@@ -49,6 +59,10 @@ impl Parts for Laptop {
 
     fn on_battery() -> bool {
         crate::background::on_battery_now()
+    }
+
+    fn pick_file(owner: Option<isize>, dialog: FileDialog) -> io::Result<Option<PathBuf>> {
+        platform::pick_file(owner, dialog)
     }
 }
 

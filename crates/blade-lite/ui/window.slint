@@ -8,6 +8,7 @@ import { Header } from "header.slint";
 import { DisplayGroup } from "display.slint";
 import { PerformanceGroup } from "performance.slint";
 import { KeyboardGroup } from "keyboard.slint";
+import { SettingsGroup } from "settings.slint";
 
 // Rust uses these rows, so they stay exported from this file.
 export { Choice, SliderRow, Stat, SwatchItem }
@@ -60,6 +61,9 @@ export component MainWindow inherits Window {
     callback toggle-touchpad();
     callback toggle-logo();
     callback toggle-vapor-light();
+    callback export-settings();
+    callback import-settings();
+    callback reset-settings();
 
     // Called when the window is shown: the brightness slider goes back to
     // what the laptop has.
@@ -146,6 +150,12 @@ export component MainWindow inherits Window {
                 toggle-touchpad => { root.toggle-touchpad(); }
                 toggle-logo => { root.toggle-logo(); }
                 toggle-vapor-light => { root.toggle-vapor-light(); }
+            }
+
+            SettingsGroup {
+                export-settings => { root.export-settings(); }
+                import-settings => { root.import-settings(); }
+                reset-settings => { root.reset-settings(); }
             }
 
             // Takes the spare height, so the groups keep their own.

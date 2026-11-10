@@ -74,13 +74,18 @@ pub fn pick_file(owner: Option<isize>, dialog: FileDialog) -> io::Result<Option<
     // SAFETY: no arguments; it reads the error the dialog just left.
     match unsafe { CommDlgExtendedError() } {
         0 => Ok(None),
-        code => Err(io::Error::other(format!("the file dialog failed, code {code:#X}"))),
+        code => Err(io::Error::other(format!(
+            "the file dialog failed, code {code:#X}"
+        ))),
     }
 }
 
 /// The path in `units`, up to its first NUL.
 fn until_nul(units: &[u16]) -> PathBuf {
-    let end = units.iter().position(|&unit| unit == 0).unwrap_or(units.len());
+    let end = units
+        .iter()
+        .position(|&unit| unit == 0)
+        .unwrap_or(units.len());
     PathBuf::from(OsString::from_wide(units.get(..end).unwrap_or(units)))
 }
 

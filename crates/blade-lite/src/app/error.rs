@@ -27,6 +27,8 @@ pub enum AppError {
     Device(DeviceError),
     #[error("the controller chose a native mode the model lacks")]
     UnknownNativeMode,
+    #[error("the file dialog failed: {0}")]
+    FileDialog(std::io::Error),
     #[error("this preset is not offered on battery: {0:?}")]
     NotOnBattery(Preset),
     /// The laptop took the change, and the app keeps it, but the config

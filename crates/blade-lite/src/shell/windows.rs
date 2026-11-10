@@ -185,7 +185,7 @@ fn drop_lost_drag(window: &slint::Window) {
 }
 
 /// The window's Win32 handle, once Windows has made it.
-fn hwnd(window: &slint::Window) -> Option<isize> {
+pub(super) fn hwnd(window: &slint::Window) -> Option<isize> {
     let handle = window.window_handle();
     match handle.window_handle().ok()?.as_raw() {
         RawWindowHandle::Win32(win32) => Some(win32.hwnd.get()),
