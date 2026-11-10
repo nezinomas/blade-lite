@@ -3,7 +3,7 @@
 
 use blade_core::{Config, Preset};
 use blade_lite::Rect;
-use i_slint_backend_testing::AccessibleRole::{Button, Slider, Switch};
+use i_slint_backend_testing::AccessibleRole::{Button, Slider, Switch, TextInput};
 use i_slint_backend_testing::{ElementHandle, ElementRoot};
 use platform::{Key, PowerEvent};
 use razer_proto::{BLADE_18, Command, PerfMode, Rgb, static_colour};
@@ -918,4 +918,66 @@ fn a_wake_60_hz_refused_every_time_shows_only_the_last_error() {
 
     assert_eq!(f.shell.app().machine().displays.1, left);
     assert_eq!(f.shell.app().machine().displays.0.current.hz, 240);
+}
+
+#[test]
+fn a_typed_custom_colour_sends_and_saves_it_on_enter() {
+    let f = fixture(Config::default());
+    let before = sent_count(&f);
+    let field = control(f.shell.window(), TextInput, "Custom colour");
+    let start = field.absolute_position();
+    let size = field.size();
+    let middle = LogicalPosition::new(start.x + size.width / 2.0, start.y + size.height / 2.0);
+    let window = f.shell.window().window();
+    let button = PointerEventButton::Left;
+    window.dispatch_event(WindowEvent::PointerPressed {
+        position: middle,
+        button,
+    });
+    window.dispatch_event(WindowEvent::PointerReleased {
+        position: middle,
+        button,
+    });
+
+    field.set_accessible_value("#00B7C3");
+    let enter: slint::SharedString = slint::platform::Key::Return.into();
+    window.dispatch_event(WindowEvent::KeyPressed {
+        text: enter.clone(),
+    });
+    window.dispatch_event(WindowEvent::KeyReleased { text: enter });
+
+    let colour = Rgb::new(0x00, 0xB7, 0xC3);
+    assert_eq!(sent_since(&f, before), lighting_commands(100, colour));
+    assert_eq!(f.shell.app().config().lighting.unwrap().colour, colour);
+    assert_eq!(field.accessible_value().unwrap(), "#00B7C3");
+}
+
+#[test]
+fn a_custom_cpu_boost_click_one_step_up_sends_the_custom_commands() {
+    let f = fixture(Config {
+        preset: Preset::Custom,
+        ..Config::default()
+    });
+    let before = sent_count(&f);
+    let slider = control(f.shell.window(), Slider, "CPU boost");
+    assert_eq!(slider.accessible_value().unwrap(), "1");
+    let start = slider.absolute_position();
+    let size = slider.size();
+    // Level 2 of 0 to 3, on the track.
+    let position = LogicalPosition::new(
+        start.x + size.width * 2.0 / 3.0,
+        start.y + size.height / 2.0,
+    );
+    let window = f.shell.window().window();
+    let button = PointerEventButton::Left;
+    window.dispatch_event(WindowEvent::PointerPressed { position, button });
+    window.dispatch_event(WindowEvent::PointerReleased { position, button });
+
+    let custom = razer_proto::Custom {
+        cpu: razer_proto::CpuBoost::new(2, &BLADE_18).unwrap(),
+        gpu: razer_proto::GpuBoost::new(1, &BLADE_18).unwrap(),
+        fan: razer_proto::FanMode::Auto,
+    };
+    assert_eq!(sent_since(&f, before), custom.commands(&BLADE_18));
+    assert_eq!(f.shell.app().config().custom.cpu_boost, 2);
 }
