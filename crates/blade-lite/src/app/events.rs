@@ -104,6 +104,10 @@ where
                 // The rate follows even if the preset send fails.
                 let preset = self.set_on_battery(event == PowerEvent::OnBattery);
                 let rate = self.follow_power(event);
+                if let (Err(_), Err(error)) = (&preset, &rate) {
+                    // Only the preset error is shown, so this one is logged.
+                    crate::report(&format!("the 60 Hz on battery failed too: {error}"));
+                }
                 preset.and(rate)
             }
         }
