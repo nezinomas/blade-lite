@@ -301,58 +301,100 @@ fn press_without_release<R: ElementRoot + ComponentHandle>(root: &R, label: &str
     });
 }
 
+/// A tray icon for opening the flyout.
+const ICON: Rect = Rect {
+    x: 1800,
+    y: 1100,
+    width: 24,
+    height: 24,
+};
+
+/// After a show: the slider `label` and its text show the laptop's 100%,
+/// and moving the mouse to the slider's left end and letting go (the old
+/// drag's mouse-up) neither moves it nor sends anything since `before`.
+fn shows_the_laptop_brightness<R: ElementRoot + ComponentHandle>(
+    f: &Fixture,
+    root: &R,
+    label: &str,
+    component: &str,
+    before: usize,
+) {
+    let slider = control(root, Slider, label);
+    assert_eq!(slider.accessible_value().unwrap(), "100");
+    assert_eq!(percent_shown(root, component), "100%");
+    let start = slider.absolute_position();
+    let left_end = LogicalPosition::new(start.x, start.y + slider.size().height / 2.0);
+
+    root.window()
+        .dispatch_event(WindowEvent::PointerMoved { position: left_end });
+    root.window().dispatch_event(WindowEvent::PointerReleased {
+        position: left_end,
+        button: PointerEventButton::Left,
+    });
+
+    assert_eq!(slider.accessible_value().unwrap(), "100");
+    assert_eq!(percent_shown(root, component), "100%");
+    assert_eq!(sent_since(f, before), []);
+}
+
 #[test]
 fn showing_the_window_puts_back_a_brightness_drag_cut_short() {
     let f = fixture(Config::default());
-    let window = f.shell.window();
-    press_without_release(window, "Brightness");
-    assert_eq!(percent_shown(window, "KeyboardGroup"), "50%");
+    press_without_release(f.shell.window(), "Brightness");
+    assert_eq!(percent_shown(f.shell.window(), "KeyboardGroup"), "50%");
     let before = sent_count(&f);
 
     f.shell.show_window();
 
-    let slider = control(window, Slider, "Brightness");
-    assert_eq!(slider.accessible_value().unwrap(), "100");
-    assert_eq!(percent_shown(window, "KeyboardGroup"), "100%");
-    assert_eq!(sent_since(&f, before), []);
+    shows_the_laptop_brightness(&f, f.shell.window(), "Brightness", "KeyboardGroup", before);
 }
 
 #[test]
 fn showing_the_window_puts_back_a_brightness_set_by_narrator() {
     let f = fixture(Config::default());
-    let window = f.shell.window();
-    let slider = control(window, Slider, "Brightness");
     let before = sent_count(&f);
-    slider.set_accessible_value("30");
-    assert_eq!(percent_shown(window, "KeyboardGroup"), "30%");
+    control(f.shell.window(), Slider, "Brightness").set_accessible_value("30");
+    assert_eq!(percent_shown(f.shell.window(), "KeyboardGroup"), "30%");
 
     f.shell.show_window();
 
-    assert_eq!(slider.accessible_value().unwrap(), "100");
-    assert_eq!(percent_shown(window, "KeyboardGroup"), "100%");
-    assert_eq!(sent_since(&f, before), []);
+    shows_the_laptop_brightness(&f, f.shell.window(), "Brightness", "KeyboardGroup", before);
 }
 
 #[test]
 fn opening_the_flyout_puts_back_a_brightness_drag_cut_short() {
     let f = fixture(Config::default());
-    let flyout = f.shell.flyout();
-    press_without_release(flyout, "Keyboard light");
-    assert_eq!(percent_shown(flyout, "FlyoutWindow"), "50%");
+    press_without_release(f.shell.flyout(), "Keyboard light");
+    assert_eq!(percent_shown(f.shell.flyout(), "FlyoutWindow"), "50%");
     let before = sent_count(&f);
-    let icon = Rect {
-        x: 1800,
-        y: 1100,
-        width: 24,
-        height: 24,
-    };
 
-    f.shell.toggle_flyout(icon);
+    f.shell.toggle_flyout(ICON);
 
-    let slider = control(flyout, Slider, "Keyboard light");
-    assert_eq!(slider.accessible_value().unwrap(), "100");
-    assert_eq!(percent_shown(flyout, "FlyoutWindow"), "100%");
-    assert_eq!(sent_since(&f, before), []);
+    shows_the_laptop_brightness(
+        &f,
+        f.shell.flyout(),
+        "Keyboard light",
+        "FlyoutWindow",
+        before,
+    );
+}
+
+#[test]
+fn opening_the_flyout_puts_back_a_brightness_set_by_narrator() {
+    let f = fixture(Config::default());
+    let before = sent_count(&f);
+    control(f.shell.flyout(), Slider, "Keyboard light").set_accessible_value("30");
+    assert_eq!(percent_shown(f.shell.flyout(), "FlyoutWindow"), "30%");
+
+    f.shell.toggle_flyout(ICON);
+
+    shows_the_laptop_brightness(
+        &f,
+        f.shell.flyout(),
+        "Keyboard light",
+        "FlyoutWindow",
+        before,
+    );
 }
 
 #[test]
