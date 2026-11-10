@@ -243,3 +243,61 @@ fn fn_held_again_in_the_next_report_keeps_its_start() {
     presses.on_report(&report(&FN_DOWN), late);
     assert!(!presses.watching_enter(late));
 }
+
+#[test]
+fn fn_comes_up_when_a_report_drops_it() {
+    let mut presses = presses();
+    let now = Instant::now();
+
+    presses.on_report(&report(&FN_DOWN), now);
+    assert!(!presses.fn_came_up());
+    presses.on_report(&report(&ALL_UP), now);
+    assert!(presses.fn_came_up());
+}
+
+#[test]
+fn fn_comes_up_once_per_hold() {
+    let mut presses = presses();
+    let now = Instant::now();
+
+    presses.on_report(&report(&FN_DOWN), now);
+    presses.on_report(&report(&FN_DOWN), now);
+    assert!(!presses.fn_came_up());
+    presses.on_report(&report(&ALL_UP), now);
+    presses.on_report(&report(&ALL_UP), now);
+    assert!(!presses.fn_came_up());
+}
+
+#[test]
+fn fn_comes_up_after_the_power_key_too() {
+    let mut presses = presses();
+    let now = Instant::now();
+
+    presses.on_report(&report(&KEY_DOWN), now);
+    presses.on_report(&report(&ALL_UP), now);
+
+    assert!(presses.fn_came_up());
+}
+
+#[test]
+fn fn_does_not_come_up_before_it_was_seen_down() {
+    // Fn may have been held while the reports were opened: its release
+    // is still a release, but a first report without Fn is not.
+    let mut presses = PowerKeyPresses::new(BLADE_18.power_key.unwrap());
+
+    presses.on_report(&report(&ALL_UP), Instant::now());
+
+    assert!(!presses.fn_came_up());
+}
+
+#[test]
+fn another_report_after_fn_came_up_is_not_a_second_release() {
+    let mut presses = presses();
+    let now = Instant::now();
+    presses.on_report(&report(&FN_DOWN), now);
+    presses.on_report(&report(&ALL_UP), now);
+
+    presses.on_report(&report(&[0x05]), now);
+
+    assert!(!presses.fn_came_up());
+}

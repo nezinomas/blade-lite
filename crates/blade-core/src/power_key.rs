@@ -51,6 +51,8 @@ pub struct PowerKeyPresses {
     /// Enter as last seen while Fn is held. `None` until seen, so an
     /// Enter already down when Fn came is not a press.
     enter: Option<bool>,
+    /// Whether the last key report let Fn go after a report that held it.
+    fn_up: bool,
     last_step: Option<Instant>,
 }
 
@@ -62,12 +64,14 @@ impl PowerKeyPresses {
             held: None,
             fn_since: None,
             enter: None,
+            fn_up: false,
             last_step: None,
         }
     }
 
     /// True if this report is a new press that should step the preset.
     pub fn on_report(&mut self, report: &[u8], now: Instant) -> bool {
+        self.fn_up = false;
         let Some(held) = self.key.held(report) else {
             return false;
         };
@@ -75,6 +79,14 @@ impl PowerKeyPresses {
         let pressed = held && self.held == Some(false);
         self.held = Some(held);
         pressed && self.step(now)
+    }
+
+    /// Whether the last report let Fn go: Fn + F10 or F11 may then have
+    /// changed the keyboard brightness. Those keys send no code of their
+    /// own; the laptop changes the level itself while Fn is held.
+    #[must_use]
+    pub fn fn_came_up(&self) -> bool {
+        self.fn_up
     }
 
     /// Whether Enter should be read now: Fn is held, and not for longer
@@ -104,6 +116,7 @@ impl PowerKeyPresses {
         if self.key.fn_held(report) == Some(true) {
             self.fn_since.get_or_insert(now);
         } else {
+            self.fn_up = self.fn_since.is_some();
             self.fn_since = None;
             self.enter = None;
         }
