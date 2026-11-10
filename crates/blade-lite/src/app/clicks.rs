@@ -1,13 +1,15 @@
 //! What each click does.
 
 use blade_core::{
-    Config, Controller, Query, apply_lighting, apply_performance, next_preset, set_charge_limit,
-    set_logo, set_native_mode, set_refresh_rate, set_touchpad,
+    Config, Controller, Lighting, Query, apply_lighting, apply_performance, keyboard_brightness,
+    next_preset, set_charge_limit, set_logo, set_native_mode, set_refresh_rate, set_touchpad,
+    set_vapor_light,
 };
 use platform::{DisplayApi, KeyInjector, PowerEvent, Registry};
 use ui::{DisplayCommand, KeyboardCommand, PerformanceCommand};
 
 use super::{App, AppError};
+use crate::report;
 
 impl<C, D, R, K> App<C, D, R, K>
 where
@@ -61,6 +63,51 @@ where
             }
             _ => Ok(()),
         }
+    }
+
+    /// Takes the keyboard brightness the laptop runs now, while Fn is
+    /// held or as it comes up: Fn + F10 or F11 set it in the laptop itself. A new level is
+    /// shown and saved, and the vapor light follows it as it follows the
+    /// slider. Nothing is taken while no lighting is saved: the keyboard
+    /// colour is not known then, and a saved lighting would send white at
+    /// the next start.
+    ///
+    /// # Errors
+    ///
+    /// See [`AppError`]. A failed read changes nothing. A new level is
+    /// kept and saved even if the vapor light send fails, since the
+    /// keyboard already runs it. After a failed start the keyboard may
+    /// run another level than the saved one; the next Fn press takes it.
+    ///
+    /// Returns whether a new level was taken, so the window is filled
+    /// again only then.
+    pub fn on_brightness_keys(&mut self) -> Result<bool, AppError> {
+        let Some(saved) = self.config.lighting else {
+            return Ok(false);
+        };
+        let Some(read) = keyboard_brightness(&mut self.machine.controller, self.model)? else {
+            return Ok(false);
+        };
+        if read.percent() == saved.brightness {
+            return Ok(false);
+        }
+        let lighting = Lighting {
+            brightness: read.percent(),
+            ..saved
+        };
+        let sent = set_vapor_light(lighting, self.model, &mut self.machine.controller);
+        let kept = self.keep_sent(Config {
+            lighting: Some(lighting),
+            ..self.config
+        });
+        if let (Err(_), Err(error)) = (&sent, &kept) {
+            // Only the send error is returned: log this one.
+            report(&format!(
+                "the new keyboard brightness was not saved: {error}"
+            ));
+        }
+        sent?;
+        kept.map(|()| true)
     }
 
     /// # Errors

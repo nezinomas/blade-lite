@@ -9,6 +9,7 @@ mod battery_rate;
 mod charge;
 mod config;
 mod instance;
+mod keyboard_brightness;
 mod log;
 mod logo;
 mod native_mode;
@@ -33,11 +34,15 @@ pub use battery_rate::{BATTERY_RATE, BatteryRate};
 pub use charge::{ChargeError, charge_limit_on, set_charge_limit};
 pub use config::{Config, ConfigError, CustomSettings, Lighting, Preset};
 pub use instance::{APP_NAME, Start, start_instance};
+pub use keyboard_brightness::{keyboard_brightness, set_vapor_light};
 pub use log::{LOG_FILES, LOG_LINE_MAX, LOG_MAX_BYTES, Log, log_line};
 pub use logo::{LogoError, logo_on, set_logo};
 pub use native_mode::{NativeModeState, native_mode_state, set_native_mode};
 pub use poll::{POLL_INTERVAL, PollSchedule, View};
-pub use power_key::{FN_HOLD_LIMIT, POWER_KEY_PAUSE, PowerKeyPresses, next_preset};
+pub use power_key::{
+    BRIGHTNESS_HOLD_LIMIT, BRIGHTNESS_READ_GAP, FN_HOLD_LIMIT, POWER_KEY_PAUSE, PowerKeyPresses,
+    next_preset,
+};
 pub use query::{ControllerReadings, Query, chosen_native_mode, read_controller};
 pub use razer_software::{razer_software, razer_warning};
 pub use readings::{Readings, ReadingsSampler};

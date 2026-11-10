@@ -23,8 +23,9 @@ pub fn logo() -> Logo {
 }
 
 /// Records the commands it runs. It answers the native mode query with
-/// mode 0, the logo query with `logo_reply` and the charge limit query with
-/// `charge`, and fails every run while `fails` is set. A logo command
+/// mode 0, the logo query with `logo_reply`, the charge limit query with
+/// `charge` and the brightness query with `brightness_level`, and fails
+/// every run while `fails` is set. A logo command
 /// changes `logo_reply`.
 #[derive(Default)]
 pub struct FakeController {
@@ -36,6 +37,9 @@ pub struct FakeController {
     /// `charge_stuck` is set. `None` fails the query.
     pub charge: Option<u8>,
     pub charge_stuck: bool,
+    /// The keyboard brightness level the controller reads back. `None`
+    /// fails the query.
+    pub brightness_level: Option<u8>,
 }
 
 impl Controller for FakeController {
@@ -64,6 +68,11 @@ impl Query for FakeController {
             self.logo_reply.clone().ok_or(DeviceError::Busy)
         } else if *command == ChargeLimit::query() {
             self.charge.map(|byte| vec![byte]).ok_or(DeviceError::Busy)
+        } else if Some(command) == Brightness::query(&BLADE_18).as_ref() {
+            let led = BLADE_18.brightness_leds[0];
+            self.brightness_level
+                .map(|level| vec![1, led, level])
+                .ok_or(DeviceError::Busy)
         } else {
             Err(DeviceError::Busy)
         }

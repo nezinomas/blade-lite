@@ -1,6 +1,9 @@
 use std::time::{Duration, Instant};
 
-use blade_core::{FN_HOLD_LIMIT, POWER_KEY_PAUSE, PowerKeyPresses, Preset, next_preset};
+use blade_core::{
+    BRIGHTNESS_HOLD_LIMIT, BRIGHTNESS_READ_GAP, FN_HOLD_LIMIT, POWER_KEY_PAUSE, PowerKeyPresses,
+    Preset, next_preset,
+};
 use razer_proto::{BLADE_18, ModelProfile, PerfMode};
 
 /// A 16-byte key report as the laptop sends it.
@@ -242,4 +245,127 @@ fn fn_held_again_in_the_next_report_keeps_its_start() {
     // The power key's report also lists Fn; Fn is still the same hold.
     presses.on_report(&report(&FN_DOWN), late);
     assert!(!presses.watching_enter(late));
+}
+
+#[test]
+fn fn_comes_up_when_a_report_drops_it() {
+    let mut presses = presses();
+    let now = Instant::now();
+
+    presses.on_report(&report(&FN_DOWN), now);
+    assert!(!presses.fn_came_up());
+    presses.on_report(&report(&ALL_UP), now);
+    assert!(presses.fn_came_up());
+}
+
+#[test]
+fn fn_comes_up_once_per_hold() {
+    let mut presses = presses();
+    let now = Instant::now();
+
+    presses.on_report(&report(&FN_DOWN), now);
+    presses.on_report(&report(&FN_DOWN), now);
+    assert!(!presses.fn_came_up());
+    presses.on_report(&report(&ALL_UP), now);
+    presses.on_report(&report(&ALL_UP), now);
+    assert!(!presses.fn_came_up());
+}
+
+#[test]
+fn fn_comes_up_after_the_power_key_too() {
+    let mut presses = presses();
+    let now = Instant::now();
+
+    presses.on_report(&report(&KEY_DOWN), now);
+    presses.on_report(&report(&ALL_UP), now);
+
+    assert!(presses.fn_came_up());
+}
+
+#[test]
+fn fn_does_not_come_up_before_it_was_seen_down() {
+    // Fn may have been held while the reports were opened: its release
+    // is still a release, but a first report without Fn is not.
+    let mut presses = PowerKeyPresses::new(BLADE_18.power_key.unwrap());
+
+    presses.on_report(&report(&ALL_UP), Instant::now());
+
+    assert!(!presses.fn_came_up());
+}
+
+#[test]
+fn another_report_after_fn_came_up_is_not_a_second_release() {
+    let mut presses = presses();
+    let now = Instant::now();
+    presses.on_report(&report(&FN_DOWN), now);
+    presses.on_report(&report(&ALL_UP), now);
+
+    presses.on_report(&report(&[0x05]), now);
+
+    assert!(!presses.fn_came_up());
+}
+
+/// Presses with Fn just gone down at `start`.
+fn fn_down_at(start: Instant) -> PowerKeyPresses {
+    let mut presses = presses();
+    presses.on_report(&report(&FN_DOWN), start);
+    presses
+}
+
+#[test]
+fn the_brightness_is_read_each_gap_while_fn_is_held() {
+    let start = Instant::now();
+    let mut presses = fn_down_at(start);
+
+    assert!(!presses.brightness_due(start));
+    assert!(!presses.brightness_due(start + BRIGHTNESS_READ_GAP / 2));
+    assert!(presses.brightness_due(start + BRIGHTNESS_READ_GAP));
+    assert!(!presses.brightness_due(start + BRIGHTNESS_READ_GAP));
+    assert!(presses.brightness_due(start + BRIGHTNESS_READ_GAP * 2));
+}
+
+#[test]
+fn the_brightness_is_not_read_without_fn() {
+    let start = Instant::now();
+    let mut presses = presses();
+
+    assert!(!presses.brightness_due(start + BRIGHTNESS_READ_GAP * 2));
+    let mut presses_up = fn_down_at(start);
+    presses_up.on_report(&report(&ALL_UP), start);
+    assert!(!presses_up.brightness_due(start + BRIGHTNESS_READ_GAP * 2));
+}
+
+#[test]
+fn the_brightness_is_still_read_past_the_enter_limit() {
+    // Fn may stay held while F11 is pressed many times (laptop, 2026-11-10).
+    let start = Instant::now();
+    let mut presses = fn_down_at(start);
+
+    assert!(presses.brightness_due(start + FN_HOLD_LIMIT + BRIGHTNESS_READ_GAP));
+}
+
+#[test]
+fn the_brightness_is_not_read_past_its_hold_limit() {
+    // A lost release must not keep reading for ever; Fn up reads once more.
+    let start = Instant::now();
+    let mut presses = fn_down_at(start);
+
+    assert!(
+        presses
+            .brightness_due(start + BRIGHTNESS_HOLD_LIMIT.saturating_sub(Duration::from_millis(1)))
+    );
+    assert!(!presses.brightness_due(start + BRIGHTNESS_HOLD_LIMIT + BRIGHTNESS_READ_GAP));
+}
+
+#[test]
+fn a_new_fn_hold_waits_a_full_gap() {
+    let start = Instant::now();
+    let mut presses = fn_down_at(start);
+    assert!(presses.brightness_due(start + BRIGHTNESS_READ_GAP));
+    let again = start + BRIGHTNESS_READ_GAP * 3;
+    presses.on_report(&report(&ALL_UP), again);
+    presses.on_report(&report(&FN_DOWN), again);
+
+    assert!(!presses.brightness_due(again));
+    assert!(presses.brightness_due(again + BRIGHTNESS_READ_GAP));
 }

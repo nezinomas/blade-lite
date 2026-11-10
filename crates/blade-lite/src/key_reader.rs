@@ -1,6 +1,6 @@
-//! Reads the power-mode key's reports and calls back on each press. With
-//! Num Lock on the keyboard sends only Fn, so while Fn is held, Enter's
-//! state is read too.
+//! Reads the power-mode key's reports and calls back on each press, and
+//! while Fn is held or as it comes up. With Num Lock on the keyboard sends only Fn, so
+//! while Fn is held, Enter's state is read too.
 
 use std::io;
 use std::time::{Duration, Instant};
@@ -55,6 +55,21 @@ impl EnterKey for WindowsEnter {
     }
 }
 
+/// What the key reports said.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum KeyEvent {
+    /// The power-mode key was pressed: step the preset.
+    PowerKey,
+    /// Fn is still held, and [`blade_core::BRIGHTNESS_READ_GAP`] has
+    /// passed: Fn + F10 or F11 may be changing the keyboard brightness, so
+    /// read it, to follow it live. Up to
+    /// [`blade_core::BRIGHTNESS_HOLD_LIMIT`] of a hold.
+    FnHeld,
+    /// Fn came up: Fn + F10 or F11 may have changed the keyboard
+    /// brightness, so read it.
+    FnUp,
+}
+
 /// Why the reader loop ended.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ReaderEnd {
@@ -66,13 +81,15 @@ pub enum ReaderEnd {
     Quit,
 }
 
-/// Reads reports, and Enter while Fn is held, and calls `on_press` for
-/// each press. `on_press` returns false once the app is quitting.
+/// Reads reports, and Enter while Fn is held, and calls `on_key` for
+/// each press, every [`blade_core::BRIGHTNESS_READ_GAP`] while Fn is held,
+/// and each time Fn comes up. `on_key` returns false once the
+/// app is quitting.
 pub fn step_on_presses(
     source: &mut impl KeyReportSource,
     enter: &mut impl EnterKey,
     mut presses: PowerKeyPresses,
-    mut on_press: impl FnMut() -> bool,
+    mut on_key: impl FnMut(KeyEvent) -> bool,
 ) -> ReaderEnd {
     let mut quiet = 0;
     while quiet < KEY_IDLE_READS {
@@ -82,23 +99,30 @@ pub fn step_on_presses(
         } else {
             KEY_READ_WAIT
         };
-        let key_pressed = match source.read(wait) {
+        let (key_pressed, fn_up) = match source.read(wait) {
             Ok(Some(report)) => {
                 quiet = 0;
-                presses.on_report(&report, Instant::now())
+                let stepped = presses.on_report(&report, Instant::now());
+                (stepped, presses.fn_came_up())
             }
             Ok(None) => {
                 // Short reads while Fn is held are not a quiet spell.
                 if !watching {
                     quiet += 1;
                 }
-                false
+                (false, false)
             }
             Err(error) => return ReaderEnd::Failed(error.to_string()),
         };
         let now = Instant::now();
         let entered = presses.watching_enter(now) && presses.on_enter(enter.down(), now);
-        if (key_pressed || entered) && !on_press() {
+        if (key_pressed || entered) && !on_key(KeyEvent::PowerKey) {
+            return ReaderEnd::Quit;
+        }
+        if fn_up && !on_key(KeyEvent::FnUp) {
+            return ReaderEnd::Quit;
+        }
+        if presses.brightness_due(now) && !on_key(KeyEvent::FnHeld) {
             return ReaderEnd::Quit;
         }
     }
