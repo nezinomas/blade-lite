@@ -23,6 +23,7 @@ use crate::instance::Handle;
 const SERVICE_TRIES: usize = 4;
 
 /// What runs on this PC.
+#[derive(Default)]
 pub struct WindowsPrograms;
 
 impl Programs for WindowsPrograms {

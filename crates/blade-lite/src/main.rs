@@ -118,6 +118,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     let shell = Shell::new(window, flyout, popup, app);
     bind::callbacks(&shell);
     shell.watch_windows();
+    let razer_found = shell.look_for_razer();
     shell.refresh(started.err().as_ref());
     SHELL.with(|cell| cell.replace(Some(Rc::clone(&shell))));
 
@@ -138,8 +139,9 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         ticking.tick(&power);
     });
 
-    // At login the app starts in the tray, with the settings re-applied.
-    if !in_tray {
+    // At login the app starts in the tray, with the settings re-applied,
+    // unless Razer software runs: the window then shows the warning.
+    if !in_tray || razer_found {
         shell.show_window();
     }
     // Closing the window keeps the app in the tray. Quit is in its menu.

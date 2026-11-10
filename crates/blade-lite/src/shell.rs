@@ -2,6 +2,7 @@
 //! power mode popup.
 
 mod popup;
+mod razer;
 mod ticks;
 mod windows;
 
@@ -12,8 +13,8 @@ use std::time::{Duration, Instant};
 use blade_core::{Controller, PollSchedule, Query, Readings, ReadingsSampler};
 use blade_lite::{App, AppError, SaidLately, ShownErrors, report, took_effect};
 use platform::{
-    DisplayApi, KeyInjector, Registry, WindowsDisplays, WindowsKeys, WindowsRegistry,
-    WindowsSensors,
+    DisplayApi, KeyInjector, Programs, Registry, WindowsDisplays, WindowsKeys, WindowsPrograms,
+    WindowsRegistry, WindowsSensors,
 };
 use razer_device::{Device, HidTransport, SystemClock};
 use ui::{FlyoutView, ModeWatch};
@@ -27,6 +28,8 @@ pub trait Parts: 'static {
     type Displays: DisplayApi;
     type Registry: Registry;
     type Keys: KeyInjector;
+    /// What runs, to look for Razer's own software. Read only.
+    type Programs: Programs + Default;
 }
 
 /// The real laptop.
@@ -37,6 +40,7 @@ impl Parts for Laptop {
     type Displays = WindowsDisplays;
     type Registry = WindowsRegistry;
     type Keys = WindowsKeys;
+    type Programs = WindowsPrograms;
 }
 
 /// The app over the parts `P`.
@@ -72,6 +76,12 @@ pub struct Shell<P: Parts = Laptop> {
     /// painted on a Num Lock or touchpad change then, as the controller is
     /// not ready; the resume paints it.
     resuming: Cell<u32>,
+    programs: P::Programs,
+    /// The warning for the Razer software last found, shown above the
+    /// groups while it runs.
+    razer_warning: RefCell<Option<String>>,
+    /// Whether the window was opened for Razer software. Only once per run.
+    razer_opened: Cell<bool>,
 }
 
 impl<P: Parts> Shell<P> {
@@ -98,6 +108,9 @@ impl<P: Parts> Shell<P> {
             popups: Cell::new(0),
             popup_ready: Cell::new(false),
             resuming: Cell::new(0),
+            programs: P::Programs::default(),
+            razer_warning: RefCell::new(None),
+            razer_opened: Cell::new(false),
         })
     }
 
@@ -138,6 +151,7 @@ impl<P: Parts> Shell<P> {
     pub fn refresh(&self, error: Option<&AppError>) {
         let mut app = self.app.borrow_mut();
         let mut errors: Vec<String> = error.iter().map(ToString::to_string).collect();
+        errors.extend(self.razer_warning.borrow().clone());
         let header = app.header(self.readings.get());
         self.say_read_errors(app.read_errors());
         let performance = app.performance_view();

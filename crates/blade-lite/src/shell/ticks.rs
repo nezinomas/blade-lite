@@ -64,7 +64,11 @@ impl<P: Parts> Shell<P> {
             Timer::single_shot(RESUME_PAUSE, move || {
                 shell.resuming.set(shell.resuming.get().saturating_sub(1));
                 shell.app.borrow_mut().set_num_lock(num_lock_on());
+                let first = shell.look_for_razer();
                 shell.act(|app| app.on_power(PowerEvent::Resumed));
+                if first {
+                    shell.show_window();
+                }
             });
         } else {
             self.act(|app| app.on_power(event));

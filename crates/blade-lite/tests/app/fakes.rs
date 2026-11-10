@@ -1,12 +1,15 @@
 //! Fakes for the laptop's parts, shared by the app tests and the window
 //! tests in the app's binary.
 
+use std::cell::RefCell;
 use std::io;
 use std::path::PathBuf;
 
 use blade_core::{Config, Controller, Query};
 use blade_lite::{App, Machine};
-use platform::{Display, DisplayApi, DisplayMode, Key, KeyInjector, OutputTechnology, Registry};
+use platform::{
+    Display, DisplayApi, DisplayMode, Key, KeyInjector, OutputTechnology, Programs, Registry,
+};
 use razer_device::DeviceError;
 use razer_proto::{
     BLADE_18, Brightness, ChargeLimit, Command, Logo, ModelProfile, NativeMode, Rgb, static_colour,
@@ -126,7 +129,36 @@ impl KeyInjector for FakeKeys {
     }
 }
 
-pub type TestApp = App<FakeController, FakeDisplays, FakeRegistry, FakeKeys>;
+/// What runs: nothing at first. `None` fails the read.
+pub struct FakePrograms(RefCell<Option<Vec<String>>>);
+
+impl Default for FakePrograms {
+    fn default() -> Self {
+        Self(RefCell::new(Some(Vec::new())))
+    }
+}
+
+impl FakePrograms {
+    pub fn set(&self, names: &[&str]) {
+        let names = names.iter().map(|&name| name.to_owned()).collect();
+        self.0.replace(Some(names));
+    }
+
+    pub fn fail(&self) {
+        self.0.replace(None);
+    }
+}
+
+impl Programs for FakePrograms {
+    fn running(&self) -> io::Result<Vec<String>> {
+        self.0
+            .borrow()
+            .clone()
+            .ok_or_else(|| io::Error::from(io::ErrorKind::PermissionDenied))
+    }
+}
+
+pub type TestApp =App<FakeController, FakeDisplays, FakeRegistry, FakeKeys>;
 
 pub fn app_on(model: &'static ModelProfile, config: Config) -> (TestApp, TempDir, PathBuf) {
     let dir = tempfile::tempdir().unwrap();

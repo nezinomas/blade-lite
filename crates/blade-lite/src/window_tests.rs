@@ -4,6 +4,7 @@
 //! Windows call is a read of the work area, when a click shows the popup.
 
 mod clicks;
+mod razer;
 mod screens;
 
 use std::path::{Path, PathBuf};
@@ -20,7 +21,9 @@ use slint::platform::PointerEventButton;
 use slint::{ComponentHandle, LogicalSize};
 use tempfile::TempDir;
 
-use crate::fakes::{FakeController, FakeDisplays, FakeKeys, FakeRegistry, app_on};
+use crate::fakes::{
+    FakeController, FakeDisplays, FakeKeys, FakePrograms, FakeRegistry, app_on,
+};
 use crate::shell::{Parts, Shell};
 use crate::{FlyoutWindow, MainWindow, ModePopup, bind};
 
@@ -32,6 +35,7 @@ impl Parts for Fakes {
     type Displays = FakeDisplays;
     type Registry = FakeRegistry;
     type Keys = FakeKeys;
+    type Programs = FakePrograms;
 }
 
 /// The Windows default accent, as the app uses when it can't read one.
