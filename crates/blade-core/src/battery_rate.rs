@@ -16,8 +16,9 @@ pub struct BatteryRate {
 }
 
 impl BatteryRate {
-    /// Sets the rate for a change of power source. Other events, and every
-    /// event while the option is off, change nothing.
+    /// Sets the rate for a change of power source, and sets 60 Hz again
+    /// after a wake on battery. Other events, and every event while the
+    /// option is off, change nothing.
     ///
     /// # Errors
     ///
@@ -31,6 +32,7 @@ impl BatteryRate {
         match event {
             PowerEvent::OnBattery if config.sixty_hz_on_battery => self.on_battery(api),
             PowerEvent::OnAc => self.put_back(api),
+            PowerEvent::Resumed if config.sixty_hz_on_battery => self.after_resume(api),
             _ => Ok(()),
         }
     }
@@ -49,6 +51,20 @@ impl BatteryRate {
         set_rate(api, BATTERY_RATE, ModeLife::UntilRestart)?;
         self.saved = Some(rate);
         Ok(())
+    }
+
+    /// Sets 60 Hz again if the panel is back at the rate saved before
+    /// battery: Windows puts its saved rate back in a wake (seen after a lid
+    /// sleep, 2026-11-10). Any other rate was set outside the app, and is
+    /// kept.
+    fn after_resume(&mut self, api: &mut impl DisplayApi) -> Result<(), DisplayError> {
+        let Some(saved) = self.saved else {
+            return Ok(());
+        };
+        if current_rate(api)? != saved {
+            return Ok(());
+        }
+        set_rate(api, BATTERY_RATE, ModeLife::UntilRestart)
     }
 
     /// Puts back the rate that was active before battery, if there is one:

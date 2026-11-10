@@ -231,3 +231,18 @@ fn quitting_after_the_switch_is_turned_off_on_battery_leaves_the_rate() {
 
     assert_eq!(panel_hz(&app), 120);
 }
+
+#[test]
+fn a_wake_on_battery_sets_60_hz_again_when_windows_put_the_rate_back() {
+    let (mut app, _dir, _) = app_with(Config {
+        sixty_hz_on_battery: true,
+        ..Config::default()
+    });
+    app.on_power(PowerEvent::OnBattery).unwrap();
+    // Windows puts the saved rate back in the wake.
+    app.machine_mut().displays.0.current.hz = 240;
+
+    app.on_power(PowerEvent::Resumed).unwrap();
+
+    assert_eq!(panel_hz(&app), 60);
+}

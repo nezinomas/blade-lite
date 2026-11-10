@@ -173,3 +173,59 @@ fn a_rate_changed_outside_the_app_on_battery_is_kept() {
     let rates: Vec<u32> = api.set.iter().map(|(_, mode, _)| mode.hz).collect();
     assert_eq!(rates, [60, 120]);
 }
+
+#[test]
+fn a_resume_on_battery_sets_60_hz_again_after_windows_put_the_rate_back() {
+    let mut api = panel_at(240);
+    let mut battery_rate = BatteryRate::default();
+    battery_rate
+        .on_event(PowerEvent::OnBattery, &config(true), &mut api)
+        .unwrap();
+    // Windows puts the saved rate back in the wake.
+    set_refresh_rate(&mut api, RefreshRate(240)).unwrap();
+
+    battery_rate
+        .on_event(PowerEvent::Resumed, &config(true), &mut api)
+        .unwrap();
+    battery_rate
+        .on_event(PowerEvent::OnAc, &config(true), &mut api)
+        .unwrap();
+
+    let rates: Vec<u32> = api.set.iter().map(|(_, mode, _)| mode.hz).collect();
+    assert_eq!(rates, [60, 240, 60, 240]);
+    let (_, _, life) = api.set[2];
+    assert_eq!(life, ModeLife::UntilRestart);
+}
+
+#[test]
+fn a_resume_keeps_a_rate_changed_outside_the_app_on_battery() {
+    let mut api = panel_at(240);
+    let mut battery_rate = BatteryRate::default();
+    battery_rate
+        .on_event(PowerEvent::OnBattery, &config(true), &mut api)
+        .unwrap();
+    set_refresh_rate(&mut api, RefreshRate(120)).unwrap();
+
+    battery_rate
+        .on_event(PowerEvent::Resumed, &config(true), &mut api)
+        .unwrap();
+
+    let rates: Vec<u32> = api.set.iter().map(|(_, mode, _)| mode.hz).collect();
+    assert_eq!(rates, [60, 120]);
+}
+
+#[test]
+fn a_resume_with_the_panel_still_at_60_hz_changes_nothing() {
+    let mut api = panel_at(240);
+    let mut battery_rate = BatteryRate::default();
+    battery_rate
+        .on_event(PowerEvent::OnBattery, &config(true), &mut api)
+        .unwrap();
+
+    battery_rate
+        .on_event(PowerEvent::Resumed, &config(true), &mut api)
+        .unwrap();
+
+    let rates: Vec<u32> = api.set.iter().map(|(_, mode, _)| mode.hz).collect();
+    assert_eq!(rates, [60]);
+}

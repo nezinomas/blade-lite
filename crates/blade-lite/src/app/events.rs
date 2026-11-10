@@ -86,7 +86,7 @@ where
     }
 
     /// Follows the power source, and applies everything again after a
-    /// resume. On battery only Silent or Balanced runs; the saved preset
+    /// resume, with 60 Hz again on battery if Windows put the rate back. On battery only Silent or Balanced runs; the saved preset
     /// comes back on AC. The caller waits [`blade_core::RESUME_PAUSE`]
     /// before passing on a resume.
     ///
@@ -95,7 +95,16 @@ where
     /// See [`AppError`].
     pub fn on_power(&mut self, event: PowerEvent) -> Result<(), AppError> {
         match event {
-            PowerEvent::Resumed => self.start(),
+            PowerEvent::Resumed => {
+                // The rate follows even if the start fails.
+                let started = self.start();
+                let rate = self.follow_power(event);
+                if let (Err(_), Err(error)) = (&started, &rate) {
+                    // Only the start error is shown, so this one is logged.
+                    crate::report(&format!("the 60 Hz after the wake failed too: {error}"));
+                }
+                started.and(rate)
+            }
             PowerEvent::OnBattery | PowerEvent::OnAc => {
                 // The rate follows even if the preset send fails.
                 let preset = self.set_on_battery(event == PowerEvent::OnBattery);
