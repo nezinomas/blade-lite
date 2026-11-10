@@ -559,6 +559,33 @@ fn a_preset_click_during_the_resume_pause_sends_nothing() {
 }
 
 #[test]
+fn a_click_with_a_wake_not_yet_followed_sends_nothing() {
+    let f = fixture(Config::default());
+    let (sender, receiver) = std::sync::mpsc::channel();
+    f.shell.listen_for_power(receiver);
+    sender.send(PowerEvent::Resumed).unwrap();
+    let before = sent_count(&f);
+
+    click(f.shell.window(), Button, "Silent");
+
+    assert_eq!(sent_since(&f, before), []);
+}
+
+#[test]
+fn a_switch_clicked_in_the_resume_pause_shows_the_saved_value_after_it() {
+    let f = fixture(Config::default());
+    let saved = f.shell.window().get_charge_limit_on();
+    resuming(&f);
+
+    click(f.shell.window(), Switch, "Battery charge limit");
+    i_slint_backend_testing::mock_elapsed_time(
+        blade_core::RESUME_PAUSE + std::time::Duration::from_millis(1),
+    );
+
+    assert_eq!(f.shell.window().get_charge_limit_on(), saved);
+}
+
+#[test]
 fn the_power_mode_key_during_the_resume_pause_sends_nothing() {
     let f = fixture(Config::default());
     resuming(&f);
