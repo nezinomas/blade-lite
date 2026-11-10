@@ -26,7 +26,6 @@ use std::cell::RefCell;
 use std::path::PathBuf;
 use std::process::ExitCode;
 use std::rc::Rc;
-use std::sync::mpsc::Receiver;
 
 use blade_core::{
     APP_NAME, Config, Log, POLL_INTERVAL, Start, razer_software, razer_warning, start_instance,
@@ -34,8 +33,7 @@ use blade_core::{
 };
 use blade_lite::{App, Machine, accent_colour, open_log, report, report_panics};
 use platform::{
-    PowerEvent, WindowsDisplays, WindowsInstance, WindowsKeys, WindowsPrograms, WindowsRegistry,
-    num_lock_on,
+    WindowsDisplays, WindowsInstance, WindowsKeys, WindowsPrograms, WindowsRegistry, num_lock_on,
 };
 use razer_device::{Device, HidTransport, SystemClock};
 use razer_proto::{BLADE_18, Rgb};
@@ -59,8 +57,6 @@ thread_local! {
     static SHELL: RefCell<Option<Rc<Shell>>> = const { RefCell::new(None) };
     /// The tray, for its own handlers on the event-loop thread.
     static TRAY: RefCell<Option<Rc<Tray>>> = const { RefCell::new(None) };
-    /// The power events, so a key press can see them before it steps.
-    static POWER: RefCell<Option<Rc<Receiver<PowerEvent>>>> = const { RefCell::new(None) };
 }
 
 fn main() -> ExitCode {
@@ -151,12 +147,11 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     }
     follow_the_power_key();
 
-    let power = Rc::new(power_events());
-    POWER.with(|cell| cell.replace(Some(Rc::clone(&power))));
+    shell.listen_for_power(power_events());
     let poll = Timer::default();
     let ticking = Rc::clone(&shell);
     poll.start(TimerMode::Repeated, POLL_INTERVAL, move || {
-        ticking.tick(&power);
+        ticking.tick();
     });
 
     // At login the app starts in the tray, with the settings re-applied,
@@ -170,6 +165,5 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     looped?;
     SHELL.with(RefCell::take);
     TRAY.with(RefCell::take);
-    POWER.with(RefCell::take);
     Ok(())
 }

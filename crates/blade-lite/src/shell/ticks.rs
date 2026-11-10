@@ -15,8 +15,8 @@ use crate::bind;
 impl<P: Parts> Shell<P> {
     /// Passes on power events and Num Lock, then reads the sensors if a
     /// view shows them.
-    pub fn tick(self: &Rc<Self>, power: &Receiver<PowerEvent>) {
-        self.follow_power(power);
+    pub fn tick(self: &Rc<Self>) {
+        self.follow_own_power();
         self.follow_num_lock(num_lock_on());
         if self.schedule.borrow_mut().poll_due(Instant::now()) {
             self.tick_readings();
@@ -44,8 +44,23 @@ impl<P: Parts> Shell<P> {
     /// Paints the touchpad key after a touchpad change, unless a resume
     /// waits: the resume reads the touchpad and paints it.
     pub fn follow_touchpad(self: &Rc<Self>) {
+        self.follow_own_power();
         if self.resuming.get() == 0 {
             self.act(blade_lite::App::on_touchpad_changed);
+        }
+    }
+
+    /// Takes the power events from now on, for each poll and each click.
+    pub fn listen_for_power(&self, power: Receiver<PowerEvent>) {
+        self.power.replace(Some(Rc::new(power)));
+    }
+
+    /// Acts on the power events that came since the last look, if any are
+    /// listened for.
+    pub fn follow_own_power(self: &Rc<Self>) {
+        let power = self.power.borrow().clone();
+        if let Some(power) = power {
+            self.follow_power(&power);
         }
     }
 

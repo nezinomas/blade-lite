@@ -29,6 +29,7 @@ Checks only a person can do on the laptop wait in "Still to check on the laptop"
 - [ ] 84 A Narrator set-value on the brightness slider stays shown, unsent, when the window is minimised and restored or brought back with Alt+Tab: ticket 79 puts the slider back only in `show_window` and `toggle_flyout` (ticket 79 review). Put it back on focus too, if it matters. Display only. Both reviewers
 - [ ] 88 After a failed start, preset change or power switch the preset is sent again only on the next power event (ticket 87), so Performance or Custom can keep running on battery while the app shows Balanced until then; a failed register of the power events also leaves the start's power source for the whole run. A power event during the 2 s pause after a wake is sent at once, not after the pause (ticket 87 review). Also: a resume that reads a new source (charger pulled in the sleep, or unknown) changes the preset but not the 60 Hz rate, which follows only events; and no test fails a send partway (after the Custom mode write, before the fan target). Decide whether to send again on the next poll, and to only note the source during the pause. Both reviewers
 - [x] 97 The flyout placement no longer panics on a screen narrower than the flyout (or one that reports width 0 in a display change): `clamp` with min above max panicked in an event-loop timer. Now its left edge stays on the screen, and the flyout and popup sums saturate, so a broken monitor size can't overflow them (code review 2026-11-10)
+- [x] 98 Clicks and the power-mode key do nothing during the 2 s pause after a wake (`Shell::user_act`): the controller may not be awake, and the charger may have been pulled in the sleep, so the key could step to Performance on battery. Each click and key press first follows the power events not yet polled, so a wake seen less than 1 s ago holds it too (the `Shell` now owns the power receiver). The resume then fills the windows again. Power events are not held (ticket 88) (code review 2026-11-10)
 
 ## Code quality
 - [x] 89 `clippy::undocumented_unsafe_blocks = "deny"` in the workspace lints: clippy is clean, and an `unsafe` block without a SAFETY note now fails the build (checked by removing one note)
@@ -48,9 +49,10 @@ Do these in one go, on AC, with "Start with Windows" on and Num Lock off. First 
 5. **Put it back.** Set your native mode, keyboard colour, lid logo and preset back as you noted them. Restart once more for the native mode.
 6. **App after ticket 70.** Start the app. Open the window and the flyout once, and click one preset. They work as before (ticket 70 changed only types in the shell code).
 7. **Flyout place (97).** Click the tray icon. The flyout opens above the icon, centred on it, as before.
-8. **Busy (55).** Nothing to do now. If the log ever shows a Busy error, check whether the command took effect.
-9. **Brightness drag (68).** In the window, drag the keyboard brightness slider slowly and hold it. The percent beside it follows. The keyboard light changes only when you let go. Do the same in the flyout.
-10. **Fans on battery (86).** Unplug the charger. In Balanced, run a CPU load (such as a game or a big build) for 2 minutes. When the app shows the CPU above about 65 °C, the fans show RPM (not 0) and you hear them. If they stay at 0 RPM, stop the load at once and note the CPU temperature.
+8. **Keys after wake (98).** In Balanced, on AC, sleep the laptop. Pull the charger while it sleeps. Wake it and at once press Fn + numpad Enter a few times. After about 5 s the app shows Balanced or Silent, never Performance. Then press it again: the preset steps and the popup shows. Plug the charger back in.
+9. **Busy (55).** Nothing to do now. If the log ever shows a Busy error, check whether the command took effect.
+10. **Brightness drag (68).** In the window, drag the keyboard brightness slider slowly and hold it. The percent beside it follows. The keyboard light changes only when you let go. Do the same in the flyout.
+11. **Fans on battery (86).** Unplug the charger. In Balanced, run a CPU load (such as a game or a big build) for 2 minutes. When the app shows the CPU above about 65 °C, the fans show RPM (not 0) and you hear them. If they stay at 0 RPM, stop the load at once and note the CPU temperature.
 
 ## Publishing on GitHub
 - [ ] 39 Release and installer
