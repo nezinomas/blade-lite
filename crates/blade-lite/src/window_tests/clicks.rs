@@ -1223,11 +1223,12 @@ fn the_full_charger_back_on_a_tick_runs_the_saved_preset_again() {
     f.shell.app().machine_mut().controller.charger = FakeCharger::Razer;
     let sent = sent_count(&f);
 
+    // Two full power reads in a row bring it back.
     tick_for(
         &f,
         start + blade_core::HEAT_INTERVAL,
-        Duration::from_secs(1),
-        Duration::ZERO,
+        blade_core::HEAT_INTERVAL,
+        blade_core::HEAT_INTERVAL,
     );
 
     let performance = PerfMode::Performance.commands(&BLADE_18).unwrap();
@@ -1258,4 +1259,25 @@ fn no_background_charger_read_while_razer_software_runs() {
     f.shell.tick();
 
     assert_eq!(charger_reads_since(&f, asked), 0);
+}
+
+#[test]
+fn a_weak_charge_with_balanced_saved_greys_out_performance_and_says_so() {
+    let f = fixture(Config::default());
+    f.shell.app().machine_mut().controller.charger = FakeCharger::UsbC;
+    let sent = sent_count(&f);
+
+    f.shell.tick();
+
+    assert_eq!(sent_since(&f, sent), []);
+    assert_eq!(
+        f.shell.flyout().get_power(),
+        "Plugged in \u{b7} Weak charger"
+    );
+    let view = f.shell.app().performance_view();
+    let performance = view
+        .presets
+        .iter()
+        .find(|o| o.preset == Preset::Performance);
+    assert!(!performance.unwrap().enabled);
 }

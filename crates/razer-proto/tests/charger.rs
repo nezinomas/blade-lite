@@ -33,6 +33,11 @@ fn only_the_full_power_charger_counts_as_full_power() {
 }
 
 #[test]
+fn a_full_power_byte_with_an_unseen_second_byte_is_weak() {
+    assert_eq!(charger().full_power(&[0x13, 0x00]), Some(false));
+}
+
+#[test]
 fn a_reply_of_another_length_is_not_understood() {
     assert_eq!(charger().full_power(&[]), None);
     assert_eq!(charger().full_power(&[0x13]), None);

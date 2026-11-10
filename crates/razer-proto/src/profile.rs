@@ -220,7 +220,9 @@ pub const BLADE_18: ModelProfile = ModelProfile {
     charge_limit: Some(ChargeLimit { percent: 80 }),
     // Read on the laptop (2026-11-10): `13` with the Razer charger, `04`
     // with a USB-C monitor that charges it, `00` with no charger.
-    charger: Some(Charger { full_power: 0x13 }),
+    charger: Some(Charger {
+        full_power: [0x13, 0x13],
+    }),
     // Numpad ".", with a touchpad icon on the second layer (Num Lock off).
     // Found by eye on the laptop.
     touchpad_key: Some(TouchpadKey {

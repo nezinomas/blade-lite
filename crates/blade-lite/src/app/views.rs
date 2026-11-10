@@ -11,7 +11,7 @@ use ui::{
     PerformanceView,
 };
 
-use super::{App, AppError, Power};
+use super::{App, AppError};
 
 impl<C, D, R, K> App<C, D, R, K>
 where
@@ -30,7 +30,7 @@ where
             model: self.model,
             preset: self.config.preset,
             on_battery: self.on_battery(),
-            weak_charge: self.power == Power::WeakCharger,
+            weak_charge: self.power.is_weak(),
             readings,
             cpu_celsius: controller.cpu,
             fans: controller.fans,

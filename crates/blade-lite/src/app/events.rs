@@ -7,7 +7,8 @@ use blade_core::{
 };
 use platform::{DisplayApi, KeyInjector, PowerEvent, Registry};
 
-use super::{App, AppError, Power};
+use super::{App, AppError, NOT_UNDERSTOOD, Power};
+use crate::report;
 
 impl<C, D, R, K> App<C, D, R, K>
 where
@@ -139,8 +140,10 @@ where
     }
 
     /// Reads the charger again on a poll, and sends the preset if a weak
-    /// charge came or went. A failed read keeps the last one. On battery
-    /// nothing is read. Returns whether the running preset changed.
+    /// charge came or went. A weak charge counts at once, the full charger
+    /// only on the second read in a row. A failed read keeps the last one;
+    /// a reply not understood is a weak charge. On battery nothing is read.
+    /// Returns whether a weak charge came or went, so the windows show it.
     ///
     /// # Errors
     ///
@@ -149,16 +152,22 @@ where
         if self.on_battery() {
             return Ok(false);
         }
-        let Ok(full) = full_power_charger(&mut self.machine.controller, self.model) else {
-            return Ok(false);
+        let full = match full_power_charger(&mut self.machine.controller, self.model) {
+            Err(_) => return Ok(false),
+            Ok(Some(full)) => full,
+            Ok(None) => {
+                if !self.power.is_weak() {
+                    report(NOT_UNDERSTOOD);
+                }
+                false
+            }
         };
-        let before = self.running(self.config).preset;
-        self.power = Power::from_full(full);
-        let changed = self.running(self.config).preset != before;
-        if changed {
+        let (was_weak, before) = (self.power.is_weak(), self.running(self.config).preset);
+        self.power = self.power.after_poll(full);
+        if self.running(self.config).preset != before {
             self.send_if_changed(before)?;
         }
-        Ok(changed)
+        Ok(self.power.is_weak() != was_weak)
     }
 
     /// Sends the preset that runs now if it is not `before`, or the last

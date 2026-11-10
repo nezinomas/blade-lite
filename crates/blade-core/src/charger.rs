@@ -8,8 +8,8 @@ use razer_proto::{Charger, ModelProfile};
 use crate::Query;
 
 /// Whether the model's own full power charger powers the laptop. A model
-/// without the read counts any charger as full power. A reply not
-/// understood counts as a weak charge (fail safe).
+/// without the read counts any charger as full power. `None` if the reply
+/// is not understood; the caller takes the safe side.
 ///
 /// # Errors
 ///
@@ -17,10 +17,10 @@ use crate::Query;
 pub fn full_power_charger(
     controller: &mut impl Query,
     model: &ModelProfile,
-) -> Result<bool, DeviceError> {
+) -> Result<Option<bool>, DeviceError> {
     let Some(charger) = model.charger else {
-        return Ok(true);
+        return Ok(Some(true));
     };
     let args = controller.query(&Charger::query())?;
-    Ok(charger.full_power(&args) == Some(true))
+    Ok(charger.full_power(&args))
 }

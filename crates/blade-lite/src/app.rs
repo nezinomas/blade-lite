@@ -35,16 +35,27 @@ pub struct Machine<C, D, R, K> {
     pub keys: K,
 }
 
+/// Logged when the charger reply is not understood.
+pub(super) const NOT_UNDERSTOOD: &str = "charger reply not understood: the battery presets run";
+
 /// What powers the laptop. Only the battery presets run on the battery or
 /// a weak charger, as Synapse does. The charger is read at start, after
-/// each resume and power event, and on the polls.
+/// each resume and power event, before a click or key asks for a preset
+/// not offered on battery, and on the polls.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Power {
     Charger,
     /// A charger too weak for every preset, such as a USB-C monitor.
-    WeakCharger,
+    /// `full_once` is set after one poll read full power: only a second
+    /// one in a row brings the full charger back, so a reply that flickers
+    /// in a swap does not send the presets back and forth.
+    WeakCharger {
+        full_once: bool,
+    },
     Battery,
 }
+
+const WEAK: Power = Power::WeakCharger { full_once: false };
 
 impl Power {
     fn from_battery(on_battery: bool) -> Self {
@@ -55,12 +66,18 @@ impl Power {
         }
     }
 
-    fn from_full(full: bool) -> Self {
-        if full {
-            Self::Charger
-        } else {
-            Self::WeakCharger
+    /// After a poll's read: weak at once, full power only on the second
+    /// full power read in a row.
+    fn after_poll(self, full: bool) -> Self {
+        match (self, full) {
+            (_, false) => WEAK,
+            (Self::WeakCharger { full_once: false }, true) => Self::WeakCharger { full_once: true },
+            (_, true) => Self::Charger,
         }
+    }
+
+    fn is_weak(self) -> bool {
+        matches!(self, Self::WeakCharger { .. })
     }
 }
 
@@ -207,18 +224,24 @@ where
     }
 
     /// Reads whether the charger is weak. On battery nothing is read. A
-    /// failed read counts as a weak charge (fail safe) until the next read.
-    fn read_charger(&mut self) {
+    /// failed read or a reply not understood counts as a weak charge (fail
+    /// safe) until the next read, with a log line.
+    pub(super) fn read_charger(&mut self) {
         if self.on_battery() {
             return;
         }
         self.power = match full_power_charger(&mut self.machine.controller, self.model) {
-            Ok(full) => Power::from_full(full),
+            Ok(Some(true)) => Power::Charger,
+            Ok(Some(false)) => WEAK,
+            Ok(None) => {
+                report(NOT_UNDERSTOOD);
+                WEAK
+            }
             Err(error) => {
                 report(&format!(
                     "charger read failed: the battery presets run: {error}"
                 ));
-                Power::WeakCharger
+                WEAK
             }
         };
     }

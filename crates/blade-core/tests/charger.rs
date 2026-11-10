@@ -19,24 +19,24 @@ const NO_CHARGER_READ: ModelProfile = ModelProfile {
     ..BLADE_18
 };
 
-fn read(reply: &[u8]) -> Result<bool, DeviceError> {
+fn read(reply: &[u8]) -> Result<Option<bool>, DeviceError> {
     full_power_charger(&mut FakeCharger(Some(reply.to_vec())), &BLADE_18)
 }
 
 #[test]
 fn the_razer_charger_is_full_power() {
-    assert!(read(&[0x13, 0x13]).unwrap());
+    assert_eq!(read(&[0x13, 0x13]).unwrap(), Some(true));
 }
 
 #[test]
 fn a_usb_c_source_or_none_is_not() {
-    assert!(!read(&[0x04, 0x13]).unwrap());
-    assert!(!read(&[0x00, 0x13]).unwrap());
+    assert_eq!(read(&[0x04, 0x13]).unwrap(), Some(false));
+    assert_eq!(read(&[0x00, 0x13]).unwrap(), Some(false));
 }
 
 #[test]
-fn a_reply_not_understood_is_not_full_power() {
-    assert!(!read(&[0x13]).unwrap());
+fn a_reply_not_understood_is_none() {
+    assert_eq!(read(&[0x13]).unwrap(), None);
 }
 
 #[test]
@@ -51,5 +51,5 @@ fn a_model_without_the_read_counts_any_charger_as_full_power() {
     // The fake would fail any read: none is sent.
     let read = full_power_charger(&mut FakeCharger(None), &NO_CHARGER_READ);
 
-    assert!(read.unwrap());
+    assert_eq!(read.unwrap(), Some(true));
 }

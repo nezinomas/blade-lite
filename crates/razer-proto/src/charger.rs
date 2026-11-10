@@ -7,11 +7,12 @@ use crate::Command;
 /// not known).
 const GET_CHARGER: u16 = 0x078C;
 
-/// The model's charger read: which first reply byte means its own full
-/// power charger. Any other byte, such as a USB-C source, is a weak charge.
+/// The model's charger read: the reply that means its own full power
+/// charger. Any other reply, such as a USB-C source, is a weak charge: the
+/// second byte's meaning is not known, so a reply never seen is refused.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Charger {
-    pub full_power: u8,
+    pub full_power: [u8; 2],
 }
 
 impl Charger {
@@ -28,9 +29,9 @@ impl Charger {
     /// reply args. `None` if the reply is not two bytes.
     #[must_use]
     pub fn full_power(self, args: &[u8]) -> Option<bool> {
-        let [now, _] = *args else {
+        let [now, other] = *args else {
             return None;
         };
-        Some(now == self.full_power)
+        Some([now, other] == self.full_power)
     }
 }
