@@ -10,7 +10,6 @@ use platform::{PowerEvent, num_lock_on};
 use slint::Timer;
 
 use super::{Parts, Shell};
-use crate::background::on_battery_now;
 use crate::bind;
 
 impl<P: Parts> Shell<P> {
@@ -69,7 +68,7 @@ impl<P: Parts> Shell<P> {
                     app.set_num_lock(num_lock_on());
                     // The charger may have been pulled in the sleep, and the
                     // power event may come after this resume.
-                    app.take_on_battery(on_battery_now());
+                    app.take_on_battery(P::on_battery());
                 }
                 let first = shell.look_for_razer();
                 shell.act(|app| app.on_power(PowerEvent::Resumed));

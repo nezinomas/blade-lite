@@ -37,6 +37,16 @@ impl Parts for Fakes {
     type Registry = FakeRegistry;
     type Keys = FakeKeys;
     type Programs = FakePrograms;
+
+    fn on_battery() -> bool {
+        FAKE_ON_BATTERY.get()
+    }
+}
+
+thread_local! {
+    /// The power source the fakes report: AC unless a test sets it. Each
+    /// test runs on its own thread.
+    pub static FAKE_ON_BATTERY: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
 }
 
 /// What runs: nothing at first. `None` fails the read.

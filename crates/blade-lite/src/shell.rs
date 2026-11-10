@@ -30,6 +30,8 @@ pub trait Parts: 'static {
     type Keys: KeyInjector;
     /// What runs, to look for Razer's own software. Read only.
     type Programs: Programs + Default;
+    /// Whether the laptop runs on its battery now. Read only.
+    fn on_battery() -> bool;
 }
 
 /// The real laptop.
@@ -41,6 +43,10 @@ impl Parts for Laptop {
     type Registry = WindowsRegistry;
     type Keys = WindowsKeys;
     type Programs = WindowsPrograms;
+
+    fn on_battery() -> bool {
+        crate::background::on_battery_now()
+    }
 }
 
 /// The app over the parts `P`.
