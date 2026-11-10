@@ -3,7 +3,7 @@
 //! The values are stored as the user picked them. They are checked against
 //! the model when they are applied, not here.
 
-use std::io::{ErrorKind, Write};
+use std::io::{ErrorKind, Read, Write};
 use std::path::{Path, PathBuf};
 use std::{fs, io};
 
@@ -14,6 +14,9 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 pub(crate) const APP_DIR: &str = "blade-lite";
 /// The config file's name in the app's folder.
 const FILE_NAME: &str = "config.toml";
+/// The largest file read as a config. A config is under 1 KiB; a bigger
+/// file is not one, and is not read into memory.
+const MAX_BYTES: u64 = 64 * 1024;
 
 /// Why the config could not be loaded or saved.
 #[derive(Debug, thiserror::Error)]
@@ -24,6 +27,9 @@ pub enum ConfigError {
     /// The file is not a valid config.
     #[error("config file is not valid: {0}")]
     Parse(#[from] toml::de::Error),
+    /// The file is far too big to be a config.
+    #[error("config file is too big to be a config")]
+    TooBig,
     /// The config could not be turned into TOML.
     #[error("config could not be written as TOML: {0}")]
     Serialize(#[from] toml::ser::Error),
@@ -132,13 +138,33 @@ impl Config {
     /// # Errors
     ///
     /// [`ConfigError::Io`] if the file exists but can't be read,
-    /// [`ConfigError::Parse`] if it is not a valid config.
+    /// [`ConfigError::Parse`] if it is not a valid config,
+    /// [`ConfigError::TooBig`] if it is far too big to be one.
     pub fn load(path: &Path) -> Result<Self, ConfigError> {
-        match fs::read_to_string(path) {
-            Ok(text) => Ok(toml::from_str(&text)?),
-            Err(error) if error.kind() == ErrorKind::NotFound => Ok(Self::default()),
-            Err(error) => Err(error.into()),
+        match Self::import(path) {
+            Err(ConfigError::Io(error)) if error.kind() == ErrorKind::NotFound => {
+                Ok(Self::default())
+            }
+            result => result,
         }
+    }
+
+    /// Reads a config the user picked, with the same checks as
+    /// [`load`](Self::load), but a missing file is an error.
+    ///
+    /// # Errors
+    ///
+    /// As [`load`](Self::load), and [`ConfigError::Io`] if the file is
+    /// missing.
+    pub fn import(path: &Path) -> Result<Self, ConfigError> {
+        let mut text = String::new();
+        fs::File::open(path)?
+            .take(MAX_BYTES + 1)
+            .read_to_string(&mut text)?;
+        if text.len() as u64 > MAX_BYTES {
+            return Err(ConfigError::TooBig);
+        }
+        Ok(toml::from_str(&text)?)
     }
 
     /// Writes the config, making its folder if needed.

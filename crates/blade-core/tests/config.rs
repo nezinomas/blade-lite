@@ -276,3 +276,48 @@ fn the_lid_logo_off_is_saved() {
 
     assert_eq!(Config::load(&path).unwrap(), config);
 }
+
+#[test]
+fn import_reads_a_saved_config() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("exported.toml");
+    let config = Config {
+        preset: Preset::Silent,
+        custom: tweaked_custom(),
+        ..Config::default()
+    };
+    config.save(&path).unwrap();
+
+    assert_eq!(Config::import(&path).unwrap(), config);
+}
+
+#[test]
+fn import_of_a_missing_file_is_an_error_not_the_defaults() {
+    let dir = tempfile::tempdir().unwrap();
+
+    assert!(matches!(
+        Config::import(&dir.path().join("gone.toml")),
+        Err(ConfigError::Io(_))
+    ));
+}
+
+#[test]
+fn import_of_a_broken_file_is_an_error() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("broken.toml");
+    fs::write(&path, "preset = \"turbo\"\n").unwrap();
+
+    assert!(matches!(Config::import(&path), Err(ConfigError::Parse(_))));
+}
+
+#[test]
+fn a_file_too_big_for_a_config_is_not_read() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join(FILE);
+    // Valid TOML, but far bigger than any config.
+    let comment = format!("# {}\n", "x".repeat(70_000));
+    fs::write(&path, comment + "preset = \"silent\"\n").unwrap();
+
+    assert!(matches!(Config::load(&path), Err(ConfigError::TooBig)));
+    assert!(matches!(Config::import(&path), Err(ConfigError::TooBig)));
+}
