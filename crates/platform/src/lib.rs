@@ -152,7 +152,8 @@ pub enum ModeLife {
     Saved,
     /// Not saved: a restart or a sign-in starts at the saved mode. Windows
     /// or another program (such as a game on exit) can also put the saved
-    /// mode back sooner, for example after a display is plugged in.
+    /// mode back sooner, for example after a display is plugged in (general
+    /// Windows behaviour, not checked on this laptop).
     UntilRestart,
 }
 
