@@ -10,6 +10,12 @@ use crate::Preset;
 /// once, so a bouncing or hammered key can't flood the controller.
 pub const POWER_KEY_PAUSE: Duration = Duration::from_millis(300);
 
+/// How long after Fn goes down an Enter still counts. The keyboard sends
+/// one report when Fn goes down and one when it comes up, so a lost
+/// release (such as over a sleep) would otherwise leave every Enter
+/// stepping the preset.
+pub const FN_HOLD_LIMIT: Duration = Duration::from_secs(5);
+
 /// The preset after `running` in the model's presets, wrapping round. On
 /// battery only the presets offered there count. Custom is never stepped
 /// to, since it may hold a manual fan speed; from Custom the first preset
@@ -29,13 +35,20 @@ pub fn next_preset(running: Preset, model: &ModelProfile, on_battery: bool) -> O
     cycle.get(after).or_else(|| cycle.first()).copied()
 }
 
-/// Turns the key reports into presses.
+/// Turns the key reports into presses. With Num Lock on the keyboard
+/// sends only Fn, and the Enter goes to Windows, so an Enter pressed while
+/// Fn is held is a press too (`on_enter`).
 #[derive(Debug, Clone)]
 pub struct PowerKeyPresses {
     key: PowerKey,
     /// `None` until the first key report. A key held before then is not
     /// a new press: it may have been down while the reports were opened.
     held: Option<bool>,
+    /// When Fn went down, while it is held.
+    fn_since: Option<Instant>,
+    /// Enter as last seen while Fn is held. `None` until seen, so an
+    /// Enter already down when Fn came is not a press.
+    enter: Option<bool>,
     last_step: Option<Instant>,
 }
 
@@ -45,6 +58,8 @@ impl PowerKeyPresses {
         Self {
             key,
             held: None,
+            fn_since: None,
+            enter: None,
             last_step: None,
         }
     }
@@ -54,9 +69,45 @@ impl PowerKeyPresses {
         let Some(held) = self.key.held(report) else {
             return false;
         };
+        self.follow_fn(report, now);
         let pressed = held && self.held == Some(false);
         self.held = Some(held);
-        if !pressed || self.too_soon(now) {
+        pressed && self.step(now)
+    }
+
+    /// Whether Enter should be read now: Fn is held, and not for longer
+    /// than [`FN_HOLD_LIMIT`].
+    #[must_use]
+    pub fn watching_enter(&self, now: Instant) -> bool {
+        self.fn_since
+            .is_some_and(|since| now.saturating_duration_since(since) < FN_HOLD_LIMIT)
+    }
+
+    /// True if Enter, read as `down` now, is a new press while Fn is held,
+    /// so it should step the preset.
+    pub fn on_enter(&mut self, down: bool, now: Instant) -> bool {
+        if !self.watching_enter(now) {
+            self.enter = None;
+            return false;
+        }
+        let pressed = down && self.enter == Some(false);
+        self.enter = Some(down);
+        pressed && self.step(now)
+    }
+
+    /// Notes when Fn goes down, and forgets Enter when it comes up.
+    fn follow_fn(&mut self, report: &[u8], now: Instant) {
+        if self.key.fn_held(report) == Some(true) {
+            self.fn_since.get_or_insert(now);
+        } else {
+            self.fn_since = None;
+            self.enter = None;
+        }
+    }
+
+    /// True, and noted, unless the last step was too soon before.
+    fn step(&mut self, now: Instant) -> bool {
+        if self.too_soon(now) {
             return false;
         }
         self.last_step = Some(now);

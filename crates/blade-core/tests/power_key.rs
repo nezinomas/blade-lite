@@ -1,6 +1,6 @@
 use std::time::{Duration, Instant};
 
-use blade_core::{POWER_KEY_PAUSE, PowerKeyPresses, Preset, next_preset};
+use blade_core::{FN_HOLD_LIMIT, POWER_KEY_PAUSE, PowerKeyPresses, Preset, next_preset};
 use razer_proto::{BLADE_18, ModelProfile, PerfMode};
 
 /// A 16-byte key report as the laptop sends it.
@@ -125,4 +125,112 @@ fn other_reports_do_not_change_the_key_state() {
     assert!(!presses.on_report(&report(&[0x05]), later));
     assert!(!presses.on_report(&[], later));
     assert!(!presses.on_report(&report(&KEY_DOWN), later));
+}
+
+/// Presses with Fn just pressed and Enter seen up, as with Num Lock on:
+/// the keyboard sends only Fn, and Windows gets a plain Enter.
+fn fn_held_enter_up(now: Instant) -> PowerKeyPresses {
+    let mut presses = presses();
+    assert!(!presses.on_report(&report(&FN_DOWN), now));
+    assert!(!presses.on_enter(false, now));
+    presses
+}
+
+#[test]
+fn enter_is_watched_only_while_fn_is_held() {
+    let mut presses = presses();
+    let now = Instant::now();
+    assert!(!presses.watching_enter(now));
+
+    presses.on_report(&report(&FN_DOWN), now);
+    assert!(presses.watching_enter(now));
+
+    presses.on_report(&report(&ALL_UP), now);
+    assert!(!presses.watching_enter(now));
+}
+
+#[test]
+fn enter_pressed_while_fn_is_held_steps() {
+    let now = Instant::now();
+    let mut presses = fn_held_enter_up(now);
+
+    assert!(presses.on_enter(true, now));
+    // Still held: the same press.
+    assert!(!presses.on_enter(true, now + POWER_KEY_PAUSE));
+}
+
+#[test]
+fn enter_without_fn_does_not_step() {
+    let mut presses = presses();
+    let now = Instant::now();
+
+    assert!(!presses.on_enter(false, now));
+    assert!(!presses.on_enter(true, now));
+}
+
+#[test]
+fn enter_already_down_when_fn_comes_does_not_step() {
+    let mut presses = presses();
+    let now = Instant::now();
+    presses.on_report(&report(&FN_DOWN), now);
+
+    // Enter first, then Fn: not the power-mode key.
+    assert!(!presses.on_enter(true, now));
+    assert!(!presses.on_enter(true, now));
+}
+
+#[test]
+fn enter_seen_before_a_release_is_forgotten_by_the_next_fn() {
+    let start = Instant::now();
+    let later = start + POWER_KEY_PAUSE;
+    let mut presses = fn_held_enter_up(start);
+    presses.on_report(&report(&ALL_UP), start);
+
+    // Enter is pressed, Fn comes after it.
+    presses.on_report(&report(&FN_DOWN), later);
+    assert!(!presses.on_enter(true, later));
+}
+
+#[test]
+fn a_second_enter_while_fn_is_held_steps_again() {
+    let start = Instant::now();
+    let later = start + POWER_KEY_PAUSE;
+    let mut presses = fn_held_enter_up(start);
+
+    assert!(presses.on_enter(true, start));
+    assert!(!presses.on_enter(false, later));
+    assert!(presses.on_enter(true, later));
+}
+
+#[test]
+fn enter_and_the_power_key_of_one_press_step_once() {
+    // If Windows also gets an Enter while the keyboard sends the key.
+    let now = Instant::now();
+    let mut presses = fn_held_enter_up(now);
+
+    assert!(presses.on_report(&report(&KEY_DOWN), now));
+    assert!(!presses.on_enter(true, now));
+}
+
+#[test]
+fn an_fn_held_past_the_limit_is_not_watched() {
+    // A release report lost, such as over a sleep, must not leave every
+    // Enter stepping the preset.
+    let start = Instant::now();
+    let late = start + FN_HOLD_LIMIT;
+    let mut presses = fn_held_enter_up(start);
+
+    assert!(!presses.watching_enter(late));
+    assert!(!presses.on_enter(true, late));
+}
+
+#[test]
+fn fn_held_again_in_the_next_report_keeps_its_start() {
+    let start = Instant::now();
+    let late = start + FN_HOLD_LIMIT;
+    let mut presses = fn_held_enter_up(start);
+
+    // The power key's report also lists Fn; Fn is still the same hold.
+    presses.on_report(&report(&FN_DOWN), late);
+    assert!(!presses.watching_enter(late));
 }
