@@ -1,6 +1,7 @@
 //! Threads that wait for the world outside the app: a second start, the
 //! touchpad, the power-mode key and the power source.
 
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver};
 use std::time::Duration;
 
@@ -133,13 +134,24 @@ pub fn follow_the_power_key() {
 fn on_key(event: KeyEvent) -> bool {
     match event {
         KeyEvent::PowerKey => step_the_preset(),
-        KeyEvent::FnHeld | KeyEvent::FnUp => follow_the_brightness_keys(),
+        KeyEvent::FnHeld => follow_the_brightness_keys(false),
+        KeyEvent::FnUp => follow_the_brightness_keys(true),
     }
 }
 
-/// Reads the keyboard brightness that Fn + F10 or F11 may have set.
-fn follow_the_brightness_keys() -> bool {
+/// Whether a brightness read waits on the event loop.
+static BRIGHTNESS_READ_WAITS: AtomicBool = AtomicBool::new(false);
+
+/// Reads the keyboard brightness that Fn + F10 or F11 may have set. A read
+/// while Fn is held is skipped while the last one still waits, so a slow
+/// controller (Busy) can't pile reads up on the event loop. The read as Fn
+/// comes up always goes, so the last level is never missed.
+fn follow_the_brightness_keys(fn_up: bool) -> bool {
+    if BRIGHTNESS_READ_WAITS.swap(true, Ordering::AcqRel) && !fn_up {
+        return true;
+    }
     slint::invoke_from_event_loop(|| {
+        BRIGHTNESS_READ_WAITS.store(false, Ordering::Release);
         let Some(shell) = SHELL.with(|cell| cell.borrow().clone()) else {
             return;
         };

@@ -37,7 +37,7 @@ fn a_new_level_is_shown_saved_and_followed_by_the_vapor_light() {
     let (mut app, _dir, path) = app_lit(35, true);
     app.machine_mut().controller.brightness_level = Some(255);
 
-    assert!(app.on_fn_up().unwrap());
+    assert!(app.on_brightness_keys().unwrap());
 
     assert_eq!(app.keyboard_view().unwrap().brightness, 100);
     assert_eq!(
@@ -52,7 +52,7 @@ fn a_vapor_light_switched_off_stays_off() {
     let (mut app, _dir, path) = app_lit(35, false);
     app.machine_mut().controller.brightness_level = Some(0);
 
-    app.on_fn_up().unwrap();
+    app.on_brightness_keys().unwrap();
 
     assert_eq!(app.keyboard_view().unwrap().brightness, 0);
     assert_eq!(
@@ -68,7 +68,7 @@ fn the_same_level_sends_and_saves_nothing() {
     let level = Brightness::new(35).unwrap().level();
     app.machine_mut().controller.brightness_level = Some(level);
 
-    assert!(!app.on_fn_up().unwrap());
+    assert!(!app.on_brightness_keys().unwrap());
 
     assert_eq!(sent(&app), []);
     assert!(!path.exists());
@@ -78,7 +78,7 @@ fn the_same_level_sends_and_saves_nothing() {
 fn a_failed_read_changes_nothing() {
     let (mut app, _dir, path) = app_lit(35, true);
 
-    assert!(app.on_fn_up().is_err());
+    assert!(app.on_brightness_keys().is_err());
 
     assert_eq!(sent(&app), []);
     assert!(!path.exists());
@@ -92,7 +92,7 @@ fn without_saved_lighting_nothing_is_taken() {
     let (mut app, _dir, path) = app();
     app.machine_mut().controller.brightness_level = Some(90);
 
-    assert!(!app.on_fn_up().unwrap());
+    assert!(!app.on_brightness_keys().unwrap());
 
     assert_eq!(sent(&app), []);
     assert!(!path.exists());
@@ -106,7 +106,7 @@ fn a_failed_vapor_send_still_keeps_the_new_level() {
     app.machine_mut().controller.brightness_level = Some(255);
     app.machine_mut().controller.fails = true;
 
-    assert!(app.on_fn_up().is_err());
+    assert!(app.on_brightness_keys().is_err());
 
     assert_eq!(app.keyboard_view().unwrap().brightness, 100);
     assert_eq!(
@@ -121,7 +121,7 @@ fn a_failed_save_keeps_the_new_level_in_memory() {
     app.machine_mut().controller.brightness_level = Some(255);
     break_save(&path);
 
-    let error = app.on_fn_up().unwrap_err();
+    let error = app.on_brightness_keys().unwrap_err();
 
     assert!(error.was_sent());
     assert_eq!(app.keyboard_view().unwrap().brightness, 100);
@@ -139,7 +139,7 @@ fn the_colour_is_kept() {
     });
     app.machine_mut().controller.brightness_level = Some(255);
 
-    app.on_fn_up().unwrap();
+    app.on_brightness_keys().unwrap();
 
     assert_eq!(app.config().lighting.unwrap().colour, WHITE);
 }

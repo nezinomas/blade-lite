@@ -65,8 +65,8 @@ where
         }
     }
 
-    /// Takes the keyboard brightness the laptop runs now, after Fn came
-    /// up: Fn + F10 or F11 set it in the laptop itself. A new level is
+    /// Takes the keyboard brightness the laptop runs now, while Fn is
+    /// held or as it comes up: Fn + F10 or F11 set it in the laptop itself. A new level is
     /// shown and saved, and the vapor light follows it as it follows the
     /// slider. Nothing is taken while no lighting is saved: the keyboard
     /// colour is not known then, and a saved lighting would send white at
@@ -81,7 +81,7 @@ where
     ///
     /// Returns whether a new level was taken, so the window is filled
     /// again only then.
-    pub fn on_fn_up(&mut self) -> Result<bool, AppError> {
+    pub fn on_brightness_keys(&mut self) -> Result<bool, AppError> {
         let Some(saved) = self.config.lighting else {
             return Ok(false);
         };

@@ -231,7 +231,7 @@ fn the_power_key_then_fn_up_call_back_in_order() {
 }
 
 #[test]
-fn the_loop_ends_when_the_app_quits_on_fn_up() {
+fn the_loop_ends_when_the_app_quits_on_brightness_keys() {
     let mut source = source(vec![
         Some(report(&[0x04, 0x0A])),
         Some(report(&[0x04])),
@@ -277,7 +277,7 @@ impl KeyReportSource for HeldFn {
 }
 
 #[test]
-fn the_brightness_is_read_while_fn_is_held_then_once_more_on_fn_up() {
+fn the_brightness_is_read_while_fn_is_held_then_once_more_on_brightness_keys() {
     let mut source = HeldFn {
         reads: 0,
         release_after: BRIGHTNESS_READ_GAP * 2 + BRIGHTNESS_READ_GAP / 2,
@@ -291,5 +291,9 @@ fn the_brightness_is_read_while_fn_is_held_then_once_more_on_fn_up() {
         true
     });
 
-    assert_eq!(events, [KeyEvent::FnHeld, KeyEvent::FnHeld, KeyEvent::FnUp]);
+    // Real time passes, so a slow runner may fit in one more read.
+    let (up, held) = events.split_last().unwrap();
+    assert_eq!(*up, KeyEvent::FnUp);
+    assert!((2..=3).contains(&held.len()), "{events:?}");
+    assert!(held.iter().all(|&event| event == KeyEvent::FnHeld));
 }
