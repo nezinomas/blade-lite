@@ -1362,6 +1362,35 @@ fn no_temperature_read_while_a_wake_waits() {
     assert_eq!(temperature_reads_since(&f, asked), 0);
 }
 
+#[test]
+fn with_the_window_open_a_tick_reads_no_controller_while_a_wake_waits() {
+    let f = fixture(Config::default());
+    f.shell.show_window();
+    resuming(&f);
+    let asked = asked_count(&f);
+
+    f.shell
+        .tick_at(Instant::now() + Duration::from_secs(60), SystemTime::now());
+
+    assert_eq!(asked_count(&f), asked);
+}
+
+#[test]
+fn with_the_window_open_a_tick_reads_the_controller_after_the_wake_pause() {
+    let f = fixture(Config::default());
+    f.shell.show_window();
+    resuming(&f);
+    i_slint_backend_testing::mock_elapsed_time(
+        blade_core::RESUME_PAUSE + std::time::Duration::from_millis(1),
+    );
+    let asked = asked_count(&f);
+
+    f.shell
+        .tick_at(Instant::now() + Duration::from_secs(60), SystemTime::now());
+
+    assert!(temperature_reads_since(&f, asked) > 0);
+}
+
 /// Ticks every `step` from `start` for `duration`, as the 1 s timer would
 /// at those times.
 fn tick_for(f: &Fixture, start: Instant, step: Duration, duration: Duration) {
