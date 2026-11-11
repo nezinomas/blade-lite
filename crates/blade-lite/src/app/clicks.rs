@@ -175,6 +175,8 @@ where
     ///
     /// See [`AppError`].
     pub fn on_display(&mut self, command: DisplayCommand) -> Result<(), AppError> {
+        // A rate error held for a resend may no longer hold.
+        self.held_rate_error = None;
         match command {
             DisplayCommand::SetRefreshRate(rate) => {
                 set_refresh_rate(&mut self.machine.displays, rate)?;

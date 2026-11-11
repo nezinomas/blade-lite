@@ -2,8 +2,8 @@
 //! a Num Lock or mic mute change and on quit.
 
 use blade_core::{
-    ApplyError, Controller, Preset, Query, apply, apply_performance, full_power_charger,
-    paint_red_keys, touchpad_on,
+    ApplyError, Controller, DisplayError, Preset, Query, apply, apply_performance,
+    full_power_charger, paint_red_keys, touchpad_on,
 };
 use platform::{DisplayApi, KeyInjector, PowerEvent, Registry};
 use razer_proto::RedKeys;
@@ -120,6 +120,7 @@ where
     ///
     /// See [`AppError`].
     pub fn on_power(&mut self, event: PowerEvent) -> Result<(), AppError> {
+        self.held_rate_error = None;
         match event {
             PowerEvent::Resumed => {
                 // The rate follows even if the start fails.
@@ -138,23 +139,39 @@ where
                 } else {
                     Ok(())
                 };
-                if let (Err(_), Err(error)) = (&started, &rate) {
-                    // Only the start error is shown, so this one is logged.
-                    crate::report(&format!("the rate after the wake failed too: {error}"));
-                }
-                started.and(rate)
+                self.hold_rate_error(started, rate, "the rate after the wake failed too")
             }
             PowerEvent::OnBattery | PowerEvent::OnAc => {
                 // The rate follows even if the preset send fails.
                 let preset = self.set_on_battery(event == PowerEvent::OnBattery);
                 let rate = self.follow_power(event);
                 let rate = self.quiet_if_tried_again(rate);
-                if let (Err(_), Err(error)) = (&preset, &rate) {
-                    // Only the preset error is shown, so this one is logged.
-                    crate::report(&format!("the rate change failed too: {error}"));
-                }
-                preset.and(rate)
+                self.hold_rate_error(preset, rate, "the rate change failed too")
             }
+        }
+    }
+
+    /// Shows the preset error of a power event before its rate error. A
+    /// rate error behind a failed preset is logged. A rate the panel does
+    /// not offer is also held, if a resend of the preset is to come, to
+    /// show once it works. Others are not: one tried again on the polls is
+    /// quiet here and shows itself, no panel shows in the display view, and
+    /// a refused put-back on AC is not tried again, as before.
+    fn hold_rate_error(
+        &mut self,
+        preset: Result<(), AppError>,
+        rate: Result<(), AppError>,
+        context: &str,
+    ) -> Result<(), AppError> {
+        match (preset, rate) {
+            (Err(preset), Err(rate)) => {
+                report(&format!("{context}: {rate}"));
+                let resend_due = self.preset_unsure && self.resends_left > 0;
+                let lasting = matches!(rate, AppError::Display(DisplayError::Unsupported(_)));
+                self.held_rate_error = (resend_due && lasting).then_some(rate);
+                Err(preset)
+            }
+            (preset, rate) => preset.and(rate),
         }
     }
 
@@ -208,6 +225,8 @@ where
     /// # Errors
     ///
     /// See [`AppError`]. The next poll tries again, while tries are left.
+    /// A resend that works returns the rate error held behind the failed
+    /// send, if any (see `hold_rate_error`), so it shows then.
     pub fn resend_preset(&mut self) -> Result<bool, AppError> {
         if !self.preset_unsure || self.resends_left == 0 {
             return Ok(false);
@@ -215,13 +234,21 @@ where
         self.resends_left -= 1;
         let config = self.running(self.config);
         let applied = apply_performance(&config, self.model, &mut self.machine.controller);
+        // Only the preset run is sent, so `AfterPreset` can't come here.
         match &applied {
             Ok(()) => self.preset_unsure = false,
             Err(ApplyError::Device(_)) => self.preset_send_failed(),
             Err(_) => {}
         }
+        if self.resends_left == 0 && applied.is_err() {
+            // No resend is left to show it.
+            self.held_rate_error = None;
+        }
         applied?;
-        Ok(true)
+        match self.held_rate_error.take() {
+            Some(error) => Err(error),
+            None => Ok(true),
+        }
     }
 
     /// Sends the preset that runs now if it is not `before`, or the last

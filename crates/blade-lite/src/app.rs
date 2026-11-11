@@ -105,6 +105,12 @@ pub struct App<C, D, R, K> {
     /// How many preset sends failed (resends too), so the shell can wait a
     /// poll after each.
     preset_failures: u32,
+    /// A rate the panel does not offer, from a power event whose preset
+    /// send failed too, so only the preset error was shown. The resend
+    /// that works shows it. The next power event, a display click, the last
+    /// failed resend or a preset send that works (a click, or a weak
+    /// charger's send on AC) drops it unshown.
+    held_rate_error: Option<AppError>,
     /// Whether the power source was known at the last read. An unknown one
     /// runs the battery presets, but leaves the rate alone at a wake.
     source_known: bool,
@@ -154,6 +160,7 @@ where
             preset_unsure: false,
             resends_left: 0,
             preset_failures: 0,
+            held_rate_error: None,
             source_known: true,
             logo_on: None,
             charge_limit_on: None,
@@ -231,10 +238,13 @@ where
     /// taken in part is sent again on the next few polls. A value refused
     /// before anything was sent leaves the controller, and so the flag, as
     /// they were. A preset taken before a lid logo or lighting error is
-    /// sure.
+    /// sure, and drops a rate error held for a resend.
     fn note_preset_send(&mut self, applied: &Result<(), ApplyError>) {
         match applied {
-            Ok(()) | Err(ApplyError::AfterPreset(_)) => self.preset_unsure = false,
+            Ok(()) | Err(ApplyError::AfterPreset(_)) => {
+                self.preset_unsure = false;
+                self.held_rate_error = None;
+            }
             Err(ApplyError::Device(_)) => self.preset_send_cut(),
             Err(_) => {}
         }

@@ -1,9 +1,9 @@
 //! Presets on battery, and the charge limit.
 
 use blade_core::{Config, CustomSettings, Lighting, Preset};
-use platform::PowerEvent;
+use platform::{Display, OutputTechnology, PowerEvent};
 use razer_proto::{BLADE_18, PerfMode};
-use ui::PerformanceCommand;
+use ui::{DisplayCommand, PerformanceCommand};
 
 use crate::{
     LIMIT_OFF, LIMIT_ON, SET_CHARGE_LIMIT, WHITE, app, app_with, charge_limit, charge_limit_on,
@@ -393,6 +393,128 @@ fn a_60_hz_the_panel_does_not_offer_at_a_switch_is_shown() {
 
     assert!(app.on_power(PowerEvent::OnBattery).is_err());
     assert!(!app.battery_rate_pending());
+}
+
+/// The app with 60 Hz on battery whose panel does not offer 60 Hz, after
+/// a switch to battery whose preset send failed too.
+fn no_60_hz_behind_a_failed_switch() -> (crate::fakes::TestApp, tempfile::TempDir) {
+    failed_switch_with(|panel| panel.modes.retain(|mode| mode.hz != 60))
+}
+
+/// The app with 60 Hz on battery, its panel changed by `change`, after a
+/// switch to battery whose preset send failed.
+fn failed_switch_with(
+    change: impl FnOnce(&mut Display),
+) -> (crate::fakes::TestApp, tempfile::TempDir) {
+    let (mut app, dir, _) = app_with(Config {
+        preset: Preset::Performance,
+        sixty_hz_on_battery: true,
+        ..Config::default()
+    });
+    change(&mut app.machine_mut().displays.0);
+    app.machine_mut().controller.fails = true;
+    let switched = app.on_power(PowerEvent::OnBattery);
+    assert!(
+        matches!(switched, Err(blade_lite::AppError::Apply(_))),
+        "{switched:?}"
+    );
+    (app, dir)
+}
+
+#[test]
+fn a_lasting_60_hz_error_behind_a_failed_preset_shows_once_a_resend_works() {
+    let (mut app, _dir) = no_60_hz_behind_a_failed_switch();
+    app.machine_mut().controller.fails = false;
+
+    let resent = app.resend_preset();
+
+    assert!(
+        matches!(resent, Err(blade_lite::AppError::Display(_))),
+        "{resent:?}"
+    );
+    assert!(!app.preset_unsure());
+    assert_eq!(sent(&app), PerfMode::Balanced.commands(&BLADE_18).unwrap());
+    // Shown once.
+    assert!(!app.resend_preset().unwrap());
+}
+
+#[test]
+fn a_lasting_60_hz_error_waits_out_a_failed_resend() {
+    let (mut app, _dir) = no_60_hz_behind_a_failed_switch();
+    let failed = app.resend_preset();
+    assert!(
+        matches!(failed, Err(blade_lite::AppError::Apply(_))),
+        "{failed:?}"
+    );
+    app.machine_mut().controller.fails = false;
+
+    let resent = app.resend_preset();
+
+    assert!(
+        matches!(resent, Err(blade_lite::AppError::Display(_))),
+        "{resent:?}"
+    );
+}
+
+#[test]
+fn a_new_power_event_drops_a_held_60_hz_error() {
+    let (mut app, _dir) = no_60_hz_behind_a_failed_switch();
+    app.on_power(PowerEvent::OnAc).unwrap_err();
+    app.machine_mut().controller.fails = false;
+
+    assert!(app.resend_preset().unwrap());
+}
+
+#[test]
+fn a_preset_click_that_works_drops_a_held_60_hz_error() {
+    let (mut app, _dir) = no_60_hz_behind_a_failed_switch();
+    app.machine_mut().controller.fails = false;
+    app.on_performance(PerformanceCommand::SetPreset(Preset::Silent))
+        .unwrap();
+    // A later failed click marks the preset unsure again.
+    app.machine_mut().controller.fails = true;
+    assert!(
+        app.on_performance(PerformanceCommand::SetPreset(Preset::Balanced))
+            .is_err()
+    );
+    app.machine_mut().controller.fails = false;
+
+    assert!(app.resend_preset().unwrap());
+}
+
+#[test]
+fn turning_the_60_hz_switch_off_drops_a_held_60_hz_error() {
+    let (mut app, _dir) = no_60_hz_behind_a_failed_switch();
+    app.on_display(DisplayCommand::SetSixtyHzOnBattery(false))
+        .unwrap();
+    app.machine_mut().controller.fails = false;
+
+    assert!(app.resend_preset().unwrap());
+}
+
+#[test]
+fn a_last_failed_resend_drops_a_held_60_hz_error() {
+    let (mut app, _dir) = no_60_hz_behind_a_failed_switch();
+    for _ in 0..blade_lite::RESEND_TRIES {
+        assert!(app.resend_preset().is_err());
+    }
+    // A later failed click gives the resends their tries again.
+    assert!(
+        app.on_performance(PerformanceCommand::SetPreset(Preset::Balanced))
+            .is_err()
+    );
+    app.machine_mut().controller.fails = false;
+
+    assert!(app.resend_preset().unwrap());
+}
+
+#[test]
+fn no_panel_behind_a_failed_switch_is_not_held() {
+    // The window's display view shows it already.
+    let (mut app, _dir) = failed_switch_with(|panel| panel.technology = OutputTechnology::External);
+    app.machine_mut().controller.fails = false;
+
+    assert!(app.resend_preset().unwrap());
 }
 
 /// The app with 60 Hz on battery, on battery, the panel at 60 Hz. Returns

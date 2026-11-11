@@ -62,7 +62,9 @@ impl<P: Parts> Shell<P> {
     /// Razer's software runs, as for the heat reads, nor in the tick of a
     /// failed send or the one after it: the controller may still run it.
     /// A resend that works is quiet, so the error of the failed send stays
-    /// shown (it may not be the preset's); a failed one is shown.
+    /// shown (it may not be the preset's), unless a rate error was held
+    /// behind that send: it is shown then, with the windows filled again.
+    /// A failed one is shown.
     fn resend_preset(self: &Rc<Self>) {
         let quiet = self.app.borrow().preset_failures() == self.preset_failures_seen.get();
         if !quiet || !self.heat_reads_allowed() {
