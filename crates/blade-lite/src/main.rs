@@ -115,6 +115,26 @@ fn open_controller() -> Result<HidTransport, Box<dyn std::error::Error>> {
     })
 }
 
+/// Opens the controller; a login start (`--tray`) tries
+/// [`TRAY_OPEN_TRIES`] times, as it may not be ready yet. Each failed try
+/// but the last is logged, so the log shows how late it was.
+fn open_controller_at_start(in_tray: bool) -> Result<HidTransport, Box<dyn std::error::Error>> {
+    let tries = if in_tray { TRAY_OPEN_TRIES } else { 1 };
+    let mut count = 0;
+    try_times(tries, TRAY_OPEN_PAUSE, || {
+        count += 1;
+        let opened = open_controller();
+        if let Err(error) = &opened
+            && count < tries
+        {
+            report(&format!(
+                "controller open try {count} of {tries} failed: {error}"
+            ));
+        }
+        opened
+    })
+}
+
 /// The tray's icon in the accent colour, for the title bars and the taskbar.
 /// Given to winit as each window is made: Slint's `icon` property drops a
 /// picture made from pixels (it has no cache key, so it looks unchanged).
@@ -166,20 +186,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     let config = config_or_defaults(&config_path, |question| {
         platform::ask_yes_no(START_BOX_TITLE, question)
     })?;
-    let tries = if in_tray { TRAY_OPEN_TRIES } else { 1 };
-    let mut tried = 0;
-    let controller = try_times(tries, TRAY_OPEN_PAUSE, || {
-        tried += 1;
-        let opened = open_controller();
-        if let Err(error) = &opened
-            && tried < tries
-        {
-            report(&format!(
-                "controller open try {tried} of {tries} failed: {error}"
-            ));
-        }
-        opened
-    })?;
+    let controller = open_controller_at_start(in_tray)?;
     let machine = Machine {
         controller: Device::new(
             Reopening::new(
