@@ -26,7 +26,7 @@ pub use files::{FileDialog, pick_file};
 pub use instance::{WakeListener, WindowsInstance};
 pub use keys::{WindowsKeys, enter_down, mic_keys_down, num_lock_on};
 pub use mic::{mic_muted, toggle_mic_mute};
-pub use popup::work_area;
+pub use popup::{work_area, work_area_at};
 pub use power::{WindowsPowerEvents, on_battery};
 pub use programs::WindowsPrograms;
 pub use registry::WindowsRegistry;

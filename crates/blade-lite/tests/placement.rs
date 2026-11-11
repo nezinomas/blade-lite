@@ -163,3 +163,17 @@ fn the_popup_follows_a_work_area_that_does_not_start_at_zero() {
     assert_eq!(x, -1920 + 2560 - 300 - 12);
     assert_eq!(y, 100 + 1552 - 90 - 12);
 }
+
+#[test]
+/// Documents why the flyout gets the work area, not the whole screen.
+fn it_stays_off_a_taskbar_on_the_left() {
+    let work_area = Rect {
+        x: 96,
+        width: 2560 - 96,
+        ..SCREEN
+    };
+
+    let (x, _) = flyout_position(icon(28, 800), FLYOUT, work_area);
+
+    assert_eq!(x, 96 + 12);
+}

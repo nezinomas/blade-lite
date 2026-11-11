@@ -5,7 +5,7 @@ use std::time::{Duration, Instant};
 
 use blade_core::View;
 use blade_lite::{Rect, flyout_position, report};
-use platform::{hide_caption_buttons, round_corners, set_mica};
+use platform::{hide_caption_buttons, round_corners, set_mica, work_area, work_area_at};
 use raw_window_handle::{HasWindowHandle, RawWindowHandle};
 use slint::platform::WindowEvent;
 use slint::winit_030::{EventResult, WinitWindowAccessor, winit};
@@ -174,22 +174,23 @@ impl<P: Parts> Shell<P> {
     fn place_flyout(&self, icon: Rect) {
         let size = self.flyout.window().size();
         let flyout = (px(size.width), px(size.height));
-        let screen = self
-            .flyout
-            .window()
-            .with_winit_window(|window| {
-                let monitor = window.current_monitor()?;
-                let (position, size) = (monitor.position(), monitor.size());
-                Some(Rect {
-                    x: position.x,
-                    y: position.y,
-                    width: px(size.width),
-                    height: px(size.height),
-                })
-            })
-            .flatten();
-        let Some(screen) = screen else {
-            return;
+        // The icon's own monitor, less its taskbars: the flyout's last
+        // monitor can be another one, or gone. Else the main screen's.
+        let centre = (
+            icon.x.saturating_add(icon.width / 2),
+            icon.y.saturating_add(icon.height / 2),
+        );
+        let screen = match work_area_at(centre).or_else(|_| work_area()) {
+            Ok((x, y, width, height)) => Rect {
+                x,
+                y,
+                width,
+                height,
+            },
+            Err(error) => {
+                report(&format!("the flyout can't find a screen: {error}"));
+                return;
+            }
         };
         let (x, y) = flyout_position(icon, flyout, screen);
         self.flyout
