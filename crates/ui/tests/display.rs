@@ -17,7 +17,7 @@ fn state() -> DisplayState<'static> {
         model: &BLADE_18,
         offered: rates(&[60, 120, 240]),
         current: RefreshRate(240),
-        native: NativeModeState::Active(UHD),
+        native: Some(NativeModeState::Active(UHD)),
         sixty_hz_on_battery: true,
         on_battery: false,
     }
@@ -44,7 +44,7 @@ fn hz_440_appears_only_in_1920_x_1200_mode() {
     let fhd = DisplayState {
         offered: rates(&[60, 120, 240, 440]),
         current: RefreshRate(440),
-        native: NativeModeState::Active(FHD),
+        native: Some(NativeModeState::Active(FHD)),
         ..state()
     };
 
@@ -145,9 +145,34 @@ fn an_active_native_mode_shows_no_infobar() {
 }
 
 #[test]
+fn an_unknown_native_mode_chooses_none_and_still_shows_the_rates() {
+    let view = DisplayView::new(&DisplayState {
+        native: None,
+        ..state()
+    });
+
+    assert!(view.native_modes.iter().all(|option| !option.selected));
+    assert_eq!(view.native_modes.len(), BLADE_18.native_modes.len());
+    assert_eq!(view.native_note, "Unknown");
+    assert!(!view.restart_infobar);
+    assert_eq!(labels(&view), ["60 Hz", "120 Hz", "240 Hz"]);
+}
+
+#[test]
+fn an_unknown_native_mode_picks_nothing() {
+    let view = DisplayView::new(&DisplayState {
+        native: None,
+        ..state()
+    });
+
+    assert_eq!(view.pick_native_mode(0), None);
+    assert_eq!(view.pick_native_mode(1), None);
+}
+
+#[test]
 fn changing_native_mode_shows_the_restart_infobar() {
     let view = DisplayView::new(&DisplayState {
-        native: NativeModeState::AppliesAfterRestart(FHD),
+        native: Some(NativeModeState::AppliesAfterRestart(FHD)),
         ..state()
     });
 

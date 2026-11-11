@@ -157,7 +157,8 @@ fn pick_preset<P: Parts>(shell: &Rc<Shell<P>>, i: i32) {
 }
 
 fn pick_rate<P: Parts>(shell: &Rc<Shell<P>>, i: i32) {
-    shell.user_act(|app| match app.display_view()?.pick_rate(index(i)) {
+    // The rates come from Windows: no controller read for them.
+    shell.user_act(|app| match app.display_view_unread()?.pick_rate(index(i)) {
         Some(command) => app.on_display(command),
         None => Ok(()),
     });

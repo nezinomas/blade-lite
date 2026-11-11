@@ -6,10 +6,10 @@ use std::sync::mpsc::{Receiver, TryRecvError};
 use std::time::{Instant, SystemTime};
 
 use blade_core::{RESUME_PAUSE, Readings};
-use blade_lite::report;
+use blade_lite::{AppError, report};
 use platform::{PowerEvent, num_lock_on};
 use slint::Timer;
-use ui::{Header, HeatWatch};
+use ui::{DisplayView, Header, HeatWatch};
 
 use super::popup::{POPUP_HOLD, TOUCHPAD};
 use super::{AppOn, Parts, Shell};
@@ -103,6 +103,17 @@ impl<P: Parts> Shell<P> {
         }
     }
 
+    /// The display view, with the native mode read only if
+    /// [`heat_reads_allowed`](Self::heat_reads_allowed): else the one last
+    /// read or set, or none chosen if none is known.
+    pub(super) fn display_view(&self, app: &mut AppOn<P>) -> Result<DisplayView, AppError> {
+        if self.heat_reads_allowed() {
+            app.display_view()
+        } else {
+            app.display_view_unread()
+        }
+    }
+
     /// Whether the controller may be read in the background: not while a
     /// resume waits (it may not be ready), nor while Razer's own software
     /// runs (it may talk to the controller at the same time).
@@ -143,7 +154,7 @@ impl<P: Parts> Shell<P> {
         if app.battery_rate_pending() {
             return;
         }
-        if let Ok(view) = app.display_view() {
+        if let Ok(view) = self.display_view(&mut app) {
             bind::display(&self.window, &view);
         }
     }

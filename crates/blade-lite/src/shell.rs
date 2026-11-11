@@ -322,7 +322,7 @@ impl<P: Parts> Shell<P> {
         bind::performance(&self.window, &performance);
         bind::flyout_performance(&self.flyout, &performance, &header);
         // A failed view leaves its parts as last shown and shows the error.
-        match app.display_view() {
+        match self.display_view(&mut app) {
             Ok(view) => {
                 bind::display(&self.window, &view);
                 bind::flyout_display(&self.flyout, &view);

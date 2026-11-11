@@ -6,7 +6,7 @@ use blade_core::{
     touchpad_on,
 };
 use platform::{DisplayApi, KeyInjector, Registry};
-use razer_proto::{Brightness, Celsius};
+use razer_proto::{Brightness, Celsius, NativeMode};
 use ui::{
     DisplayState, DisplayView, Header, HeaderState, KeyboardState, KeyboardView, PerformanceState,
     PerformanceView,
@@ -94,14 +94,32 @@ where
     ///
     /// See [`AppError`].
     pub fn display_view(&mut self) -> Result<DisplayView, AppError> {
-        let chosen = chosen_native_mode(&mut self.machine.controller, self.model)?
-            .ok_or(AppError::UnknownNativeMode)?;
+        let chosen = chosen_native_mode(&mut self.machine.controller, self.model);
+        self.native_mode = chosen.as_ref().ok().copied().flatten();
+        self.display_view_with(Some(chosen?.ok_or(AppError::UnknownNativeMode)?))
+    }
+
+    /// The display view without reading the controller, such as while
+    /// Razer's own software may talk to it: with the native mode last read
+    /// or set, or none chosen if none is known (Razer's software may have
+    /// changed it since). The rates are read from Windows.
+    ///
+    /// # Errors
+    ///
+    /// See [`AppError`]: only the Windows display reads can fail.
+    pub fn display_view_unread(&self) -> Result<DisplayView, AppError> {
+        self.display_view_with(self.native_mode)
+    }
+
+    fn display_view_with(&self, chosen: Option<NativeMode>) -> Result<DisplayView, AppError> {
         let displays = &self.machine.displays;
         Ok(DisplayView::new(&DisplayState {
             model: self.model,
             offered: refresh_rates(displays)?,
             current: current_rate(displays)?,
-            native: native_mode_state(chosen, self.model, displays)?,
+            native: chosen
+                .map(|chosen| native_mode_state(chosen, self.model, displays))
+                .transpose()?,
             sixty_hz_on_battery: self.config.sixty_hz_on_battery,
             on_battery: self.on_battery(),
         }))
