@@ -1456,3 +1456,107 @@ fn a_weak_charge_with_balanced_saved_greys_out_performance_and_says_so() {
         .find(|o| o.preset == Preset::Performance);
     assert!(!performance.unwrap().enabled);
 }
+
+/// Performance saved, then a switch to battery that failed.
+fn failed_switch_fixture() -> Fixture {
+    let f = fixture(Config {
+        preset: Preset::Performance,
+        ..Config::default()
+    });
+    FAKE_ON_BATTERY.set(true);
+    f.shell.app().machine_mut().controller.fails = true;
+    let (sender, receiver) = std::sync::mpsc::channel();
+    sender.send(PowerEvent::OnBattery).unwrap();
+    f.shell.follow_power(&receiver);
+    f.shell.app().machine_mut().controller.fails = false;
+    f
+}
+
+#[test]
+fn a_failed_switch_to_battery_is_sent_again_on_the_next_tick() {
+    let f = failed_switch_fixture();
+    let sent = sent_count(&f);
+
+    f.shell.tick();
+
+    let balanced = PerfMode::Balanced.commands(&BLADE_18).unwrap();
+    assert_eq!(sent_since(&f, sent), balanced);
+    assert_eq!(f.shell.window().get_error(), "");
+}
+
+#[test]
+fn no_resend_while_a_wake_waits() {
+    let f = failed_switch_fixture();
+    resuming(&f);
+    let sent = sent_count(&f);
+
+    f.shell.tick();
+
+    assert_eq!(sent_since(&f, sent), []);
+}
+
+#[test]
+fn a_power_event_in_the_wake_pause_waits_for_the_resume() {
+    let f = fixture(Config {
+        preset: Preset::Performance,
+        ..Config::default()
+    });
+    let (sender, receiver) = std::sync::mpsc::channel();
+    sender.send(PowerEvent::Resumed).unwrap();
+    FAKE_ON_BATTERY.set(true);
+    sender.send(PowerEvent::OnBattery).unwrap();
+    let sent = sent_count(&f);
+
+    f.shell.follow_power(&receiver);
+
+    assert_eq!(sent_since(&f, sent), []);
+    i_slint_backend_testing::mock_elapsed_time(
+        blade_core::RESUME_PAUSE + std::time::Duration::from_millis(1),
+    );
+    let after = sent_since(&f, sent);
+    let balanced = PerfMode::Balanced.commands(&BLADE_18).unwrap();
+    let performance = PerfMode::Performance.commands(&BLADE_18).unwrap();
+    assert!(after.windows(balanced.len()).any(|run| run == balanced));
+    assert!(
+        !after
+            .windows(performance.len())
+            .any(|run| run == performance)
+    );
+}
+
+#[test]
+fn with_no_power_events_a_tick_follows_the_power_source() {
+    let f = fixture(Config {
+        preset: Preset::Performance,
+        ..Config::default()
+    });
+    // Windows refused the power events: the sender is gone.
+    let (_, receiver) = std::sync::mpsc::channel();
+    f.shell.listen_for_power(receiver);
+    FAKE_ON_BATTERY.set(true);
+    let sent = sent_count(&f);
+
+    f.shell.tick();
+    f.shell.tick();
+
+    let balanced = PerfMode::Balanced.commands(&BLADE_18).unwrap();
+    assert_eq!(sent_since(&f, sent), balanced);
+    assert!(f.shell.app().on_battery());
+}
+
+#[test]
+fn with_power_events_a_tick_does_not_read_the_power_source() {
+    let f = fixture(Config {
+        preset: Preset::Performance,
+        ..Config::default()
+    });
+    let (_sender, receiver) = std::sync::mpsc::channel::<PowerEvent>();
+    f.shell.listen_for_power(receiver);
+    FAKE_ON_BATTERY.set(true);
+    let sent = sent_count(&f);
+
+    f.shell.tick();
+
+    assert_eq!(sent_since(&f, sent), []);
+    assert!(!f.shell.app().on_battery());
+}
