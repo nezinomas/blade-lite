@@ -52,16 +52,21 @@ impl BatteryRate {
                     return Ok(());
                 }
                 // A refused 60 Hz is tried again on the polls, as after a
-                // wake. A rate the panel does not offer, or no panel, is not.
+                // wake. A rate the panel does not offer, or no panel, is
+                // not, and ends a wake's tries too.
                 let set = self.on_battery(api);
-                if set.as_ref().is_err_and(DisplayError::may_work_later) {
-                    self.tries = RESUME_RATE_TRIES;
-                    self.wait_a_poll = true;
+                match &set {
+                    Err(error) if error.may_work_later() => {
+                        self.tries = RESUME_RATE_TRIES;
+                        self.wait_a_poll = true;
+                    }
+                    Err(_) => self.stop_tries(),
+                    Ok(()) => {}
                 }
                 set
             }
             PowerEvent::OnAc => {
-                self.tries = 0;
+                self.stop_tries();
                 let first = !std::mem::replace(&mut self.source_seen, true);
                 // A held rate is always put back first (none is held now,
                 // as each path that holds one marks the source seen).
@@ -94,8 +99,10 @@ impl BatteryRate {
         self.source_seen = true;
         if config.sixty_hz_on_battery {
             let refused = self.after_resume(api).is_err();
-            self.tries = if refused { RESUME_RATE_TRIES } else { 0 };
-            self.wait_a_poll = false;
+            self.stop_tries();
+            if refused {
+                self.tries = RESUME_RATE_TRIES;
+            }
         }
         Ok(())
     }
@@ -170,6 +177,12 @@ impl BatteryRate {
         set_rate(api, BATTERY_RATE, ModeLife::UntilRestart)
     }
 
+    /// Ends the tries, with the poll a switch's tries skip.
+    fn stop_tries(&mut self) {
+        self.tries = 0;
+        self.wait_a_poll = false;
+    }
+
     /// Whether a wake's or a switch's 60 Hz failed and is to be tried again.
     #[must_use]
     pub fn retry_pending(&self) -> bool {
@@ -189,7 +202,7 @@ impl BatteryRate {
         api: &mut impl DisplayApi,
     ) -> Result<(), DisplayError> {
         if self.tries == 0 || !config.sixty_hz_on_battery {
-            self.tries = 0;
+            self.stop_tries();
             return Ok(());
         }
         if std::mem::take(&mut self.wait_a_poll) {
@@ -198,7 +211,7 @@ impl BatteryRate {
         self.tries -= 1;
         match self.after_resume(api) {
             Ok(()) => {
-                self.tries = 0;
+                self.stop_tries();
                 Ok(())
             }
             Err(error) if self.tries == 0 => Err(error),
