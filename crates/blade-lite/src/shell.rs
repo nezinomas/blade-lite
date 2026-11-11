@@ -15,13 +15,13 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::Receiver;
 use std::time::{Duration, Instant};
 
-use blade_core::{Controller, PollSchedule, Query, Readings, ReadingsSampler};
+use blade_core::{ApplyError, Controller, PollSchedule, Query, Readings, ReadingsSampler};
 use blade_lite::{App, AppError, Rect, SaidLately, ShownErrors, report, took_effect};
 use platform::{
     DisplayApi, FileDialog, KeyInjector, PowerEvent, Programs, Registry, WindowsDisplays,
     WindowsKeys, WindowsPrograms, WindowsRegistry, WindowsSensors,
 };
-use razer_device::{Device, HidTransport, Reopening, SystemClock};
+use razer_device::{Device, DeviceError, HidTransport, Reopening, SystemClock};
 use razer_proto::BLADE_18;
 use ui::{HeatWatch, ModeWatch, TouchpadWatch};
 
@@ -196,6 +196,16 @@ impl Parts for Laptop {
 /// Whether a failed mic read has been said since the last one that worked.
 static MIC_ERROR_SAID: AtomicBool = AtomicBool::new(false);
 
+/// Whether a send failed before reaching the controller: its handle is
+/// held after an open again (ticket 132), or was just opened.
+fn nothing_sent(error: &AppError) -> bool {
+    matches!(
+        error,
+        AppError::Apply(ApplyError::Device(DeviceError::Io(io)))
+            if io.kind() == io::ErrorKind::NotConnected
+    )
+}
+
 /// Says a failed mic read once, until a read works again: the mute is read
 /// on each poll.
 fn say_mic_error(error: Option<&io::Error>) {
@@ -323,15 +333,26 @@ impl<P: Parts> Shell<P> {
         self.app.borrow_mut()
     }
 
-    /// Puts back the rate from before battery and sends Balanced as the app
-    /// quits. A failure goes to the log, as no window is left to show it.
+    /// Sends Balanced in place of Performance or Custom, then puts back the
+    /// rate from before battery, as the app quits. A failure goes to the
+    /// log, as no window is left to show it.
     pub fn quit(&self) {
         let mut app = self.app.borrow_mut();
+        // First: the fans matter more than the rate.
+        let mut sent = app.quit_preset();
+        if sent.as_ref().is_err_and(nothing_sent) {
+            // The controller holds a new handle (or just opened one), so
+            // nothing reached it: one more try is safe.
+            P::release_controller();
+            sent = app.quit_preset();
+        }
+        if let Err(error) = sent {
+            report(&format!(
+                "Balanced was not sent at quit, so a manual fan or Performance may keep running: {error}"
+            ));
+        }
         if let Err(error) = app.on_quit() {
             report(&format!("the panel may stay at 60 Hz: {error}"));
-        }
-        if let Err(error) = app.quit_preset() {
-            report(&format!("Balanced was not sent at quit: {error}"));
         }
     }
 

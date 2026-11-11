@@ -274,20 +274,32 @@ where
         Ok(self.battery_rate.put_back(&mut self.machine.displays)?)
     }
 
-    /// Sends Balanced, with the fans on auto, as the app quits: no app is
-    /// left to watch a manual fan or a charger pulled. The saved preset is
-    /// kept, so the next start sends it again.
+    /// Sends Balanced (Silent if Silent runs) as the app quits: no app is
+    /// left to watch a manual fan or a charger pulled. Always sent, as what
+    /// the controller runs may differ from the config after a failed send.
+    /// If Custom runs with a manual fan, Custom with the fans on auto goes
+    /// first, the known way to end a manual fan; whether the preset's own
+    /// mode write ends it too is not checked on the laptop. The saved
+    /// preset is kept, so the next start sends it again.
     ///
     /// # Errors
     ///
-    /// See [`AppError`].
+    /// See [`AppError`]. A failure stops the sends after it.
     pub fn quit_preset(&mut self) -> Result<(), AppError> {
-        let balanced = Config {
-            preset: Preset::Balanced,
-            ..self.config
+        let running = self.running(self.config);
+        if running.preset == Preset::Custom && running.custom.fan_rpm.is_some() {
+            let mut auto_fans = running;
+            auto_fans.custom.fan_rpm = None;
+            apply_performance(&auto_fans, self.model, &mut self.machine.controller)?;
+        }
+        let preset = if running.preset == Preset::Silent {
+            Preset::Silent
+        } else {
+            Preset::Balanced
         };
+        let last = Config { preset, ..running };
         Ok(apply_performance(
-            &balanced,
+            &last,
             self.model,
             &mut self.machine.controller,
         )?)

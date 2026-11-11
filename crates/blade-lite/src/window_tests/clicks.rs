@@ -96,7 +96,7 @@ fn quitting_on_battery_puts_the_rate_back() {
 }
 
 #[test]
-fn quitting_sends_balanced_with_the_fans_on_auto_and_keeps_the_saved_preset() {
+fn quitting_from_a_manual_fan_sends_the_fans_on_auto_then_balanced() {
     let mut config = Config {
         preset: Preset::Custom,
         ..Config::default()
@@ -107,22 +107,92 @@ fn quitting_sends_balanced_with_the_fans_on_auto_and_keeps_the_saved_preset() {
 
     f.shell.quit();
 
-    assert_eq!(
-        sent_since(&f, before),
-        PerfMode::Balanced.commands(&BLADE_18).unwrap()
-    );
+    let sent = sent_since(&f, before);
+    let balanced = PerfMode::Balanced.commands(&BLADE_18).unwrap();
+    let (auto_fans, last) = sent.split_at(sent.len() - balanced.len());
+    assert_eq!(last, balanced);
+    // Custom again with the fan byte on auto, and no fan target.
+
+    let modes = auto_fans.iter().filter(|c| c.id == 0x0D02);
+    assert!(modes.clone().count() > 0);
+    assert!(modes.clone().all(|c| c.args[3] == 0), "{auto_fans:?}");
+    assert!(auto_fans.iter().all(|c| c.id != 0x0D01), "{auto_fans:?}");
     assert_eq!(f.shell.app().config().preset, Preset::Custom);
 }
 
 #[test]
-fn a_failed_balanced_on_quit_is_logged() {
-    let f = fixture(Config::default());
-    f.shell.app().machine_mut().controller.fails = true;
+fn quitting_from_performance_sends_balanced() {
+    let f = fixture(Config {
+        preset: Preset::Performance,
+        ..Config::default()
+    });
+    let before = sent_count(&f);
 
     f.shell.quit();
 
+    assert_eq!(
+        sent_since(&f, before),
+        PerfMode::Balanced.commands(&BLADE_18).unwrap()
+    );
+    assert_eq!(f.shell.app().config().preset, Preset::Performance);
+}
+
+#[test]
+fn quitting_from_silent_sends_silent() {
+    let f = fixture(Config {
+        preset: Preset::Silent,
+        ..Config::default()
+    });
+    let before = sent_count(&f);
+
+    f.shell.quit();
+
+    assert_eq!(
+        sent_since(&f, before),
+        PerfMode::Silent.commands(&BLADE_18).unwrap()
+    );
+}
+
+#[test]
+fn a_failed_balanced_on_quit_is_logged_and_not_sent_again() {
+    let f = fixture(Config {
+        preset: Preset::Performance,
+        ..Config::default()
+    });
+    f.shell.app().machine_mut().controller.fails = true;
+    let before = sent_count(&f);
+
+    f.shell.quit();
+
+    assert!(sent_count(&f) - before <= 1, "one failed send at most");
     let log = std::fs::read_to_string(log_path()).unwrap();
     assert!(log.contains("Balanced was not sent at quit"), "{log}");
+}
+
+#[test]
+fn balanced_is_sent_at_quit_even_when_the_rate_put_back_fails() {
+    let f = fixture(Config {
+        preset: Preset::Performance,
+        sixty_hz_on_battery: true,
+        ..Config::default()
+    });
+    f.shell.act(|app| app.on_power(PowerEvent::OnBattery));
+    f.shell
+        .app()
+        .machine_mut()
+        .displays
+        .0
+        .modes
+        .retain(|mode| mode.hz != 240);
+    let before = sent_count(&f);
+
+    f.shell.quit();
+
+    // On battery Balanced runs already; it is sent again all the same.
+    assert_eq!(
+        sent_since(&f, before),
+        PerfMode::Balanced.commands(&BLADE_18).unwrap()
+    );
 }
 
 #[test]
