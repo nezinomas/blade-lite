@@ -5,10 +5,10 @@ use std::time::Duration;
 use razer_device::{Clock, Device, DeviceError, Transport};
 use razer_proto::{
     Brightness, BrightnessError, Command, CpuBoost, Custom, CustomError, FanMode, GpuBoost,
-    ModelProfile, PresetError, Rpm,
+    ModelProfile, PresetError, RedKeys, Rpm,
 };
 
-use crate::touchpad_key::colour_frame;
+use crate::red_keys::colour_frame;
 use crate::{Config, CustomSettings, Lighting};
 
 /// How long to wait after resume before applying again, so the controller is
@@ -49,8 +49,8 @@ impl<T: Transport, C: Clock> Controller for Device<T, C> {
     }
 }
 
-/// Sends the saved settings to the controller, with the touchpad key red
-/// if `touchpad_off`. Nothing is sent if a value is outside what the model
+/// Sends the saved settings to the controller, with the keys in `red`
+/// red. Nothing is sent if a value is outside what the model
 /// takes.
 ///
 /// # Errors
@@ -60,9 +60,9 @@ pub fn apply(
     config: &Config,
     model: &ModelProfile,
     controller: &mut impl Controller,
-    touchpad_off: bool,
+    red: RedKeys,
 ) -> Result<(), ApplyError> {
-    let commands = commands(*config, model, touchpad_off)?;
+    let commands = commands(*config, model, red)?;
     controller.run(&commands).map_err(ApplyError::Device)
 }
 
@@ -75,7 +75,7 @@ pub fn apply(
 /// The [`ApplyError`] for a value the model does not take.
 pub fn check(config: &Config, model: &ModelProfile) -> Result<(), ApplyError> {
     custom(config.custom, model).map_err(ApplyError::Custom)?;
-    commands(*config, model, false).map(drop)
+    commands(*config, model, RedKeys::default()).map(drop)
 }
 
 /// Sends only the saved preset, with its Custom values.
@@ -93,7 +93,7 @@ pub fn apply_performance(
 }
 
 /// Sends only the lighting: the brightness, the vapor light, then the
-/// colour on every key, with the touchpad key red if `touchpad_off`.
+/// colour on every key, with the keys in `red` red.
 ///
 /// # Errors
 ///
@@ -102,9 +102,9 @@ pub fn apply_lighting(
     lighting: Lighting,
     model: &ModelProfile,
     controller: &mut impl Controller,
-    touchpad_off: bool,
+    red: RedKeys,
 ) -> Result<(), ApplyError> {
-    let commands = lighting_commands(lighting, model, touchpad_off)?;
+    let commands = lighting_commands(lighting, model, red)?;
     controller.run(&commands).map_err(ApplyError::Device)
 }
 
@@ -114,14 +114,14 @@ pub fn apply_lighting(
 fn commands(
     config: Config,
     model: &ModelProfile,
-    touchpad_off: bool,
+    red: RedKeys,
 ) -> Result<Vec<Command>, ApplyError> {
     let mut commands = preset_commands(config, model)?;
     if let (Some(on), Some(logo)) = (config.lid_logo, model.logo) {
         commands.extend(logo.commands(on));
     }
     if let Some(lighting) = config.lighting {
-        commands.extend(lighting_commands(lighting, model, touchpad_off)?);
+        commands.extend(lighting_commands(lighting, model, red)?);
     }
     Ok(commands)
 }
@@ -130,14 +130,14 @@ fn commands(
 fn lighting_commands(
     lighting: Lighting,
     model: &ModelProfile,
-    touchpad_off: bool,
+    red: RedKeys,
 ) -> Result<Vec<Command>, ApplyError> {
     let brightness = Brightness::new(lighting.brightness).map_err(ApplyError::Brightness)?;
     let mut commands = brightness.commands(model);
     if let Some(vapor) = model.vapor_light {
         commands.push(vapor.command(brightness, lighting.vapor_light));
     }
-    commands.extend(colour_frame(lighting.colour, model, touchpad_off));
+    commands.extend(colour_frame(lighting.colour, model, red));
     Ok(commands)
 }
 

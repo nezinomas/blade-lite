@@ -9,7 +9,7 @@ use blade_core::{
 };
 use razer_device::DeviceError;
 use razer_proto::{
-    BLADE_18, Brightness, BrightnessError, Command, CustomError, Rgb, static_colour,
+    BLADE_18, Brightness, BrightnessError, Command, CustomError, RedKeys, Rgb, static_colour,
 };
 
 /// One thing that happened, in order.
@@ -97,7 +97,7 @@ fn each_preset_sends_its_mode_to_every_zone() {
             &config(preset, CustomSettings::default()),
             &BLADE_18,
             &mut controller,
-            false,
+            RedKeys::default(),
         )
         .unwrap();
 
@@ -110,7 +110,7 @@ fn custom_with_a_manual_fan_sends_mode_then_boosts_then_fans() {
     let (mut controller, log) = fakes();
 
     let saved = config(Preset::Custom, custom(2, 3, Some(3000)));
-    apply(&saved, &BLADE_18, &mut controller, false).unwrap();
+    apply(&saved, &BLADE_18, &mut controller, RedKeys::default()).unwrap();
 
     let mut expected: Vec<Step> = (1..=4).map(|zone| sent(0x0D02, &[1, zone, 4, 1])).collect();
     expected.extend([
@@ -130,7 +130,7 @@ fn custom_with_fans_on_auto_sends_no_fan_target() {
         &config(Preset::Custom, custom(1, 1, None)),
         &BLADE_18,
         &mut controller,
-        false,
+        RedKeys::default(),
     )
     .unwrap();
 
@@ -153,7 +153,7 @@ fn custom_values_the_model_does_not_take_send_nothing() {
             &config(Preset::Custom, bad),
             &BLADE_18,
             &mut controller,
-            false,
+            RedKeys::default(),
         );
 
         assert!(
@@ -169,7 +169,7 @@ fn bad_custom_values_do_not_matter_while_another_preset_is_active() {
     let (mut controller, log) = fakes();
 
     let saved = config(Preset::Balanced, custom(9, 9, Some(1)));
-    apply(&saved, &BLADE_18, &mut controller, false).unwrap();
+    apply(&saved, &BLADE_18, &mut controller, RedKeys::default()).unwrap();
 
     assert_eq!(*log.borrow(), preset_steps(0x00));
 }
@@ -187,7 +187,7 @@ fn saved_lighting_is_sent_after_the_preset() {
         ..Config::default()
     };
 
-    apply(&saved, &BLADE_18, &mut controller, false).unwrap();
+    apply(&saved, &BLADE_18, &mut controller, RedKeys::default()).unwrap();
 
     let mut expected = preset_steps(0x00);
     let lighting = brightness_commands(50, true);
@@ -223,7 +223,7 @@ fn applying_the_lighting_sends_brightness_then_colour() {
         vapor_light: true,
     };
 
-    apply_lighting(lighting, &BLADE_18, &mut controller, false).unwrap();
+    apply_lighting(lighting, &BLADE_18, &mut controller, RedKeys::default()).unwrap();
 
     let brightness = brightness_commands(20, true);
     let expected: Vec<Step> = brightness
@@ -246,7 +246,7 @@ fn a_brightness_over_100_sends_nothing() {
         ..Config::default()
     };
 
-    let result = apply(&saved, &BLADE_18, &mut controller, false);
+    let result = apply(&saved, &BLADE_18, &mut controller, RedKeys::default());
 
     assert!(matches!(
         result,
@@ -260,7 +260,12 @@ fn a_device_error_is_returned() {
     let (mut controller, _) = fakes();
     controller.fails = true;
 
-    let result = apply(&Config::default(), &BLADE_18, &mut controller, false);
+    let result = apply(
+        &Config::default(),
+        &BLADE_18,
+        &mut controller,
+        RedKeys::default(),
+    );
 
     assert!(matches!(result, Err(ApplyError::Device(DeviceError::Busy))));
 }
@@ -284,7 +289,11 @@ fn the_touchpad_key_is_red_in_the_one_frame_sent() {
         vapor_light: true,
     };
 
-    apply_lighting(lighting, &BLADE_18, &mut controller, true).unwrap();
+    let touchpad = RedKeys {
+        touchpad: true,
+        mic: false,
+    };
+    apply_lighting(lighting, &BLADE_18, &mut controller, touchpad).unwrap();
 
     let expected: Vec<Step> = brightness_commands(50, true)
         .into_iter()
@@ -307,7 +316,7 @@ fn the_vapor_light_off_gets_level_0_after_the_keyboard() {
         vapor_light: false,
     };
 
-    apply_lighting(lighting, &BLADE_18, &mut controller, false).unwrap();
+    apply_lighting(lighting, &BLADE_18, &mut controller, RedKeys::default()).unwrap();
 
     let expected: Vec<Step> = brightness_commands(80, false)
         .into_iter()
@@ -337,7 +346,7 @@ fn a_model_without_a_vapor_light_gets_only_the_keyboard() {
         vapor_light: true,
     };
 
-    apply_lighting(lighting, &model, &mut controller, false).unwrap();
+    apply_lighting(lighting, &model, &mut controller, RedKeys::default()).unwrap();
 
     let brightness = Brightness::new(80).unwrap().commands(&model);
     let expected: Vec<Step> = brightness
@@ -362,7 +371,7 @@ fn a_saved_lid_logo_is_sent_after_the_preset_and_before_the_lighting() {
         ..Config::default()
     };
 
-    apply(&saved, &BLADE_18, &mut controller, false).unwrap();
+    apply(&saved, &BLADE_18, &mut controller, RedKeys::default()).unwrap();
 
     let mut expected = preset_steps(0x00);
     let logo = BLADE_18.logo.unwrap().commands(false);
@@ -384,7 +393,7 @@ fn a_model_without_a_lid_logo_gets_no_logo_commands() {
         ..Config::default()
     };
 
-    apply(&saved, &model, &mut controller, false).unwrap();
+    apply(&saved, &model, &mut controller, RedKeys::default()).unwrap();
 
     assert_eq!(*log.borrow(), preset_steps(0x00));
 }
