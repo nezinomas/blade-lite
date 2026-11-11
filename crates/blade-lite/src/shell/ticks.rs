@@ -105,13 +105,27 @@ impl<P: Parts> Shell<P> {
 
     /// The display view, with the native mode read only if
     /// [`heat_reads_allowed`](Self::heat_reads_allowed): else the one last
-    /// read or set, or none chosen if none is known.
-    pub(super) fn display_view(&self, app: &mut AppOn<P>) -> Result<DisplayView, AppError> {
-        if self.heat_reads_allowed() {
+    /// read or set, or none chosen if none is known. A native mode read
+    /// that names a mode the model lacks shows none chosen. A failed view
+    /// is `None`. Each error is put in `errors`.
+    pub(super) fn display_view(
+        &self,
+        app: &mut AppOn<P>,
+        errors: &mut Vec<String>,
+    ) -> Option<DisplayView> {
+        let view = if self.heat_reads_allowed() {
             app.display_view()
         } else {
             app.display_view_unread()
-        }
+        };
+        let view = match view {
+            Err(error @ AppError::UnknownNativeMode) => {
+                errors.push(error.to_string());
+                app.display_view_unread()
+            }
+            view => view,
+        };
+        view.map_err(|error| errors.push(error.to_string())).ok()
     }
 
     /// Whether the controller may be read in the background: not while a
@@ -143,7 +157,8 @@ impl<P: Parts> Shell<P> {
     /// failed try is shown, so a quiet try does not clear the other errors
     /// or read the controller. When the tries end, the window's rate buttons
     /// show the panel's rate (one display view, so one native mode read);
-    /// the flyout is filled when it opens.
+    /// the flyout is filled when it opens. A native mode the model lacks
+    /// shows none chosen; its error is logged, and shown at the next fill.
     fn retry_battery_rate(self: &Rc<Self>) {
         let tried = self.app.borrow_mut().retry_battery_rate();
         if let Err(error) = tried {
@@ -154,9 +169,11 @@ impl<P: Parts> Shell<P> {
         if app.battery_rate_pending() {
             return;
         }
-        if let Ok(view) = self.display_view(&mut app) {
+        let mut errors = Vec::new();
+        if let Some(view) = self.display_view(&mut app, &mut errors) {
             bind::display(&self.window, &view);
         }
+        self.say_read_errors(&errors);
     }
 
     /// Paints the touchpad key again if Num Lock changed since the last look.

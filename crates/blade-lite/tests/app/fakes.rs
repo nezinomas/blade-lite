@@ -34,7 +34,7 @@ pub enum FakeCharger {
 }
 
 /// Records the commands it runs. It answers the native mode query with
-/// mode 0, the logo query with `logo_reply`, the charge limit query with
+/// `native_byte`, the logo query with `logo_reply`, the charge limit query with
 /// `charge`, the brightness query with `brightness_level` and the
 /// temperature query with `cpu_celsius`, the charger query with the Razer
 /// `charger`, and fails
@@ -47,6 +47,8 @@ pub struct FakeController {
     pub fails: bool,
     /// Fails the native mode query, as a Busy reply.
     pub native_fails: bool,
+    /// The native mode byte it reads back: 0 is the first mode.
+    pub native_byte: u8,
     /// Takes this many commands of each run, then fails it, as a Busy
     /// reply to a command the controller still ran. It stays set, and a
     /// run of `n` or fewer commands still fails.
@@ -107,7 +109,7 @@ impl Query for FakeController {
             if self.native_fails {
                 Err(DeviceError::Busy)
             } else {
-                Ok(vec![0])
+                Ok(vec![self.native_byte])
             }
         } else if *command == logo().query() {
             self.logo_reply.clone().ok_or(DeviceError::Busy)
