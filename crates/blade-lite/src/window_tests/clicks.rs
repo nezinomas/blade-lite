@@ -1493,6 +1493,50 @@ fn no_background_temperature_read_while_razer_software_runs() {
 }
 
 #[test]
+fn with_the_window_open_a_tick_reads_no_controller_while_razer_software_runs() {
+    let f = fixture(Config::default());
+    f.shell.programs().set(&["Razer Synapse Service"]);
+    f.shell.look_for_razer();
+    f.shell.app().machine_mut().controller.cpu_celsius = Some(50);
+    f.shell.show_window();
+    let asked = asked_count(&f);
+
+    f.shell
+        .tick_at(Instant::now() + Duration::from_secs(60), SystemTime::now());
+
+    assert_eq!(asked_count(&f), asked);
+    assert_eq!(f.shell.app().cpu_celsius(), None, "not read, so unknown");
+}
+
+#[test]
+fn with_the_flyout_open_a_tick_reads_no_controller_while_razer_software_runs() {
+    let f = fixture(Config::default());
+    f.shell.programs().set(&["Razer Synapse Service"]);
+    f.shell.look_for_razer();
+    f.shell.toggle_flyout(ICON);
+    let asked = asked_count(&f);
+
+    f.shell
+        .tick_at(Instant::now() + Duration::from_secs(60), SystemTime::now());
+
+    assert_eq!(asked_count(&f), asked);
+}
+
+#[test]
+fn opening_the_window_reads_no_temperature_while_razer_software_runs() {
+    let f = fixture(Config::default());
+    f.shell.programs().set(&["Razer Synapse Service"]);
+    f.shell.look_for_razer();
+    f.shell.app().machine_mut().controller.cpu_celsius = Some(50);
+    let asked = asked_count(&f);
+
+    f.shell.show_window();
+
+    assert_eq!(temperature_reads_since(&f, asked), 0);
+    assert_eq!(f.shell.app().cpu_celsius(), None, "not read, so unknown");
+}
+
+#[test]
 fn a_cpu_and_gpu_warning_together_show_both() {
     let f = fixture(Config::default());
     let start = Instant::now();

@@ -311,7 +311,7 @@ impl<P: Parts> Shell<P> {
     pub fn refresh(&self, error: Option<&AppError>) {
         let mut app = self.app.borrow_mut();
         let mut errors: Vec<String> = error.iter().map(ToString::to_string).collect();
-        let header = app.header(self.readings.get());
+        let header = self.header(&mut app, self.readings.get());
         self.say_read_errors(app.read_errors());
         let performance = app.performance_view();
         bind::header(&self.window, &header);

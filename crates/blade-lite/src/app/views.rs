@@ -1,8 +1,9 @@
 //! The views the windows show, built from the app's state.
 
 use blade_core::{
-    ApplyError, Controller, Preset, Query, Readings, chosen_native_mode, current_rate,
-    native_mode_state, read_controller, read_cpu_temperature, refresh_rates, touchpad_on,
+    ApplyError, Controller, ControllerReadings, Preset, Query, Readings, chosen_native_mode,
+    current_rate, native_mode_state, read_controller, read_cpu_temperature, refresh_rates,
+    touchpad_on,
 };
 use platform::{DisplayApi, KeyInjector, Registry};
 use razer_proto::{Brightness, Celsius};
@@ -24,6 +25,17 @@ where
     /// The reads that failed are kept in [`read_errors`](Self::read_errors).
     pub fn header(&mut self, readings: Readings) -> Header {
         let controller = read_controller(&mut self.machine.controller, self.model);
+        self.header_with(readings, controller)
+    }
+
+    /// The header without reading the controller, such as while Razer's
+    /// own software may talk to it: the CPU temperature and fans show
+    /// unknown, and no read failed.
+    pub fn header_unread(&mut self, readings: Readings) -> Header {
+        self.header_with(readings, ControllerReadings::unread(self.model))
+    }
+
+    fn header_with(&mut self, readings: Readings, controller: ControllerReadings) -> Header {
         self.read_errors = controller.errors;
         self.cpu_celsius = celsius(controller.cpu);
         Header::new(&HeaderState {

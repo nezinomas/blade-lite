@@ -28,6 +28,19 @@ pub struct ControllerReadings {
     pub errors: Vec<String>,
 }
 
+impl ControllerReadings {
+    /// Nothing read: the CPU temperature and each fan of `model` unknown,
+    /// and no read failed.
+    #[must_use]
+    pub fn unread(model: &ModelProfile) -> Self {
+        Self {
+            cpu: None,
+            fans: vec![None; model.custom.fan_zones.len()],
+            errors: Vec::new(),
+        }
+    }
+}
+
 /// The native mode chosen for the next boot, or `None` for one the model lacks.
 ///
 /// # Errors
