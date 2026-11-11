@@ -279,9 +279,10 @@ where
     /// the controller runs may differ from the config after a failed send.
     /// If a manual fan is saved and Custom runs or the last preset send
     /// failed, Custom with the fans on auto goes first (with the lowest
-    /// boosts when Custom is not what should run), the known way to end a manual fan; whether the preset's own
-    /// mode write ends it too is not checked on the laptop. The saved
-    /// preset is kept, so the next start sends it again.
+    /// boosts when Custom is not what should run), the known way to end a
+    /// manual fan; whether the preset's own mode write ends it too is not
+    /// checked on the laptop. The saved preset is kept, so the next start
+    /// sends it again.
     ///
     /// # Errors
     ///
