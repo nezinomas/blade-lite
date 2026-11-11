@@ -97,6 +97,31 @@ fn with_the_taskbar_at_the_top_it_opens_below_the_icon() {
     assert_eq!(y, 48 + 12);
 }
 
+#[test]
+fn below_the_icon_on_a_short_screen_it_stays_inside_the_bottom_edge() {
+    let short = Rect {
+        height: 560,
+        ..SCREEN
+    };
+
+    let (_, y) = flyout_position(icon(1000, 0), FLYOUT, short);
+
+    assert_eq!(y, 560 - 500 - 12);
+}
+
+#[test]
+fn on_a_screen_shorter_than_the_flyout_it_keeps_the_top_edge() {
+    let short = Rect {
+        y: -900,
+        height: 300,
+        ..SCREEN
+    };
+
+    let (_, y) = flyout_position(icon(1000, -900), FLYOUT, short);
+
+    assert_eq!(y, -900 + 12);
+}
+
 /// The screen above the taskbar: 2560 × 1600 with a 48 px taskbar.
 const WORK_AREA: Rect = Rect {
     x: 0,
