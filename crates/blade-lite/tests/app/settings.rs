@@ -176,6 +176,42 @@ fn import_the_controller_refuses_keeps_the_old_settings() {
     assert!(!path.exists());
 }
 
+/// Imports `preset` with blue lighting, with only the preset run taken.
+fn import_with_a_lighting_error(preset: Preset) -> crate::fakes::TestApp {
+    let (mut app, dir, _) = app();
+    let picked = exported(
+        dir.path(),
+        &Config {
+            preset,
+            lighting: Some(blue_lighting()),
+            ..Config::default()
+        },
+    );
+    app.machine_mut().controller.ok_runs = Some(1);
+    assert!(app.import_settings(&picked).is_err());
+    app.machine_mut().controller.ok_runs = None;
+    app.machine_mut().controller.sent.clear();
+    assert_eq!(*app.config(), Config::default());
+    app
+}
+
+#[test]
+fn import_of_a_new_preset_whose_lighting_fails_puts_the_old_preset_back() {
+    let mut app = import_with_a_lighting_error(Preset::Silent);
+
+    assert!(app.preset_unsure());
+    assert!(app.resend_preset().unwrap());
+    assert_eq!(sent(&app), PerfMode::Balanced.commands(&BLADE_18).unwrap());
+}
+
+#[test]
+fn import_of_the_same_preset_whose_lighting_fails_leaves_the_preset_sure() {
+    let mut app = import_with_a_lighting_error(Preset::Balanced);
+
+    assert!(!app.preset_unsure());
+    assert!(!app.resend_preset().unwrap());
+}
+
 #[test]
 fn import_sent_but_not_saved_is_kept() {
     let (mut app, dir, path) = app();

@@ -2,7 +2,7 @@
 
 use std::path::Path;
 
-use blade_core::{Config, Controller, Query, apply, check};
+use blade_core::{ApplyError, Config, Controller, Query, apply, check};
 use platform::{DisplayApi, KeyInjector, Registry};
 
 use super::{App, AppError, DEFAULT_LIGHTING};
@@ -70,6 +70,13 @@ where
         let applied = apply(&running, self.model, &mut self.machine.controller, red);
         self.key_red = applied.is_ok().then_some(red);
         self.note_preset_send(&applied);
+        // The old config is kept, so a new preset the controller took is
+        // not the one shown: the resends put the shown one back.
+        let shown = self.running(self.config);
+        let new_preset = (shown.preset, shown.custom) != (running.preset, running.custom);
+        if new_preset && matches!(applied, Err(ApplyError::AfterPreset(_))) {
+            self.preset_send_cut();
+        }
         self.read_logo();
         applied?;
         // The switch goes through the click's path, which keeps it off if
