@@ -1708,19 +1708,25 @@ fn focusing_the_window_puts_back_a_custom_slider_drag_cut_short() {
     let start = slider.absolute_position();
     let left_end = LogicalPosition::new(start.x, start.y + slider.size().height / 2.0);
     // Pressed at the left end, never let go: Alt+Tab took the focus.
-    f.shell.window().window().dispatch_event(WindowEvent::PointerPressed {
-        position: left_end,
-        button: PointerEventButton::Left,
-    });
+    f.shell
+        .window()
+        .window()
+        .dispatch_event(WindowEvent::PointerPressed {
+            position: left_end,
+            button: PointerEventButton::Left,
+        });
     assert_eq!(slider.accessible_value().unwrap(), "0");
     let before = sent_count(&f);
 
     f.shell.on_window_event(&WinitEvent::Focused(true));
     // Back again: a press elsewhere, let go over the slider.
-    f.shell.window().window().dispatch_event(WindowEvent::PointerReleased {
-        position: left_end,
-        button: PointerEventButton::Left,
-    });
+    f.shell
+        .window()
+        .window()
+        .dispatch_event(WindowEvent::PointerReleased {
+            position: left_end,
+            button: PointerEventButton::Left,
+        });
 
     assert_eq!(sent_since(&f, before), []);
     assert_eq!(f.shell.app().config().custom.cpu_boost, 1);
