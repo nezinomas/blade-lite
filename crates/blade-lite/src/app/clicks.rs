@@ -29,10 +29,16 @@ where
                 if !preset.offered_on_battery(self.model) {
                     // A charger swap gives no power event, and the last
                     // poll may be 10 s old.
+                    let before = self.running_preset();
                     self.read_charger();
-                }
-                if self.battery_presets() && !preset.offered_on_battery(self.model) {
-                    return Err(AppError::NotOnBattery(preset));
+                    if self.battery_presets() {
+                        // The read may have found a weak charger while
+                        // Performance or Custom runs: send what runs now,
+                        // as a power event does, since no later poll sees
+                        // a change.
+                        self.send_if_changed(before)?;
+                        return Err(AppError::NotOnBattery(preset));
+                    }
                 }
                 config.preset = preset;
             }
@@ -63,13 +69,15 @@ where
         }
         // The step depends on the charger, which the last poll may have
         // read 10 s ago.
+        let before = self.running_preset();
         self.read_charger();
         let running = self.running_preset();
         match next_preset(running, self.model, self.battery_presets()) {
             Some(next) if next != running => {
                 self.on_performance(PerformanceCommand::SetPreset(next))
             }
-            _ => Ok(()),
+            // No step: still send what runs if the read changed it.
+            _ => self.send_if_changed(before),
         }
     }
 

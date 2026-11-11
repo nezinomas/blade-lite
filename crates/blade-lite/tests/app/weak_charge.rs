@@ -219,6 +219,48 @@ fn a_performance_click_reads_the_charger_first() {
 }
 
 #[test]
+fn a_refused_click_that_finds_a_weak_charger_sends_balanced() {
+    let (mut app, _dir, _) = performance_app();
+    app.start().unwrap();
+    app.machine_mut().controller.sent.clear();
+    // Swapped to USB-C since the last poll, while Performance runs.
+    app.machine_mut().controller.charger = FakeCharger::UsbC;
+
+    let result = app.on_performance(PerformanceCommand::SetPreset(Preset::Custom));
+
+    assert!(result.is_err());
+    assert_eq!(sent(&app), PerfMode::Balanced.commands(&BLADE_18).unwrap());
+    assert_eq!(app.running_preset(), Preset::Balanced);
+    assert_eq!(app.config().preset, Preset::Performance);
+}
+
+#[test]
+fn a_refused_click_whose_charger_read_fails_sends_balanced() {
+    let (mut app, _dir, _) = performance_app();
+    app.start().unwrap();
+    app.machine_mut().controller.sent.clear();
+    app.machine_mut().controller.charger = FakeCharger::Fails;
+
+    let result = app.on_performance(PerformanceCommand::SetPreset(Preset::Performance));
+
+    assert!(result.is_err());
+    assert_eq!(sent(&app), PerfMode::Balanced.commands(&BLADE_18).unwrap());
+}
+
+#[test]
+fn a_power_key_press_that_finds_a_weak_charger_steps_from_balanced() {
+    let (mut app, _dir, _) = performance_app();
+    app.start().unwrap();
+    app.machine_mut().controller.sent.clear();
+    app.machine_mut().controller.charger = FakeCharger::UsbC;
+
+    app.on_power_key().unwrap();
+
+    assert!(!ran(&app, PerfMode::Performance));
+    assert_ne!(app.running_preset(), Preset::Performance);
+}
+
+#[test]
 fn the_power_key_reads_the_charger_first() {
     let (mut app, _dir, _) = performance_app();
     app.start().unwrap();
