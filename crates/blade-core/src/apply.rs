@@ -31,6 +31,13 @@ pub enum ApplyError {
     /// and maybe that one too, may have run.
     #[error("the controller did not take a command, so the laptop may run part of the change: {0}")]
     Device(DeviceError),
+    /// The controller took the preset, then did not take a lid logo or
+    /// lighting command. The ones before it, and maybe that one too, may
+    /// have run.
+    #[error(
+        "the preset was sent, but the controller did not take the lid logo or lighting, so the keys may show part of the change: {0}"
+    )]
+    AfterPreset(DeviceError),
 }
 
 /// Runs commands on the controller. A trait so that tests need no device.
@@ -51,19 +58,26 @@ impl<T: Transport, C: Clock> Controller for Device<T, C> {
 
 /// Sends the saved settings to the controller, with the keys in `red`
 /// red. Nothing is sent if a value is outside what the model
-/// takes.
+/// takes. The preset is its own run, so a later error does not leave the
+/// preset unsure.
 ///
 /// # Errors
 ///
-/// See [`ApplyError`].
+/// See [`ApplyError`]: [`ApplyError::Device`] if the preset run failed,
+/// [`ApplyError::AfterPreset`] if the preset was taken and the rest failed.
 pub fn apply(
     config: &Config,
     model: &ModelProfile,
     controller: &mut impl Controller,
     red: RedKeys,
 ) -> Result<(), ApplyError> {
-    let commands = commands(*config, model, red)?;
-    controller.run(&commands).map_err(ApplyError::Device)
+    let preset = preset_commands(*config, model)?;
+    let rest = rest_commands(*config, model, red)?;
+    controller.run(&preset).map_err(ApplyError::Device)?;
+    if rest.is_empty() {
+        return Ok(());
+    }
+    controller.run(&rest).map_err(ApplyError::AfterPreset)
 }
 
 /// Checks that the model takes every value in `config`, as [`apply`]
@@ -75,7 +89,8 @@ pub fn apply(
 /// The [`ApplyError`] for a value the model does not take.
 pub fn check(config: &Config, model: &ModelProfile) -> Result<(), ApplyError> {
     custom(config.custom, model).map_err(ApplyError::Custom)?;
-    commands(*config, model, RedKeys::default()).map(drop)
+    preset_commands(*config, model)?;
+    rest_commands(*config, model, RedKeys::default()).map(drop)
 }
 
 /// Sends only the saved preset, with its Custom values.
@@ -108,15 +123,15 @@ pub fn apply_lighting(
     controller.run(&commands).map_err(ApplyError::Device)
 }
 
-/// The commands that set the saved preset, then the saved lid logo, then
-/// the saved lighting. The logo goes before the long key frame, so a
-/// device error in that frame does not keep it from being sent.
-fn commands(
+/// The commands sent after the preset: the saved lid logo, then the saved
+/// lighting. The logo goes before the long key frame, so a device error in
+/// that frame does not keep it from being sent.
+fn rest_commands(
     config: Config,
     model: &ModelProfile,
     red: RedKeys,
 ) -> Result<Vec<Command>, ApplyError> {
-    let mut commands = preset_commands(config, model)?;
+    let mut commands = Vec::new();
     if let (Some(on), Some(logo)) = (config.lid_logo, model.logo) {
         commands.extend(logo.commands(on));
     }

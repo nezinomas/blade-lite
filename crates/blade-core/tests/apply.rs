@@ -32,12 +32,20 @@ fn brightness_commands(percent: u8, vapor_on: bool) -> Vec<Command> {
 struct FakeController {
     log: Log,
     fails: bool,
+    /// Takes this many runs, then fails each run after them.
+    ok_runs: Option<usize>,
 }
 
 impl Controller for FakeController {
     fn run(&mut self, commands: &[Command]) -> Result<(), DeviceError> {
         if self.fails {
             return Err(DeviceError::Busy);
+        }
+        if let Some(left) = self.ok_runs.as_mut() {
+            if *left == 0 {
+                return Err(DeviceError::Busy);
+            }
+            *left -= 1;
         }
         let sent = commands.iter().cloned().map(Step::Sent);
         self.log.borrow_mut().extend(sent);
@@ -50,6 +58,7 @@ fn fakes() -> (FakeController, Log) {
     let controller = FakeController {
         log: Rc::clone(&log),
         fails: false,
+        ok_runs: None,
     };
     (controller, log)
 }
@@ -268,6 +277,38 @@ fn a_device_error_is_returned() {
     );
 
     assert!(matches!(result, Err(ApplyError::Device(DeviceError::Busy))));
+}
+
+#[test]
+fn the_preset_is_its_own_run_so_a_lighting_error_is_told_apart() {
+    let (mut controller, log) = fakes();
+    controller.ok_runs = Some(1);
+    let saved = Config {
+        lighting: Some(Lighting {
+            brightness: 50,
+            colour: Rgb::new(0, 0, 0),
+            vapor_light: true,
+        }),
+        ..Config::default()
+    };
+
+    let result = apply(&saved, &BLADE_18, &mut controller, RedKeys::default());
+
+    assert!(matches!(
+        result,
+        Err(ApplyError::AfterPreset(DeviceError::Busy))
+    ));
+    assert_eq!(*log.borrow(), preset_steps(0x00));
+}
+
+#[test]
+fn an_error_after_the_preset_is_said_in_plain_text() {
+    let error = ApplyError::AfterPreset(DeviceError::Busy);
+
+    assert_eq!(
+        error.to_string(),
+        "the preset was sent, but the controller did not take the lid logo or lighting, so the keys may show part of the change: the controller stayed busy after 5 reads"
+    );
 }
 
 #[test]
