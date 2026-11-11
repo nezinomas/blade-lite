@@ -98,6 +98,12 @@ fn window_icon(accent: Rgb) -> Result<Icon, BadIcon> {
     Icon::from_rgba(pixels, size, size)
 }
 
+#[cfg(test)]
+#[test]
+fn the_window_icon_is_made_from_the_tray_picture() {
+    assert!(window_icon(DEFAULT_ACCENT).is_ok());
+}
+
 fn run() -> Result<(), Box<dyn std::error::Error>> {
     // With no APPDATA there is no log: this error goes to stderr only.
     let appdata = PathBuf::from(std::env::var_os("APPDATA").ok_or("no APPDATA")?);

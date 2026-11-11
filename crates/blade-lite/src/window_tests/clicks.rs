@@ -1423,8 +1423,3 @@ fn a_weak_charge_with_balanced_saved_greys_out_performance_and_says_so() {
         .find(|o| o.preset == Preset::Performance);
     assert!(!performance.unwrap().enabled);
 }
-
-#[test]
-fn the_window_icon_is_made_from_the_tray_picture() {
-    assert!(crate::window_icon(Rgb::new(0x00, 0x78, 0xD4)).is_ok());
-}
