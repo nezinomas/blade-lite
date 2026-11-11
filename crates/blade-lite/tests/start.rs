@@ -123,3 +123,13 @@ fn try_times_zero_still_tries_once() {
     });
     assert_eq!(tries, 1);
 }
+
+#[test]
+fn no_config_yet_gives_the_defaults_without_asking() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("config.toml");
+
+    let config = config_or_defaults(&path, |_| panic!("asked")).unwrap();
+
+    assert_eq!(config, Config::default());
+}

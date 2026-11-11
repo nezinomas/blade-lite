@@ -167,7 +167,19 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         platform::ask_yes_no(START_BOX_TITLE, question)
     })?;
     let tries = if in_tray { TRAY_OPEN_TRIES } else { 1 };
-    let controller = try_times(tries, TRAY_OPEN_PAUSE, open_controller)?;
+    let mut tried = 0;
+    let controller = try_times(tries, TRAY_OPEN_PAUSE, || {
+        tried += 1;
+        let opened = open_controller();
+        if let Err(error) = &opened
+            && tried < tries
+        {
+            report(&format!(
+                "controller open try {tried} of {tries} failed: {error}"
+            ));
+        }
+        opened
+    })?;
     let machine = Machine {
         controller: Device::new(
             Reopening::new(
