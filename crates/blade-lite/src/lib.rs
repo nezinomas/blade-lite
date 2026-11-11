@@ -9,6 +9,7 @@ pub mod icon;
 mod key_reader;
 mod placement;
 mod report;
+mod start;
 
 pub use accent::accent_colour;
 pub use app::{App, AppError, Machine, RESEND_TRIES, took_effect};
@@ -24,3 +25,4 @@ pub use placement::{Rect, flyout_position, popup_position};
 pub use report::{
     Reporter, SaidLately, ShownErrors, open_log, open_quiet_log, report, report_panics,
 };
+pub use start::{config_or_defaults, try_times};
