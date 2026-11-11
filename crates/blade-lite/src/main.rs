@@ -26,12 +26,16 @@ use std::cell::RefCell;
 use std::path::PathBuf;
 use std::process::ExitCode;
 use std::rc::Rc;
+use std::time::Duration;
 
 use blade_core::{
     APP_NAME, Config, Log, POLL_INTERVAL, Start, razer_software, razer_warning, start_instance,
     starts_in_tray,
 };
-use blade_lite::{App, Machine, accent_colour, icon, open_log, report, report_panics};
+use blade_lite::{
+    App, Machine, accent_colour, config_or_defaults, icon, open_log, report, report_panics,
+    try_times,
+};
 use platform::{
     WindowsDisplays, WindowsInstance, WindowsKeys, WindowsPrograms, WindowsRegistry, num_lock_on,
 };
@@ -72,10 +76,38 @@ fn main() -> ExitCode {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
             report(&error.to_string());
+            show_start_error(&error.to_string());
             ExitCode::FAILURE
         }
     }
 }
+
+/// The window title of the start's message boxes.
+const START_BOX_TITLE: &str = "Blade Lite";
+
+/// Shows a failed start in a message box with the log's path: a release
+/// build has no console, and the app ends with no window or tray icon.
+fn show_start_error(error: &str) {
+    let log = std::env::var_os("APPDATA").map_or_else(
+        || "not written (no APPDATA)".to_owned(),
+        |appdata| Log::path_in(&PathBuf::from(appdata)).display().to_string(),
+    );
+    platform::show_error(
+        START_BOX_TITLE,
+        &format!(
+            "Blade Lite could not start:
+
+{error}
+
+Log: {log}"
+        ),
+    );
+}
+
+/// How many times a login start (`--tray`) tries to open the controller,
+/// and how long apart: the controller may not be ready yet at login.
+const TRAY_OPEN_TRIES: u32 = 5;
+const TRAY_OPEN_PAUSE: Duration = Duration::from_secs(2);
 
 /// Opens the controller. If it can't be opened, the error names any Razer
 /// software that runs, such as a Razer driver that took it.
@@ -137,11 +169,15 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         .select()?;
 
     let config_path = Config::path_in(&appdata);
-    let config = Config::load(&config_path)?;
+    let config = config_or_defaults(&config_path, |question| {
+        platform::ask_yes_no(START_BOX_TITLE, question)
+    })?;
+    let tries = if in_tray { TRAY_OPEN_TRIES } else { 1 };
+    let controller = try_times(tries, TRAY_OPEN_PAUSE, open_controller)?;
     let machine = Machine {
         controller: Device::new(
             Reopening::new(
-                open_controller()?,
+                controller,
                 reopen_controller as fn(bool) -> _,
                 REOPEN_GAP,
                 CONTROLLER_HELD.with(Rc::clone),
@@ -171,6 +207,8 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         report(&format!("the rate put back at start failed too: {error}"));
     }
     let started = started.and(rate);
+    // A failed start shows in the window, so a login start opens it.
+    let start_failed = started.is_err();
 
     let window = MainWindow::new()?;
     let flyout = FlyoutWindow::new()?;
@@ -204,7 +242,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     // At login the app starts in the tray, with the settings re-applied,
     // unless Razer software runs or the firmware is not one checked: the
     // window then shows the warning.
-    if !in_tray || razer_found || firmware_unchecked {
+    if !in_tray || razer_found || firmware_unchecked || start_failed {
         shell.show_window();
     }
     // Closing the window keeps the app in the tray. Quit is in its menu.
