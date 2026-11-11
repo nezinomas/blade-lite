@@ -19,9 +19,9 @@ impl<P: Parts> Shell<P> {
     /// Passes on power events, tries a wake's refused 60 Hz again, passes
     /// on Num Lock, then reads the sensors if a view shows them, or only
     /// the temperatures now and then if none does; neither while a resume
-    /// waits. Each such read also
-    /// reads the charger, and sends the preset again if a send failed
-    /// before the last tick began and none failed since.
+    /// waits. Each such read also reads the charger, and sends the preset
+    /// again if a send failed before the last tick began and none failed
+    /// since.
     pub fn tick(self: &Rc<Self>) {
         self.tick_at(Instant::now(), SystemTime::now());
     }
@@ -40,12 +40,10 @@ impl<P: Parts> Shell<P> {
         if let Some(muted) = P::mic_muted() {
             self.follow_mic(Some(muted));
         }
-        if self.schedule.borrow_mut().poll_due(now) {
-            // The controller may not be ready while a resume waits; the
-            // resume fills the windows again when its pause ends.
-            if self.resuming.get() == 0 {
-                self.tick_readings(now);
-            }
+        // The controller may not be ready while a resume waits. A poll due
+        // then stays due, so the first tick after the pause reads it.
+        if self.resuming.get() == 0 && self.schedule.borrow_mut().poll_due(now) {
+            self.tick_readings(now);
             if !self.follow_charger() {
                 self.resend_preset();
             }
