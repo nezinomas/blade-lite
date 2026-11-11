@@ -96,6 +96,36 @@ fn quitting_on_battery_puts_the_rate_back() {
 }
 
 #[test]
+fn quitting_sends_balanced_with_the_fans_on_auto_and_keeps_the_saved_preset() {
+    let mut config = Config {
+        preset: Preset::Custom,
+        ..Config::default()
+    };
+    config.custom.fan_rpm = Some(1600);
+    let f = fixture(config);
+    let before = sent_count(&f);
+
+    f.shell.quit();
+
+    assert_eq!(
+        sent_since(&f, before),
+        PerfMode::Balanced.commands(&BLADE_18).unwrap()
+    );
+    assert_eq!(f.shell.app().config().preset, Preset::Custom);
+}
+
+#[test]
+fn a_failed_balanced_on_quit_is_logged() {
+    let f = fixture(Config::default());
+    f.shell.app().machine_mut().controller.fails = true;
+
+    f.shell.quit();
+
+    let log = std::fs::read_to_string(log_path()).unwrap();
+    assert!(log.contains("Balanced was not sent at quit"), "{log}");
+}
+
+#[test]
 fn a_failed_put_back_on_quit_is_logged() {
     let f = fixture(Config {
         sixty_hz_on_battery: true,

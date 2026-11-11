@@ -2,7 +2,7 @@
 //! a Num Lock or mic mute change and on quit.
 
 use blade_core::{
-    ApplyError, Controller, DisplayError, Preset, Query, apply, apply_performance,
+    ApplyError, Config, Controller, DisplayError, Preset, Query, apply, apply_performance,
     full_power_charger, paint_red_keys, touchpad_on,
 };
 use platform::{DisplayApi, KeyInjector, PowerEvent, Registry};
@@ -272,6 +272,25 @@ where
     /// See [`AppError`].
     pub fn on_quit(&mut self) -> Result<(), AppError> {
         Ok(self.battery_rate.put_back(&mut self.machine.displays)?)
+    }
+
+    /// Sends Balanced, with the fans on auto, as the app quits: no app is
+    /// left to watch a manual fan or a charger pulled. The saved preset is
+    /// kept, so the next start sends it again.
+    ///
+    /// # Errors
+    ///
+    /// See [`AppError`].
+    pub fn quit_preset(&mut self) -> Result<(), AppError> {
+        let balanced = Config {
+            preset: Preset::Balanced,
+            ..self.config
+        };
+        Ok(apply_performance(
+            &balanced,
+            self.model,
+            &mut self.machine.controller,
+        )?)
     }
 
     /// At the app's start on AC, follows AC, so the rate a crash on

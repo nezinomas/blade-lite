@@ -323,11 +323,15 @@ impl<P: Parts> Shell<P> {
         self.app.borrow_mut()
     }
 
-    /// Puts back the rate from before battery as the app quits. A failure
-    /// goes to the log, as no window is left to show it.
+    /// Puts back the rate from before battery and sends Balanced as the app
+    /// quits. A failure goes to the log, as no window is left to show it.
     pub fn quit(&self) {
-        if let Err(error) = self.app.borrow_mut().on_quit() {
+        let mut app = self.app.borrow_mut();
+        if let Err(error) = app.on_quit() {
             report(&format!("the panel may stay at 60 Hz: {error}"));
+        }
+        if let Err(error) = app.quit_preset() {
+            report(&format!("Balanced was not sent at quit: {error}"));
         }
     }
 
