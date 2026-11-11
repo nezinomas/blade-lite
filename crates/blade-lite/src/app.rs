@@ -105,10 +105,11 @@ pub struct App<C, D, R, K> {
     /// How many preset sends failed (resends too), so the shell can wait a
     /// poll after each.
     preset_failures: u32,
-    /// A lasting rate error (no 60 Hz offered, no panel) of a power event
-    /// whose preset send failed too, so only the preset error was shown.
-    /// The resend that works shows it; the next power event, or a preset
-    /// send that works, drops it.
+    /// A rate the panel does not offer, from a power event whose preset
+    /// send failed too, so only the preset error was shown. The resend
+    /// that works shows it. The next power event, a display click, the last
+    /// failed resend or a preset send that works (a click, or a weak
+    /// charger's send on AC) drops it unshown.
     held_rate_error: Option<AppError>,
     /// Whether the power source was known at the last read. An unknown one
     /// runs the battery presets, but leaves the rate alone at a wake.

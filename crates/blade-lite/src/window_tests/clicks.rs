@@ -2028,7 +2028,9 @@ fn a_lasting_60_hz_error_behind_a_failed_switch_shows_once_the_resend_works() {
     two_heat_reads(&f);
 
     let error = f.shell.window().get_error();
-    assert!(error.contains("60 Hz"), "{error}");
+    assert_eq!(error.matches("60 Hz").count(), 1, "{error}");
+    two_heat_reads(&f);
+    assert_eq!(f.shell.window().get_error(), error);
 }
 
 #[test]

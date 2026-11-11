@@ -2,8 +2,8 @@
 //! a Num Lock or mic mute change and on quit.
 
 use blade_core::{
-    ApplyError, Controller, Preset, Query, apply, apply_performance, full_power_charger,
-    paint_red_keys, touchpad_on,
+    ApplyError, Controller, DisplayError, Preset, Query, apply, apply_performance,
+    full_power_charger, paint_red_keys, touchpad_on,
 };
 use platform::{DisplayApi, KeyInjector, PowerEvent, Registry};
 use razer_proto::RedKeys;
@@ -152,9 +152,11 @@ where
     }
 
     /// Shows the preset error of a power event before its rate error. A
-    /// rate error behind a failed preset is logged and, if the preset is
-    /// to be sent again, held, to show once a resend works; one tried again
-    /// on the polls is already quiet here.
+    /// rate error behind a failed preset is logged. A rate the panel does
+    /// not offer is also held, if a resend of the preset is to come, to
+    /// show once it works. Others are not: one tried again on the polls is
+    /// quiet here and shows itself, no panel shows in the display view, and
+    /// a refused put-back on AC is not tried again, as before.
     fn hold_rate_error(
         &mut self,
         preset: Result<(), AppError>,
@@ -164,7 +166,9 @@ where
         match (preset, rate) {
             (Err(preset), Err(rate)) => {
                 report(&format!("{context}: {rate}"));
-                self.held_rate_error = self.preset_unsure.then_some(rate);
+                let resend_due = self.preset_unsure && self.resends_left > 0;
+                let lasting = matches!(rate, AppError::Display(DisplayError::Unsupported(_)));
+                self.held_rate_error = (resend_due && lasting).then_some(rate);
                 Err(preset)
             }
             (preset, rate) => preset.and(rate),
@@ -230,10 +234,15 @@ where
         self.resends_left -= 1;
         let config = self.running(self.config);
         let applied = apply_performance(&config, self.model, &mut self.machine.controller);
+        // Only the preset run is sent, so `AfterPreset` can't come here.
         match &applied {
             Ok(()) => self.preset_unsure = false,
             Err(ApplyError::Device(_)) => self.preset_send_failed(),
             Err(_) => {}
+        }
+        if self.resends_left == 0 && applied.is_err() {
+            // No resend is left to show it.
+            self.held_rate_error = None;
         }
         applied?;
         match self.held_rate_error.take() {
