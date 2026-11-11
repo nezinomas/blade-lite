@@ -299,3 +299,45 @@ fn a_wake_60_hz_refused_is_not_tried_again_on_ac() {
 
     assert_eq!(panel_hz(&app), 240);
 }
+
+/// A start after a crash on battery left the panel at 60 Hz, with 240 Hz
+/// saved; `on_battery` is the source the start reads.
+fn start_left_at_60(
+    sixty_hz_on_battery: bool,
+    on_battery: Option<bool>,
+) -> (TestApp, tempfile::TempDir) {
+    let (mut app, dir, _) = app_with(Config {
+        sixty_hz_on_battery,
+        ..Config::default()
+    });
+    let displays = &mut app.machine_mut().displays;
+    displays.2 = Some(displays.0.current);
+    displays.0.current.hz = 60;
+    app.take_on_battery(on_battery);
+    app.start().unwrap();
+    app.start_rate().unwrap();
+    (app, dir)
+}
+
+#[test]
+fn a_start_on_ac_at_60_hz_puts_the_saved_rate_back() {
+    let (app, _dir) = start_left_at_60(true, Some(false));
+
+    assert_eq!(panel_hz(&app), 240);
+}
+
+#[test]
+fn a_start_on_ac_with_the_switch_off_leaves_the_rate() {
+    let (app, _dir) = start_left_at_60(false, Some(false));
+
+    assert_eq!(panel_hz(&app), 60);
+}
+
+#[test]
+fn a_start_on_battery_or_an_unknown_source_leaves_the_rate() {
+    for on_battery in [Some(true), None] {
+        let (app, _dir) = start_left_at_60(true, on_battery);
+
+        assert_eq!(panel_hz(&app), 60, "source {on_battery:?}");
+    }
+}

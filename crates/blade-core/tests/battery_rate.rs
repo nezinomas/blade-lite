@@ -641,7 +641,9 @@ fn a_start_on_ac_with_no_panel_active_is_not_an_error() {
 fn ac_after_a_start_on_ac_put_back_sends_nothing_more() {
     let mut api = left_at_60(Some(mode(3840, 2400, 240)));
     let mut battery_rate = BatteryRate::default();
-    battery_rate.on_start_on_ac(&config(true), &mut api).unwrap();
+    battery_rate
+        .on_start_on_ac(&config(true), &mut api)
+        .unwrap();
 
     battery_rate
         .on_event(PowerEvent::OnAc, &config(true), &mut api)

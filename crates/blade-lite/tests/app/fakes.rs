@@ -126,8 +126,9 @@ impl Query for FakeController {
 }
 
 /// The panel at 3840 × 2400, 60 to 240 Hz, and how many of the next sets
-/// fail (Windows refuses one just after a wake).
-pub struct FakeDisplays(pub Display, pub usize);
+/// fail (Windows refuses one just after a wake), and the mode Windows has
+/// saved.
+pub struct FakeDisplays(pub Display, pub usize, pub Option<DisplayMode>);
 
 impl Default for FakeDisplays {
     fn default() -> Self {
@@ -144,13 +145,14 @@ impl Default for FakeDisplays {
                 modes: vec![mode(60), mode(120), mode(240)],
             },
             0,
+            None,
         )
     }
 }
 
 impl DisplayApi for FakeDisplays {
     fn saved_mode(&self, _name: &str) -> Option<DisplayMode> {
-        None
+        self.2
     }
 
     fn displays(&self) -> io::Result<Vec<Display>> {
