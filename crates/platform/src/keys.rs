@@ -1,11 +1,12 @@
 //! Key presses sent to Windows with `SendInput`, the Num Lock state, and
-//! whether Enter is down.
+//! whether Enter or the mic keys are down.
 
 use std::io;
 
 use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
     GetAsyncKeyState, GetKeyState, INPUT, INPUT_0, INPUT_KEYBOARD, KEYBD_EVENT_FLAGS, KEYBDINPUT,
-    KEYEVENTF_KEYUP, SendInput, VIRTUAL_KEY, VK_CONTROL, VK_F24, VK_LWIN, VK_NUMLOCK, VK_RETURN,
+    KEYEVENTF_KEYUP, SendInput, VIRTUAL_KEY, VK_CONTROL, VK_F24, VK_K, VK_LWIN, VK_MENU,
+    VK_NUMLOCK, VK_RETURN, VK_RWIN,
 };
 
 use crate::{Key, KeyInjector};
@@ -35,6 +36,21 @@ pub fn enter_down() -> bool {
     let state = unsafe { GetAsyncKeyState(i32::from(VK_RETURN)) };
     // The high bit is set while the key is down.
     state < 0
+}
+
+/// Whether Win, Alt and K are all down now, from any thread: the keys
+/// Fn + mic sends (read on the laptop 2026-11-11, down about 160 ms).
+/// Only their state is read: no hook, and the keys still go to Windows.
+#[must_use]
+pub fn mic_keys_down() -> bool {
+    let down = |key: VIRTUAL_KEY| {
+        // SAFETY: GetAsyncKeyState takes a key code by value and touches
+        // no memory of ours.
+        let state = unsafe { GetAsyncKeyState(i32::from(key)) };
+        // The high bit is set while the key is down.
+        state < 0
+    };
+    (down(VK_LWIN) || down(VK_RWIN)) && down(VK_MENU) && down(VK_K)
 }
 
 /// Key presses that reach Windows as if typed on the keyboard.
