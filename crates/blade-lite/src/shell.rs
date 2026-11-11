@@ -51,46 +51,63 @@ pub trait Parts: 'static {
     /// Mutes the default mic if it is not muted, or the other way round.
     /// Whether it is muted after; `None` if that can't be told.
     fn toggle_mic_mute() -> Option<bool>;
-    /// Whether the controller was opened again since the last call, after
-    /// its handle died.
-    fn controller_reopened() -> bool;
+    /// What the opens of the controller again asked since the last call.
+    fn controller_reopened() -> Reopened;
+    /// Lets the controller send on its new handle.
+    fn release_controller();
 }
 
 /// What [`Parts::pick_file`] calls with the user's answer.
 pub type PickedFile = Box<dyn FnOnce(io::Result<Option<PathBuf>>)>;
 
 /// The controller, opened again after its handle dies.
-pub type LaptopTransport = Reopening<HidTransport, fn() -> io::Result<HidTransport>>;
+pub type LaptopTransport = Reopening<HidTransport, fn(bool) -> io::Result<HidTransport>>;
 
-/// How long a failed open again waits before the next try: each open lists
-/// every HID device, on the event-loop thread.
+/// How long an open again waits after the last one: each open lists every
+/// HID device, on the event-loop thread.
 pub const REOPEN_GAP: Duration = Duration::from_secs(5);
 
+/// What the last opens again asked of the shell.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Reopened {
+    /// Nothing new.
+    #[default]
+    No,
+    /// A new handle waits, held: pause, look for Razer software, release
+    /// it and send the settings again.
+    Opened,
+    /// An open failed for a new reason: only look for Razer software (a
+    /// Razer driver that took the controller makes every open fail).
+    Failed,
+}
+
 thread_local! {
-    /// Whether [`reopen_controller`] asked for a look since the last one.
-    /// Both run on the event-loop thread.
-    static CONTROLLER_REOPENED: Cell<bool> = const { Cell::new(false) };
+    /// What [`reopen_controller`] asked since the last look. Both run on the
+    /// event-loop thread.
+    static REOPENED: Cell<Reopened> = const { Cell::new(Reopened::No) };
+    /// Set by the controller while a new handle waits for the shell.
+    pub static CONTROLLER_HELD: Rc<Cell<bool>> = Rc::default();
     /// The last failed open again, so each one is logged once.
     static REOPEN_ERRORS: RefCell<ShownErrors> = RefCell::new(ShownErrors::default());
 }
 
 /// Opens the controller again after its handle died (a driver install, the
 /// USB device going and coming back). See [`note_open`].
-pub fn reopen_controller() -> io::Result<HidTransport> {
+pub fn reopen_controller(worked: bool) -> io::Result<HidTransport> {
     let opened = HidTransport::open(&BLADE_18);
-    let look = REOPEN_ERRORS.with_borrow_mut(|said| note_open(said, opened.as_ref().err()));
-    if look {
-        CONTROLLER_REOPENED.set(true);
+    let asked =
+        REOPEN_ERRORS.with_borrow_mut(|said| note_open(said, worked, opened.as_ref().err()));
+    if asked != Reopened::No {
+        REOPENED.set(asked);
     }
     opened
 }
 
-/// Logs an open again: each one that works, and each new reason one fails
-/// (`error`) once. Returns whether to look for Razer software and send the
-/// settings again, as after a wake: after each open that works, and the
-/// first failure of a run, since a Razer driver that took the controller
-/// makes every open fail.
-pub fn note_open(said: &mut ShownErrors, error: Option<&io::Error>) -> bool {
+/// Logs an open again (`error` if it failed; `worked`: a send on the last
+/// handle worked): the first that works in a run of failures, and each new
+/// reason one fails once. An open that works always asks the shell to
+/// release the handle; a failure asks for a look only when it is new.
+pub fn note_open(said: &mut ShownErrors, worked: bool, error: Option<&io::Error>) -> Reopened {
     let problem = error.map_or_else(String::new, |error| {
         format!("can't open the controller again: {error}")
     });
@@ -98,11 +115,16 @@ pub fn note_open(said: &mut ShownErrors, error: Option<&io::Error>) -> bool {
     if new {
         report(&problem);
     }
-    if error.is_none() {
-        report("the controller was opened again");
-        return true;
+    match error {
+        None => {
+            if worked {
+                report("the controller was opened again");
+            }
+            Reopened::Opened
+        }
+        Some(_) if new => Reopened::Failed,
+        Some(_) => Reopened::No,
     }
-    new
 }
 
 /// The real laptop.
@@ -126,8 +148,12 @@ impl Parts for Laptop {
         read.ok()
     }
 
-    fn controller_reopened() -> bool {
-        CONTROLLER_REOPENED.take()
+    fn controller_reopened() -> Reopened {
+        REOPENED.take()
+    }
+
+    fn release_controller() {
+        CONTROLLER_HELD.with(|held| held.set(false));
     }
 
     fn toggle_mic_mute() -> Option<bool> {

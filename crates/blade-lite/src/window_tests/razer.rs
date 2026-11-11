@@ -10,10 +10,11 @@ use razer_proto::NativeMode;
 use slint::{ComponentHandle, Model};
 
 use super::{
-    FAKE_ON_BATTERY, FAKE_REOPENED, Fixture, click, fixture, fixture_with_programs, log_path,
+    FAKE_ON_BATTERY, FAKE_RELEASED, FAKE_REOPENED, Fixture, click, fixture, fixture_with_programs,
+    log_path,
 };
 use crate::Choice;
-use crate::shell::note_open;
+use crate::shell::{Reopened, note_open};
 
 const SYNAPSE: &str = "Razer Synapse Service";
 
@@ -76,16 +77,19 @@ fn razer_software_is_looked_for_after_a_resume() {
     assert!(f.shell.window().get_error().contains(SYNAPSE));
 }
 
-/// Opens the controller again, as a failed send would, ticks once, and
-/// lets the wake's pause pass. Returns what was sent in the pause.
-fn reopen_and_wait(f: &Fixture) -> usize {
+/// Opens the controller again, as a failed send would, and ticks once.
+/// Returns what was sent then.
+fn reopen(f: &Fixture, asked: Reopened) -> usize {
     f.shell.window().hide().unwrap();
+    FAKE_RELEASED.set(false);
     let before = f.shell.app().machine().controller.sent.len();
-    FAKE_REOPENED.set(true);
+    FAKE_REOPENED.set(asked);
     f.shell.tick();
-    let in_pause = f.shell.app().machine().controller.sent.len() - before;
+    f.shell.app().machine().controller.sent.len() - before
+}
+
+fn pause_ends() {
     i_slint_backend_testing::mock_elapsed_time(RESUME_PAUSE + Duration::from_millis(1));
-    in_pause
 }
 
 #[test]
@@ -99,11 +103,18 @@ fn after_the_controller_is_opened_again_razer_software_shows_and_the_window_open
         "no look without a new open"
     );
 
-    assert_eq!(reopen_and_wait(&f), 0, "nothing is sent in the pause");
+    assert_eq!(
+        reopen(&f, Reopened::Opened),
+        0,
+        "nothing is sent in the pause"
+    );
+    assert!(!FAKE_RELEASED.get(), "held in the pause");
+    pause_ends();
 
+    assert!(FAKE_RELEASED.get());
     assert!(f.shell.window().get_error().contains(SYNAPSE));
     assert!(f.shell.window().window().is_visible());
-    assert!(!FAKE_REOPENED.get(), "the flag is taken");
+    assert_eq!(FAKE_REOPENED.get(), Reopened::No, "the flag is taken");
 }
 
 #[test]
@@ -111,7 +122,8 @@ fn after_the_controller_is_opened_again_the_settings_are_sent_again() {
     let f = fixture(Config::default());
     let before = f.shell.app().machine().controller.sent.len();
 
-    assert_eq!(reopen_and_wait(&f), 0);
+    assert_eq!(reopen(&f, Reopened::Opened), 0);
+    pause_ends();
 
     assert!(f.shell.app().machine().controller.sent.len() > before);
     assert_eq!(f.shell.window().get_error(), "");
@@ -119,7 +131,34 @@ fn after_the_controller_is_opened_again_the_settings_are_sent_again() {
 }
 
 #[test]
-fn each_open_again_is_logged_and_each_new_failure_once() {
+fn a_click_before_the_tick_after_an_open_again_sends_nothing() {
+    let f = fixture(Config::default());
+    let before = f.shell.app().machine().controller.sent.len();
+    FAKE_REOPENED.set(Reopened::Opened);
+
+    click(f.shell.window(), Button, "Silent");
+
+    assert_eq!(f.shell.app().machine().controller.sent.len(), before);
+    pause_ends();
+}
+
+#[test]
+fn a_failed_open_again_only_looks_for_razer_software() {
+    let f = fixture(Config::default());
+    f.shell.programs().set(&[SYNAPSE]);
+
+    assert_eq!(reopen(&f, Reopened::Failed), 0);
+
+    assert!(f.shell.window().window().is_visible());
+    assert!(!FAKE_RELEASED.get(), "no handle to release");
+    // No pause: a click goes on at once.
+    let before = f.shell.app().machine().controller.sent.len();
+    click(f.shell.window(), Button, "Silent");
+    assert!(f.shell.app().machine().controller.sent.len() > before);
+}
+
+#[test]
+fn opens_again_are_logged_once_per_run_and_each_new_failure_once() {
     // Texts no other test uses, as the log is shared.
     let gone = std::io::Error::other("ReopenLogTest gone");
     let taken = std::io::Error::other("ReopenLogTest taken");
@@ -128,18 +167,20 @@ fn each_open_again_is_logged_and_each_new_failure_once() {
         log.lines().filter(|line| line.contains(text)).count()
     };
     let mut said = blade_lite::ShownErrors::default();
+    let opened_before = lines("the controller was opened again");
 
-    assert!(note_open(&mut said, Some(&gone)), "a first failure looks");
-    assert!(!note_open(&mut said, Some(&gone)), "the same one does not");
-    assert!(note_open(&mut said, Some(&taken)), "a new reason looks");
-    assert!(note_open(&mut said, None), "an open that works looks");
-    assert!(
-        note_open(&mut said, Some(&gone)),
-        "a failure after it looks"
-    );
+    assert_eq!(note_open(&mut said, true, Some(&gone)), Reopened::Failed);
+    assert_eq!(note_open(&mut said, true, Some(&gone)), Reopened::No);
+    assert_eq!(note_open(&mut said, true, Some(&taken)), Reopened::Failed);
+    assert_eq!(note_open(&mut said, true, None), Reopened::Opened);
+    // That handle died before any send worked: the same run, not logged.
+    assert_eq!(note_open(&mut said, false, None), Reopened::Opened);
+    assert_eq!(note_open(&mut said, false, Some(&gone)), Reopened::Failed);
 
     assert_eq!(lines("ReopenLogTest gone"), 2);
     assert_eq!(lines("ReopenLogTest taken"), 1);
+    // Other tests may log it too, at the same time.
+    assert!(lines("the controller was opened again") > opened_before);
 }
 /// The label chosen in `choices`.
 fn chosen(choices: &slint::ModelRc<Choice>) -> String {

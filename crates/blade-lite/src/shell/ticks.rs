@@ -12,7 +12,7 @@ use slint::Timer;
 use ui::{DisplayView, Header, HeatWatch};
 
 use super::popup::{POPUP_HOLD, TOUCHPAD};
-use super::{AppOn, Parts, Shell};
+use super::{AppOn, Parts, Reopened, Shell};
 use crate::bind;
 
 impl<P: Parts> Shell<P> {
@@ -30,7 +30,6 @@ impl<P: Parts> Shell<P> {
     /// window tests give their own times.
     pub(crate) fn tick_at(self: &Rc<Self>, now: Instant, wall: SystemTime) {
         let failures = self.app.borrow().preset_failures();
-        self.follow_reopen();
         self.follow_own_power();
         if self.resuming.get() == 0 && self.app.borrow().battery_rate_pending() {
             self.retry_battery_rate();
@@ -64,17 +63,37 @@ impl<P: Parts> Shell<P> {
         }
     }
 
-    /// After the controller was opened again, or failed to open for a new
-    /// reason, acts as after a wake: nothing goes to the controller in the
-    /// pause, then Razer software is looked for (a Razer driver install
-    /// may be what killed the old handle) and the settings are sent again,
-    /// as the controller may have lost them. Returns whether it did.
+    /// After the controller was opened again: clicks and polls wait out the
+    /// wake's pause (the controller holds its new handle until then), then
+    /// Razer software is looked for (a Razer driver install may be what
+    /// killed the old handle), the handle is released and the settings are
+    /// sent again, as the controller may have lost them. Unlike a wake, the
+    /// heat watch and the rate are left alone. After an open that failed
+    /// for a new reason, only the look. Returns whether a pause began.
     fn follow_reopen(self: &Rc<Self>) -> bool {
-        let reopened = P::controller_reopened();
-        if reopened {
-            self.power_event(PowerEvent::Resumed);
+        match P::controller_reopened() {
+            Reopened::No => false,
+            Reopened::Failed => {
+                if self.look_for_razer() {
+                    self.show_window();
+                }
+                false
+            }
+            Reopened::Opened => {
+                self.resuming.set(self.resuming.get().saturating_add(1));
+                let shell = Rc::clone(self);
+                Timer::single_shot(RESUME_PAUSE, move || {
+                    shell.resuming.set(shell.resuming.get().saturating_sub(1));
+                    let first = shell.look_for_razer();
+                    P::release_controller();
+                    shell.act(AppOn::<P>::start);
+                    if first {
+                        shell.show_window();
+                    }
+                });
+                true
+            }
         }
-        reopened
     }
 
     /// Sends the preset that runs again if its last send failed, so the
@@ -270,6 +289,8 @@ impl<P: Parts> Shell<P> {
     /// listened for. If none can come (Windows refused them, or their
     /// thread ended), the power source is read instead.
     pub fn follow_own_power(self: &Rc<Self>) {
+        // First, so a new handle's pause holds this click or poll too.
+        self.follow_reopen();
         let power = self.power.borrow().clone();
         if let Some(power) = power
             && !self.follow_power(&power)
