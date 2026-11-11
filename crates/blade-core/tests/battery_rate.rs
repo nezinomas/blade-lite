@@ -473,6 +473,25 @@ fn the_tries_after_a_wake_stop_with_the_last_error() {
 }
 
 #[test]
+fn a_try_that_fails_for_good_ends_the_tries_with_its_error() {
+    let mut api = panel_at(240);
+    let mut battery_rate = woken_at_240(&mut api);
+    api.failing_sets = 1;
+    battery_rate
+        .on_resume(true, &config(true), &mut api)
+        .unwrap();
+    // Such as another program changing the panel's modes: 60 Hz is gone.
+    api.displays.as_mut().unwrap()[0]
+        .modes
+        .retain(|mode| mode.hz != 60);
+
+    let tried = battery_rate.retry(&config(true), &mut api);
+
+    assert!(matches!(tried, Err(DisplayError::Unsupported(_))));
+    assert!(!battery_rate.retry_pending());
+}
+
+#[test]
 fn ac_stops_the_tries_after_a_wake() {
     let mut api = panel_at(240);
     let mut battery_rate = woken_at_240(&mut api);
