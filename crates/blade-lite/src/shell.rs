@@ -11,6 +11,7 @@ use std::cell::{Cell, RefCell};
 use std::io;
 use std::path::PathBuf;
 use std::rc::Rc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::Receiver;
 use std::time::{Duration, Instant};
 
@@ -43,6 +44,11 @@ pub trait Parts: 'static {
     /// user cancels, or the dialog's error. The app keeps running while
     /// the dialog is open.
     fn pick_file(owner: Option<isize>, dialog: FileDialog, done: PickedFile);
+    /// Whether the default mic is muted now. `None` if it can't be read.
+    fn mic_muted() -> Option<bool>;
+    /// Mutes the default mic if it is not muted, or the other way round.
+    /// Whether it is muted after; `None` if that can't be told.
+    fn toggle_mic_mute() -> Option<bool>;
 }
 
 /// What [`Parts::pick_file`] calls with the user's answer.
@@ -60,6 +66,21 @@ impl Parts for Laptop {
 
     fn on_battery() -> bool {
         crate::background::on_battery_now()
+    }
+
+    /// A read that fails is said once, until a read works again.
+    fn mic_muted() -> Option<bool> {
+        let read = platform::mic_muted();
+        say_mic_error(read.as_ref().err());
+        read.ok()
+    }
+
+    fn toggle_mic_mute() -> Option<bool> {
+        let toggled = platform::toggle_mic_mute();
+        if let Err(error) = &toggled {
+            report(&format!("Fn + mic did nothing: {error}"));
+        }
+        toggled.ok().or_else(Self::mic_muted)
     }
 
     /// The dialog runs on a thread of its own, so the polls, power events
@@ -88,6 +109,18 @@ impl Parts for Laptop {
         {
             done(Err(error));
         }
+    }
+}
+
+/// Whether a failed mic read has been said since the last one that worked.
+static MIC_ERROR_SAID: AtomicBool = AtomicBool::new(false);
+
+/// Says a failed mic read once, until a read works again: the mute is read
+/// on each poll.
+fn say_mic_error(error: Option<&io::Error>) {
+    let said = MIC_ERROR_SAID.swap(error.is_some(), Ordering::Relaxed);
+    if let (Some(error), false) = (error, said) {
+        report(&format!("the mic key stays plain: {error}"));
     }
 }
 

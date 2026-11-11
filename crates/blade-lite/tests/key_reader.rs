@@ -6,7 +6,7 @@ use std::time::Duration;
 
 use blade_core::{BRIGHTNESS_READ_GAP, PowerKeyPresses};
 use blade_lite::{
-    ENTER_READ_WAIT, EnterKey, KEY_IDLE_READS, KEY_READ_WAIT, KeyEvent, KeyReportSource, ReaderEnd,
+    ENTER_READ_WAIT, FnKeys, KEY_IDLE_READS, KEY_READ_WAIT, KeyEvent, KeyReportSource, ReaderEnd,
     step_on_presses,
 };
 use razer_proto::BLADE_18;
@@ -24,19 +24,29 @@ impl KeyReportSource for FakeSource {
     }
 }
 
-/// Gives its Enter states in order, then up. Counts its reads.
+/// Gives its Enter states in order, then up, and counts its Enter reads.
+/// The same for the mic keys.
 #[derive(Default)]
-struct FakeEnter(VecDeque<bool>, usize);
+struct FakeEnter(VecDeque<bool>, usize, VecDeque<bool>, usize);
 
-impl EnterKey for FakeEnter {
-    fn down(&mut self) -> bool {
+impl FnKeys for FakeEnter {
+    fn enter_down(&mut self) -> bool {
         self.1 += 1;
         self.0.pop_front().unwrap_or(false)
+    }
+
+    fn mic_down(&mut self) -> bool {
+        self.3 += 1;
+        self.2.pop_front().unwrap_or(false)
     }
 }
 
 fn enter(states: &[bool]) -> FakeEnter {
-    FakeEnter(states.iter().copied().collect(), 0)
+    FakeEnter(states.iter().copied().collect(), 0, VecDeque::new(), 0)
+}
+
+fn mic(states: &[bool]) -> FakeEnter {
+    FakeEnter(VecDeque::new(), 0, states.iter().copied().collect(), 0)
 }
 
 fn report(bytes: &[u8]) -> Vec<u8> {
@@ -148,6 +158,66 @@ fn enter_is_read_only_while_fn_is_held() {
 
     // Once, after the Fn report.
     assert_eq!(enter.1, 1);
+}
+
+#[test]
+fn fn_and_mic_call_back_once_for_the_mic() {
+    // Fn + mic: the keyboard sends only Fn, Windows gets Win + Alt + K.
+    let mut source = source(vec![
+        Some(report(&[0x04])),
+        Some(report(&[0x04, 0x0A])),
+        None,
+        None,
+        None,
+    ]);
+    let mut keys = mic(&[false, true, true]);
+    let mut events = Vec::new();
+
+    step_on_presses(&mut source, &mut keys, presses(), |event| {
+        events.push(event);
+        true
+    });
+
+    assert_eq!(
+        events
+            .iter()
+            .filter(|&&event| event != KeyEvent::FnHeld)
+            .collect::<Vec<_>>(),
+        [&KeyEvent::MicKey]
+    );
+}
+
+#[test]
+fn the_mic_keys_are_read_only_while_fn_is_held() {
+    let mut source = source(vec![
+        Some(report(&[0x04])),
+        None,
+        Some(report(&[0x04, 0x0A])),
+        Some(report(&[0x04])),
+        None,
+    ]);
+    let mut keys = mic(&[]);
+
+    step_on_presses(&mut source, &mut keys, presses(), |_| true);
+
+    // Once, after the Fn report.
+    assert_eq!(keys.3, 1);
+}
+
+#[test]
+fn the_loop_ends_when_the_app_quits_on_a_mic_press() {
+    let mut source = source(vec![
+        Some(report(&[0x04])),
+        Some(report(&[0x04, 0x0A])),
+        None,
+    ]);
+    let mut keys = mic(&[false, true]);
+
+    let end = step_on_presses(&mut source, &mut keys, presses(), |event| {
+        event != KeyEvent::MicKey
+    });
+
+    assert_eq!(end, ReaderEnd::Quit);
 }
 
 #[test]

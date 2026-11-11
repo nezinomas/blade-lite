@@ -1,4 +1,5 @@
-//! What the shell does on each poll: power events, Num Lock and sensor reads.
+//! What the shell does on each poll: power events, Num Lock, the mic mute
+//! and sensor reads.
 
 use std::rc::Rc;
 use std::sync::mpsc::Receiver;
@@ -31,6 +32,7 @@ impl<P: Parts> Shell<P> {
             self.retry_battery_rate();
         }
         self.follow_num_lock(num_lock_on());
+        self.follow_mic(P::mic_muted());
         if self.schedule.borrow_mut().poll_due(now) {
             self.tick_readings(now);
             self.follow_charger();
@@ -113,6 +115,29 @@ impl<P: Parts> Shell<P> {
         if !matches!(painted, Ok(false)) {
             self.act(|_| painted.map(|_| ()));
         }
+    }
+
+    /// Paints the mic key again if the mic mute changed since the last
+    /// look (`None`: it can't be read). While a resume waits, the state is
+    /// only kept: the resume paints it.
+    pub fn follow_mic(self: &Rc<Self>, muted: Option<bool>) {
+        if self.app.borrow().mic_muted() == muted {
+            return;
+        }
+        if self.resuming.get() > 0 {
+            self.app.borrow_mut().set_mic_muted(muted);
+            return;
+        }
+        let painted = self.app.borrow_mut().on_mic_muted(muted);
+        if !matches!(painted, Ok(false)) {
+            self.act(|_| painted.map(|_| ()));
+        }
+    }
+
+    /// Fn + mic: mutes or unmutes the default mic, then paints the key. The
+    /// mic changes during a resume's pause too; only the paint waits.
+    pub fn toggle_mic(self: &Rc<Self>) {
+        self.follow_mic(P::toggle_mic_mute());
     }
 
     /// Paints the touchpad key after a touchpad change, unless a resume

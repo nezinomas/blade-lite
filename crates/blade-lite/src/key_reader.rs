@@ -1,6 +1,7 @@
 //! Reads the power-mode key's reports and calls back on each press, and
 //! while Fn is held or as it comes up. With Num Lock on the keyboard sends only Fn, so
-//! while Fn is held, Enter's state is read too.
+//! while Fn is held, Enter's state is read too. Fn + mic sends only Fn
+//! too, and Win + Alt + K to Windows, so their state is read as well.
 
 use std::io;
 use std::time::{Duration, Instant};
@@ -37,21 +38,28 @@ impl KeyReportSource for HidKeyReports {
     }
 }
 
-/// Somewhere Enter's state comes from.
-pub trait EnterKey {
+/// Somewhere the state of the keys read while Fn is held comes from.
+pub trait FnKeys {
     /// Whether Enter is down now.
-    fn down(&mut self) -> bool;
+    fn enter_down(&mut self) -> bool;
+    /// Whether the keys Fn + mic sends (Win + Alt + K) are down now.
+    fn mic_down(&mut self) -> bool;
 }
 
-/// Enter as Windows sees it now, counted only while Num Lock is on. With
-/// Num Lock off the keyboard sends the power key itself, and either Enter
-/// key, or one sent by another program, reads the same here, so this
-/// keeps the Enter path to the one case it is for.
-pub struct WindowsEnter;
+/// The keys as Windows sees them now.
+pub struct WindowsFnKeys;
 
-impl EnterKey for WindowsEnter {
-    fn down(&mut self) -> bool {
+impl FnKeys for WindowsFnKeys {
+    /// Enter, counted only while Num Lock is on. With Num Lock off the
+    /// keyboard sends the power key itself, and either Enter key, or one
+    /// sent by another program, reads the same here, so this keeps the
+    /// Enter path to the one case it is for.
+    fn enter_down(&mut self) -> bool {
         platform::num_lock_on() && platform::enter_down()
+    }
+
+    fn mic_down(&mut self) -> bool {
+        platform::mic_keys_down()
     }
 }
 
@@ -60,6 +68,8 @@ impl EnterKey for WindowsEnter {
 pub enum KeyEvent {
     /// The power-mode key was pressed: step the preset.
     PowerKey,
+    /// Fn + mic was pressed: mute or unmute the mic.
+    MicKey,
     /// Fn is still held, and [`blade_core::BRIGHTNESS_READ_GAP`] has
     /// passed: Fn + F10 or F11 may be changing the keyboard brightness, so
     /// read it, to follow it live. Up to
@@ -81,13 +91,13 @@ pub enum ReaderEnd {
     Quit,
 }
 
-/// Reads reports, and Enter while Fn is held, and calls `on_key` for
-/// each press, every [`blade_core::BRIGHTNESS_READ_GAP`] while Fn is held,
+/// Reads reports, and Enter and the mic keys while Fn is held, and calls
+/// `on_key` for each press, every [`blade_core::BRIGHTNESS_READ_GAP`] while Fn is held,
 /// and each time Fn comes up. `on_key` returns false once the
 /// app is quitting.
 pub fn step_on_presses(
     source: &mut impl KeyReportSource,
-    enter: &mut impl EnterKey,
+    keys: &mut impl FnKeys,
     mut presses: PowerKeyPresses,
     mut on_key: impl FnMut(KeyEvent) -> bool,
 ) -> ReaderEnd {
@@ -115,8 +125,13 @@ pub fn step_on_presses(
             Err(error) => return ReaderEnd::Failed(error.to_string()),
         };
         let now = Instant::now();
-        let entered = presses.watching_enter(now) && presses.on_enter(enter.down(), now);
+        let fn_held = presses.watching_enter(now);
+        let entered = fn_held && presses.on_enter(keys.enter_down(), now);
         if (key_pressed || entered) && !on_key(KeyEvent::PowerKey) {
+            return ReaderEnd::Quit;
+        }
+        let mic = fn_held && presses.on_mic(keys.mic_down(), now);
+        if mic && !on_key(KeyEvent::MicKey) {
             return ReaderEnd::Quit;
         }
         if fn_up && !on_key(KeyEvent::FnUp) {

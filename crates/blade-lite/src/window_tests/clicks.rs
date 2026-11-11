@@ -12,7 +12,7 @@ use razer_proto::{BLADE_18, Celsius, Charger, Command, PerfMode, Rgb, static_col
 use slint::platform::{PointerEventButton, WindowEvent};
 use slint::{ComponentHandle, LogicalPosition};
 
-use super::{FAKE_ON_BATTERY, Fixture, click, control, fixture, log_path};
+use super::{FAKE_MIC, FAKE_ON_BATTERY, Fixture, click, control, fixture, log_path};
 use crate::fakes::{FakeCharger, brightness_commands, lighting_commands, logo};
 
 const WHITE: Rgb = Rgb::new(0xFF, 0xFF, 0xFF);
@@ -552,6 +552,77 @@ fn num_lock_during_the_resume_pause_sends_nothing() {
 
     assert_eq!(sent_since(&f, before), []);
     assert!(f.shell.app().num_lock_on());
+}
+
+/// With the lighting saved, the touchpad on and the mic not muted.
+fn mic_fixture() -> Fixture {
+    let f = touchpad_off_fixture();
+    f.shell.app().machine_mut().registry.touchpad = Some(1);
+    f.shell.follow_mic(Some(false));
+    f
+}
+
+fn mic_red() -> Vec<Command> {
+    let mic = razer_proto::RedKeys {
+        touchpad: false,
+        mic: true,
+    };
+    razer_proto::static_colour_red(WHITE, &BLADE_18, mic)
+}
+
+#[test]
+fn a_mic_mute_paints_the_mic_key_once_per_change() {
+    let f = mic_fixture();
+    let before = sent_count(&f);
+
+    f.shell.follow_mic(Some(true));
+    f.shell.follow_mic(Some(true));
+
+    assert_eq!(sent_since(&f, before), mic_red());
+}
+
+#[test]
+fn fn_mic_mutes_the_mic_and_paints_the_key_then_unmutes_it() {
+    let f = mic_fixture();
+    FAKE_MIC.set(Some(false));
+    let before = sent_count(&f);
+
+    f.shell.toggle_mic();
+    assert_eq!(FAKE_MIC.get(), Some(true));
+    f.shell.toggle_mic();
+
+    assert_eq!(FAKE_MIC.get(), Some(false));
+    let mut expected = mic_red();
+    expected.extend(static_colour(WHITE, &BLADE_18));
+    assert_eq!(sent_since(&f, before), expected);
+}
+
+#[test]
+fn the_poll_follows_a_mute_made_elsewhere() {
+    let f = mic_fixture();
+    FAKE_MIC.set(Some(true));
+    let before = sent_count(&f);
+
+    f.shell.tick();
+
+    assert_eq!(f.shell.app().mic_muted(), Some(true));
+    assert_eq!(sent_since(&f, before), mic_red());
+}
+
+#[test]
+fn fn_mic_during_the_resume_pause_mutes_but_sends_nothing() {
+    let f = mic_fixture();
+    FAKE_MIC.set(Some(false));
+    let (sender, receiver) = std::sync::mpsc::channel();
+    sender.send(PowerEvent::Resumed).unwrap();
+    f.shell.follow_power(&receiver);
+    let before = sent_count(&f);
+
+    f.shell.toggle_mic();
+
+    assert_eq!(FAKE_MIC.get(), Some(true));
+    assert_eq!(f.shell.app().mic_muted(), Some(true));
+    assert_eq!(sent_since(&f, before), []);
 }
 
 #[test]
