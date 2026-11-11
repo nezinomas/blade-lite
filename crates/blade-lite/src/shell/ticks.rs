@@ -30,8 +30,10 @@ impl<P: Parts> Shell<P> {
     /// window tests give their own times.
     pub(crate) fn tick_at(self: &Rc<Self>, now: Instant, wall: SystemTime) {
         let failures = self.app.borrow().preset_failures();
+        // Tries started by a power event in this tick wait for the next one.
+        let rate_pending = self.app.borrow().battery_rate_pending();
         self.follow_own_power();
-        if self.resuming.get() == 0 && self.app.borrow().battery_rate_pending() {
+        if rate_pending && self.resuming.get() == 0 && self.app.borrow().battery_rate_pending() {
             self.retry_battery_rate();
         }
         self.follow_num_lock(num_lock_on());
@@ -114,8 +116,9 @@ impl<P: Parts> Shell<P> {
     }
 
     /// Tries a wake's or a switch's refused 60 Hz again: Windows can refuse
-    /// it just after a wake. Only the last failed try is shown, so a quiet try does not
-    /// clear the wake's other errors or read the controller. When the tries
+    /// it just after a wake, and a refused switch would leave the panel off
+    /// 60 Hz. Only the last failed try is shown, so a quiet try does not
+    /// clear the other errors or read the controller. When the tries
     /// end, the window's rate buttons show the panel's rate (one display
     /// view, so one native mode read); the flyout is filled when it opens.
     fn retry_battery_rate(self: &Rc<Self>) {

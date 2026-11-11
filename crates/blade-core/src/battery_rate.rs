@@ -28,8 +28,9 @@ impl BatteryRate {
     /// [`Self::on_resume`], so `Resumed` changes nothing here, nor does any
     /// event while the option is off (but AC still puts a rate back). The
     /// first source since the start that is AC goes to
-    /// [`Self::first_on_ac`]. A failed 60 Hz on battery is an error, and
-    /// also starts the tries ([`Self::retry`]).
+    /// [`Self::first_on_ac`]. A failed 60 Hz on battery is an error; one
+    /// that may work later (a refused set or a failed read) also starts
+    /// the tries ([`Self::retry`]).
     ///
     /// # Errors
     ///
@@ -47,9 +48,9 @@ impl BatteryRate {
                     return Ok(());
                 }
                 // A refused 60 Hz is tried again on the polls, as after a
-                // wake, so it is not lost when another error is shown.
+                // wake. A rate the panel does not offer, or no panel, is not.
                 let set = self.on_battery(api);
-                if set.is_err() {
+                if matches!(set, Err(DisplayError::Set(_) | DisplayError::Query(_))) {
                     self.tries = RESUME_RATE_TRIES;
                 }
                 set
@@ -169,9 +170,9 @@ impl BatteryRate {
         self.tries > 0
     }
 
-    /// Tries the wake's or switch's 60 Hz again, once per poll. Only the last failed
-    /// try is an error, so a set refused while the panel wakes is not shown
-    /// each time. AC or the option turned off stops the tries.
+    /// Tries the wake's or switch's 60 Hz again, once per poll. Only the
+    /// last failed try is an error, so a set refused while the panel wakes
+    /// is not shown each time. AC or the option turned off stops the tries.
     ///
     /// # Errors
     ///

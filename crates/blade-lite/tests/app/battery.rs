@@ -304,10 +304,15 @@ fn a_60_hz_refused_with_a_failed_preset_switch_is_tried_again() {
     });
     let before = panel_hz(&app);
     app.machine_mut().controller.fails = true;
+    assert!(app.start().is_err());
     app.machine_mut().displays.1 = 1;
 
     // Only the preset error is shown.
-    assert!(app.on_power(PowerEvent::OnBattery).is_err());
+    let switched = app.on_power(PowerEvent::OnBattery);
+    assert!(
+        matches!(switched, Err(blade_lite::AppError::Apply(_))),
+        "{switched:?}"
+    );
     assert_eq!(panel_hz(&app), before);
     assert!(app.battery_rate_pending());
     app.retry_battery_rate().unwrap();
