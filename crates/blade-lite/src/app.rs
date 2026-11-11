@@ -437,17 +437,18 @@ where
     pub fn set_fan_boost(&mut self, on: bool) -> Result<bool, AppError> {
         let top = self.model.custom.fan_rpm.max;
         let boost = on.then_some(top);
+        let running = self.running(self.config);
+        let manual = running.preset == Preset::Custom && running.custom.fan_rpm.is_some();
         if self.fan_boost == boost {
             // A failed full-speed send whose resends ran out is tried
             // again while the guard stays on (the polls send it).
-            if on && self.preset_unsure && self.resends_left == 0 {
+            if on && manual && self.preset_unsure && self.resends_left == 0 {
                 self.resends_left = RESEND_TRIES;
             }
             return Ok(false);
         }
         self.fan_boost = boost;
         let running = self.running(self.config);
-        let manual = running.preset == Preset::Custom && running.custom.fan_rpm.is_some();
         // Already at the top speed: nothing changes on the laptop.
         if !manual || self.config.custom.fan_rpm == Some(top) {
             return Ok(false);
