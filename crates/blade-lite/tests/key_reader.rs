@@ -6,8 +6,8 @@ use std::time::Duration;
 
 use blade_core::{BRIGHTNESS_READ_GAP, PowerKeyPresses};
 use blade_lite::{
-    ENTER_READ_WAIT, FnKeys, KEY_IDLE_READS, KEY_READ_WAIT, KeyEvent, KeyReportSource, ReaderEnd,
-    step_on_presses,
+    ENTER_READ_WAIT, FnKeys, KEY_IDLE_READS, KEY_READ_WAIT, KEY_REOPEN_PAUSE, KeyEvent,
+    KeyReportSource, ReaderEnd, step_on_presses,
 };
 use razer_proto::BLADE_18;
 
@@ -106,6 +106,21 @@ fn a_long_quiet_spell_reopens_the_reports() {
     assert_eq!(calls, 0);
     // It did not read past the quiet spell to the failing read.
     assert!(source.0.is_empty());
+}
+
+#[test]
+fn only_a_quiet_spell_of_full_length_opens_again_at_once() {
+    let spell = KEY_READ_WAIT * KEY_IDLE_READS;
+    assert_eq!(ReaderEnd::Reopen.pause_before_open(spell), Duration::ZERO);
+    // Reads that came back at once are a broken handle: pause.
+    assert_eq!(
+        ReaderEnd::Reopen.pause_before_open(Duration::from_secs(1)),
+        KEY_REOPEN_PAUSE
+    );
+    assert_eq!(
+        ReaderEnd::Failed("gone".into()).pause_before_open(spell),
+        KEY_REOPEN_PAUSE
+    );
 }
 
 #[test]

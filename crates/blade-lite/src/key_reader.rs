@@ -91,6 +91,26 @@ pub enum ReaderEnd {
     Quit,
 }
 
+/// How long to wait before opening the key reports again, after they
+/// fail, or come back quiet too soon to be a real quiet spell.
+pub const KEY_REOPEN_PAUSE: Duration = Duration::from_secs(5);
+
+impl ReaderEnd {
+    /// How long to wait before the next open, after a reader that ran for
+    /// `ran`. A quiet spell opens again at once, so no press is lost in the
+    /// pause. One that ended in under half its reads' waits had reads that
+    /// did not wait, a broken handle, so it pauses, as a failure does.
+    #[must_use]
+    pub fn pause_before_open(&self, ran: Duration) -> Duration {
+        let full_spell = KEY_READ_WAIT * KEY_IDLE_READS;
+        if *self == Self::Reopen && ran >= full_spell / 2 {
+            Duration::ZERO
+        } else {
+            KEY_REOPEN_PAUSE
+        }
+    }
+}
+
 /// Reads reports, and Enter and the mic keys while Fn is held, and calls
 /// `on_key` for each press, every [`blade_core::BRIGHTNESS_READ_GAP`] while Fn is held,
 /// and each time Fn comes up. `on_key` returns false once the
