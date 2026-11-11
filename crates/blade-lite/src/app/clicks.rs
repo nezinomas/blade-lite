@@ -45,7 +45,7 @@ where
         let running = self.running(config);
         let applied = apply_performance(&running, self.model, &mut self.machine.controller);
         // A failed send may have changed part of it.
-        self.preset_unsure = applied.is_err();
+        self.note_preset_send(&applied);
         applied?;
         self.keep_sent(config)
     }

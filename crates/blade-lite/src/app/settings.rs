@@ -60,7 +60,7 @@ where
     /// Checks `config` and the one that runs in its place, sends it all as
     /// a start does, then keeps and saves it. Nothing is sent if the model
     /// does not take a value. A failed send keeps the old config, and the
-    /// next power event sends the preset again. The 60 Hz switch acts at
+    /// next poll or power event sends the preset again. The 60 Hz switch acts at
     /// once, as a click on it does, and stays off if 60 Hz can't be set.
     fn replace_config(&mut self, config: Config) -> Result<(), AppError> {
         let running = self.running(config);
@@ -69,7 +69,7 @@ where
         let red = self.key_should_be_red();
         let applied = apply(&running, self.model, &mut self.machine.controller, red);
         self.key_red = applied.is_ok().then_some(red);
-        self.preset_unsure = applied.is_err();
+        self.note_preset_send(&applied);
         self.read_logo();
         applied?;
         // The switch goes through the click's path, which keeps it off if

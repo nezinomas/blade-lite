@@ -106,7 +106,7 @@ fn import_of_a_value_the_model_refuses_changes_nothing() {
 #[test]
 fn import_on_battery_checks_the_saved_custom_too() {
     let (mut app, dir, path) = app();
-    app.take_on_battery(true);
+    app.take_on_battery(Some(true));
     let picked = dir.path().join("too-fast.toml");
     fs::write(
         &picked,
@@ -123,7 +123,7 @@ fn import_on_battery_checks_the_saved_custom_too() {
 #[test]
 fn import_on_battery_runs_the_battery_preset_and_keeps_the_saved_one() {
     let (mut app, dir, _) = app();
-    app.take_on_battery(true);
+    app.take_on_battery(Some(true));
     let file = Config {
         preset: Preset::Performance,
         ..Config::default()

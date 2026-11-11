@@ -1456,3 +1456,237 @@ fn a_weak_charge_with_balanced_saved_greys_out_performance_and_says_so() {
         .find(|o| o.preset == Preset::Performance);
     assert!(!performance.unwrap().enabled);
 }
+
+/// Performance saved, then a switch to battery that failed.
+fn failed_switch_fixture() -> Fixture {
+    let f = fixture(Config {
+        preset: Preset::Performance,
+        ..Config::default()
+    });
+    FAKE_ON_BATTERY.set(true);
+    f.shell.app().machine_mut().controller.fails = true;
+    let (sender, receiver) = std::sync::mpsc::channel();
+    sender.send(PowerEvent::OnBattery).unwrap();
+    f.shell.follow_power(&receiver);
+    f.shell.app().machine_mut().controller.fails = false;
+    f
+}
+
+/// Two heat reads in a row, as with no view open: the first poll after a
+/// failure waits, the second may send again.
+fn two_heat_reads(f: &Fixture) {
+    let (start, wall) = (Instant::now(), SystemTime::now());
+    f.shell.tick_at(start, wall);
+    let later = blade_core::HEAT_INTERVAL;
+    f.shell.tick_at(start + later, wall + later);
+}
+
+#[test]
+fn a_failed_switch_to_battery_is_sent_again_on_the_poll_after_the_next() {
+    let f = failed_switch_fixture();
+    let error = f.shell.window().get_error();
+    let sent = sent_count(&f);
+
+    f.shell.tick();
+    assert_eq!(sent_since(&f, sent), []);
+    two_heat_reads(&f);
+
+    let balanced = PerfMode::Balanced.commands(&BLADE_18).unwrap();
+    assert_eq!(sent_since(&f, sent), balanced);
+    // Quiet: the switch's error stays shown.
+    assert_ne!(error, "");
+    assert_eq!(f.shell.window().get_error(), error);
+}
+
+#[test]
+fn a_switch_that_fails_again_in_a_tick_is_not_sent_again_in_that_tick() {
+    let f = failed_switch_fixture();
+    f.shell.tick();
+    let (sender, receiver) = std::sync::mpsc::channel();
+    f.shell.listen_for_power(receiver);
+    sender.send(PowerEvent::OnAc).unwrap();
+    FAKE_ON_BATTERY.set(false);
+    // Each run takes one command, then fails.
+    f.shell.app().machine_mut().controller.fails_after = Some(1);
+    let sent = sent_count(&f);
+
+    let later = blade_core::HEAT_INTERVAL;
+    f.shell
+        .tick_at(Instant::now() + later, SystemTime::now() + later);
+
+    assert_eq!(sent_since(&f, sent).len(), 1);
+}
+
+#[test]
+fn no_resend_while_a_wake_waits() {
+    let f = failed_switch_fixture();
+    resuming(&f);
+    let sent = sent_count(&f);
+
+    two_heat_reads(&f);
+
+    assert_eq!(sent_since(&f, sent), []);
+}
+
+#[test]
+fn a_power_event_in_the_wake_pause_waits_for_the_resume() {
+    let f = fixture(Config {
+        preset: Preset::Performance,
+        ..Config::default()
+    });
+    let (sender, receiver) = std::sync::mpsc::channel();
+    sender.send(PowerEvent::Resumed).unwrap();
+    FAKE_ON_BATTERY.set(true);
+    sender.send(PowerEvent::OnBattery).unwrap();
+    let sent = sent_count(&f);
+
+    f.shell.follow_power(&receiver);
+
+    assert_eq!(sent_since(&f, sent), []);
+    i_slint_backend_testing::mock_elapsed_time(
+        blade_core::RESUME_PAUSE + std::time::Duration::from_millis(1),
+    );
+    let after = sent_since(&f, sent);
+    let balanced = PerfMode::Balanced.commands(&BLADE_18).unwrap();
+    let performance = PerfMode::Performance.commands(&BLADE_18).unwrap();
+    assert!(after.windows(balanced.len()).any(|run| run == balanced));
+    assert!(
+        !after
+            .windows(performance.len())
+            .any(|run| run == performance)
+    );
+}
+
+#[test]
+fn with_no_power_events_a_tick_follows_the_power_source() {
+    let f = fixture(Config {
+        preset: Preset::Performance,
+        ..Config::default()
+    });
+    // Windows refused the power events: the sender is gone.
+    let (_, receiver) = std::sync::mpsc::channel();
+    f.shell.listen_for_power(receiver);
+    FAKE_ON_BATTERY.set(true);
+    let sent = sent_count(&f);
+
+    f.shell.tick();
+    f.shell.tick();
+
+    let balanced = PerfMode::Balanced.commands(&BLADE_18).unwrap();
+    assert_eq!(sent_since(&f, sent), balanced);
+    assert!(f.shell.app().on_battery());
+}
+
+#[test]
+fn with_power_events_a_tick_does_not_read_the_power_source() {
+    let f = fixture(Config {
+        preset: Preset::Performance,
+        ..Config::default()
+    });
+    let (_sender, receiver) = std::sync::mpsc::channel::<PowerEvent>();
+    f.shell.listen_for_power(receiver);
+    FAKE_ON_BATTERY.set(true);
+    let sent = sent_count(&f);
+
+    f.shell.tick();
+
+    assert_eq!(sent_since(&f, sent), []);
+    assert!(!f.shell.app().on_battery());
+}
+
+#[test]
+fn a_switch_that_fails_in_a_tick_is_not_sent_again_in_that_tick() {
+    let f = fixture(Config {
+        preset: Preset::Performance,
+        ..Config::default()
+    });
+    let (sender, receiver) = std::sync::mpsc::channel();
+    f.shell.listen_for_power(receiver);
+    FAKE_ON_BATTERY.set(true);
+    sender.send(PowerEvent::OnBattery).unwrap();
+    // Each run takes one command, then fails.
+    f.shell.app().machine_mut().controller.fails_after = Some(1);
+    let sent = sent_count(&f);
+
+    f.shell.tick();
+
+    assert_eq!(sent_since(&f, sent).len(), 1);
+    assert!(f.shell.app().preset_unsure());
+}
+
+#[test]
+fn no_resend_while_razer_software_runs() {
+    let f = failed_switch_fixture();
+    f.shell.programs().set(&["Razer Synapse Service"]);
+    f.shell.look_for_razer();
+    let sent = sent_count(&f);
+
+    two_heat_reads(&f);
+
+    assert_eq!(sent_since(&f, sent), []);
+}
+
+#[test]
+fn with_no_power_events_an_unknown_source_changes_nothing() {
+    let f = fixture(Config {
+        preset: Preset::Performance,
+        ..Config::default()
+    });
+    let (_, receiver) = std::sync::mpsc::channel();
+    f.shell.listen_for_power(receiver);
+    super::FAKE_SOURCE_UNKNOWN.set(true);
+    let sent = sent_count(&f);
+
+    f.shell.tick();
+
+    assert_eq!(sent_since(&f, sent), []);
+    assert!(!f.shell.app().on_battery());
+}
+
+/// A heat read `n` intervals after `start`, as with no view open.
+fn heat_read(f: &Fixture, start: (Instant, SystemTime), n: u32) {
+    let later = blade_core::HEAT_INTERVAL * n;
+    f.shell.tick_at(start.0 + later, start.1 + later);
+}
+
+#[test]
+fn a_switch_that_fails_in_a_tick_waits_out_the_next_tick_too() {
+    let f = fixture(Config {
+        preset: Preset::Performance,
+        ..Config::default()
+    });
+    let (sender, receiver) = std::sync::mpsc::channel();
+    f.shell.listen_for_power(receiver);
+    FAKE_ON_BATTERY.set(true);
+    sender.send(PowerEvent::OnBattery).unwrap();
+    f.shell.app().machine_mut().controller.fails = true;
+    let start = (Instant::now(), SystemTime::now());
+    heat_read(&f, start, 0);
+    f.shell.app().machine_mut().controller.fails = false;
+    let sent = sent_count(&f);
+
+    heat_read(&f, start, 1);
+    assert_eq!(sent_since(&f, sent), []);
+    heat_read(&f, start, 2);
+
+    let balanced = PerfMode::Balanced.commands(&BLADE_18).unwrap();
+    assert_eq!(sent_since(&f, sent), balanced);
+}
+
+#[test]
+fn a_failed_resend_waits_out_the_next_poll() {
+    let f = failed_switch_fixture();
+    let start = (Instant::now(), SystemTime::now());
+    heat_read(&f, start, 0);
+    f.shell.app().machine_mut().controller.fails = true;
+    heat_read(&f, start, 1);
+    f.shell.app().machine_mut().controller.fails = false;
+    let sent = sent_count(&f);
+
+    heat_read(&f, start, 2);
+    assert_eq!(sent_since(&f, sent), []);
+    heat_read(&f, start, 3);
+
+    let balanced = PerfMode::Balanced.commands(&BLADE_18).unwrap();
+    assert_eq!(sent_since(&f, sent), balanced);
+}

@@ -257,7 +257,7 @@ fn a_wake_on_ac_before_its_power_event_leaves_the_rate() {
     app.on_power(PowerEvent::OnBattery).unwrap();
     // The charger went in during the sleep; its event comes later.
     app.machine_mut().displays.0.current.hz = 240;
-    app.take_on_battery(false);
+    app.take_on_battery(Some(false));
 
     app.on_power(PowerEvent::Resumed).unwrap();
 
@@ -292,7 +292,7 @@ fn a_wake_60_hz_refused_on_battery_is_tried_again() {
 #[test]
 fn a_wake_60_hz_refused_is_not_tried_again_on_ac() {
     let (mut app, _dir) = refused_after_a_wake();
-    app.take_on_battery(false);
+    app.take_on_battery(Some(false));
 
     assert!(!app.battery_rate_pending());
     app.retry_battery_rate().unwrap();

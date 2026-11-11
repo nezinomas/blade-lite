@@ -191,14 +191,25 @@ fn toggle_the_mic() -> bool {
     .is_ok()
 }
 
-/// Whether the laptop runs on its battery now. If Windows can't tell, the
-/// battery preset runs (fail safe) until the next power event.
-pub fn on_battery_now() -> bool {
-    platform::on_battery().unwrap_or_else(|| {
-        report("power source unknown: the battery preset runs");
-        true
-    })
+/// Whether the laptop runs on its battery now; `None` if Windows can't
+/// tell. An unknown source is logged once, until a read tells again.
+pub fn on_battery_now() -> Option<bool> {
+    let read = platform::on_battery();
+    if newly_unknown(&SOURCE_UNKNOWN, read) {
+        report("power source unknown");
+    }
+    read
 }
+
+/// Whether `read` is unknown when the last one, kept in `unknown`, was not.
+fn newly_unknown(unknown: &AtomicBool, read: Option<bool>) -> bool {
+    let now = read.is_none();
+    let was = unknown.swap(now, Ordering::Relaxed);
+    now && !was
+}
+
+/// Whether the last power source read was unknown.
+static SOURCE_UNKNOWN: AtomicBool = AtomicBool::new(false);
 
 /// Power events, read on their own thread. No events come if Windows
 /// refuses to send them.
@@ -217,4 +228,21 @@ pub fn power_events() -> Receiver<PowerEvent> {
         Err(error) => report(&format!("no power events: {error}")),
     }
     receiver
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::atomic::AtomicBool;
+
+    use super::newly_unknown;
+
+    #[test]
+    fn an_unknown_source_is_said_once_until_a_read_tells_again() {
+        let unknown = AtomicBool::new(false);
+        let reads = [None, None, Some(true), None, Some(false)];
+
+        let said: Vec<bool> = reads.map(|read| newly_unknown(&unknown, read)).to_vec();
+
+        assert_eq!(said, [true, false, false, true, false]);
+    }
 }

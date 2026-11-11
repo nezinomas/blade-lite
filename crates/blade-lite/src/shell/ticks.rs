@@ -2,7 +2,7 @@
 //! and sensor reads.
 
 use std::rc::Rc;
-use std::sync::mpsc::Receiver;
+use std::sync::mpsc::{Receiver, TryRecvError};
 use std::time::{Instant, SystemTime};
 
 use blade_core::RESUME_PAUSE;
@@ -19,7 +19,8 @@ impl<P: Parts> Shell<P> {
     /// Passes on power events, tries a wake's refused 60 Hz again, passes
     /// on Num Lock, then reads the sensors if a view shows them, or only
     /// the temperatures now and then if none does. Each such read also
-    /// reads the charger.
+    /// reads the charger, and sends the preset again if a send failed
+    /// before the last tick began and none failed since.
     pub fn tick(self: &Rc<Self>) {
         self.tick_at(Instant::now(), SystemTime::now());
     }
@@ -27,6 +28,7 @@ impl<P: Parts> Shell<P> {
     /// [`tick`](Self::tick) at `now`, with the wall clock at `wall`. The
     /// window tests give their own times.
     pub(crate) fn tick_at(self: &Rc<Self>, now: Instant, wall: SystemTime) {
+        let failures = self.app.borrow().preset_failures();
         self.follow_own_power();
         if self.resuming.get() == 0 && self.app.borrow().battery_rate_pending() {
             self.retry_battery_rate();
@@ -39,25 +41,50 @@ impl<P: Parts> Shell<P> {
         }
         if self.schedule.borrow_mut().poll_due(now) {
             self.tick_readings(now);
-            self.follow_charger();
+            if !self.follow_charger() {
+                self.resend_preset();
+            }
         } else if self.heat_reads_allowed() && self.schedule.borrow_mut().heat_due(now, wall) {
             self.tick_heat(now);
-            self.follow_charger();
+            if !self.follow_charger() {
+                self.resend_preset();
+            }
+        }
+        self.preset_failures_seen.set(failures);
+    }
+
+    /// Sends the preset that runs again if its last send failed, so the
+    /// laptop does not keep running another one (such as Performance on
+    /// battery) until the next power event. Not while a resume waits or
+    /// Razer's software runs, as for the heat reads, nor in the tick of a
+    /// failed send or the one after it: the controller may still run it.
+    /// A resend that works is quiet, so the error of the failed send stays
+    /// shown (it may not be the preset's); a failed one is shown.
+    fn resend_preset(self: &Rc<Self>) {
+        let quiet = self.app.borrow().preset_failures() == self.preset_failures_seen.get();
+        if !quiet || !self.heat_reads_allowed() {
+            return;
+        }
+        let sent = self.app.borrow_mut().resend_preset();
+        if let Err(error) = sent {
+            self.act(|_| Err(error));
         }
     }
 
     /// Sends the preset that runs if a weak charge came or went, such as a
     /// USB-C monitor plugged in while the Razer charger is pulled (Windows
     /// sees no power change then). Not while a resume waits or Razer's
-    /// software runs, as for the heat reads.
-    fn follow_charger(self: &Rc<Self>) {
+    /// software runs, as for the heat reads. Returns whether it acted.
+    fn follow_charger(self: &Rc<Self>) -> bool {
         if !self.heat_reads_allowed() {
-            return;
+            return false;
         }
         let changed = self.app.borrow_mut().follow_charger();
-        if !matches!(changed, Ok(false)) {
+        let acted = !matches!(changed, Ok(false));
+        if acted {
             self.act(|_| changed.map(|_| ()));
         }
+        acted
     }
 
     /// Whether the controller may be read in the background: not while a
@@ -173,23 +200,56 @@ impl<P: Parts> Shell<P> {
     }
 
     /// Acts on the power events that came since the last look, if any are
-    /// listened for.
+    /// listened for. If none can come (Windows refused them, or their
+    /// thread ended), the power source is read instead.
     pub fn follow_own_power(self: &Rc<Self>) {
         let power = self.power.borrow().clone();
-        if let Some(power) = power {
-            self.follow_power(&power);
+        if let Some(power) = power
+            && !self.follow_power(&power)
+        {
+            self.follow_source();
         }
     }
 
-    /// Acts on the power events that came since the last look.
-    pub fn follow_power(self: &Rc<Self>, power: &Receiver<PowerEvent>) {
-        for event in power.try_iter() {
-            self.power_event(event);
+    /// Acts on the power events that came since the last look. Returns
+    /// whether more can come.
+    pub fn follow_power(self: &Rc<Self>, power: &Receiver<PowerEvent>) -> bool {
+        loop {
+            match power.try_recv() {
+                Ok(event) => self.power_event(event),
+                Err(TryRecvError::Empty) => return true,
+                Err(TryRecvError::Disconnected) => return false,
+            }
         }
     }
 
+    /// Passes on a change of the power source read now as its event, for
+    /// when no power events come. An unknown read changes nothing, so a
+    /// read that flickers to unknown does not switch the preset back and
+    /// forth. A wake is not seen then.
+    fn follow_source(self: &Rc<Self>) {
+        let Some(on_battery) = P::on_battery() else {
+            return;
+        };
+        if on_battery == self.app.borrow().on_battery() {
+            self.app.borrow_mut().source_read(on_battery);
+            return;
+        }
+        self.power_event(if on_battery {
+            PowerEvent::OnBattery
+        } else {
+            PowerEvent::OnAc
+        });
+    }
+
+    /// Acts on one power event. A change of source while a resume waits
+    /// is dropped and sends nothing: the resume reads the source when its pause ends,
+    /// and sends then.
     fn power_event(self: &Rc<Self>, event: PowerEvent) {
         self.forget_charging();
+        if event != PowerEvent::Resumed && self.resuming.get() > 0 {
+            return;
+        }
         if event == PowerEvent::Resumed {
             // The time asleep may not count in `Instant`, so a spell before
             // the sleep is not carried over.

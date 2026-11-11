@@ -11,7 +11,7 @@ The `informed-reviewer` checks each diff against these rules. They are judgement
 ## State
 - A change the laptop took is kept in memory, even if the config save fails (ticket 57). The error says it was sent but not saved.
 - After each click, a UI switch is set again from the config, even when the change failed, so the switch never shows a state the app does not hold.
-- A send that may have reached the controller is never sent again to "retry" it.
+- A send that may have reached the controller is never sent again to "retry" it. One exception (ticket 88): after a failed start, preset change or switch, the whole preset (absolute values, checked again) is sent anew on up to 3 later polls, never in the tick of the failure or the next, so the laptop does not keep a preset the app does not show, such as Performance on battery.
 
 ## Tests
 - A hardware test reads the state first and puts it back at the end, even when a step fails: keep each `Result`, put the state back, then assert.

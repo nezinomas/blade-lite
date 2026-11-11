@@ -2,8 +2,8 @@
 //! a Num Lock or mic mute change and on quit.
 
 use blade_core::{
-    Controller, Preset, Query, apply, apply_performance, full_power_charger, paint_red_keys,
-    touchpad_on,
+    ApplyError, Controller, Preset, Query, apply, apply_performance, full_power_charger,
+    paint_red_keys, touchpad_on,
 };
 use platform::{DisplayApi, KeyInjector, PowerEvent, Registry};
 use razer_proto::RedKeys;
@@ -33,7 +33,7 @@ where
         let red = self.key_should_be_red();
         let applied = apply(&config, self.model, &mut self.machine.controller, red);
         self.key_red = applied.is_ok().then_some(red);
-        self.preset_unsure = applied.is_err();
+        self.note_preset_send(&applied);
         self.read_logo();
         Ok(applied?)
     }
@@ -124,10 +124,15 @@ where
             PowerEvent::Resumed => {
                 // The rate follows even if the start fails.
                 let started = self.start();
-                // Only on battery: the charger may have gone in during the
-                // sleep, before its power event comes.
-                let rate = if self.on_battery() {
-                    self.follow_power(event)
+                // The source read now, as the charger may have gone in or
+                // out in the sleep, before its power event comes. An
+                // unknown source leaves the rate alone.
+                let rate = if self.source_known {
+                    let displays = &mut self.machine.displays;
+                    let on_battery = self.power == Power::Battery;
+                    self.battery_rate
+                        .on_resume(on_battery, &self.config, displays)
+                        .map_err(AppError::from)
                 } else {
                     Ok(())
                 };
@@ -155,6 +160,7 @@ where
     fn set_on_battery(&mut self, on_battery: bool) -> Result<(), AppError> {
         let before = self.running(self.config).preset;
         self.power = Power::from_battery(on_battery);
+        self.source_known = true;
         self.read_charger();
         self.send_if_changed(before)
     }
@@ -190,13 +196,38 @@ where
         Ok(self.power.is_weak() != was_weak)
     }
 
+    /// Sends the preset that runs again if the last start, preset change,
+    /// power switch or resend failed, so the laptop does not keep running
+    /// a preset the app does not show (such as Performance on battery).
+    /// Called on the polls, [`RESEND_TRIES`](crate::RESEND_TRIES) times at
+    /// most after each failed send. Returns whether it sent.
+    ///
+    /// # Errors
+    ///
+    /// See [`AppError`]. The next poll tries again, while tries are left.
+    pub fn resend_preset(&mut self) -> Result<bool, AppError> {
+        if !self.preset_unsure || self.resends_left == 0 {
+            return Ok(false);
+        }
+        self.resends_left -= 1;
+        let config = self.running(self.config);
+        let applied = apply_performance(&config, self.model, &mut self.machine.controller);
+        match &applied {
+            Ok(()) => self.preset_unsure = false,
+            Err(ApplyError::Device(_)) => self.preset_send_failed(),
+            Err(_) => {}
+        }
+        applied?;
+        Ok(true)
+    }
+
     /// Sends the preset that runs now if it is not `before`, or the last
     /// start or switch failed.
     fn send_if_changed(&mut self, before: Preset) -> Result<(), AppError> {
         let config = self.running(self.config);
         if config.preset != before || self.preset_unsure {
             let applied = apply_performance(&config, self.model, &mut self.machine.controller);
-            self.preset_unsure = applied.is_err();
+            self.note_preset_send(&applied);
             applied?;
         }
         Ok(())
@@ -216,7 +247,7 @@ where
     /// Whether a wake's 60 Hz on battery failed and is to be tried again.
     #[must_use]
     pub fn battery_rate_pending(&self) -> bool {
-        self.on_battery() && self.battery_rate.retry_pending()
+        self.on_battery() && self.source_known && self.battery_rate.retry_pending()
     }
 
     /// Tries a wake's failed 60 Hz again, on battery only (one try per
@@ -226,7 +257,7 @@ where
     ///
     /// See [`AppError`].
     pub fn retry_battery_rate(&mut self) -> Result<(), AppError> {
-        if !self.on_battery() {
+        if !self.on_battery() || !self.source_known {
             return Ok(());
         }
         let displays = &mut self.machine.displays;
