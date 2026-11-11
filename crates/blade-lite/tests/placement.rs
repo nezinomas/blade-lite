@@ -110,6 +110,18 @@ fn below_the_icon_on_a_short_screen_it_stays_inside_the_bottom_edge() {
 }
 
 #[test]
+fn above_a_bottom_taskbar_on_a_screen_shorter_than_the_flyout_it_keeps_the_top_edge() {
+    let short = Rect {
+        height: 300,
+        ..SCREEN
+    };
+
+    let (_, y) = flyout_position(icon(1000, 252), FLYOUT, short);
+
+    assert_eq!(y, 12);
+}
+
+#[test]
 fn on_a_screen_shorter_than_the_flyout_it_keeps_the_top_edge() {
     let short = Rect {
         y: -900,
