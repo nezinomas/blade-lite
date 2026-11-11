@@ -7,8 +7,8 @@ use std::time::{Duration, Instant};
 
 use blade_core::{
     APP_NAME, BatteryRate, Config, NativeModeState, PowerKeyPresses, Query, RefreshRate,
-    TOUCHPAD_KEY, charge_limit_on, logo_on, native_mode_state, refresh_rates, set_charge_limit,
-    set_logo, set_native_mode, set_refresh_rate, set_touchpad, touchpad_on,
+    TOUCHPAD_KEY, charge_limit_on, chosen_native_mode, logo_on, native_mode_state, refresh_rates,
+    set_charge_limit, set_logo, set_native_mode, set_refresh_rate, set_touchpad, touchpad_on,
 };
 use platform::{
     Display, DisplayApi, InstanceLock, OutputTechnology, PowerEvent, PowerEvents, RegistryWatch,
@@ -151,11 +151,9 @@ fn the_refresh_rate_is_switched_and_put_back() {
 
 /// The native mode the controller has chosen, and its state.
 fn native_state(device: &mut Device<HidTransport, SystemClock>) -> Result<NativeModeState, String> {
-    let query = NativeMode::query();
-    let reply = device.send(query.id, &query.args).map_err(text)?;
-    eprintln!("0D8E reply: {:02X?}", reply.args());
-    let chosen = NativeMode::from_reply(reply.args(), &BLADE_18)
-        .ok_or("the 0D8E reply names no known mode")?;
+    let chosen = chosen_native_mode(device, &BLADE_18).map_err(text)?;
+    eprintln!("0D8E chosen: {chosen:?}");
+    let chosen = chosen.ok_or("the 0D8E reply names no known mode")?;
     native_mode_state(chosen, &BLADE_18, &WindowsDisplays).map_err(text)
 }
 

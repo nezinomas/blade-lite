@@ -50,6 +50,15 @@ fn a_mode_the_model_lacks_is_none() {
 }
 
 #[test]
+fn an_empty_native_mode_reply_is_a_short_reply() {
+    let mut controller = FakeQuery::default().reply(NativeMode::query(), &[]);
+
+    let result = chosen_native_mode(&mut controller, &BLADE_18);
+
+    assert!(matches!(result, Err(DeviceError::ShortReply)), "{result:?}");
+}
+
+#[test]
 fn a_failed_native_mode_read_is_an_error() {
     let result = chosen_native_mode(&mut FakeQuery::default(), &BLADE_18);
 

@@ -45,12 +45,15 @@ impl ControllerReadings {
 ///
 /// # Errors
 ///
-/// See [`DeviceError`].
+/// See [`DeviceError`]: an empty reply is [`DeviceError::ShortReply`].
 pub fn chosen_native_mode(
     controller: &mut impl Query,
     model: &ModelProfile,
 ) -> Result<Option<NativeMode>, DeviceError> {
     let args = controller.query(&NativeMode::query())?;
+    if args.is_empty() {
+        return Err(DeviceError::ShortReply);
+    }
     Ok(NativeMode::from_reply(&args, model))
 }
 
