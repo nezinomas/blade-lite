@@ -72,7 +72,11 @@ export component MainWindow inherits Window {
         keyboard.show-brightness();
     }
 
+    // The tray's icon, for the title bar and the taskbar.
+    in property <image> app-icon;
+
     title: "Blade Lite";
+    icon: app-icon;
     preferred-width: 760px;
     preferred-height: 820px;
     min-width: 560px;

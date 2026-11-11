@@ -129,6 +129,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     let window = MainWindow::new()?;
     let flyout = FlyoutWindow::new()?;
     let popup = ModePopup::new()?;
+    window.set_app_icon(bind::icon(accent));
     window.set_accent(bind::colour(accent));
     flyout.set_accent(bind::colour(accent));
     popup.set_accent(bind::colour(accent));

@@ -13,6 +13,7 @@ use slint::platform::{PointerEventButton, WindowEvent};
 use slint::{ComponentHandle, LogicalPosition};
 
 use super::{FAKE_MIC, FAKE_ON_BATTERY, Fixture, click, control, fixture, log_path};
+use crate::bind;
 use crate::fakes::{FakeCharger, brightness_commands, lighting_commands, logo};
 
 const WHITE: Rgb = Rgb::new(0xFF, 0xFF, 0xFF);
@@ -1422,4 +1423,20 @@ fn a_weak_charge_with_balanced_saved_greys_out_performance_and_says_so() {
         .iter()
         .find(|o| o.preset == Preset::Performance);
     assert!(!performance.unwrap().enabled);
+}
+
+#[test]
+fn the_window_has_the_tray_icon_in_the_accent_colour() {
+    let f = fixture(Config::default());
+
+    let icon = f.shell.window().get_app_icon();
+
+    let size = bind::ICON_SIZE;
+    let edge = u32::from(size);
+    assert_eq!((icon.size().width, icon.size().height), (edge, edge));
+    let pixels = icon.to_rgba8().expect("RGBA pixels");
+    assert_eq!(
+        pixels.as_bytes(),
+        blade_lite::icon::pixels([0x00, 0x78, 0xD4], size)
+    );
 }
