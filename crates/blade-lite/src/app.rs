@@ -229,14 +229,24 @@ where
 
     /// Notes a start, preset change or switch: one the controller may have
     /// taken in part is sent again on the next few polls. A value refused
-    /// before anything was sent leaves the controller as it was.
+    /// before anything was sent leaves the controller, and so the flag, as
+    /// they were.
     fn note_preset_send(&mut self, applied: &Result<(), ApplyError>) {
-        let sent = !matches!(applied, Err(ApplyError::Device(_)));
-        self.preset_unsure = !sent;
-        self.resends_left = RESEND_TRIES;
-        if !sent {
-            self.preset_failures = self.preset_failures.wrapping_add(1);
+        match applied {
+            Ok(()) => self.preset_unsure = false,
+            Err(ApplyError::Device(_)) => {
+                self.resends_left = RESEND_TRIES;
+                self.preset_send_failed();
+            }
+            Err(_) => {}
         }
+    }
+
+    /// Marks the preset unsure and counts the failure, so the next poll
+    /// waits. The tries left stay.
+    fn preset_send_failed(&mut self) {
+        self.preset_unsure = true;
+        self.preset_failures = self.preset_failures.wrapping_add(1);
     }
 
     /// How many preset sends failed so far, resends too.

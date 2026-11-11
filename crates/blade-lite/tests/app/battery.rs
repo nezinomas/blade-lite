@@ -534,3 +534,24 @@ fn a_value_refused_before_any_send_is_not_sent_again() {
     assert!(!app.resend_preset().unwrap());
     assert_eq!(sent(&app), []);
 }
+
+#[test]
+fn a_refused_value_keeps_a_resend_still_due() {
+    let (mut app, _dir, _) = app_with(Config {
+        preset: Preset::Custom,
+        ..Config::default()
+    });
+    app.machine_mut().controller.fails = true;
+    assert!(
+        app.on_performance(PerformanceCommand::SetCpuBoost(1))
+            .is_err()
+    );
+    app.machine_mut().controller.fails = false;
+    assert!(
+        app.on_performance(PerformanceCommand::SetCpuBoost(200))
+            .is_err()
+    );
+
+    assert!(app.preset_unsure());
+    assert!(app.resend_preset().unwrap());
+}

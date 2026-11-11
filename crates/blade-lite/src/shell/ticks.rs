@@ -243,7 +243,7 @@ impl<P: Parts> Shell<P> {
     }
 
     /// Acts on one power event. A change of source while a resume waits
-    /// sends nothing: the resume reads the source when its pause ends,
+    /// is dropped and sends nothing: the resume reads the source when its pause ends,
     /// and sends then.
     fn power_event(self: &Rc<Self>, event: PowerEvent) {
         self.forget_charging();

@@ -2,8 +2,8 @@
 //! a Num Lock or mic mute change and on quit.
 
 use blade_core::{
-    Controller, Preset, Query, apply, apply_performance, full_power_charger, paint_red_keys,
-    touchpad_on,
+    ApplyError, Controller, Preset, Query, apply, apply_performance, full_power_charger,
+    paint_red_keys, touchpad_on,
 };
 use platform::{DisplayApi, KeyInjector, PowerEvent, Registry};
 use razer_proto::RedKeys;
@@ -212,10 +212,10 @@ where
         self.resends_left -= 1;
         let config = self.running(self.config);
         let applied = apply_performance(&config, self.model, &mut self.machine.controller);
-        self.preset_unsure = applied.is_err();
-        if applied.is_err() {
-            // The next poll waits too, but the tries left stay.
-            self.preset_failures = self.preset_failures.wrapping_add(1);
+        match &applied {
+            Ok(()) => self.preset_unsure = false,
+            Err(ApplyError::Device(_)) => self.preset_send_failed(),
+            Err(_) => {}
         }
         applied?;
         Ok(true)

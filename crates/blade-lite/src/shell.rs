@@ -161,8 +161,8 @@ pub struct Shell<P: Parts = Laptop> {
     /// The resumes still waiting out their pause. The controller may not be
     /// ready then: clicks and the power-mode key do nothing, and the touchpad
     /// key is not painted on a Num Lock or touchpad change (the resume
-    /// paints it). A change of power source waits for the resume, which
-    /// reads it (ticket 88).
+    /// paints it). A change of power source is dropped: the resume reads
+    /// the source when the pause ends (ticket 88).
     resuming: Cell<u32>,
     /// The app's count of failed preset sends at the start of the last tick.
     /// A poll sends the preset again only while it is unchanged, so never
