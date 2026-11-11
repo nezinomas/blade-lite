@@ -17,7 +17,7 @@ const NO_RECT: RECT = RECT {
 };
 
 /// The main screen less the taskbar, as `(x, y, width, height)` in
-/// physical pixels.
+/// physical pixels (in a DPI-aware process, as the app is).
 ///
 /// # Errors
 ///
@@ -34,7 +34,8 @@ pub fn work_area() -> io::Result<(i32, i32, i32, i32)> {
 }
 
 /// The screen at `(x, y)` less its taskbars, as `(x, y, width, height)` in
-/// physical pixels. A point off every screen gets the nearest one.
+/// physical pixels (in a DPI-aware process, as the app is). A point off
+/// every screen gets the nearest one.
 ///
 /// # Errors
 ///

@@ -5,7 +5,7 @@ use std::time::{Duration, Instant};
 
 use blade_core::View;
 use blade_lite::{Rect, flyout_position, report};
-use platform::{hide_caption_buttons, round_corners, set_mica, work_area_at};
+use platform::{hide_caption_buttons, round_corners, set_mica, work_area, work_area_at};
 use raw_window_handle::{HasWindowHandle, RawWindowHandle};
 use slint::platform::WindowEvent;
 use slint::winit_030::{EventResult, WinitWindowAccessor, winit};
@@ -175,12 +175,12 @@ impl<P: Parts> Shell<P> {
         let size = self.flyout.window().size();
         let flyout = (px(size.width), px(size.height));
         // The icon's own monitor, less its taskbars: the flyout's last
-        // monitor can be another one.
+        // monitor can be another one, or gone. Else the main screen's.
         let centre = (
             icon.x.saturating_add(icon.width / 2),
             icon.y.saturating_add(icon.height / 2),
         );
-        let screen = match work_area_at(centre) {
+        let screen = match work_area_at(centre).or_else(|_| work_area()) {
             Ok((x, y, width, height)) => Rect {
                 x,
                 y,
@@ -188,7 +188,7 @@ impl<P: Parts> Shell<P> {
                 height,
             },
             Err(error) => {
-                report(&format!("the flyout can't find the tray's screen: {error}"));
+                report(&format!("the flyout can't find a screen: {error}"));
                 return;
             }
         };
