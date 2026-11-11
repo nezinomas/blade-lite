@@ -94,13 +94,7 @@ fn show_start_error(error: &str) {
     );
     platform::show_error(
         START_BOX_TITLE,
-        &format!(
-            "Blade Lite could not start:
-
-{error}
-
-Log: {log}"
-        ),
+        &format!("Blade Lite stopped:\n\n{error}\n\nLog: {log}"),
     );
 }
 

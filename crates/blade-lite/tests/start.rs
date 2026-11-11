@@ -75,3 +75,51 @@ fn try_times_gives_the_last_error_after_all_tries() {
     assert_eq!(got.unwrap_err().to_string(), "try 5");
     assert_eq!(tries, 5);
 }
+
+#[test]
+fn a_config_saved_as_utf16_is_offered_the_defaults() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("config.toml");
+    let utf16: Vec<u8> = "preset = \"silent\"\n"
+        .encode_utf16()
+        .flat_map(u16::to_le_bytes)
+        .collect();
+    std::fs::write(&path, [&[0xFF, 0xFE][..], &utf16].concat()).unwrap();
+
+    let config = config_or_defaults(&path, |_| true).unwrap();
+
+    assert_eq!(config, Config::default());
+}
+
+#[test]
+fn an_older_kept_file_is_never_replaced() {
+    let (_dir, path) = dir_with("not = [toml");
+    let first = path.with_file_name("config.toml.bad");
+    std::fs::write(&first, "older").unwrap();
+
+    config_or_defaults(&path, |_| true).unwrap();
+
+    assert_eq!(std::fs::read_to_string(first).unwrap(), "older");
+    let second = path.with_file_name("config.toml.bad.1");
+    assert_eq!(std::fs::read_to_string(second).unwrap(), "not = [toml");
+}
+
+#[test]
+fn a_config_that_cant_be_read_stops_without_asking() {
+    let dir = tempfile::tempdir().unwrap();
+    // A folder where the file should be: it can't be read as a file.
+    let path = dir.path().join("config.toml");
+    std::fs::create_dir(&path).unwrap();
+
+    assert!(config_or_defaults(&path, |_| panic!("asked")).is_err());
+}
+
+#[test]
+fn try_times_zero_still_tries_once() {
+    let mut tries = 0;
+    let _: io::Result<()> = try_times(0, Duration::ZERO, || {
+        tries += 1;
+        Err(io::Error::other("no"))
+    });
+    assert_eq!(tries, 1);
+}
