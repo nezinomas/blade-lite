@@ -5,6 +5,7 @@
 mod accent;
 mod app;
 mod autostart_item;
+pub mod icon;
 mod key_reader;
 mod placement;
 mod report;
