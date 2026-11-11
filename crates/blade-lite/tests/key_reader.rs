@@ -117,7 +117,7 @@ fn only_a_quiet_spell_of_full_length_opens_again_at_once() {
         Duration::ZERO
     );
     assert_eq!(
-        ReaderEnd::Reopen.pause_before_open(spell / 2 - Duration::from_millis(1)),
+        ReaderEnd::Reopen.pause_before_open((spell / 2).saturating_sub(Duration::from_millis(1))),
         KEY_REOPEN_PAUSE
     );
     // Reads that came back at once are a broken handle: pause.
