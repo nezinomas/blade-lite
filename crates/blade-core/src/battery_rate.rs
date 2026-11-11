@@ -226,10 +226,11 @@ impl BatteryRate {
 
     /// Tries the wake's or switch's 60 Hz, or the first AC's put-back,
     /// again, once per poll. Only the last failed try is an error, so a set
-    /// refused while the panel wakes is not shown each time; a try that
+    /// refused while the panel wakes is not shown each time. A try that
     /// fails for good (such as a rate the panel no longer offers) ends the
-    /// tries at once with its error. A power event
-    /// that is not the tries' source, or the option turned off, stops them.
+    /// tries at once with its error; a panel gone inactive ends them with
+    /// none, as it is left alone. A power event that is not the tries'
+    /// source, or the option turned off, stops them.
     ///
     /// # Errors
     ///
@@ -253,7 +254,8 @@ impl BatteryRate {
             self.after_resume(api)
         };
         match tried {
-            Ok(()) => {
+            // The panel went inactive between two reads.
+            Ok(()) | Err(DisplayError::NoInternalPanel) => {
                 self.stop_tries();
                 Ok(())
             }

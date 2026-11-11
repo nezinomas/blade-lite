@@ -484,10 +484,12 @@ fn a_try_that_fails_for_good_ends_the_tries_with_its_error() {
     api.displays.as_mut().unwrap()[0]
         .modes
         .retain(|mode| mode.hz != 60);
+    let before = api.set.len();
 
     let tried = battery_rate.retry(&config(true), &mut api);
 
     assert!(matches!(tried, Err(DisplayError::Unsupported(_))));
+    assert_eq!(api.set.len(), before);
     assert!(!battery_rate.retry_pending());
 }
 
