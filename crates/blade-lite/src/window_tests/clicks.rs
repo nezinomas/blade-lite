@@ -588,6 +588,105 @@ fn the_flyout_rates_lock_on_battery_with_sixty_hz_on() {
 }
 
 #[test]
+fn a_flyout_rate_click_sets_the_panel_and_sends_nothing() {
+    let f = fixture(Config::default());
+    let before = sent_count(&f);
+
+    click(f.shell.flyout(), Button, "60 Hz");
+
+    assert_eq!(f.shell.app().machine().displays.0.current.hz, 60);
+    assert_eq!(sent_since(&f, before), []);
+}
+
+#[test]
+fn a_locked_flyout_rate_does_nothing_on_a_click() {
+    let f = fixture(Config {
+        sixty_hz_on_battery: true,
+        ..Config::default()
+    });
+    f.shell.act(|app| app.on_power(PowerEvent::OnBattery));
+    let before = sent_count(&f);
+
+    click(f.shell.flyout(), Button, "120 Hz");
+
+    assert_eq!(f.shell.app().machine().displays.0.current.hz, 60);
+    assert_eq!(sent_since(&f, before), []);
+}
+
+/// On battery, with 60 Hz on battery off.
+fn on_battery_fixture() -> Fixture {
+    let f = fixture(Config::default());
+    FAKE_ON_BATTERY.set(true);
+    f.shell.act(|app| app.on_power(PowerEvent::OnBattery));
+    assert_eq!(f.shell.app().machine().displays.0.current.hz, 240);
+    f
+}
+
+/// Clicks the 60 Hz on battery switch in `root` twice: on drops the panel
+/// to 60 Hz and locks the rates, off puts the rate back. Both switches
+/// follow, the switch is saved, and nothing goes to the controller.
+fn sixty_hz_switch_drops_the_rate_and_puts_it_back(f: &Fixture, root: &impl ElementRoot) {
+    let before = sent_count(f);
+
+    click(root, Switch, "Switch to 60 Hz on battery");
+
+    assert!(f.shell.app().config().sixty_hz_on_battery);
+    assert_eq!(f.shell.app().machine().displays.0.current.hz, 60);
+    assert!(f.shell.window().get_sixty_hz_on_battery());
+    assert!(f.shell.flyout().get_sixty_hz_on_battery());
+    assert!(!f.shell.flyout().get_rates_enabled());
+
+    click(root, Switch, "Switch to 60 Hz on battery");
+
+    assert!(!f.shell.app().config().sixty_hz_on_battery);
+    assert_eq!(f.shell.app().machine().displays.0.current.hz, 240);
+    assert!(!f.shell.window().get_sixty_hz_on_battery());
+    assert!(!f.shell.flyout().get_sixty_hz_on_battery());
+    assert!(f.shell.flyout().get_rates_enabled());
+    assert_eq!(sent_since(f, before), []);
+}
+
+#[test]
+fn the_window_sixty_hz_switch_drops_the_rate_on_battery_and_puts_it_back() {
+    let f = on_battery_fixture();
+    sixty_hz_switch_drops_the_rate_and_puts_it_back(&f, f.shell.window());
+}
+
+#[test]
+fn the_flyout_sixty_hz_switch_drops_the_rate_on_battery_and_puts_it_back() {
+    let f = on_battery_fixture();
+    sixty_hz_switch_drops_the_rate_and_puts_it_back(&f, f.shell.flyout());
+}
+
+#[test]
+fn the_flyout_touchpad_switch_presses_the_touchpad_shortcut_once() {
+    let f = fixture(Config::default());
+
+    click(f.shell.flyout(), Switch, "Touchpad");
+
+    assert_eq!(
+        f.shell.app().machine().keys.0,
+        [Key::Win, Key::Ctrl, Key::F24]
+    );
+}
+
+#[test]
+fn open_window_hides_the_flyout_and_shows_the_window() {
+    let f = fixture(Config::default());
+    f.shell.window().hide().unwrap();
+    f.shell.flyout().hide().unwrap();
+    f.shell.toggle_flyout(ICON);
+    assert!(f.shell.flyout().window().is_visible());
+    let before = sent_count(&f);
+
+    click(f.shell.flyout(), Button, "Open window");
+
+    assert!(f.shell.window().window().is_visible());
+    assert!(!f.shell.flyout().window().is_visible());
+    assert_eq!(sent_since(&f, before), []);
+}
+
+#[test]
 fn the_touchpad_switches_show_off_and_greyed_when_the_touchpad_cant_be_read() {
     let f = fixture(Config::default());
     f.shell.app().machine_mut().registry.touchpad = None;
