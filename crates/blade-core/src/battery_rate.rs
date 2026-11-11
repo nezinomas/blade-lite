@@ -9,7 +9,7 @@ use crate::refresh::{DisplayError, RefreshRate, current_rate, saved_rate, set_ra
 pub const BATTERY_RATE: RefreshRate = RefreshRate(60);
 
 /// How many polls try 60 Hz again after Windows refused it in a wake (it
-/// did 2026-11-10; a set seconds later worked).
+/// did 2026-11-10; a set seconds later worked) or at a switch to battery.
 pub const RESUME_RATE_TRIES: u8 = 10;
 
 /// Follows the power source and remembers the rate to put back on AC.
@@ -17,7 +17,7 @@ pub const RESUME_RATE_TRIES: u8 = 10;
 pub struct BatteryRate {
     /// The rate before the switch to battery, while one is to be put back.
     saved: Option<RefreshRate>,
-    /// The tries left after a wake whose 60 Hz failed.
+    /// The tries left after a wake or a switch whose 60 Hz failed.
     tries: u8,
     /// Whether a known power source has come since the app started.
     source_seen: bool,
@@ -28,7 +28,8 @@ impl BatteryRate {
     /// [`Self::on_resume`], so `Resumed` changes nothing here, nor does any
     /// event while the option is off (but AC still puts a rate back). The
     /// first source since the start that is AC goes to
-    /// [`Self::first_on_ac`].
+    /// [`Self::first_on_ac`]. A failed 60 Hz on battery is an error, and
+    /// also starts the tries ([`Self::retry`]).
     ///
     /// # Errors
     ///
@@ -42,11 +43,16 @@ impl BatteryRate {
         match event {
             PowerEvent::OnBattery => {
                 self.source_seen = true;
-                if config.sixty_hz_on_battery {
-                    self.on_battery(api)
-                } else {
-                    Ok(())
+                if !config.sixty_hz_on_battery {
+                    return Ok(());
                 }
+                // A refused 60 Hz is tried again on the polls, as after a
+                // wake, so it is not lost when another error is shown.
+                let set = self.on_battery(api);
+                if set.is_err() {
+                    self.tries = RESUME_RATE_TRIES;
+                }
+                set
             }
             PowerEvent::OnAc => {
                 self.tries = 0;
@@ -157,13 +163,13 @@ impl BatteryRate {
         set_rate(api, BATTERY_RATE, ModeLife::UntilRestart)
     }
 
-    /// Whether a wake's 60 Hz failed and is to be tried again.
+    /// Whether a wake's or a switch's 60 Hz failed and is to be tried again.
     #[must_use]
     pub fn retry_pending(&self) -> bool {
         self.tries > 0
     }
 
-    /// Tries the wake's 60 Hz again, once per poll. Only the last failed
+    /// Tries the wake's or switch's 60 Hz again, once per poll. Only the last failed
     /// try is an error, so a set refused while the panel wakes is not shown
     /// each time. AC or the option turned off stops the tries.
     ///

@@ -16,7 +16,7 @@ use super::{Parts, Shell};
 use crate::bind;
 
 impl<P: Parts> Shell<P> {
-    /// Passes on power events, tries a wake's refused 60 Hz again, passes
+    /// Passes on power events, tries a refused 60 Hz again, passes
     /// on Num Lock, then reads the sensors if a view shows them, or only
     /// the temperatures now and then if none does; neither while a resume
     /// waits. Each such read also reads the charger, and sends the preset
@@ -113,8 +113,8 @@ impl<P: Parts> Shell<P> {
         self.watch_heat(cpu, gpu, now);
     }
 
-    /// Tries a wake's refused 60 Hz again: Windows can refuse it just after
-    /// a wake. Only the last failed try is shown, so a quiet try does not
+    /// Tries a wake's or a switch's refused 60 Hz again: Windows can refuse
+    /// it just after a wake. Only the last failed try is shown, so a quiet try does not
     /// clear the wake's other errors or read the controller. When the tries
     /// end, the window's rate buttons show the panel's rate (one display
     /// view, so one native mode read); the flyout is filled when it opens.

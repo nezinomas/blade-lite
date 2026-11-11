@@ -148,6 +148,7 @@ where
                 let rate = self.follow_power(event);
                 if let (Err(_), Err(error)) = (&preset, &rate) {
                     // Only the preset error is shown, so this one is logged.
+                    // A failed 60 Hz is tried again on the polls.
                     crate::report(&format!("the 60 Hz on battery failed too: {error}"));
                 }
                 preset.and(rate)
@@ -259,13 +260,14 @@ where
         self.follow_power(PowerEvent::OnAc)
     }
 
-    /// Whether a wake's 60 Hz on battery failed and is to be tried again.
+    /// Whether a wake's or a switch's 60 Hz on battery failed and is to be
+    /// tried again.
     #[must_use]
     pub fn battery_rate_pending(&self) -> bool {
         self.on_battery() && self.source_known && self.battery_rate.retry_pending()
     }
 
-    /// Tries a wake's failed 60 Hz again, on battery only (one try per
+    /// Tries a wake's or a switch's failed 60 Hz again, on battery only (one try per
     /// poll; see [`blade_core::BatteryRate::retry`]).
     ///
     /// # Errors
