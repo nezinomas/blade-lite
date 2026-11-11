@@ -6,7 +6,7 @@ use blade_core::{
     touchpad_on,
 };
 use platform::{DisplayApi, KeyInjector, Registry};
-use razer_proto::{Brightness, Celsius};
+use razer_proto::{Brightness, Celsius, NativeMode};
 use ui::{
     DisplayState, DisplayView, Header, HeaderState, KeyboardState, KeyboardView, PerformanceState,
     PerformanceView,
@@ -94,8 +94,24 @@ where
     ///
     /// See [`AppError`].
     pub fn display_view(&mut self) -> Result<DisplayView, AppError> {
-        let chosen = chosen_native_mode(&mut self.machine.controller, self.model)?
-            .ok_or(AppError::UnknownNativeMode)?;
+        let chosen = chosen_native_mode(&mut self.machine.controller, self.model);
+        self.native_mode = chosen.as_ref().ok().copied().flatten();
+        self.display_view_with(chosen?.ok_or(AppError::UnknownNativeMode)?)
+    }
+
+    /// The display view without reading the controller, such as while
+    /// Razer's own software may talk to it: with the native mode last read
+    /// or set. `None` if none is known.
+    ///
+    /// # Errors
+    ///
+    /// See [`AppError`].
+    pub fn display_view_unread(&self) -> Option<Result<DisplayView, AppError>> {
+        self.native_mode
+            .map(|chosen| self.display_view_with(chosen))
+    }
+
+    fn display_view_with(&self, chosen: NativeMode) -> Result<DisplayView, AppError> {
         let displays = &self.machine.displays;
         Ok(DisplayView::new(&DisplayState {
             model: self.model,

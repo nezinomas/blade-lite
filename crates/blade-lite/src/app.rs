@@ -14,7 +14,7 @@ use blade_core::{
     full_power_charger, logo_on, touchpad_on,
 };
 use platform::{DisplayApi, KeyInjector, Registry};
-use razer_proto::{ModelProfile, RedKey, RedKeys, Rgb};
+use razer_proto::{ModelProfile, NativeMode, RedKey, RedKeys, Rgb};
 
 pub use error::{AppError, took_effect};
 
@@ -134,6 +134,9 @@ pub struct App<C, D, R, K> {
     read_errors: Vec<String>,
     /// The CPU temperature read when the header was last made, in °C.
     cpu_celsius: Option<u32>,
+    /// The native mode last read or set, for a display view made without
+    /// reading the controller. `None` if none yet, or the last read failed.
+    native_mode: Option<NativeMode>,
 }
 
 impl<C, D, R, K> App<C, D, R, K>
@@ -169,6 +172,7 @@ where
             mic_muted: None,
             read_errors: Vec::new(),
             cpu_celsius: None,
+            native_mode: None,
         }
     }
 

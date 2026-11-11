@@ -29,6 +29,37 @@ fn the_display_view_shows_the_chosen_native_mode() {
     assert!(!view.restart_infobar);
 }
 
+/// The native mode chosen in the view made without reading the controller.
+fn unread_native_mode(app: &TestApp) -> Option<razer_proto::NativeMode> {
+    let view = app.display_view_unread()?.unwrap();
+    Some(view.native_modes.iter().find(|o| o.selected).unwrap().mode)
+}
+
+#[test]
+fn a_view_without_a_read_shows_the_native_mode_last_read_or_set() {
+    let (mut app, _dir, _) = app();
+    assert_eq!(unread_native_mode(&app), None, "none read yet");
+    let asked = app.machine().controller.asked.len();
+    app.display_view().unwrap();
+    assert_eq!(unread_native_mode(&app), Some(BLADE_18.native_modes[0]));
+
+    app.on_display(DisplayCommand::SetNativeMode(FHD)).unwrap();
+
+    assert_eq!(unread_native_mode(&app), Some(FHD));
+    assert_eq!(app.machine().controller.asked.len(), asked + 1);
+}
+
+#[test]
+fn a_failed_native_mode_read_leaves_none_for_a_view_without_a_read() {
+    let (mut app, _dir, _) = app();
+    app.display_view().unwrap();
+    app.machine_mut().controller.native_fails = true;
+
+    assert!(app.display_view().is_err());
+
+    assert_eq!(unread_native_mode(&app), None);
+}
+
 #[test]
 fn a_native_mode_is_sent_to_the_controller() {
     let (mut app, _dir, _) = app();

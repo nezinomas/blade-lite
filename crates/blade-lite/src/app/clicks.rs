@@ -183,6 +183,7 @@ where
             }
             DisplayCommand::SetNativeMode(mode) => {
                 set_native_mode(mode, &mut self.machine.controller, self.model)?;
+                self.native_mode = Some(mode);
             }
             DisplayCommand::SetSixtyHzOnBattery(on) => self.set_sixty_hz_on_battery(on)?,
         }
