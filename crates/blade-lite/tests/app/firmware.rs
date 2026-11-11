@@ -33,13 +33,18 @@ fn another_firmware_gives_a_warning_and_sends_still_go() {
 }
 
 #[test]
-fn a_failed_or_short_read_gives_no_warning() {
-    assert_eq!(checked(None).firmware_warning(), None);
-    assert_eq!(checked(Some(vec![1])).firmware_warning(), None);
+fn a_failed_or_short_read_gives_a_warning() {
+    for reply in [None, Some(vec![1])] {
+        let app = checked(reply);
+        let warning = app.firmware_warning().unwrap();
+        assert!(warning.contains("could not be read"), "{warning}");
+    }
 }
 
 #[test]
 fn the_firmware_is_read_with_its_own_query() {
     let app = checked(None);
     assert_eq!(app.machine().controller.asked, [FirmwareVersion::query()]);
+    // A read only: nothing is sent.
+    assert_eq!(app.machine().controller.sent, []);
 }

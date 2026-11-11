@@ -208,6 +208,7 @@ fn opens_again_are_logged_once_per_run_and_each_new_failure_once() {
     // Other tests may log it too, at the same time.
     assert!(lines("the controller was opened again") > opened_before);
 }
+
 #[test]
 fn an_unlisted_firmware_shows_a_warning_beside_the_razer_one() {
     let f = fixture(Config::default());

@@ -316,25 +316,27 @@ where
     }
 
     /// Reads the controller's firmware version and logs it. A version the
-    /// model profile does not list gets a warning, shown in the window;
-    /// the app still sends (user pick, ticket 135). A failed read, or a
-    /// reply not understood, is only logged. Called once, at start.
+    /// model profile does not list, or one that can't be read, gets a
+    /// warning, shown in the window; the app still sends (user pick,
+    /// ticket 135). Called once, at start.
     pub fn check_firmware(&mut self) {
         let version = match self.machine.controller.query(&FirmwareVersion::query()) {
-            Ok(args) => FirmwareVersion::from_reply(&args),
-            Err(error) => {
-                report(&format!("can't read the controller firmware: {error}"));
+            Ok(args) => {
+                FirmwareVersion::from_reply(&args).ok_or_else(|| "reply not understood".to_owned())
+            }
+            Err(error) => Err(error.to_string()),
+        };
+        let found = match version {
+            Ok(version) if self.model.firmware.contains(&version) => {
+                report(&format!("controller firmware {}", firmware_text(version)));
                 return;
             }
+            Ok(version) => format!("is {}", firmware_text(version)),
+            Err(error) => {
+                report(&format!("can't read the controller firmware: {error}"));
+                "could not be read".to_owned()
+            }
         };
-        let Some(version) = version else {
-            report("the controller firmware reply was not understood");
-            return;
-        };
-        report(&format!("controller firmware {}", firmware_text(version)));
-        if self.model.firmware.contains(&version) {
-            return;
-        }
         let checked: Vec<String> = self
             .model
             .firmware
@@ -342,8 +344,7 @@ where
             .map(|&v| firmware_text(v))
             .collect();
         let warning = format!(
-            "The controller firmware is {}, and Blade Lite is checked only on {}. Settings are still sent.",
-            firmware_text(version),
+            "The controller firmware {found}, and Blade Lite is checked only on {}. Settings are still sent.",
             checked.join(" and ")
         );
         report(&warning);

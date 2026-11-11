@@ -87,7 +87,8 @@ pub struct ModelProfile {
 impl ModelProfile {
     /// Whether the profile keeps the rules its fields name: each mode byte
     /// differs from the others and from Custom's, and the battery presets
-    /// are offered presets that hold Balanced. Each profile is checked with
+    /// are offered presets that hold Balanced, and at least one firmware
+    /// version is listed. Each profile is checked with
     /// it at build time.
     #[must_use]
     pub const fn is_valid(&self) -> bool {
@@ -111,7 +112,7 @@ impl ModelProfile {
             }
             battery = others;
         }
-        holds(self.battery_presets, PerfMode::Balanced)
+        holds(self.battery_presets, PerfMode::Balanced) && !self.firmware.is_empty()
     }
 }
 
