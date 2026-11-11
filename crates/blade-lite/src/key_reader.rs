@@ -97,9 +97,11 @@ pub const KEY_REOPEN_PAUSE: Duration = Duration::from_secs(5);
 
 impl ReaderEnd {
     /// How long to wait before the next open, after a reader that ran for
-    /// `ran`. A quiet spell opens again at once, so no press is lost in the
-    /// pause. One that ended in under half its reads' waits had reads that
-    /// did not wait, a broken handle, so it pauses, as a failure does.
+    /// `ran` (its whole run, not only the quiet spell). A quiet spell opens
+    /// again at once, so no press is lost in the pause. A run shorter than
+    /// half its quiet reads' waits had reads that did not wait, a broken
+    /// handle, so it pauses, as a failure does. A handle that breaks late
+    /// in a long run gets one open at once; the next, short run pauses.
     #[must_use]
     pub fn pause_before_open(&self, ran: Duration) -> Duration {
         let full_spell = KEY_READ_WAIT * KEY_IDLE_READS;

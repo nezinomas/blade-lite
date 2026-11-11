@@ -112,6 +112,14 @@ fn a_long_quiet_spell_reopens_the_reports() {
 fn only_a_quiet_spell_of_full_length_opens_again_at_once() {
     let spell = KEY_READ_WAIT * KEY_IDLE_READS;
     assert_eq!(ReaderEnd::Reopen.pause_before_open(spell), Duration::ZERO);
+    assert_eq!(
+        ReaderEnd::Reopen.pause_before_open(spell / 2),
+        Duration::ZERO
+    );
+    assert_eq!(
+        ReaderEnd::Reopen.pause_before_open(spell / 2 - Duration::from_millis(1)),
+        KEY_REOPEN_PAUSE
+    );
     // Reads that came back at once are a broken handle: pause.
     assert_eq!(
         ReaderEnd::Reopen.pause_before_open(Duration::from_secs(1)),
