@@ -208,3 +208,11 @@ pub fn control(root: &impl ElementRoot, role: AccessibleRole, label: &str) -> El
 pub fn click(root: &impl ElementRoot, role: AccessibleRole, label: &str) {
     control(root, role, label).mock_single_click(PointerEventButton::Left);
 }
+
+/// The label of the preset chosen in the window's Performance mode row.
+pub fn selected_preset(f: &Fixture) -> String {
+    use slint::Model;
+    let presets = f.shell.window().get_presets();
+    let chosen = presets.iter().find(|choice| choice.selected);
+    chosen.expect("one preset is chosen").label.into()
+}

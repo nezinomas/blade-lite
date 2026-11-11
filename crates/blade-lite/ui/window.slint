@@ -16,8 +16,8 @@ export { Choice, SliderRow, Stat, SwatchItem }
 export component MainWindow inherits Window {
     // Header
     in property <string> device;
-    in property <string> preset;
     in property <string> power;
+    // Shown in the Performance group, such as "99%, 86 cycles".
     in property <string> health;
     in property <[Stat]> stats-top;
     in property <[Stat]> stats-bottom;
@@ -102,9 +102,7 @@ export component MainWindow inherits Window {
 
             Header {
                 device: root.device;
-                preset: root.preset;
                 power: root.power;
-                health: root.health;
                 stats-top: root.stats-top;
                 stats-bottom: root.stats-bottom;
             }
@@ -129,6 +127,7 @@ export component MainWindow inherits Window {
                 charge-limit-shown: root.charge-limit-shown;
                 charge-limit-on <=> root.charge-limit-on;
                 charge-limit-note: root.charge-limit-note;
+                health: root.health;
                 accent: root.accent;
                 pick-preset(index) => { root.pick-preset(index); }
                 move-slider(index, position) => { root.move-slider(index, position); }

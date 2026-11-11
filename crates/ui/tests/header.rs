@@ -1,6 +1,6 @@
 //! The header card's view model.
 
-use blade_core::{Preset, Readings};
+use blade_core::Readings;
 use platform::{BatteryHealth, GpuReading};
 use razer_proto::{BLADE_18, Celsius, FanRpm};
 use ui::{Header, HeaderState, PowerPill, Stat};
@@ -26,7 +26,6 @@ fn health(percent: Option<u32>, cycles: Option<u32>) -> BatteryHealth {
 fn state() -> HeaderState<'static> {
     HeaderState {
         model: &BLADE_18,
-        preset: Preset::Balanced,
         on_battery: false,
         weak_charge: false,
         readings: readings(),
@@ -54,28 +53,6 @@ fn stat(label: &str, value: &str) -> Stat {
 #[test]
 fn the_title_is_the_model_name() {
     assert_eq!(Header::new(&state()).title, "Blade 18 (RZ09-0529)");
-}
-
-#[test]
-fn the_subtitle_is_the_preset() {
-    let custom = HeaderState {
-        preset: Preset::Custom,
-        ..state()
-    };
-
-    assert_eq!(Header::new(&state()).preset, "Balanced");
-    assert_eq!(Header::new(&custom).preset, "Custom");
-}
-
-#[test]
-fn on_battery_a_saved_performance_shows_as_balanced() {
-    let header = Header::new(&HeaderState {
-        preset: Preset::Performance,
-        on_battery: true,
-        ..state()
-    });
-
-    assert_eq!(header.preset, "Balanced");
 }
 
 #[test]
@@ -200,17 +177,15 @@ fn on_battery_shows_the_battery_pill_and_the_draw_in_watts() {
 }
 
 #[test]
-fn a_weak_charge_shows_its_pill_and_runs_performance_as_balanced() {
+fn a_weak_charge_shows_its_pill() {
     let mut weak = state();
     weak.weak_charge = true;
-    weak.preset = Preset::Performance;
     weak.readings.charging = Some(true);
 
     let header = Header::new(&weak);
 
     assert_eq!(header.power, PowerPill::WeakCharge);
     assert_eq!(header.power.label(), "Plugged in \u{b7} Weak charger");
-    assert_eq!(header.preset, "Balanced");
 }
 
 #[test]
@@ -230,18 +205,9 @@ fn the_battery_health_shows_its_percent_and_cycles() {
         Header::new(&state).health
     };
 
-    assert_eq!(
-        health_line(Some(99), Some(86)),
-        "Battery health 99% \u{b7} 86 cycles"
-    );
-    assert_eq!(
-        health_line(Some(99), Some(1)),
-        "Battery health 99% \u{b7} 1 cycle"
-    );
-    assert_eq!(health_line(Some(99), None), "Battery health 99%");
-    assert_eq!(
-        health_line(None, Some(86)),
-        "Battery health \u{2014} \u{b7} 86 cycles"
-    );
-    assert_eq!(health_line(None, None), "", "nothing known shows no line");
+    assert_eq!(health_line(Some(99), Some(86)), "99%, 86 cycles");
+    assert_eq!(health_line(Some(99), Some(1)), "99%, 1 cycle");
+    assert_eq!(health_line(Some(99), None), "99%");
+    assert_eq!(health_line(None, Some(86)), "\u{2014}, 86 cycles");
+    assert_eq!(health_line(None, None), "", "nothing known shows no text");
 }

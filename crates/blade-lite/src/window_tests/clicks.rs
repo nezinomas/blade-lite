@@ -13,7 +13,9 @@ use slint::platform::{PointerEventButton, WindowEvent};
 use slint::winit_030::winit::event::WindowEvent as WinitEvent;
 use slint::{ComponentHandle, LogicalPosition};
 
-use super::{FAKE_MIC, FAKE_ON_BATTERY, Fixture, click, control, fixture, log_path};
+use super::{
+    FAKE_MIC, FAKE_ON_BATTERY, Fixture, click, control, fixture, log_path, selected_preset,
+};
 use crate::fakes::{FakeCharger, brightness_commands, lighting_commands, logo};
 
 const WHITE: Rgb = Rgb::new(0xFF, 0xFF, 0xFF);
@@ -39,7 +41,7 @@ fn a_preset_click_sends_saves_and_shows_it() {
         sent_since(&f, before),
         PerfMode::Silent.commands(&BLADE_18).unwrap()
     );
-    assert_eq!(f.shell.window().get_preset(), "Silent");
+    assert_eq!(selected_preset(&f), "Silent");
     assert_eq!(f.shell.popup().get_mode(), "Silent");
 }
 
@@ -1204,10 +1206,8 @@ fn a_failed_vapor_send_after_fn_shows_the_error_and_the_new_level() {
     assert_eq!(percent_shown(f.shell.window(), "KeyboardGroup"), "100%");
 }
 
-#[test]
-fn the_header_shows_the_battery_health() {
-    let f = fixture(Config::default());
-    assert_eq!(f.shell.window().get_health(), "", "nothing known yet");
+/// Gives the fake sensors a battery health of 99% and 86 cycles.
+fn read_health(f: &Fixture) {
     f.shell.set_readings(blade_core::Readings {
         battery_health: platform::BatteryHealth {
             percent: Some(99),
@@ -1215,13 +1215,52 @@ fn the_header_shows_the_battery_health() {
         },
         ..Default::default()
     });
+}
+
+/// Whether a text `label` shows in the window.
+fn text_shown(f: &Fixture, label: &str) -> bool {
+    ElementHandle::find_by_accessible_label(f.shell.window(), label)
+        .next()
+        .is_some()
+}
+
+#[test]
+fn the_battery_health_ends_the_charge_limit_note() {
+    let f = fixture(Config::default());
+    assert_eq!(f.shell.window().get_health(), "", "nothing known yet");
+    assert!(text_shown(&f, "Off. Turn on to stop at 80%"));
+    read_health(&f);
 
     f.shell.refresh(None);
 
-    assert_eq!(
-        f.shell.window().get_health(),
-        "Battery health 99% \u{b7} 86 cycles"
-    );
+    assert!(text_shown(
+        &f,
+        "Off. Turn on to stop at 80% \u{b7} Health 99%, 86 cycles"
+    ));
+    assert!(!text_shown(&f, "Battery health"), "no row of its own");
+    click(f.shell.window(), Switch, "Battery charge limit");
+    assert!(text_shown(
+        &f,
+        "Stops charging at 80% \u{b7} Health 99%, 86 cycles"
+    ));
+}
+
+#[test]
+fn without_the_charge_limit_the_battery_health_has_its_own_row() {
+    let f = fixture(Config::default());
+    // A failed set, then a failed read, leaves the limit's state unknown.
+    f.shell.app().machine_mut().controller.fails = true;
+    f.shell.app().machine_mut().controller.charge = None;
+    click(f.shell.window(), Switch, "Battery charge limit");
+    f.shell.app().machine_mut().controller.fails = false;
+    assert!(!text_shown(&f, "Battery health"), "nothing known yet");
+    read_health(&f);
+
+    f.shell.refresh(None);
+
+    assert!(!text_shown(&f, "Battery charge limit"));
+    assert!(text_shown(&f, "Battery health"));
+    assert!(text_shown(&f, "99%, 86 cycles"));
 }
 
 #[test]

@@ -1,4 +1,5 @@
-//! The header card: the model, the preset, the power pill and the live readings.
+//! The header card: the model, the power pill and the live readings, and the
+//! battery health the Performance group shows.
 
 use blade_core::{Preset, Readings};
 use razer_proto::{Celsius, FanRpm, ModelProfile};
@@ -10,8 +11,6 @@ pub const MISSING: &str = "—";
 #[derive(Debug, Clone)]
 pub struct HeaderState<'a> {
     pub model: &'a ModelProfile,
-    /// The saved preset. On battery it may run as another.
-    pub preset: Preset,
     pub on_battery: bool,
     /// On the charger, whether it gives too little power for every preset
     /// (such as a USB-C monitor): then only the battery presets run.
@@ -62,11 +61,10 @@ pub struct Stat {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Header {
     pub title: String,
-    pub preset: &'static str,
     pub power: PowerPill,
     /// In the order they are shown.
     pub stats: Vec<Stat>,
-    /// Such as "Battery health 99% · 86 cycles". Empty when neither is known.
+    /// Such as "99%, 86 cycles". Empty when neither is known.
     pub health: String,
 }
 
@@ -76,11 +74,6 @@ impl Header {
     pub fn new(state: &HeaderState) -> Self {
         Self {
             title: state.model.name.to_owned(),
-            preset: preset_label(
-                state
-                    .preset
-                    .running(state.on_battery || state.weak_charge, state.model),
-            ),
             power: power_pill(state),
             stats: stats(state),
             health: health_line(&state.readings),
@@ -151,9 +144,9 @@ fn health_line(readings: &Readings) -> String {
     let percent = health.percent.map_or_else(|| MISSING.to_owned(), percent);
     let cycles = health.cycles.map_or_else(String::new, |cycles| {
         let noun = if cycles == 1 { "cycle" } else { "cycles" };
-        format!(" \u{b7} {cycles} {noun}")
+        format!(", {cycles} {noun}")
     });
-    format!("Battery health {percent}{cycles}")
+    format!("{percent}{cycles}")
 }
 
 fn stat(label: &str, value: Option<String>) -> Stat {

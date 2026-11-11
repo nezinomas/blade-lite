@@ -81,14 +81,21 @@ fn not_charging() {
     check("flyout-not-charging", f.shell.flyout().window());
 }
 
-/// The battery health line under the power pill.
+/// The battery health at the end of the charge limit note.
 #[test]
 fn window_with_the_battery_health() {
     let f = fixture(Config::default());
-    f.shell
-        .window()
-        .set_health("Battery health 99% \u{b7} 86 cycles".into());
+    f.shell.window().set_health("99%, 86 cycles".into());
     check("window-health", f.shell.window().window());
+}
+
+/// With no charge limit shown, the battery health in its own row.
+#[test]
+fn window_with_the_battery_health_row() {
+    let f = fixture(Config::default());
+    f.shell.window().set_charge_limit_shown(false);
+    f.shell.window().set_health("99%, 86 cycles".into());
+    check("window-health-row", f.shell.window().window());
 }
 
 #[test]
