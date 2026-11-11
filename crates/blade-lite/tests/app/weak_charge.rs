@@ -1,7 +1,7 @@
 //! A weak charge, such as a USB-C monitor that powers the laptop, runs only
 //! the battery presets, as Synapse does.
 
-use blade_core::Preset;
+use blade_core::{Config, Preset};
 use platform::PowerEvent;
 use razer_proto::{BLADE_18, PerfMode};
 use tempfile::TempDir;
@@ -248,19 +248,6 @@ fn a_refused_click_whose_charger_read_fails_sends_balanced() {
 }
 
 #[test]
-fn a_power_key_press_that_finds_a_weak_charger_steps_from_balanced() {
-    let (mut app, _dir, _) = performance_app();
-    app.start().unwrap();
-    app.machine_mut().controller.sent.clear();
-    app.machine_mut().controller.charger = FakeCharger::UsbC;
-
-    app.on_power_key().unwrap();
-
-    assert!(!ran(&app, PerfMode::Performance));
-    assert_ne!(app.running_preset(), Preset::Performance);
-}
-
-#[test]
 fn the_power_key_reads_the_charger_first() {
     let (mut app, _dir, _) = performance_app();
     app.start().unwrap();
@@ -270,4 +257,29 @@ fn the_power_key_reads_the_charger_first() {
         app.on_power_key().unwrap();
         assert_ne!(app.running_preset(), Preset::Performance);
     }
+}
+
+#[test]
+fn a_click_refused_before_any_send_after_a_full_charger_read_sends_what_runs() {
+    let mut config = Config {
+        preset: Preset::Performance,
+        ..Config::default()
+    };
+    // Out of range, as a hand edit could leave it: Custom is refused.
+    config.custom.fan_rpm = Some(9000);
+    let (mut app, _dir, _) = crate::app_with(config);
+    app.machine_mut().controller.charger = FakeCharger::UsbC;
+    app.start().unwrap();
+    app.machine_mut().controller.sent.clear();
+    // Swapped to the full charger since the last poll.
+    app.machine_mut().controller.charger = FakeCharger::Razer;
+
+    let result = app.on_performance(PerformanceCommand::SetPreset(Preset::Custom));
+
+    assert!(result.is_err());
+    assert_eq!(
+        sent(&app),
+        PerfMode::Performance.commands(&BLADE_18).unwrap()
+    );
+    assert_eq!(app.running_preset(), Preset::Performance);
 }

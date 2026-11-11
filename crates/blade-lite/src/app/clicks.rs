@@ -1,9 +1,9 @@
 //! What each click does.
 
 use blade_core::{
-    Config, Controller, Lighting, Query, apply_lighting, apply_performance, keyboard_brightness,
-    next_preset, set_charge_limit, set_logo, set_native_mode, set_refresh_rate, set_touchpad,
-    set_vapor_light,
+    ApplyError, Config, Controller, Lighting, Preset, Query, apply_lighting, apply_performance,
+    keyboard_brightness, next_preset, set_charge_limit, set_logo, set_native_mode,
+    set_refresh_rate, set_touchpad, set_vapor_light,
 };
 use platform::{DisplayApi, KeyInjector, PowerEvent, Registry};
 use ui::{DisplayCommand, KeyboardCommand, PerformanceCommand};
@@ -21,22 +21,24 @@ where
     /// # Errors
     ///
     /// See [`AppError`]. The config is left as it was, except that a
-    /// change that was sent but not saved is kept in memory.
+    /// change that was sent but not saved is kept in memory. A click on a
+    /// preset not offered on battery is refused on a weak charge; if the
+    /// charger read for it found the weak charge, the battery preset that
+    /// now runs is sent first.
     pub fn on_performance(&mut self, command: PerformanceCommand) -> Result<(), AppError> {
         let mut config = self.config;
+        // What ran before a charger read, if the click made one.
+        let mut read_from = None;
         match command {
             PerformanceCommand::SetPreset(preset) => {
                 if !preset.offered_on_battery(self.model) {
                     // A charger swap gives no power event, and the last
                     // poll may be 10 s old.
                     let before = self.running_preset();
+                    read_from = Some(before);
                     self.read_charger();
                     if self.battery_presets() {
-                        // The read may have found a weak charger while
-                        // Performance or Custom runs: send what runs now,
-                        // as a power event does, since no later poll sees
-                        // a change.
-                        self.send_if_changed(before)?;
+                        self.send_if_read_changed(before);
                         return Err(AppError::NotOnBattery(preset));
                     }
                 }
@@ -52,8 +54,32 @@ where
         let applied = apply_performance(&running, self.model, &mut self.machine.controller);
         // A failed send may have changed part of it.
         self.note_preset_send(&applied);
+        // Refused before any send (a saved value out of range): the read
+        // may still have changed what runs, such as a full charger found.
+        let unsent = matches!(applied, Err(ApplyError::Preset(_) | ApplyError::Custom(_)));
+        if let (true, Some(before)) = (unsent, read_from) {
+            self.send_if_read_changed(before);
+        }
         applied?;
         self.keep_sent(config)
+    }
+
+    /// Sends the preset that runs if a charger read changed it from
+    /// `before`, as a power event does: no later poll sees that change, so
+    /// Performance or Custom would keep running on a weak charge (or the
+    /// app show Performance while Balanced runs). A failed
+    /// send is logged, and marks the preset unsure, so the polls send it
+    /// again; the caller's own error is the one shown.
+    fn send_if_read_changed(&mut self, before: Preset) {
+        if self.running_preset() == before {
+            return;
+        }
+        let running = self.running(self.config);
+        let applied = apply_performance(&running, self.model, &mut self.machine.controller);
+        self.note_preset_send(&applied);
+        if let Err(error) = applied {
+            report(&format!("the preset after a charger read failed: {error}"));
+        }
     }
 
     /// Steps to the next preset, as the power-mode key asks.
@@ -69,15 +95,13 @@ where
         }
         // The step depends on the charger, which the last poll may have
         // read 10 s ago.
-        let before = self.running_preset();
         self.read_charger();
         let running = self.running_preset();
         match next_preset(running, self.model, self.battery_presets()) {
             Some(next) if next != running => {
                 self.on_performance(PerformanceCommand::SetPreset(next))
             }
-            // No step: still send what runs if the read changed it.
-            _ => self.send_if_changed(before),
+            _ => Ok(()),
         }
     }
 

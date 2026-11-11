@@ -253,7 +253,7 @@ where
 
     /// Sends the preset that runs now if it is not `before`, or the last
     /// start or switch failed.
-    pub(super) fn send_if_changed(&mut self, before: Preset) -> Result<(), AppError> {
+    fn send_if_changed(&mut self, before: Preset) -> Result<(), AppError> {
         let config = self.running(self.config);
         if config.preset != before || self.preset_unsure {
             let applied = apply_performance(&config, self.model, &mut self.machine.controller);
