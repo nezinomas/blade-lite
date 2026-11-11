@@ -291,15 +291,22 @@ impl<P: Parts> Shell<P> {
 
     /// Reads the sensors, then shows the header and the keyboard group,
     /// since the touchpad key can change it at any time, and watches the
-    /// temperatures. The reads that failed are logged once in a while.
+    /// temperatures. The controller is not read while Razer's software
+    /// runs, as for the heat reads: its values show unknown then. The
+    /// reads that failed are logged once in a while.
     fn tick_readings(self: &Rc<Self>, now: Instant) {
         let (readings, mut errors) = {
             let (sampler, sensors) = &mut *self.sampler.borrow_mut();
             (sampler.sample(sensors), sampler.errors().to_vec())
         };
         self.readings.set(readings);
+        let read_controller = self.heat_reads_allowed();
         let mut app = self.app.borrow_mut();
-        let header = app.header(readings);
+        let header = if read_controller {
+            app.header(readings)
+        } else {
+            app.header_unread(readings)
+        };
         errors.extend_from_slice(app.read_errors());
         self.say_read_errors(&errors);
         bind::header(&self.window, &header);
