@@ -26,9 +26,9 @@ mod power_key;
 mod query;
 mod razer_software;
 mod readings;
+mod red_keys;
 mod refresh;
 mod touchpad;
-mod touchpad_key;
 
 pub use apply::{
     ApplyError, Controller, RESUME_PAUSE, apply, apply_lighting, apply_performance, check,
@@ -56,6 +56,6 @@ pub use query::{
 };
 pub use razer_software::{razer_software, razer_warning};
 pub use readings::{HEALTH_EVERY, Readings, ReadingsSampler};
+pub use red_keys::paint_red_keys;
 pub use refresh::{DisplayError, RefreshRate, current_rate, refresh_rates, set_refresh_rate};
 pub use touchpad::{TOUCHPAD_KEY, TOUCHPAD_VALUE, TouchpadError, set_touchpad, touchpad_on};
-pub use touchpad_key::paint_touchpad_key;

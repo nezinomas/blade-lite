@@ -14,7 +14,7 @@ use blade_core::{
     touchpad_on,
 };
 use platform::{DisplayApi, KeyInjector, Registry};
-use razer_proto::{ModelProfile, Rgb};
+use razer_proto::{ModelProfile, RedKey, RedKeys, Rgb};
 
 pub use error::{AppError, took_effect};
 
@@ -102,13 +102,16 @@ pub struct App<C, D, R, K> {
     logo_on: Option<bool>,
     /// The battery charge limit state, read like the logo's.
     charge_limit_on: Option<bool>,
-    /// Whether the frame the app last painted has the touchpad key red.
-    /// `None` if unknown, such as after a failed send: the next change
-    /// then paints it.
-    key_red: Option<bool>,
-    /// Whether Num Lock is on. A touchpad key that is then a numpad key
-    /// keeps the plain colour.
+    /// Which keys the frame the app last painted has red. `None` if
+    /// unknown, such as after a failed send: the next change then paints
+    /// it.
+    key_red: Option<RedKeys>,
+    /// Whether Num Lock is on. A red key that is then a numpad key keeps
+    /// the plain colour.
     num_lock_on: bool,
+    /// Whether the default mic is muted. `None` if it can't be read: the
+    /// mic key then keeps the plain colour.
+    mic_muted: Option<bool>,
     /// The controller reads that failed when the header was last made.
     read_errors: Vec<String>,
     /// The CPU temperature read when the header was last made, in °C.
@@ -141,6 +144,7 @@ where
             charge_limit_on: None,
             key_red: None,
             num_lock_on: false,
+            mic_muted: None,
             read_errors: Vec::new(),
             cpu_celsius: None,
         }
@@ -171,6 +175,17 @@ where
         self.num_lock_on = on;
     }
 
+    #[must_use]
+    pub fn mic_muted(&self) -> Option<bool> {
+        self.mic_muted
+    }
+
+    /// Takes the mic mute without painting, for use before
+    /// [`start`](Self::start).
+    pub fn set_mic_muted(&mut self, muted: Option<bool>) {
+        self.mic_muted = muted;
+    }
+
     /// Takes the power source without sending, for use before
     /// [`start`](Self::start), so a start on battery sends the battery
     /// preset, not the saved one.
@@ -178,27 +193,30 @@ where
         self.power = Power::from_battery(on_battery);
     }
 
-    /// Whether the touchpad key should be red. If the touchpad state can't
-    /// be read, the key keeps the plain colour.
-    fn key_should_be_red(&self) -> bool {
-        touchpad_on(&self.machine.registry).map_or_else(
-            |error| {
-                report(&format!("the touchpad key stays plain: {error}"));
-                false
-            },
-            |on| self.red_for(on),
-        )
+    /// Which keys should be red. If the touchpad state can't be read, its
+    /// key keeps the plain colour.
+    fn key_should_be_red(&self) -> RedKeys {
+        let touchpad_on = touchpad_on(&self.machine.registry).unwrap_or_else(|error| {
+            report(&format!("the touchpad key stays plain: {error}"));
+            true
+        });
+        self.red_for(touchpad_on)
     }
 
-    /// Red while the touchpad is off, unless Num Lock is on and the key is
-    /// then a numpad key.
-    fn red_for(&self, touchpad_on: bool) -> bool {
-        let numpad_now = self.num_lock_on
-            && self
-                .model
-                .touchpad_key
-                .is_some_and(|key| key.plain_with_num_lock);
-        !touchpad_on && !numpad_now
+    /// The touchpad key red while the touchpad is off, the mic key while
+    /// the mic is known to be muted, each unless Num Lock is on and the key
+    /// is then a numpad key.
+    fn red_for(&self, touchpad_on: bool) -> RedKeys {
+        RedKeys {
+            touchpad: !touchpad_on && !self.numpad_now(self.model.touchpad_key),
+            mic: self.mic_muted == Some(true) && !self.numpad_now(self.model.mic_key),
+        }
+    }
+
+    /// Whether `key` is a numpad key now: Num Lock is on and the key is one
+    /// then.
+    fn numpad_now(&self, key: Option<RedKey>) -> bool {
+        self.num_lock_on && key.is_some_and(|key| key.plain_with_num_lock)
     }
 
     fn read_charge_limit(&mut self) {

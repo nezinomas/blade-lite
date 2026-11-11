@@ -2,7 +2,7 @@
 
 use std::str::FromStr;
 
-use crate::{Command, ModelProfile, TOUCHPAD_OFF};
+use crate::{Command, ModelProfile, RED_KEY, RedKey, RedKeys};
 
 /// Set the keyboard effect. Args `[05, 00]` pick the custom frame.
 const SET_EFFECT: u16 = 0x030A;
@@ -54,27 +54,41 @@ impl FromStr for Rgb {
 /// then one frame row per row of the model's key grid.
 #[must_use]
 pub fn static_colour(colour: Rgb, model: &ModelProfile) -> Vec<Command> {
-    frame(colour, None, model)
+    frame(colour, &[], model)
 }
 
 /// As [`static_colour`], with the model's touchpad key red, as it shows
-/// while the touchpad is off. The same as [`static_colour`] if the model
-/// has no touchpad key, or its key is not in the grid.
+/// while the touchpad is off.
 #[must_use]
 pub fn static_colour_touchpad_off(colour: Rgb, model: &ModelProfile) -> Vec<Command> {
-    let key = model
-        .touchpad_key
-        .map(|key| (key.row, key.column))
+    let red = RedKeys {
+        touchpad: true,
+        mic: false,
+    };
+    static_colour_red(colour, model, red)
+}
+
+/// As [`static_colour`], with the model's keys in `red` painted
+/// [`RED_KEY`]. A key the model does not have, or that is not a key
+/// of its grid, keeps the colour.
+#[must_use]
+pub fn static_colour_red(colour: Rgb, model: &ModelProfile, red: RedKeys) -> Vec<Command> {
+    let keys = [(red.touchpad, model.touchpad_key), (red.mic, model.mic_key)];
+    let red: Vec<(u8, u8)> = keys
+        .into_iter()
+        .filter_map(|(on, key)| key.filter(|_| on))
+        .map(|RedKey { row, column, .. }| (row, column))
         .filter(|&(row, column)| {
             row < model.keys.rows && column < model.keys.columns && model.keys.has_key(row, column)
-        });
-    frame(colour, key, model)
+        })
+        .collect();
+    frame(colour, &red, model)
 }
 
 /// The custom frame effect, then one frame row per row of the key grid,
-/// with `red` painted [`TOUCHPAD_OFF`]. Nothing for a grid with no rows or
-/// no columns: the effect alone would show an empty frame.
-fn frame(colour: Rgb, red: Option<(u8, u8)>, model: &ModelProfile) -> Vec<Command> {
+/// with the keys in `red` painted [`RED_KEY`]. Nothing for a grid with
+/// no rows or no columns: the effect alone would show an empty frame.
+fn frame(colour: Rgb, red: &[(u8, u8)], model: &ModelProfile) -> Vec<Command> {
     let Some(last_column) = model.keys.columns.checked_sub(1) else {
         return Vec::new();
     };
@@ -94,14 +108,14 @@ fn frame_row(
     row: u8,
     last_column: u8,
     colour: Rgb,
-    red: Option<(u8, u8)>,
+    red: &[(u8, u8)],
     model: &ModelProfile,
 ) -> Command {
     let grid = &model.keys;
     let mut args = vec![FRAME_ROW_MARKER, row, FIRST_COLUMN, last_column];
     for column in 0..grid.columns {
-        let rgb = if red == Some((row, column)) {
-            TOUCHPAD_OFF
+        let rgb = if red.contains(&(row, column)) {
+            RED_KEY
         } else if grid.has_key(row, column) {
             colour
         } else {

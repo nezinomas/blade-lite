@@ -6,7 +6,7 @@ use std::sync::mpsc::{self, Receiver};
 use std::time::Duration;
 
 use blade_core::{PowerKeyPresses, TOUCHPAD_KEY};
-use blade_lite::{KeyEvent, ReaderEnd, ShownErrors, WindowsEnter, report, step_on_presses};
+use blade_lite::{KeyEvent, ReaderEnd, ShownErrors, WindowsFnKeys, report, step_on_presses};
 use platform::{PowerEvent, PowerEvents, RegistryWatch, WakeListener, WindowsPowerEvents};
 use razer_device::HidKeyReports;
 use razer_proto::BLADE_18;
@@ -113,7 +113,7 @@ pub fn follow_the_power_key() {
             let problem = match HidKeyReports::open(&BLADE_18) {
                 Ok(mut reports) => {
                     let presses = PowerKeyPresses::new(key);
-                    match step_on_presses(&mut reports, &mut WindowsEnter, presses, on_key) {
+                    match step_on_presses(&mut reports, &mut WindowsFnKeys, presses, on_key) {
                         ReaderEnd::Quit => return,
                         ReaderEnd::Reopen => String::new(),
                         ReaderEnd::Failed(error) => format!("the key reports stopped: {error}"),
@@ -134,6 +134,7 @@ pub fn follow_the_power_key() {
 fn on_key(event: KeyEvent) -> bool {
     match event {
         KeyEvent::PowerKey => step_the_preset(),
+        KeyEvent::MicKey => toggle_the_mic(),
         KeyEvent::FnHeld => follow_the_brightness_keys(false),
         KeyEvent::FnUp => follow_the_brightness_keys(true),
     }
@@ -171,6 +172,21 @@ fn step_the_preset() -> bool {
         // not yet seen would let a preset run that the new source does not
         // offer.
         shell.user_act(blade_lite::App::on_power_key);
+    })
+    .is_ok()
+}
+
+/// Mutes or unmutes the mic on the event-loop thread. False once the app
+/// is quitting.
+fn toggle_the_mic() -> bool {
+    // Only a model with a mic key reads its keys as one.
+    if BLADE_18.mic_key.is_none() {
+        return true;
+    }
+    slint::invoke_from_event_loop(|| {
+        if let Some(shell) = SHELL.with(|cell| cell.borrow().clone()) {
+            shell.toggle_mic();
+        }
     })
     .is_ok()
 }

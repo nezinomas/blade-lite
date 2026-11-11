@@ -16,8 +16,8 @@ pub use autostart_item::{
     takeover_note,
 };
 pub use key_reader::{
-    ENTER_READ_WAIT, EnterKey, KEY_IDLE_READS, KEY_READ_WAIT, KeyEvent, KeyReportSource, ReaderEnd,
-    WindowsEnter, step_on_presses,
+    ENTER_READ_WAIT, FnKeys, KEY_IDLE_READS, KEY_READ_WAIT, KeyEvent, KeyReportSource, ReaderEnd,
+    WindowsFnKeys, step_on_presses,
 };
 pub use placement::{Rect, flyout_position, popup_position};
 pub use report::{

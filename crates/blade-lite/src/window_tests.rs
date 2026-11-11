@@ -57,6 +57,15 @@ impl Parts for Fakes {
             done(picked);
         }
     }
+
+    fn mic_muted() -> Option<bool> {
+        FAKE_MIC.get()
+    }
+
+    fn toggle_mic_mute() -> Option<bool> {
+        FAKE_MIC.set(FAKE_MIC.get().map(|muted| !muted));
+        FAKE_MIC.get()
+    }
 }
 
 thread_local! {
@@ -69,6 +78,8 @@ thread_local! {
     pub static FAKE_HOLD: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
     /// The answer of a dialog held open.
     pub static FAKE_HELD: RefCell<Option<Box<dyn FnOnce()>>> = const { RefCell::new(None) };
+    /// The default mic's mute: unknown unless a test sets it.
+    pub static FAKE_MIC: std::cell::Cell<Option<bool>> = const { std::cell::Cell::new(None) };
     /// The file dialogs shown.
     pub static FAKE_DIALOGS: RefCell<Vec<FileDialog>> = const { RefCell::new(Vec::new()) };
 }
@@ -136,6 +147,7 @@ pub fn fixture(config: Config) -> Fixture {
     .expect("the first Slint call on this thread");
     log_path();
     FAKE_ON_BATTERY.set(false);
+    FAKE_MIC.set(None);
     FAKE_HOLD.set(false);
     FAKE_HELD.take();
     let (mut app, dir, _) = app_on(&BLADE_18, config);

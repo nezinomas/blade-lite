@@ -63,12 +63,16 @@ pub struct PowerKeyPresses {
     /// Enter as last seen while Fn is held. `None` until seen, so an
     /// Enter already down when Fn came is not a press.
     enter: Option<bool>,
+    /// The mic keys (Win + Alt + K) as last seen while Fn is held, as
+    /// `enter` is.
+    mic: Option<bool>,
     /// Whether the last key report let Fn go after a report that held it.
     fn_up: bool,
     /// When the brightness was last due in this Fn hold, or when Fn went
     /// down.
     brightness_at: Option<Instant>,
     last_step: Option<Instant>,
+    last_mic: Option<Instant>,
 }
 
 impl PowerKeyPresses {
@@ -79,9 +83,11 @@ impl PowerKeyPresses {
             held: None,
             fn_since: None,
             enter: None,
+            mic: None,
             fn_up: false,
             brightness_at: None,
             last_step: None,
+            last_mic: None,
         }
     }
 
@@ -145,7 +151,25 @@ impl PowerKeyPresses {
         pressed && self.step(now)
     }
 
-    /// Notes when Fn goes down, and forgets Enter when it comes up.
+    /// True if the mic keys, read as `down` now, are a new press while Fn
+    /// is held: Fn + mic sends Win + Alt + K to Windows, and only Fn in the
+    /// key reports. Presses closer than [`POWER_KEY_PAUSE`] count once.
+    pub fn on_mic(&mut self, down: bool, now: Instant) -> bool {
+        if !self.watching_enter(now) {
+            self.mic = None;
+            return false;
+        }
+        let pressed = down && self.mic == Some(false);
+        self.mic = Some(down);
+        if !pressed || Self::within_pause(self.last_mic, now) {
+            return false;
+        }
+        self.last_mic = Some(now);
+        true
+    }
+
+    /// Notes when Fn goes down, and forgets Enter and the mic keys when it
+    /// comes up.
     fn follow_fn(&mut self, report: &[u8], now: Instant) {
         if self.key.fn_held(report) == Some(true) {
             self.fn_since.get_or_insert(now);
@@ -154,6 +178,7 @@ impl PowerKeyPresses {
             self.fn_since = None;
             self.brightness_at = None;
             self.enter = None;
+            self.mic = None;
         }
     }
 
@@ -167,7 +192,10 @@ impl PowerKeyPresses {
     }
 
     fn too_soon(&self, now: Instant) -> bool {
-        self.last_step
-            .is_some_and(|last| now.saturating_duration_since(last) < POWER_KEY_PAUSE)
+        Self::within_pause(self.last_step, now)
+    }
+
+    fn within_pause(last: Option<Instant>, now: Instant) -> bool {
+        last.is_some_and(|last| now.saturating_duration_since(last) < POWER_KEY_PAUSE)
     }
 }

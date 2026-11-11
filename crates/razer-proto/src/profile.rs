@@ -3,7 +3,7 @@
 
 use crate::{
     ChargeLimit, Charger, CustomLimits, Logo, NativeMode, PerfMode, PerfModeBytes, PowerKey,
-    RpmRange, TouchpadKey, VaporLight,
+    RedKey, RpmRange, VaporLight,
 };
 
 /// How the controller shows up on USB.
@@ -72,7 +72,10 @@ pub struct ModelProfile {
     pub charger: Option<Charger>,
     /// The key painted red while the touchpad is off, or `None` if the
     /// model has none. It must be a key of [`ModelProfile::keys`].
-    pub touchpad_key: Option<TouchpadKey>,
+    pub touchpad_key: Option<RedKey>,
+    /// The key painted red while the mic is muted, or `None` if the model
+    /// has none. It must be a key of [`ModelProfile::keys`].
+    pub mic_key: Option<RedKey>,
     /// The key that steps through [`ModelProfile::presets`], or `None` if
     /// the model has none.
     pub power_key: Option<PowerKey>,
@@ -225,9 +228,16 @@ pub const BLADE_18: ModelProfile = ModelProfile {
     }),
     // Numpad ".", with a touchpad icon on the second layer (Num Lock off).
     // Found by eye on the laptop.
-    touchpad_key: Some(TouchpadKey {
+    touchpad_key: Some(RedKey {
         row: 5,
         column: 17,
+        plain_with_num_lock: true,
+    }),
+    // Numpad 0, with a mic icon on the second layer (Num Lock off). Fn + mic
+    // sends Win + Alt + K (read on the laptop, 2026-11-11). Found by eye.
+    mic_key: Some(RedKey {
+        row: 5,
+        column: 16,
         plain_with_num_lock: true,
     }),
     // Fn + numpad Enter, with a power-mode icon. Read on the laptop

@@ -1,4 +1,5 @@
-//! What the shell does on each poll: power events, Num Lock and sensor reads.
+//! What the shell does on each poll: power events, Num Lock, the mic mute
+//! and sensor reads.
 
 use std::rc::Rc;
 use std::sync::mpsc::Receiver;
@@ -31,6 +32,11 @@ impl<P: Parts> Shell<P> {
             self.retry_battery_rate();
         }
         self.follow_num_lock(num_lock_on());
+        // A failed read keeps the last state, so a flaky read can't
+        // send a frame each poll.
+        if let Some(muted) = P::mic_muted() {
+            self.follow_mic(Some(muted));
+        }
         if self.schedule.borrow_mut().poll_due(now) {
             self.tick_readings(now);
             self.follow_charger();
@@ -112,6 +118,35 @@ impl<P: Parts> Shell<P> {
         let painted = self.app.borrow_mut().on_num_lock(on);
         if !matches!(painted, Ok(false)) {
             self.act(|_| painted.map(|_| ()));
+        }
+    }
+
+    /// Paints the mic key again if the mic mute changed since the last
+    /// look (`None`: it can't be read). While a resume waits, the state is
+    /// only kept: the resume paints it.
+    pub fn follow_mic(self: &Rc<Self>, muted: Option<bool>) {
+        if self.app.borrow().mic_muted() == muted {
+            return;
+        }
+        if self.resuming.get() > 0 {
+            self.app.borrow_mut().set_mic_muted(muted);
+            return;
+        }
+        let painted = self.app.borrow_mut().on_mic_muted(muted);
+        if !matches!(painted, Ok(false)) {
+            self.act(|_| painted.map(|_| ()));
+        }
+    }
+
+    /// Fn + mic: mutes or unmutes the default mic, then paints the key. The
+    /// mic changes during a resume's pause too; only the paint waits. The
+    /// Win + Alt + K the key sends still reaches Windows, so an app in a
+    /// call may mute itself too; the key shows only the mic's own mute.
+    pub fn toggle_mic(self: &Rc<Self>) {
+        // A wake not yet polled must hold the paint too.
+        self.follow_own_power();
+        if let Some(muted) = P::toggle_mic_mute() {
+            self.follow_mic(Some(muted));
         }
     }
 

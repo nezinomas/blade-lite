@@ -43,7 +43,7 @@ use crate::background::{
     follow_the_power_key, follow_the_touchpad, on_battery_now, open_window_on_wake, power_events,
     watch_touchpad,
 };
-use crate::shell::Shell;
+use crate::shell::{Laptop, Parts, Shell};
 use crate::tray::Tray;
 use crate::tray_menu::{autostart_shown, on_tray};
 
@@ -117,6 +117,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     };
     let mut app = App::new(&BLADE_18, config, config_path, machine);
     app.set_num_lock(num_lock_on());
+    app.set_mic_muted(Laptop::mic_muted());
     // Before the start sends the preset, so a start on battery sends the
     // battery one. The power events come only after the start.
     app.take_on_battery(on_battery_now());
