@@ -135,7 +135,8 @@ pub struct App<C, D, R, K> {
     /// The CPU temperature read when the header was last made, in °C.
     cpu_celsius: Option<u32>,
     /// The native mode last read or set, for a display view made without
-    /// reading the controller. `None` if none yet, or the last read failed.
+    /// reading the controller. `None` if none yet, or the last read or set
+    /// failed.
     native_mode: Option<NativeMode>,
 }
 

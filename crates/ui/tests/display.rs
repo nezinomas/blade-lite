@@ -159,6 +159,17 @@ fn an_unknown_native_mode_chooses_none_and_still_shows_the_rates() {
 }
 
 #[test]
+fn an_unknown_native_mode_picks_nothing() {
+    let view = DisplayView::new(&DisplayState {
+        native: None,
+        ..state()
+    });
+
+    assert_eq!(view.pick_native_mode(0), None);
+    assert_eq!(view.pick_native_mode(1), None);
+}
+
+#[test]
 fn changing_native_mode_shows_the_restart_infobar() {
     let view = DisplayView::new(&DisplayState {
         native: Some(NativeModeState::AppliesAfterRestart(FHD)),

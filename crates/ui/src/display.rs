@@ -92,9 +92,13 @@ impl DisplayView {
         DisplayCommand::SetSixtyHzOnBattery(!self.sixty_hz_on_battery)
     }
 
-    /// The command for the native mode at `index`, unless it is already chosen.
+    /// The command for the native mode at `index`, unless it is already
+    /// chosen, or none is (the chosen one is not known).
     #[must_use]
     pub fn pick_native_mode(&self, index: usize) -> Option<DisplayCommand> {
+        if !self.native_modes.iter().any(|o| o.selected) {
+            return None;
+        }
         let option = self.native_modes.get(index).filter(|o| !o.selected)?;
         Some(DisplayCommand::SetNativeMode(option.mode))
     }
