@@ -62,8 +62,8 @@ fn a_short_hot_spell_does_nothing() {
         Some(99),
         None,
     );
-    // One reading under the limit starts the hold again.
-    let (now, _) = feed(&mut guard, now, Duration::ZERO, Some(94), None);
+    // A reading well under the limit starts the hold again.
+    let (now, _) = feed(&mut guard, now, Duration::ZERO, Some(91), None);
     let (_, changes) = feed(
         &mut guard,
         now,
@@ -132,6 +132,34 @@ fn an_asleep_gpu_does_not_keep_it_on_but_an_unread_cpu_does() {
         None,
     );
     assert_eq!(changes, [false]);
+}
+
+#[test]
+fn a_cpu_swinging_around_the_limit_still_turns_it_on() {
+    let mut guard = FanGuard::default();
+    let mut now = Instant::now();
+    let mut changes = Vec::new();
+    for second in 0..=FAN_GUARD_HOLD.as_secs() * 2 {
+        let cpu = if second % 2 == 0 { 96 } else { 94 };
+        changes.extend(guard.note(Some(cpu), None, now));
+        now += SECOND;
+    }
+    assert_eq!(changes, [true]);
+}
+
+#[test]
+fn a_hot_gpu_that_is_no_longer_read_keeps_it_on() {
+    let mut guard = FanGuard::default();
+    let (now, _) = feed(
+        &mut guard,
+        Instant::now(),
+        FAN_GUARD_HOLD,
+        Some(60),
+        Some(90),
+    );
+    let (_, changes) = feed(&mut guard, now, FAN_GUARD_COOL_HOLD * 2, Some(60), None);
+    assert!(changes.is_empty(), "{changes:?}");
+    assert!(guard.on());
 }
 
 #[test]

@@ -14,6 +14,9 @@ pub const FAN_GUARD_HOLD: Duration = Duration::from_secs(30);
 pub const FAN_GUARD_COOL_HOLD: Duration = Duration::from_secs(60);
 /// A sensor is cool this far under its guard limit.
 const COOL_MARGIN: u32 = 10;
+/// A hot spell ends only this far under the guard limit, so a sensor that
+/// swings around its limit under load still turns the guard on.
+const HOT_MARGIN: u32 = 3;
 
 impl Sensor {
     /// A reading at or above this, in °C, is hot for the guard (user pick,
@@ -55,14 +58,19 @@ impl FanGuard {
     /// the new state when it changes: on once a sensor has been at its
     /// guard limit for [`FAN_GUARD_HOLD`], off once every sensor read lately
     /// has been cool for [`FAN_GUARD_COOL_HOLD`]. The CPU must be among
-    /// them: with no CPU reading the guard stays on. A GPU that is not read
-    /// (asleep) does not hold it on.
+    /// them: with no CPU reading the guard stays on. A GPU not read lately
+    /// holds it on only if its last reading was not cool.
     pub fn note(&mut self, cpu: Option<u32>, gpu: Option<u32>, now: Instant) -> Option<bool> {
         self.cpu.note(cpu, Sensor::Cpu.guard_limit(), now);
         self.gpu.note(gpu, Sensor::Gpu.guard_limit(), now);
         let next = if self.on {
             let cpu_cool = self.cpu.settled(now) == Some(true);
-            let gpu_cool = self.gpu.settled(now) != Some(false);
+            let gpu_cool = match self.gpu.settled(now) {
+                Some(cool) => cool,
+                // Asleep, or its read fails: cool only if it was last read
+                // cool (or never read).
+                None => self.gpu.cool_since.is_some() || self.gpu.last_reading.is_none(),
+            };
             !(cpu_cool && gpu_cool)
         } else {
             self.cpu.hot_for(now) || self.gpu.hot_for(now)
@@ -88,7 +96,7 @@ impl Track {
         }
         if celsius >= limit {
             self.hot_since.get_or_insert(now);
-        } else {
+        } else if celsius < limit.saturating_sub(HOT_MARGIN) {
             self.hot_since = None;
         }
         if celsius < limit.saturating_sub(COOL_MARGIN) {

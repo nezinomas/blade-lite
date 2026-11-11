@@ -51,28 +51,35 @@ impl<P: Parts> Shell<P> {
         self.pop_up(TOO_HOT, &text, HEAT_POPUP_HOLD);
     }
 
-    /// Feeds the fan guard (ticket 129). When it turns on or off and Custom
-    /// with a manual fan runs, the fans go to the model's top speed, or back
-    /// to the saved speed; that is logged and shown in the popup. A failed
-    /// send shows its error.
+    /// Feeds the fan guard (ticket 129). When the app's fan boost differs
+    /// from the guard and Custom with a manual fan runs, the fans go to the
+    /// model's top speed, or back to the saved speed; that is logged and
+    /// shown in the popup. Nothing is sent while Razer software runs or a
+    /// resume waits: the change waits for a later reading. A failed send
+    /// shows its error.
     fn guard_fans(self: &Rc<Self>, cpu: Option<u32>, gpu: Option<u32>, now: Instant) {
         let mut guard = self.fan_guard.get();
-        let changed = guard.note(cpu, gpu, now);
+        guard.note(cpu, gpu, now);
         self.fan_guard.set(guard);
-        let Some(on) = changed else {
+        if !self.heat_reads_allowed() {
             return;
-        };
-        let sent = self.app.borrow_mut().set_fan_boost(on);
+        }
+        let sent = self.app.borrow_mut().set_fan_boost(guard.on());
         match sent {
             Ok(false) => {}
             Ok(true) => {
-                let text = if on {
+                let text = if guard.on() {
                     "Full speed"
                 } else {
                     "Back to the set speed"
                 };
+                let shown = |celsius: Option<u32>| {
+                    celsius.map_or("unread".to_owned(), |c| format!("{c} °C"))
+                };
                 report(&format!(
-                    "fan guard: {text} (CPU {cpu:?} °C, GPU {gpu:?} °C)"
+                    "fan guard: {text} (CPU {}, GPU {})",
+                    shown(cpu),
+                    shown(gpu)
                 ));
                 self.pop_up(FANS, text, HEAT_POPUP_HOLD);
             }

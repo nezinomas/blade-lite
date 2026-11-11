@@ -179,7 +179,7 @@ impl<P: Parts> Shell<P> {
     /// Whether the controller may be read in the background: not while a
     /// resume waits (it may not be ready), nor while Razer's own software
     /// runs (it may talk to the controller at the same time).
-    fn heat_reads_allowed(&self) -> bool {
+    pub(super) fn heat_reads_allowed(&self) -> bool {
         self.resuming.get() == 0 && self.razer_warning.borrow().is_none()
     }
 

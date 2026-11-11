@@ -427,7 +427,8 @@ where
     /// # Errors
     ///
     /// See [`AppError`]. A failed send marks the preset unsure, so the polls
-    /// send it again.
+    /// send it again. A send that works drops a held rate error unshown, as
+    /// a click does.
     pub fn set_fan_boost(&mut self, on: bool) -> Result<bool, AppError> {
         let boost = on.then_some(self.model.custom.fan_rpm.max);
         if self.fan_boost == boost {

@@ -223,6 +223,34 @@ fn an_unlisted_firmware_shows_a_warning_beside_the_razer_one() {
     assert!(error.contains("firmware is 1.9"), "{error}");
 }
 
+#[test]
+fn the_fan_guard_sends_nothing_while_razer_software_runs() {
+    let mut config = Config {
+        preset: Preset::Custom,
+        ..Config::default()
+    };
+    config.custom.fan_rpm = Some(1600);
+    let f = fixture(config);
+    f.shell.programs().set(&[SYNAPSE]);
+    look(&f);
+    let before = f.shell.app().machine().controller.sent.len();
+    let start = std::time::Instant::now();
+    let hold = ui::FAN_GUARD_HOLD.as_secs();
+
+    for second in 0..=hold {
+        f.shell
+            .watch_heat(None, Some(90), start + Duration::from_secs(second));
+    }
+    assert_eq!(f.shell.app().machine().controller.sent.len(), before);
+
+    // Once it is gone, the next reading sends the top speed.
+    f.shell.programs().set(&[]);
+    look(&f);
+    f.shell
+        .watch_heat(None, Some(90), start + Duration::from_secs(hold + 1));
+    assert!(f.shell.app().machine().controller.sent.len() > before);
+}
+
 /// The label chosen in `choices`.
 fn chosen(choices: &slint::ModelRc<Choice>) -> String {
     let chosen = choices.iter().find(|choice| choice.selected);
