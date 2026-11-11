@@ -779,17 +779,127 @@ fn a_first_ac_whose_display_query_fails_is_an_error_and_sets_nothing() {
     assert_eq!(api.set, []);
 }
 
-#[test]
-fn a_refused_put_back_at_the_first_ac_is_not_tried_again() {
+/// A first AC [`left_at_60`] with 240 Hz saved, whose put-back Windows
+/// refuses `refusals` times. The first refusal is the result.
+fn refused_at_the_first_ac(refusals: usize) -> (BatteryRate, FakeDisplays) {
     let mut api = left_at_60(Some(mode(3840, 2400, 240)));
+    api.failing_sets = refusals;
+    let mut battery_rate = BatteryRate::default();
+    let first = battery_rate.on_event(PowerEvent::OnAc, &config(true), &mut api);
+    assert!(matches!(first, Err(DisplayError::Set(_))));
+    (battery_rate, api)
+}
+
+#[test]
+fn a_second_ac_or_a_wake_on_ac_keeps_the_put_back_tries() {
+    // The app's start puts back, then Windows sends AC at once.
+    for wake in [false, true] {
+        let (mut battery_rate, mut api) = refused_at_the_first_ac(1);
+        let before = api.set.len();
+
+        if wake {
+            battery_rate.on_resume(false, &config(true), &mut api)
+        } else {
+            battery_rate.on_event(PowerEvent::OnAc, &config(true), &mut api)
+        }
+        .unwrap();
+        assert_eq!(api.set.len(), before, "wake {wake}");
+        assert!(battery_rate.retry_pending(), "wake {wake}");
+        battery_rate.retry(&config(true), &mut api).unwrap();
+        battery_rate.retry(&config(true), &mut api).unwrap();
+
+        assert_eq!(api.panel_mode(), mode(3840, 2400, 240), "wake {wake}");
+    }
+}
+
+#[test]
+fn a_refused_put_back_at_the_first_ac_is_tried_again_after_a_poll() {
+    let (mut battery_rate, mut api) = refused_at_the_first_ac(1);
+    assert!(battery_rate.retry_pending());
+    assert!(battery_rate.retries_put_back());
+
+    // The first poll may come at once, so it is skipped.
+    battery_rate.retry(&config(true), &mut api).unwrap();
+    assert_eq!(api.panel_mode(), mode(3840, 2400, 60));
+    battery_rate.retry(&config(true), &mut api).unwrap();
+
+    assert_eq!(api.panel_mode(), mode(3840, 2400, 240));
+    assert_eq!(api.set.last().unwrap().2, ModeLife::UntilRestart);
+    assert!(!battery_rate.retry_pending());
+}
+
+#[test]
+fn the_put_back_tries_stop_with_the_last_error() {
+    let (mut battery_rate, mut api) = refused_at_the_first_ac(usize::MAX);
+
+    let mut results = Vec::new();
+    while battery_rate.retry_pending() {
+        results.push(battery_rate.retry(&config(true), &mut api).is_ok());
+    }
+
+    // The skipped poll, then the tries.
+    assert_eq!(
+        results.len(),
+        usize::from(blade_core::RESUME_RATE_TRIES) + 1
+    );
+    assert_eq!(results.iter().filter(|ok| !**ok).count(), 1);
+    assert_eq!(results.last(), Some(&false));
+    assert_eq!(api.panel_mode(), mode(3840, 2400, 60));
+}
+
+#[test]
+fn a_put_back_try_sends_nothing_once_the_panel_left_60_hz() {
+    let (mut battery_rate, mut api) = refused_at_the_first_ac(1);
+    // Such as the user picking 120 Hz in Windows Settings.
+    api.displays.as_mut().unwrap()[0].current = mode(3840, 2400, 120);
+    let before = api.set.len();
+
+    battery_rate.retry(&config(true), &mut api).unwrap();
+    battery_rate.retry(&config(true), &mut api).unwrap();
+
+    assert_eq!(api.set.len(), before);
+    assert!(!battery_rate.retry_pending());
+}
+
+#[test]
+fn battery_a_wake_on_battery_or_the_option_off_stops_the_put_back_tries() {
+    let (mut battery_rate, mut api) = refused_at_the_first_ac(1);
+    battery_rate
+        .on_event(PowerEvent::OnBattery, &config(true), &mut api)
+        .unwrap();
+    assert!(!battery_rate.retry_pending());
+
+    let (mut battery_rate, mut api) = refused_at_the_first_ac(1);
+    battery_rate
+        .on_resume(true, &config(false), &mut api)
+        .unwrap();
+    assert!(!battery_rate.retry_pending());
+
+    let (mut battery_rate, mut api) = refused_at_the_first_ac(1);
+    let before = api.set.len();
+    battery_rate.retry(&config(false), &mut api).unwrap();
+    battery_rate.retry(&config(false), &mut api).unwrap();
+    assert_eq!(api.set.len(), before);
+    assert!(!battery_rate.retry_pending());
+}
+
+#[test]
+fn a_first_ac_with_no_panel_starts_no_tries() {
+    let mut no_panel = FakeDisplays::new(Some(vec![]));
+    let mut battery_rate = BatteryRate::default();
+    battery_rate
+        .on_event(PowerEvent::OnAc, &config(true), &mut no_panel)
+        .unwrap();
+    assert!(!battery_rate.retry_pending());
+}
+
+#[test]
+fn a_switch_s_60_hz_tries_are_not_put_back_tries() {
+    let mut api = panel_at(240);
     api.failing_sets = 1;
     let mut battery_rate = BatteryRate::default();
+    let _ = battery_rate.on_event(PowerEvent::OnBattery, &config(true), &mut api);
 
-    let first = battery_rate.on_event(PowerEvent::OnAc, &config(true), &mut api);
-    battery_rate
-        .on_event(PowerEvent::OnAc, &config(true), &mut api)
-        .unwrap();
-
-    assert!(matches!(first, Err(DisplayError::Set(_))));
-    assert_eq!(api.panel_mode(), mode(3840, 2400, 60));
+    assert!(battery_rate.retry_pending());
+    assert!(!battery_rate.retries_put_back());
 }

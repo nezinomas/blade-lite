@@ -1698,6 +1698,36 @@ fn a_switch_60_hz_refused_every_time_shows_only_the_last_error() {
 }
 
 #[test]
+fn a_start_put_back_refused_is_set_on_a_later_tick_with_no_error() {
+    let f = fixture(Config {
+        sixty_hz_on_battery: true,
+        ..Config::default()
+    });
+    // The panel at 60 Hz with 240 Hz saved, as a crash on battery leaves it.
+    {
+        let mut app = f.shell.app();
+        let displays = &mut app.machine_mut().displays;
+        displays.2 = Some(displays.0.current);
+        displays.0.current.hz = 60;
+        displays.1 = 1;
+    }
+    // The start puts back first, as in `main`; then Windows sends AC
+    // once when the app listens, and both stay quiet.
+    f.shell.app().start_rate().unwrap();
+    let (sender, receiver) = std::sync::mpsc::channel();
+    f.shell.listen_for_power(receiver);
+    sender.send(PowerEvent::OnAc).unwrap();
+    f.shell.tick();
+    assert_eq!(f.shell.app().machine().displays.0.current.hz, 60);
+    assert_eq!(f.shell.window().get_error(), "");
+
+    f.shell.tick();
+
+    assert_eq!(f.shell.app().machine().displays.0.current.hz, 240);
+    assert_eq!(f.shell.window().get_error(), "");
+}
+
+#[test]
 fn a_typed_custom_colour_sends_and_saves_it_on_enter() {
     let f = fixture(Config::default());
     assert_eq!(f.shell.app().config().lighting, None);

@@ -16,7 +16,7 @@ use super::{AppOn, Parts, Shell};
 use crate::bind;
 
 impl<P: Parts> Shell<P> {
-    /// Passes on power events, tries a refused 60 Hz again, passes
+    /// Passes on power events, tries a refused rate again, passes
     /// on Num Lock, then reads the sensors if a view shows them, or only
     /// the temperatures now and then if none does; neither while a resume
     /// waits. Each such read also reads the charger, and sends the preset
@@ -124,12 +124,13 @@ impl<P: Parts> Shell<P> {
         self.watch_heat(cpu, gpu, now);
     }
 
-    /// Tries a wake's or a switch's refused 60 Hz again: Windows can refuse
-    /// it just after a wake, and a refused switch would leave the panel off
-    /// 60 Hz. Only the last failed try is shown, so a quiet try does not
-    /// clear the other errors or read the controller. When the tries
-    /// end, the window's rate buttons show the panel's rate (one display
-    /// view, so one native mode read); the flyout is filled when it opens.
+    /// Tries a wake's or a switch's refused 60 Hz, or a refused put-back at
+    /// the first AC, again: Windows can refuse a set just after a wake, and
+    /// a refused one would leave the panel at the wrong rate. Only the last
+    /// failed try is shown, so a quiet try does not clear the other errors
+    /// or read the controller. When the tries end, the window's rate buttons
+    /// show the panel's rate (one display view, so one native mode read);
+    /// the flyout is filled when it opens.
     fn retry_battery_rate(self: &Rc<Self>) {
         let tried = self.app.borrow_mut().retry_battery_rate();
         if let Err(error) = tried {
