@@ -571,3 +571,82 @@ fn a_quit_after_a_start_at_60_hz_puts_the_saved_rate_back() {
 
     assert_eq!(api.panel_mode(), mode(3840, 2400, 240));
 }
+
+/// A [`BatteryRate`] fresh at a start on AC, with the switch as `on`.
+fn start_on_ac(on: bool, api: &mut FakeDisplays) {
+    BatteryRate::default()
+        .on_start_on_ac(&config(on), api)
+        .unwrap();
+}
+
+#[test]
+fn a_start_on_ac_at_60_hz_puts_the_saved_rate_back_unsaved() {
+    let mut api = left_at_60(Some(mode(3840, 2400, 240)));
+
+    start_on_ac(true, &mut api);
+
+    let lives: Vec<(u32, ModeLife)> = api
+        .set
+        .iter()
+        .map(|(_, mode, life)| (mode.hz, *life))
+        .collect();
+    assert_eq!(lives, [(240, ModeLife::UntilRestart)]);
+}
+
+#[test]
+fn a_start_on_ac_with_the_switch_off_changes_nothing() {
+    let mut api = left_at_60(Some(mode(3840, 2400, 240)));
+
+    start_on_ac(false, &mut api);
+
+    assert_eq!(api.set, []);
+}
+
+#[test]
+fn a_start_on_ac_not_at_60_hz_changes_nothing() {
+    let mut api = panel_at(120);
+    api.saved = Some(mode(3840, 2400, 240));
+
+    start_on_ac(true, &mut api);
+
+    assert_eq!(api.set, []);
+}
+
+#[test]
+fn a_start_on_ac_puts_back_no_saved_rate_that_is_60_hz_not_offered_or_missing() {
+    for saved in [
+        Some(mode(3840, 2400, 60)),
+        Some(mode(3840, 2400, 75)),
+        Some(mode(1920, 1200, 240)),
+        None,
+    ] {
+        let mut api = left_at_60(saved);
+
+        start_on_ac(true, &mut api);
+
+        assert_eq!(api.set, [], "saved {saved:?}");
+    }
+}
+
+#[test]
+fn a_start_on_ac_with_no_panel_active_is_not_an_error() {
+    let mut api = FakeDisplays::new(Some(vec![]));
+
+    start_on_ac(true, &mut api);
+
+    assert_eq!(api.set, []);
+}
+
+#[test]
+fn ac_after_a_start_on_ac_put_back_sends_nothing_more() {
+    let mut api = left_at_60(Some(mode(3840, 2400, 240)));
+    let mut battery_rate = BatteryRate::default();
+    battery_rate.on_start_on_ac(&config(true), &mut api).unwrap();
+
+    battery_rate
+        .on_event(PowerEvent::OnAc, &config(true), &mut api)
+        .unwrap();
+    battery_rate.put_back(&mut api).unwrap();
+
+    assert_eq!(api.set.len(), 1);
+}

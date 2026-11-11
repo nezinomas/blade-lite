@@ -69,6 +69,37 @@ impl BatteryRate {
         Ok(())
     }
 
+    /// At a start on AC, puts back the rate Windows has saved if the panel
+    /// runs 60 Hz: a crash on battery left it there, and the charger went
+    /// in before the app started again, so no AC event has a rate to put
+    /// back. Only with the switch on, and only a saved rate the panel
+    /// offers that is not 60 Hz. It is not saved, as at a put-back on AC.
+    /// That can't tell such a 60 Hz from one another program set without
+    /// saving it; that one is put back too, as at a start on battery. A
+    /// panel that is not active is left alone.
+    ///
+    /// # Errors
+    ///
+    /// See [`DisplayError`].
+    pub fn on_start_on_ac(
+        &mut self,
+        config: &Config,
+        api: &mut impl DisplayApi,
+    ) -> Result<(), DisplayError> {
+        if !config.sixty_hz_on_battery || self.saved.is_some() {
+            return Ok(());
+        }
+        match current_rate(api) {
+            Ok(BATTERY_RATE) => {}
+            Ok(_) | Err(DisplayError::NoInternalPanel) => return Ok(()),
+            Err(error) => return Err(error),
+        }
+        match saved_rate(api) {
+            Some(rate) if rate != BATTERY_RATE => set_rate(api, rate, ModeLife::UntilRestart),
+            _ => Ok(()),
+        }
+    }
+
     /// Remembers the rate once, then sets 60 Hz if the panel is not there yet.
     /// The 60 Hz is not saved, so a shutdown or a crash on battery does not
     /// leave the panel at 60 Hz after the restart. A panel already at 60 Hz
