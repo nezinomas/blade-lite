@@ -10,8 +10,8 @@ mod views;
 use std::path::PathBuf;
 
 use blade_core::{
-    ApplyError, BatteryRate, Config, Controller, Lighting, Query, charge_limit_on,
-    full_power_charger, logo_on, touchpad_on,
+    ApplyError, BatteryRate, Config, Controller, Lighting, Preset, Query, apply_performance,
+    charge_limit_on, full_power_charger, logo_on, touchpad_on,
 };
 use platform::{DisplayApi, KeyInjector, Registry};
 use razer_proto::{FirmwareVersion, ModelProfile, NativeMode, RedKey, RedKeys, Rgb};
@@ -119,6 +119,9 @@ pub struct App<C, D, R, K> {
     /// The warning for a controller firmware the model profile does not
     /// list, read once at start.
     firmware_warning: Option<String>,
+    /// While the fan guard is on, the speed a manual Custom fan runs at:
+    /// the model's top speed.
+    fan_boost: Option<u16>,
     /// Whether the power source was known at the last read. An unknown one
     /// runs the battery presets, but leaves the rate alone at a wake.
     source_known: bool,
@@ -174,6 +177,7 @@ where
             preset_failures: 0,
             held_rate_error: None,
             firmware_warning: None,
+            fan_boost: None,
             source_known: true,
             logo_on: None,
             charge_limit_on: None,
@@ -399,11 +403,45 @@ where
     }
 
     /// The config with the preset that runs in place of its saved one.
+    /// While the fan guard is on, a manual Custom fan runs at the model's
+    /// top speed; the saved speed is kept.
     fn running(&self, config: Config) -> Config {
-        Config {
+        let mut running = Config {
             preset: config.preset.running(self.battery_presets(), self.model),
             ..config
+        };
+        if let Some(rpm) = self.fan_boost
+            && running.preset == Preset::Custom
+            && running.custom.fan_rpm.is_some()
+        {
+            running.custom.fan_rpm = Some(rpm);
         }
+        running
+    }
+
+    /// Turns the fan guard on or off (ticket 129): while it is on, a manual
+    /// Custom fan runs at the model's top speed. Sends Custom again only if
+    /// Custom with a manual fan runs; a later Custom send takes the guard
+    /// too. Returns whether it sent.
+    ///
+    /// # Errors
+    ///
+    /// See [`AppError`]. A failed send marks the preset unsure, so the polls
+    /// send it again.
+    pub fn set_fan_boost(&mut self, on: bool) -> Result<bool, AppError> {
+        let boost = on.then_some(self.model.custom.fan_rpm.max);
+        if self.fan_boost == boost {
+            return Ok(false);
+        }
+        self.fan_boost = boost;
+        let running = self.running(self.config);
+        if running.preset != Preset::Custom || running.custom.fan_rpm.is_none() {
+            return Ok(false);
+        }
+        let applied = apply_performance(&running, self.model, &mut self.machine.controller);
+        self.note_preset_send(&applied);
+        applied?;
+        Ok(true)
     }
 
     fn lighting(&self) -> Lighting {

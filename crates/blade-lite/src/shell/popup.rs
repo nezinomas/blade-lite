@@ -25,12 +25,15 @@ const POPUP_FADE: Duration = Duration::from_millis(300);
 pub(super) const POWER_MODE: &str = "Power mode";
 pub(super) const TOUCHPAD: &str = "Touchpad";
 pub(super) const TOO_HOT: &str = "Too hot";
+/// The fan guard's popup caption.
+pub(super) const FANS: &str = "Fans";
 
 impl<P: Parts> Shell<P> {
     /// Notes the CPU and GPU temperatures read at `now`, `None` for one not
     /// read, and shows and logs the warnings of the sensors that have stayed
     /// hot, in one popup. Nothing is sent.
     pub fn watch_heat(self: &Rc<Self>, cpu: Option<u32>, gpu: Option<u32>, now: Instant) {
+        self.guard_fans(cpu, gpu, now);
         let mut watch = self.heat_watch.get();
         let warnings: Vec<String> = [(Sensor::Cpu, cpu), (Sensor::Gpu, gpu)]
             .into_iter()
@@ -46,6 +49,35 @@ impl<P: Parts> Shell<P> {
             HEAT_HOLD.as_secs() / 60
         ));
         self.pop_up(TOO_HOT, &text, HEAT_POPUP_HOLD);
+    }
+
+    /// Feeds the fan guard (ticket 129). When it turns on or off and Custom
+    /// with a manual fan runs, the fans go to the model's top speed, or back
+    /// to the saved speed; that is logged and shown in the popup. A failed
+    /// send shows its error.
+    fn guard_fans(self: &Rc<Self>, cpu: Option<u32>, gpu: Option<u32>, now: Instant) {
+        let mut guard = self.fan_guard.get();
+        let changed = guard.note(cpu, gpu, now);
+        self.fan_guard.set(guard);
+        let Some(on) = changed else {
+            return;
+        };
+        let sent = self.app.borrow_mut().set_fan_boost(on);
+        match sent {
+            Ok(false) => {}
+            Ok(true) => {
+                let text = if on {
+                    "Full speed"
+                } else {
+                    "Back to the set speed"
+                };
+                report(&format!(
+                    "fan guard: {text} (CPU {cpu:?} °C, GPU {gpu:?} °C)"
+                ));
+                self.pop_up(FANS, text, HEAT_POPUP_HOLD);
+            }
+            Err(error) => self.act(|_| Err(error)),
+        }
     }
 
     /// Shows the popup with `caption` over `mode` above the taskbar clock,

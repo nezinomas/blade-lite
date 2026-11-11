@@ -23,7 +23,7 @@ use platform::{
 };
 use razer_device::{Device, DeviceError, HidTransport, Reopening, SystemClock};
 use razer_proto::BLADE_18;
-use ui::{HeatWatch, ModeWatch, TouchpadWatch};
+use ui::{FanGuard, HeatWatch, ModeWatch, TouchpadWatch};
 
 use popup::{POPUP_HOLD, POWER_MODE};
 
@@ -247,6 +247,8 @@ pub struct Shell<P: Parts = Laptop> {
     touchpad_watch: Cell<TouchpadWatch>,
     /// The CPU and GPU hot spells, for the heat popup.
     heat_watch: Cell<HeatWatch>,
+    /// The fan guard (ticket 129), fed by the same readings.
+    fan_guard: Cell<FanGuard>,
     /// Counts the popups, so the fade of an older one leaves a newer alone.
     popups: Cell<u32>,
     /// Whether the popup has been made click-through.
@@ -298,6 +300,7 @@ impl<P: Parts> Shell<P> {
             mode_watch,
             touchpad_watch,
             heat_watch: Cell::new(HeatWatch::default()),
+            fan_guard: Cell::new(FanGuard::default()),
             popups: Cell::new(0),
             popup_ready: Cell::new(false),
             resuming: Cell::new(0),
