@@ -316,6 +316,35 @@ fn a_60_hz_refused_with_a_failed_preset_switch_is_tried_again() {
     assert!(!app.battery_rate_pending());
 }
 
+#[test]
+fn a_60_hz_refused_at_a_switch_is_not_shown_while_tries_are_left() {
+    let (mut app, _dir, _) = app_with(Config {
+        sixty_hz_on_battery: true,
+        ..Config::default()
+    });
+    app.machine_mut().displays.1 = 1;
+
+    app.on_power(PowerEvent::OnBattery).unwrap();
+
+    assert!(app.battery_rate_pending());
+}
+
+#[test]
+fn a_60_hz_the_panel_does_not_offer_at_a_switch_is_shown() {
+    let (mut app, _dir, _) = app_with(Config {
+        sixty_hz_on_battery: true,
+        ..Config::default()
+    });
+    app.machine_mut()
+        .displays
+        .0
+        .modes
+        .retain(|mode| mode.hz != 60);
+
+    assert!(app.on_power(PowerEvent::OnBattery).is_err());
+    assert!(!app.battery_rate_pending());
+}
+
 /// The app with 60 Hz on battery, on battery, the panel at 60 Hz. Returns
 /// the rate from before battery.
 fn on_battery_at_60_hz() -> (crate::fakes::TestApp, tempfile::TempDir, u32) {
