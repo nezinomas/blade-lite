@@ -23,7 +23,7 @@ pub enum AppError {
     Charge(#[from] ChargeError),
     #[error(transparent)]
     NativeMode(#[from] NativeModeError),
-    #[error("the controller did not answer: {0}")]
+    #[error("the controller call failed: {0}")]
     Device(DeviceError),
     #[error("the controller chose a native mode the model lacks")]
     UnknownNativeMode,
