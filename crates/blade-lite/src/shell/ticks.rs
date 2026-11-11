@@ -30,10 +30,8 @@ impl<P: Parts> Shell<P> {
     /// window tests give their own times.
     pub(crate) fn tick_at(self: &Rc<Self>, now: Instant, wall: SystemTime) {
         let failures = self.app.borrow().preset_failures();
-        // Tries started by a power event in this tick wait for the next one.
-        let rate_pending = self.app.borrow().battery_rate_pending();
         self.follow_own_power();
-        if rate_pending && self.resuming.get() == 0 && self.app.borrow().battery_rate_pending() {
+        if self.resuming.get() == 0 && self.app.borrow().battery_rate_pending() {
             self.retry_battery_rate();
         }
         self.follow_num_lock(num_lock_on());

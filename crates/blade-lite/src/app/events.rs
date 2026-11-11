@@ -148,7 +148,9 @@ where
                 let rate = match self.follow_power(event) {
                     // Tried again on the polls, which show only the last
                     // failed try, as after a wake.
-                    Err(error) if self.battery_rate.retry_pending() => {
+                    Err(AppError::Display(error))
+                        if event == PowerEvent::OnBattery && error.may_work_later() =>
+                    {
                         crate::report(&format!(
                             "the 60 Hz on battery failed, tried again: {error}"
                         ));

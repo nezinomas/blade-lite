@@ -9,7 +9,8 @@ use crate::refresh::{DisplayError, RefreshRate, current_rate, saved_rate, set_ra
 pub const BATTERY_RATE: RefreshRate = RefreshRate(60);
 
 /// How many polls try 60 Hz again after Windows refused it in a wake (it
-/// did 2026-11-10; a set seconds later worked) or at a switch to battery.
+/// did 2026-11-10; a set seconds later worked) or, not seen on the laptop,
+/// at a switch to battery.
 pub const RESUME_RATE_TRIES: u8 = 10;
 
 /// Follows the power source and remembers the rate to put back on AC.
@@ -19,6 +20,9 @@ pub struct BatteryRate {
     saved: Option<RefreshRate>,
     /// The tries left after a wake or a switch whose 60 Hz failed.
     tries: u8,
+    /// Whether the next poll is skipped: a switch's tries start then, as
+    /// that poll may come at once. A wake's tries wait for the pause.
+    wait_a_poll: bool,
     /// Whether a known power source has come since the app started.
     source_seen: bool,
 }
@@ -50,8 +54,9 @@ impl BatteryRate {
                 // A refused 60 Hz is tried again on the polls, as after a
                 // wake. A rate the panel does not offer, or no panel, is not.
                 let set = self.on_battery(api);
-                if matches!(set, Err(DisplayError::Set(_) | DisplayError::Query(_))) {
+                if set.as_ref().is_err_and(DisplayError::may_work_later) {
                     self.tries = RESUME_RATE_TRIES;
+                    self.wait_a_poll = true;
                 }
                 set
             }
@@ -90,6 +95,7 @@ impl BatteryRate {
         if config.sixty_hz_on_battery {
             let refused = self.after_resume(api).is_err();
             self.tries = if refused { RESUME_RATE_TRIES } else { 0 };
+            self.wait_a_poll = false;
         }
         Ok(())
     }
@@ -184,6 +190,9 @@ impl BatteryRate {
     ) -> Result<(), DisplayError> {
         if self.tries == 0 || !config.sixty_hz_on_battery {
             self.tries = 0;
+            return Ok(());
+        }
+        if std::mem::take(&mut self.wait_a_poll) {
             return Ok(());
         }
         self.tries -= 1;
