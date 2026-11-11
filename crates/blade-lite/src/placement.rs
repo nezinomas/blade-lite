@@ -14,25 +14,34 @@ pub struct Rect {
 
 /// The flyout's top-left corner: centred over the tray icon and above it,
 /// or below it when the taskbar is at the top, and inside the screen. On a
-/// screen narrower than the flyout, its left edge stays on the screen.
-/// The sums saturate, so a broken monitor size can't overflow them.
+/// screen narrower or shorter than the flyout, its left or top edge stays on
+/// the screen. The sums saturate, so a broken monitor size can't overflow
+/// them.
 #[must_use]
 pub fn flyout_position(icon: Rect, (width, height): (i32, i32), screen: Rect) -> (i32, i32) {
     let centred = icon
         .x
         .saturating_add(icon.width / 2)
         .saturating_sub(width / 2);
-    // Not `clamp`: it panics when the screen is narrower than the flyout.
-    let x = centred
-        .min(far_edge(screen.x, screen.width, width))
-        .max(screen.x.saturating_add(GAP));
     let above = icon.y.saturating_sub(height).saturating_sub(GAP);
     let y = if above >= screen.y {
         above
     } else {
         icon.y.saturating_add(icon.height).saturating_add(GAP)
     };
-    (x, y)
+    (
+        inside(centred, screen.x, screen.width, width),
+        inside(y, screen.y, screen.height, height),
+    )
+}
+
+/// Moves `at` so a window of `size` there ends a gap before the far edge of
+/// the span, but starts no less than a gap after its start: the start wins
+/// when the span is too short for both.
+fn inside(at: i32, start: i32, span: i32, size: i32) -> i32 {
+    // Not `clamp`: it panics when the span is shorter than the window.
+    at.min(far_edge(start, span, size))
+        .max(start.saturating_add(GAP))
 }
 
 /// The popup's top-left corner: in the bottom-right corner of the work area
