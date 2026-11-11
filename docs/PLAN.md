@@ -38,7 +38,7 @@ Do these in one go, on AC, with "Start with Windows" on and Num Lock off. First 
 4. **Restart (44, 18).** Turn the lid logo off. Pick the FHD 440 Hz native mode. Restart. The app starts with Windows, the logo stays off, and the screen starts at FHD 440 Hz.
 5. **Put it back.** Set your native mode, keyboard colour, lid logo and preset back as you noted them. Restart once more for the native mode.
 6. **App after ticket 70.** Start the app. Open the window and the flyout once, and click one preset. They work as before (ticket 70 changed only types in the shell code).
-7. **Flyout place (97).** Click the tray icon. The flyout opens above the icon, centred on it, as before.
+7. **Flyout place (97, 108).** Click the tray icon. The flyout opens above the icon, centred on it, as before.
 8. **Keys after wake (98).** In Balanced, on AC, sleep the laptop. Pull the charger while it sleeps. Wake it and at once press Fn + numpad Enter a few times. After about 5 s the app shows Balanced or Silent, never Performance. Then press it again: the preset steps and the popup shows. Plug the charger back in.
 9. **Busy (55).** Nothing to do now. If the log ever shows a Busy error, check whether the command took effect.
 10. **Brightness drag (68).** In the window, drag the keyboard brightness slider slowly and hold it. The percent beside it follows. The keyboard light changes only when you let go. Do the same in the flyout.
