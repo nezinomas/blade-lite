@@ -39,6 +39,8 @@ impl NativeMode {
     }
 
     /// The model's mode in a query's reply args, or `None` for one it lacks.
+    /// Empty args are also `None`: callers that must tell a broken reply
+    /// apart check for them first (`blade_core::chosen_native_mode`).
     #[must_use]
     pub fn from_reply(args: &[u8], model: &ModelProfile) -> Option<Self> {
         let id = *args.first()?;
