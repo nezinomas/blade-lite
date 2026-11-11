@@ -161,7 +161,7 @@ fn a_failed_key_paint_is_tried_again_on_the_next_change() {
 fn the_keyboard_view_shows_the_touchpad_state() {
     let (app, _dir, _) = app();
 
-    assert!(app.keyboard_view().unwrap().touchpad_on);
+    assert_eq!(app.keyboard_view().unwrap().touchpad_on, Some(true));
 }
 
 /// As [`touchpad_off_app`], with Num Lock on: the numpad shows digits.

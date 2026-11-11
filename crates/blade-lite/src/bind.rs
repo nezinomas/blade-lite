@@ -123,13 +123,13 @@ pub fn flyout_performance(window: &FlyoutWindow, view: &PerformanceView, header:
     window.set_reset_enabled(view.reset_enabled());
 }
 
-/// The flyout's rates and 60 Hz switch, as the Display group shows them.
+/// The flyout's rates, as the Display group shows them. The 60 Hz switch
+/// is set from the config on each refresh.
 pub fn flyout_display(window: &FlyoutWindow, view: &DisplayView) {
     window.set_rates(model(
         view.rates.iter().map(|r| choice(&r.label, r.selected)),
     ));
     window.set_rates_enabled(view.rates_enabled);
-    window.set_sixty_hz_on_battery(view.sixty_hz_on_battery);
 }
 
 /// The flyout's brightness, as the Keyboard group shows it.
@@ -171,9 +171,9 @@ fn toggle_sixty_hz<P: Parts>(shell: &Rc<Shell<P>>) {
 }
 
 fn toggle_touchpad<P: Parts>(shell: &Rc<Shell<P>>) {
-    shell.user_act(|app| {
-        let command = app.keyboard_view()?.toggle_touchpad();
-        app.on_keyboard(command)
+    shell.user_act(|app| match app.keyboard_view()?.toggle_touchpad() {
+        Some(command) => app.on_keyboard(command),
+        None => Ok(()),
     });
 }
 

@@ -97,7 +97,8 @@ where
     }
 
     /// The logo switch is hidden if its state could not be read, the vapor
-    /// light switch if the model has none.
+    /// light switch if the model has none. A touchpad state that can't be
+    /// read is `None`, so it fails no other part.
     ///
     /// # Errors
     ///
@@ -108,7 +109,7 @@ where
         Ok(KeyboardView::new(&KeyboardState {
             brightness,
             colour: lighting.colour,
-            touchpad_on: touchpad_on(&self.machine.registry)?,
+            touchpad_on: self.touchpad_on(),
             logo_on: self.logo_on,
             vapor_light_on: self.vapor_light_on(),
         }))

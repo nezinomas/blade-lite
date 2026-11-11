@@ -35,7 +35,7 @@ fn a_failed_logo_read_hides_the_switch_and_keeps_the_rest() {
     let view = app.keyboard_view().unwrap();
 
     assert_eq!(view.logo_on, None);
-    assert!(view.touchpad_on);
+    assert_eq!(view.touchpad_on, Some(true));
 }
 
 #[test]

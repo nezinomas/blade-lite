@@ -20,7 +20,8 @@ const SWATCHES: [Rgb; 8] = [
 pub struct KeyboardState {
     pub brightness: Brightness,
     pub colour: Rgb,
-    pub touchpad_on: bool,
+    /// `None` if the touchpad state can't be read.
+    pub touchpad_on: Option<bool>,
     /// `None` if the model has no logo or its state is unknown.
     pub logo_on: Option<bool>,
     /// `None` if the model has no vapor-chamber light.
@@ -55,7 +56,8 @@ pub struct KeyboardView {
     pub custom_colour: Rgb,
     /// True when the colour is none of the swatches.
     pub custom_selected: bool,
-    pub touchpad_on: bool,
+    /// `None` greys the touchpad switch: its state can't be read.
+    pub touchpad_on: Option<bool>,
     /// `None` hides the lid logo switch: no logo, or its state is unknown.
     pub logo_on: Option<bool>,
     /// `None` hides the vapor-chamber light switch: the model has none.
@@ -110,10 +112,11 @@ impl KeyboardView {
         self.set_colour(colour)
     }
 
-    /// The command that flips the touchpad switch.
+    /// The command that flips the touchpad switch, unless its state is
+    /// unknown.
     #[must_use]
-    pub fn toggle_touchpad(&self) -> KeyboardCommand {
-        KeyboardCommand::SetTouchpad(!self.touchpad_on)
+    pub fn toggle_touchpad(&self) -> Option<KeyboardCommand> {
+        self.touchpad_on.map(|on| KeyboardCommand::SetTouchpad(!on))
     }
 
     /// The command that flips the lid logo switch, unless it is hidden.

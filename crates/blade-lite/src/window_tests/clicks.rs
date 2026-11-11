@@ -485,15 +485,23 @@ fn the_lid_logo_switch_turns_it_off() {
 }
 
 #[test]
-fn the_lid_logo_switch_keeps_the_logo_state_when_the_touchpad_cant_be_read() {
+fn the_keyboard_group_works_when_the_touchpad_cant_be_read() {
     let f = fixture(Config::default());
     f.shell.app().machine_mut().registry.touchpad = None;
     let before = sent_count(&f);
 
     click(f.shell.window(), Switch, "Lid logo");
+    let slider = control(f.shell.window(), Slider, "Brightness");
+    let start = slider.absolute_position();
+    let left_end = LogicalPosition::new(start.x, start.y + slider.size().height / 2.0);
+    slider.mock_drag(left_end, PointerEventButton::Left);
 
-    assert_eq!(sent_since(&f, before), []);
-    assert!(f.shell.window().get_logo_on());
+    let mut sent = logo().commands(false);
+    sent.extend(lighting_commands(0, WHITE));
+    assert_eq!(sent_since(&f, before), sent);
+    assert!(!f.shell.window().get_logo_on());
+    assert_eq!(f.shell.window().get_brightness(), 0);
+    assert_eq!(f.shell.flyout().get_brightness(), 0);
 }
 
 #[test]
@@ -544,6 +552,42 @@ fn the_flyout_shows_and_resets_the_preset_when_the_touchpad_cant_be_read() {
 }
 
 #[test]
+fn the_flyout_shows_and_resets_the_preset_when_the_native_mode_cant_be_read() {
+    let f = fixture(Config::default());
+    f.shell.app().machine_mut().controller.native_fails = true;
+
+    click(f.shell.flyout(), Button, "Silent");
+    assert!(f.shell.flyout().get_reset_enabled());
+    let slider = control(f.shell.flyout(), Slider, "Keyboard light");
+    let start = slider.absolute_position();
+    let left_end = LogicalPosition::new(start.x, start.y + slider.size().height / 2.0);
+    slider.mock_drag(left_end, PointerEventButton::Left);
+    assert_eq!(f.shell.flyout().get_brightness(), 0);
+    let before = sent_count(&f);
+    click(f.shell.flyout(), Button, "Reset to Balanced");
+
+    assert_eq!(
+        sent_since(&f, before),
+        PerfMode::Balanced.commands(&BLADE_18).unwrap()
+    );
+    assert!(!f.shell.flyout().get_reset_enabled());
+}
+
+#[test]
+fn the_flyout_rates_lock_on_battery_with_sixty_hz_on() {
+    let f = fixture(Config {
+        sixty_hz_on_battery: true,
+        ..Config::default()
+    });
+    assert!(f.shell.flyout().get_rates_enabled());
+
+    f.shell.act(|app| app.on_power(PowerEvent::OnBattery));
+
+    assert!(!f.shell.flyout().get_rates_enabled());
+    assert!(f.shell.flyout().get_sixty_hz_on_battery());
+}
+
+#[test]
 fn the_touchpad_switches_show_off_and_greyed_when_the_touchpad_cant_be_read() {
     let f = fixture(Config::default());
     f.shell.app().machine_mut().registry.touchpad = None;
@@ -553,6 +597,14 @@ fn the_touchpad_switches_show_off_and_greyed_when_the_touchpad_cant_be_read() {
     assert!(!f.shell.window().get_touchpad_known());
     assert!(!f.shell.flyout().get_touchpad_on());
     assert!(!f.shell.flyout().get_touchpad_known());
+    assert_eq!(
+        control(f.shell.flyout(), Switch, "Touchpad").accessible_enabled(),
+        Some(false)
+    );
+    assert_eq!(
+        control(f.shell.window(), Switch, "Touchpad").accessible_enabled(),
+        Some(false)
+    );
     click(f.shell.flyout(), Switch, "Touchpad");
     click(f.shell.window(), Switch, "Touchpad");
     assert_eq!(f.shell.app().machine().keys.0, []);
@@ -571,15 +623,15 @@ fn the_touchpad_switches_show_off_and_greyed_when_the_touchpad_cant_be_read() {
 #[test]
 fn a_failed_click_shows_the_error_and_logs_it() {
     let f = fixture(Config::default());
-    // Other tests fail the touchpad read too, so the shared log check shows
-    // only that such a line is logged, not that this test wrote it.
-    f.shell.app().machine_mut().registry.touchpad = None;
+    // Other tests fail the native mode read too, so the shared log check
+    // shows only that such a line is logged, not that this test wrote it.
+    f.shell.app().machine_mut().controller.native_fails = true;
 
-    click(f.shell.window(), Switch, "Touchpad");
+    click(f.shell.window(), Button, "60 Hz");
 
-    assert_eq!(f.shell.app().machine().keys.0, []);
+    assert_eq!(f.shell.app().machine().displays.0.current.hz, 240);
     let error = f.shell.window().get_error();
-    assert!(error.contains("touchpad"), "{error}");
+    assert!(error.contains("busy"), "{error}");
     let log = std::fs::read_to_string(log_path()).unwrap();
     // The log keeps each report on one line.
     let first = error.lines().next().unwrap();
@@ -933,11 +985,11 @@ fn fn_f11_moves_both_brightness_sliders() {
 #[test]
 fn an_fn_press_that_changes_nothing_keeps_a_shown_error() {
     let f = lit_fixture();
-    f.shell.app().machine_mut().registry.touchpad = None;
-    click(f.shell.window(), Switch, "Touchpad");
+    f.shell.app().machine_mut().controller.native_fails = true;
+    click(f.shell.window(), Button, "60 Hz");
     let error = f.shell.window().get_error();
-    assert!(error.contains("touchpad"), "{error}");
-    f.shell.app().machine_mut().registry.touchpad = Some(1);
+    assert!(error.contains("busy"), "{error}");
+    f.shell.app().machine_mut().controller.native_fails = false;
     let level = razer_proto::Brightness::new(35).unwrap().level();
     f.shell.app().machine_mut().controller.brightness_level = Some(level);
 

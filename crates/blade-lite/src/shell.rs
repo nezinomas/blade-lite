@@ -325,10 +325,11 @@ impl<P: Parts> Shell<P> {
             }
             Err(error) => errors.push(error.to_string()),
         }
-        match app.keyboard_view() {
+        let keyboard = app.keyboard_view();
+        match &keyboard {
             Ok(view) => {
-                bind::keyboard(&self.window, &view);
-                bind::flyout_keyboard(&self.flyout, &view);
+                bind::keyboard(&self.window, view);
+                bind::flyout_keyboard(&self.flyout, view);
             }
             Err(error) => errors.push(error.to_string()),
         }
@@ -339,7 +340,10 @@ impl<P: Parts> Shell<P> {
         let sixty_hz = app.config().sixty_hz_on_battery;
         self.window.set_sixty_hz_on_battery(sixty_hz);
         self.flyout.set_sixty_hz_on_battery(sixty_hz);
-        self.show_touchpad(app.touchpad_on());
+        self.show_touchpad(match &keyboard {
+            Ok(view) => view.touchpad_on,
+            Err(_) => app.touchpad_on(),
+        });
         self.window
             .set_vapor_light_on(app.vapor_light_on() == Some(true));
         self.window.set_logo_shown(app.logo_on().is_some());
