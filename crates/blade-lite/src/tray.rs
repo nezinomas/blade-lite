@@ -5,7 +5,7 @@ use razer_proto::Rgb;
 use tray_icon::menu::{CheckMenuItem, Menu, MenuEvent, MenuId, MenuItem};
 use tray_icon::{Icon, MouseButton, MouseButtonState, TrayIcon, TrayIconBuilder, TrayIconEvent};
 
-use blade_lite::{AutostartItem, Rect};
+use blade_lite::{AutostartItem, Rect, icon};
 
 /// The icon's size in pixels. Windows scales it for the tray.
 const SIZE: u16 = 32;
@@ -46,10 +46,10 @@ impl Tray {
         menu.append(&open)?;
         menu.append(&autostart)?;
         menu.append(&quit)?;
-        let icon = TrayIconBuilder::new()
+        let tray_icon = TrayIconBuilder::new()
             .with_tooltip("Blade Lite")
             .with_icon(Icon::from_rgba(
-                icon_pixels(accent),
+                icon::pixels([accent.red, accent.green, accent.blue], SIZE),
                 SIZE.into(),
                 SIZE.into(),
             )?)
@@ -57,7 +57,7 @@ impl Tray {
             .with_menu_on_left_click(false)
             .build()?;
         Ok(Self {
-            _icon: icon,
+            _icon: tray_icon,
             open: open.id().clone(),
             autostart,
             quit: quit.id().clone(),
@@ -137,55 +137,4 @@ fn round(value: f64) -> i32 {
 fn post(handle: fn(TrayAction), action: TrayAction) {
     // The loop is gone only while the app quits, so the action can go.
     let _ = slint::invoke_from_event_loop(move || handle(action));
-}
-
-/// A rounded square in the accent colour with a white bolt, as in the mockup.
-fn icon_pixels(accent: Rgb) -> Vec<u8> {
-    let mut pixels = Vec::new();
-    for row in 0..SIZE {
-        for column in 0..SIZE {
-            // Centre of the pixel, in the mockup's 20-unit icon space.
-            let x = (f32::from(column) + 0.5) * 20.0 / f32::from(SIZE);
-            let y = (f32::from(row) + 0.5) * 20.0 / f32::from(SIZE);
-            let pixel = if in_bolt(x, y) {
-                [0xFF, 0xFF, 0xFF, 0xFF]
-            } else if in_rounded_square(x, y) {
-                [accent.red, accent.green, accent.blue, 0xFF]
-            } else {
-                [0, 0, 0, 0]
-            };
-            pixels.extend(pixel);
-        }
-    }
-    pixels
-}
-
-/// The square from 1 to 19 with corners of radius 5.
-fn in_rounded_square(x: f32, y: f32) -> bool {
-    let (low, high, radius) = (1.0, 19.0, 5.0);
-    let cx = x.clamp(low + radius, high - radius);
-    let cy = y.clamp(low + radius, high - radius);
-    (low..=high).contains(&x)
-        && (low..=high).contains(&y)
-        && (x - cx).powi(2) + (y - cy).powi(2) <= radius * radius
-}
-
-/// The bolt from the mockup's icon, by the even-odd rule.
-fn in_bolt(x: f32, y: f32) -> bool {
-    const BOLT: [(f32, f32); 6] = [
-        (11.0, 2.5),
-        (4.5, 11.0),
-        (10.0, 11.0),
-        (9.0, 17.5),
-        (15.5, 9.0),
-        (10.0, 9.0),
-    ];
-    let mut inside = false;
-    for (i, &(x1, y1)) in BOLT.iter().enumerate() {
-        let (x2, y2) = BOLT[(i + 1) % BOLT.len()];
-        if (y1 > y) != (y2 > y) && x < x1 + (y - y1) * (x2 - x1) / (y2 - y1) {
-            inside = !inside;
-        }
-    }
-    inside
 }
