@@ -7,6 +7,7 @@ use blade_core::{Config, RESUME_PAUSE};
 use i_slint_backend_testing::AccessibleRole::Button;
 use platform::PowerEvent;
 use razer_proto::NativeMode;
+use slint::Model;
 
 use super::{FAKE_ON_BATTERY, Fixture, click, fixture, fixture_with_programs, log_path};
 use crate::Choice;
@@ -74,7 +75,6 @@ fn razer_software_is_looked_for_after_a_resume() {
 
 /// The label chosen in `choices`.
 fn chosen(choices: &slint::ModelRc<Choice>) -> String {
-    use slint::Model;
     let chosen = choices.iter().find(|choice| choice.selected);
     chosen.expect("one is chosen").label.into()
 }
@@ -119,7 +119,6 @@ fn with_razer_software_at_start_the_rates_show_and_no_native_mode_is_chosen() {
     assert_eq!(chosen(&f.shell.window().get_rates()), "240 Hz");
     assert_eq!(chosen(&f.shell.flyout().get_rates()), "240 Hz");
     let natives = f.shell.window().get_native_modes();
-    use slint::Model;
     assert!(natives.row_count() > 0);
     assert!(natives.iter().all(|choice| !choice.selected));
     assert_eq!(f.shell.window().get_native_note(), "Unknown");
