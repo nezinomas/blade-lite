@@ -2,6 +2,9 @@
 //! in the mockup. The tray and the window draw it at start; `build.rs`
 //! includes this file to build the exe's `.ico` (no crate imports here).
 
+/// The Windows default accent colour, blue `#0078D4`.
+pub const DEFAULT_ACCENT: [u8; 3] = [0x00, 0x78, 0xD4];
+
 /// The icon at `size` by `size` pixels, as RGBA bytes, row by row from the top.
 #[must_use]
 pub fn pixels([red, green, blue]: [u8; 3], size: u16) -> Vec<u8> {

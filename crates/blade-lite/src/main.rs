@@ -31,7 +31,7 @@ use blade_core::{
     APP_NAME, Config, Log, POLL_INTERVAL, Start, razer_software, razer_warning, start_instance,
     starts_in_tray,
 };
-use blade_lite::{App, Machine, accent_colour, open_log, report, report_panics};
+use blade_lite::{App, Machine, accent_colour, icon, open_log, report, report_panics};
 use platform::{
     WindowsDisplays, WindowsInstance, WindowsKeys, WindowsPrograms, WindowsRegistry, num_lock_on,
 };
@@ -50,7 +50,10 @@ use crate::tray_menu::{autostart_shown, on_tray};
 slint::include_modules!();
 
 /// The Windows default, for when the accent can't be read.
-const DEFAULT_ACCENT: Rgb = Rgb::new(0x00, 0x78, 0xD4);
+const DEFAULT_ACCENT: Rgb = {
+    let [red, green, blue] = icon::DEFAULT_ACCENT;
+    Rgb::new(red, green, blue)
+};
 
 thread_local! {
     /// The shell, for the tray's handlers on the event-loop thread.
