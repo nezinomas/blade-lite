@@ -32,13 +32,7 @@ where
     /// own software may talk to it: the CPU temperature and fans show
     /// unknown, and no read failed.
     pub fn header_unread(&mut self, readings: Readings) -> Header {
-        let fans = vec![None; self.model.custom.fan_zones.len()];
-        let controller = ControllerReadings {
-            cpu: None,
-            fans,
-            errors: Vec::new(),
-        };
-        self.header_with(readings, controller)
+        self.header_with(readings, ControllerReadings::unread(self.model))
     }
 
     fn header_with(&mut self, readings: Readings, controller: ControllerReadings) -> Header {

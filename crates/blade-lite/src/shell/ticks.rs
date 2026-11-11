@@ -5,14 +5,14 @@ use std::rc::Rc;
 use std::sync::mpsc::{Receiver, TryRecvError};
 use std::time::{Instant, SystemTime};
 
-use blade_core::RESUME_PAUSE;
+use blade_core::{RESUME_PAUSE, Readings};
 use blade_lite::report;
 use platform::{PowerEvent, num_lock_on};
 use slint::Timer;
-use ui::HeatWatch;
+use ui::{Header, HeatWatch};
 
 use super::popup::{POPUP_HOLD, TOUCHPAD};
-use super::{Parts, Shell};
+use super::{AppOn, Parts, Shell};
 use crate::bind;
 
 impl<P: Parts> Shell<P> {
@@ -88,6 +88,17 @@ impl<P: Parts> Shell<P> {
             self.act(|_| changed.map(|_| ()));
         }
         acted
+    }
+
+    /// The header, with the controller's readings only if
+    /// [`heat_reads_allowed`](Self::heat_reads_allowed): while Razer's
+    /// software runs its values show unknown.
+    pub(super) fn header(&self, app: &mut AppOn<P>, readings: Readings) -> Header {
+        if self.heat_reads_allowed() {
+            app.header(readings)
+        } else {
+            app.header_unread(readings)
+        }
     }
 
     /// Whether the controller may be read in the background: not while a
@@ -291,22 +302,15 @@ impl<P: Parts> Shell<P> {
 
     /// Reads the sensors, then shows the header and the keyboard group,
     /// since the touchpad key can change it at any time, and watches the
-    /// temperatures. The controller is not read while Razer's software
-    /// runs, as for the heat reads: its values show unknown then. The
-    /// reads that failed are logged once in a while.
+    /// temperatures. The reads that failed are logged once in a while.
     fn tick_readings(self: &Rc<Self>, now: Instant) {
         let (readings, mut errors) = {
             let (sampler, sensors) = &mut *self.sampler.borrow_mut();
             (sampler.sample(sensors), sampler.errors().to_vec())
         };
         self.readings.set(readings);
-        let read_controller = self.heat_reads_allowed();
         let mut app = self.app.borrow_mut();
-        let header = if read_controller {
-            app.header(readings)
-        } else {
-            app.header_unread(readings)
-        };
+        let header = self.header(&mut app, readings);
         errors.extend_from_slice(app.read_errors());
         self.say_read_errors(&errors);
         bind::header(&self.window, &header);
