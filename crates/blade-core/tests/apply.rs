@@ -307,7 +307,7 @@ fn an_error_after_the_preset_is_said_in_plain_text() {
 
     assert_eq!(
         error.to_string(),
-        "the preset was sent, but the controller did not take the lid logo or lighting, so the keys may show part of the change: the controller stayed busy after 5 reads"
+        "the preset was sent, but the controller did not take the lid logo or lighting, so the lid logo or keys may show part of the change: the controller stayed busy after 5 reads"
     );
 }
 

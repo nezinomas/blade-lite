@@ -35,7 +35,7 @@ pub enum ApplyError {
     /// lighting command. The ones before it, and maybe that one too, may
     /// have run.
     #[error(
-        "the preset was sent, but the controller did not take the lid logo or lighting, so the keys may show part of the change: {0}"
+        "the preset was sent, but the controller did not take the lid logo or lighting, so the lid logo or keys may show part of the change: {0}"
     )]
     AfterPreset(DeviceError),
 }

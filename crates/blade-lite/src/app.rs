@@ -96,9 +96,9 @@ pub struct App<C, D, R, K> {
     battery_rate: BatteryRate,
     power: Power,
     /// Whether the last start, preset change or power switch failed, so
-    /// the controller may not run the preset the app shows (a failed start
-    /// may also be a lighting send; a resend then does no harm). The next
-    /// poll or power event sends it, even if the source is the same.
+    /// the controller may not run the preset the app shows. Only a failed
+    /// preset run marks it, not a lid logo or lighting send after it. The
+    /// next poll or power event sends it, even if the source is the same.
     preset_unsure: bool,
     /// The polls left to send the preset again after a failed send.
     resends_left: u8,

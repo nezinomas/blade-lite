@@ -2,7 +2,7 @@
 
 use std::path::Path;
 
-use blade_core::{ApplyError, Config, Controller, Query, apply, check};
+use blade_core::{ApplyError, Config, Controller, Preset, Query, apply, check};
 use platform::{DisplayApi, KeyInjector, Registry};
 
 use super::{App, AppError, DEFAULT_LIGHTING};
@@ -73,7 +73,9 @@ where
         // The old config is kept, so a new preset the controller took is
         // not the one shown: the resends put the shown one back.
         let shown = self.running(self.config);
-        let new_preset = (shown.preset, shown.custom) != (running.preset, running.custom);
+        let custom_runs = running.preset == Preset::Custom;
+        let new_preset =
+            shown.preset != running.preset || (custom_runs && shown.custom != running.custom);
         if new_preset && matches!(applied, Err(ApplyError::AfterPreset(_))) {
             self.preset_send_cut();
         }
