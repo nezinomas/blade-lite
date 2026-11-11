@@ -52,7 +52,7 @@ impl BatteryRate {
                 self.tries = 0;
                 let first = !std::mem::replace(&mut self.source_seen, true);
                 if first && self.saved.is_none() {
-                    return self.first_on_ac(config, api);
+                    return Self::first_on_ac(config, api);
                 }
                 self.put_back(api)
             }
@@ -94,11 +94,7 @@ impl BatteryRate {
     /// AC. That can't tell such a 60 Hz from one another program set
     /// without saving it; that one is put back too, as at a start on
     /// battery. A panel that is not active is left alone. Tried once.
-    fn first_on_ac(
-        &mut self,
-        config: &Config,
-        api: &mut impl DisplayApi,
-    ) -> Result<(), DisplayError> {
+    fn first_on_ac(config: &Config, api: &mut impl DisplayApi) -> Result<(), DisplayError> {
         if !config.sixty_hz_on_battery {
             return Ok(());
         }
