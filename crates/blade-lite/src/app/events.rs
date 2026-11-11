@@ -130,9 +130,11 @@ where
                 let rate = if self.source_known {
                     let displays = &mut self.machine.displays;
                     let on_battery = self.power == Power::Battery;
-                    self.battery_rate
+                    let rate = self
+                        .battery_rate
                         .on_resume(on_battery, &self.config, displays)
-                        .map_err(AppError::from)
+                        .map_err(AppError::from);
+                    self.quiet_if_tried_again(rate)
                 } else {
                     Ok(())
                 };
@@ -145,19 +147,8 @@ where
             PowerEvent::OnBattery | PowerEvent::OnAc => {
                 // The rate follows even if the preset send fails.
                 let preset = self.set_on_battery(event == PowerEvent::OnBattery);
-                let rate = match self.follow_power(event) {
-                    // Tried again on the polls, which show only the last
-                    // failed try, as after a wake.
-                    Err(AppError::Display(error))
-                        if event == PowerEvent::OnBattery && error.may_work_later() =>
-                    {
-                        crate::report(&format!(
-                            "the 60 Hz on battery failed, tried again: {error}"
-                        ));
-                        Ok(())
-                    }
-                    other => other,
-                };
+                let rate = self.follow_power(event);
+                let rate = self.quiet_if_tried_again(rate);
                 if let (Err(_), Err(error)) = (&preset, &rate) {
                     // Only the preset error is shown, so this one is logged.
                     crate::report(&format!("the 60 Hz on battery failed too: {error}"));
@@ -268,24 +259,47 @@ where
         if self.on_battery() || !self.source_known {
             return Ok(());
         }
-        self.follow_power(PowerEvent::OnAc)
+        let rate = self.follow_power(PowerEvent::OnAc);
+        self.quiet_if_tried_again(rate)
     }
 
-    /// Whether a wake's or a switch's 60 Hz on battery failed and is to be
-    /// tried again.
+    /// A rate error whose set is tried again on the polls is only logged,
+    /// as the polls show the last failed try.
+    fn quiet_if_tried_again(&self, rate: Result<(), AppError>) -> Result<(), AppError> {
+        match rate {
+            Err(AppError::Display(error))
+                if error.may_work_later() && self.battery_rate.retry_pending() =>
+            {
+                let rate = if self.battery_rate.retries_put_back() {
+                    "the rate put back on AC"
+                } else {
+                    "the 60 Hz on battery"
+                };
+                report(&format!("{rate} failed, tried again: {error}"));
+                Ok(())
+            }
+            other => other,
+        }
+    }
+
+    /// Whether a wake's or a switch's 60 Hz on battery, or the put-back at
+    /// the first AC, failed and is to be tried again on this source.
     #[must_use]
     pub fn battery_rate_pending(&self) -> bool {
-        self.on_battery() && self.source_known && self.battery_rate.retry_pending()
+        self.source_known
+            && self.battery_rate.retry_pending()
+            && self.on_battery() != self.battery_rate.retries_put_back()
     }
 
-    /// Tries a wake's or a switch's failed 60 Hz again, on battery only
-    /// (one try per poll; see [`blade_core::BatteryRate::retry`]).
+    /// Tries a wake's or a switch's failed 60 Hz again on battery, or the
+    /// first AC's failed put-back on AC (one try per poll; see
+    /// [`blade_core::BatteryRate::retry`]).
     ///
     /// # Errors
     ///
     /// See [`AppError`].
     pub fn retry_battery_rate(&mut self) -> Result<(), AppError> {
-        if !self.on_battery() || !self.source_known {
+        if !self.battery_rate_pending() {
             return Ok(());
         }
         let displays = &mut self.machine.displays;

@@ -828,7 +828,10 @@ fn the_put_back_tries_stop_with_the_last_error() {
     }
 
     // The skipped poll, then the tries.
-    assert_eq!(results.len(), usize::from(blade_core::RESUME_RATE_TRIES) + 1);
+    assert_eq!(
+        results.len(),
+        usize::from(blade_core::RESUME_RATE_TRIES) + 1
+    );
     assert_eq!(results.iter().filter(|ok| !**ok).count(), 1);
     assert_eq!(results.last(), Some(&false));
     assert_eq!(api.panel_mode(), mode(3840, 2400, 60));

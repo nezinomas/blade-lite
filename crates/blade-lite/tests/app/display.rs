@@ -377,6 +377,59 @@ fn the_first_ac_event_after_a_start_on_battery_or_unknown_puts_the_saved_rate_ba
     }
 }
 
+/// [`left_at_60`] with the switch on, its put-back refused once by Windows
+/// at the start on AC.
+fn start_refused_at_60() -> (TestApp, tempfile::TempDir) {
+    let (mut app, dir) = left_at_60(true);
+    app.machine_mut().displays.1 = 1;
+    app.take_on_battery(Some(false));
+    app.start().unwrap();
+    (app, dir)
+}
+
+#[test]
+fn a_put_back_refused_at_the_start_is_tried_again_on_the_polls() {
+    let (mut app, _dir) = start_refused_at_60();
+
+    // Not an error yet: the polls show only the last failed try.
+    app.start_rate().unwrap();
+    assert_eq!(panel_hz(&app), 60);
+    assert!(app.battery_rate_pending());
+    // The first poll is skipped, as it may come at once.
+    app.retry_battery_rate().unwrap();
+    app.retry_battery_rate().unwrap();
+
+    assert_eq!(panel_hz(&app), 240);
+    assert!(!app.battery_rate_pending());
+}
+
+#[test]
+fn a_put_back_refused_at_the_start_is_not_tried_on_battery() {
+    let (mut app, _dir) = start_refused_at_60();
+    app.start_rate().unwrap();
+    app.take_on_battery(Some(true));
+
+    assert!(!app.battery_rate_pending());
+    app.retry_battery_rate().unwrap();
+    app.retry_battery_rate().unwrap();
+
+    assert_eq!(panel_hz(&app), 60);
+}
+
+#[test]
+fn a_put_back_refused_at_the_first_ac_event_or_wake_is_tried_again() {
+    for event in [PowerEvent::OnAc, PowerEvent::Resumed] {
+        let (mut app, _dir) = start_refused_at_60();
+
+        app.on_power(event).unwrap();
+        assert!(app.battery_rate_pending(), "{event:?}");
+        app.retry_battery_rate().unwrap();
+        app.retry_battery_rate().unwrap();
+
+        assert_eq!(panel_hz(&app), 240, "{event:?}");
+    }
+}
+
 #[test]
 fn a_start_on_a_weak_charge_puts_the_saved_rate_back() {
     let (mut app, _dir) = left_at_60(true);
