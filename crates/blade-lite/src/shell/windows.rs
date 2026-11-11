@@ -25,7 +25,8 @@ const SHOW_DELAY: Duration = Duration::from_millis(16);
 const SHOW_TRIES: u32 = 60;
 
 impl<P: Parts> Shell<P> {
-    /// Closing the window hides it, focusing it puts the sliders back, and the flyout hides when it loses focus.
+    /// Closing the window hides it, focusing it puts the sliders back, and the
+    /// flyout hides when it loses focus.
     pub fn watch_windows(self: &Rc<Self>) {
         let shell = Rc::downgrade(self);
         self.window.window().on_close_requested(move || {
