@@ -96,9 +96,9 @@ pub struct App<C, D, R, K> {
     battery_rate: BatteryRate,
     power: Power,
     /// Whether the last start, preset change or power switch failed, so
-    /// the controller may not run the preset the app shows (a failed start
-    /// may also be a lighting send; a resend then does no harm). The next
-    /// poll or power event sends it, even if the source is the same.
+    /// the controller may not run the preset the app shows. Only a failed
+    /// preset run marks it, not a lid logo or lighting send after it. The
+    /// next poll or power event sends it, even if the source is the same.
     preset_unsure: bool,
     /// The polls left to send the preset again after a failed send.
     resends_left: u8,
@@ -230,16 +230,20 @@ where
     /// Notes a start, preset change or switch: one the controller may have
     /// taken in part is sent again on the next few polls. A value refused
     /// before anything was sent leaves the controller, and so the flag, as
-    /// they were.
+    /// they were. A preset taken before a lid logo or lighting error is
+    /// sure.
     fn note_preset_send(&mut self, applied: &Result<(), ApplyError>) {
         match applied {
-            Ok(()) => self.preset_unsure = false,
-            Err(ApplyError::Device(_)) => {
-                self.resends_left = RESEND_TRIES;
-                self.preset_send_failed();
-            }
+            Ok(()) | Err(ApplyError::AfterPreset(_)) => self.preset_unsure = false,
+            Err(ApplyError::Device(_)) => self.preset_send_cut(),
             Err(_) => {}
         }
+    }
+
+    /// Marks the preset unsure, with all its resends left.
+    fn preset_send_cut(&mut self) {
+        self.resends_left = RESEND_TRIES;
+        self.preset_send_failed();
     }
 
     /// Marks the preset unsure and counts the failure, so the next poll

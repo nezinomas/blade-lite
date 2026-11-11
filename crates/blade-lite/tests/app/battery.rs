@@ -1,13 +1,13 @@
 //! Presets on battery, and the charge limit.
 
-use blade_core::{Config, CustomSettings, Preset};
+use blade_core::{Config, CustomSettings, Lighting, Preset};
 use platform::PowerEvent;
 use razer_proto::{BLADE_18, PerfMode};
 use ui::PerformanceCommand;
 
 use crate::{
-    LIMIT_OFF, LIMIT_ON, SET_CHARGE_LIMIT, app, app_with, charge_limit, charge_limit_on, panel_hz,
-    performance_app, sent,
+    LIMIT_OFF, LIMIT_ON, SET_CHARGE_LIMIT, WHITE, app, app_with, charge_limit, charge_limit_on,
+    panel_hz, performance_app, sent,
 };
 
 /// Sets a fan's target speed.
@@ -241,6 +241,28 @@ fn a_resume_taken_as_battery_sends_balanced_for_a_saved_performance() {
             .windows(performance.len())
             .any(|run| run == performance)
     );
+}
+
+#[test]
+fn a_lighting_error_at_start_leaves_the_preset_sure() {
+    let (mut app, _dir, _) = app_with(Config {
+        lighting: Some(Lighting {
+            brightness: 50,
+            colour: WHITE,
+            vapor_light: true,
+        }),
+        ..Config::default()
+    });
+    // The preset run goes, the lighting run fails.
+    app.machine_mut().controller.ok_runs = Some(1);
+
+    assert!(app.start().is_err());
+    app.machine_mut().controller.ok_runs = None;
+    app.machine_mut().controller.sent.clear();
+
+    assert!(!app.preset_unsure());
+    assert!(!app.resend_preset().unwrap());
+    assert_eq!(sent(&app), []);
 }
 
 #[test]

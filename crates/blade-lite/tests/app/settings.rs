@@ -176,6 +176,104 @@ fn import_the_controller_refuses_keeps_the_old_settings() {
     assert!(!path.exists());
 }
 
+fn custom_with_fan(fan_rpm: u16) -> Config {
+    Config {
+        preset: Preset::Custom,
+        custom: CustomSettings {
+            fan_rpm: Some(fan_rpm),
+            ..CustomSettings::default()
+        },
+        ..Config::default()
+    }
+}
+
+/// Starts on AC with `shown`, then imports `file` with blue lighting, with
+/// only the preset run taken. Returns the app with nothing sent yet, and
+/// the import's error text.
+fn import_with_a_lighting_error(shown: Config, file: Config) -> (crate::fakes::TestApp, String) {
+    let (mut app, dir, _) = app_with(shown);
+    app.take_on_battery(Some(false));
+    let picked = exported(
+        dir.path(),
+        &Config {
+            lighting: Some(blue_lighting()),
+            ..file
+        },
+    );
+    app.machine_mut().controller.ok_runs = Some(1);
+    let error = app.import_settings(&picked).unwrap_err().to_string();
+    app.machine_mut().controller.ok_runs = None;
+    app.machine_mut().controller.sent.clear();
+    assert_eq!(*app.config(), shown);
+    (app, error)
+}
+
+/// The preset commands `config` sends.
+fn preset_sent(config: &Config) -> Vec<razer_proto::Command> {
+    let mut whole = crate::fakes::FakeController::default();
+    blade_core::apply_performance(config, &BLADE_18, &mut whole).unwrap();
+    whole.sent
+}
+
+#[test]
+fn import_of_a_new_preset_whose_lighting_fails_puts_the_old_preset_back() {
+    let file = Config {
+        preset: Preset::Silent,
+        ..Config::default()
+    };
+    let (mut app, error) = import_with_a_lighting_error(Config::default(), file);
+
+    assert!(
+        error.contains("the laptop may run part of the change"),
+        "{error}"
+    );
+    assert!(app.preset_unsure());
+    assert!(app.resend_preset().unwrap());
+    assert_eq!(sent(&app), PerfMode::Balanced.commands(&BLADE_18).unwrap());
+}
+
+#[test]
+fn import_of_new_custom_values_whose_lighting_fails_puts_the_old_ones_back() {
+    let (mut app, _) = import_with_a_lighting_error(custom_with_fan(3000), custom_with_fan(4000));
+
+    assert!(app.preset_unsure());
+    assert!(app.resend_preset().unwrap());
+    assert_eq!(sent(&app), preset_sent(&custom_with_fan(3000)));
+}
+
+#[test]
+fn import_of_the_same_preset_whose_lighting_fails_leaves_the_preset_sure() {
+    let file = Config {
+        custom: custom_with_fan(4000).custom,
+        ..Config::default()
+    };
+    // Only the unused Custom values differ.
+    let (mut app, error) = import_with_a_lighting_error(Config::default(), file);
+
+    assert!(error.contains("the preset was sent"), "{error}");
+    assert!(!app.preset_unsure());
+    assert!(!app.resend_preset().unwrap());
+}
+
+#[test]
+fn reset_whose_lighting_fails_puts_the_old_preset_back() {
+    let shown = Config {
+        preset: Preset::Silent,
+        ..Config::default()
+    };
+    let (mut app, _dir, _) = app_with(shown);
+    app.take_on_battery(Some(false));
+    app.machine_mut().controller.ok_runs = Some(1);
+
+    assert!(app.reset_settings().is_err());
+    app.machine_mut().controller.ok_runs = None;
+    app.machine_mut().controller.sent.clear();
+
+    assert_eq!(*app.config(), shown);
+    assert!(app.resend_preset().unwrap());
+    assert_eq!(sent(&app), PerfMode::Silent.commands(&BLADE_18).unwrap());
+}
+
 #[test]
 fn import_sent_but_not_saved_is_kept() {
     let (mut app, dir, path) = app();

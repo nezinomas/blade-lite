@@ -51,6 +51,9 @@ pub struct FakeController {
     /// reply to a command the controller still ran. It stays set, and a
     /// run of `n` or fewer commands still fails.
     pub fails_after: Option<usize>,
+    /// Takes this many runs, then fails each run after them, as a Busy
+    /// reply before anything is sent.
+    pub ok_runs: Option<usize>,
     /// `None` fails the logo query.
     pub logo_reply: Option<Vec<u8>>,
     /// The charge limit byte. A charge limit command changes it, unless
@@ -71,6 +74,12 @@ impl Controller for FakeController {
     fn run(&mut self, commands: &[Command]) -> Result<(), DeviceError> {
         if self.fails {
             return Err(DeviceError::Busy);
+        }
+        if let Some(left) = self.ok_runs.as_mut() {
+            if *left == 0 {
+                return Err(DeviceError::Busy);
+            }
+            *left -= 1;
         }
         let taken = self
             .fails_after
