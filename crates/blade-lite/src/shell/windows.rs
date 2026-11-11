@@ -73,8 +73,8 @@ impl<P: Parts> Shell<P> {
     /// Placing the flyout on the tray icon's monitor can give it that
     /// monitor's DPI scale, and Windows then resizes it, so it can end up
     /// over the taskbar or off centre. Placed once more, with the new size,
-    /// after Windows has resized and moved it (winit moves it after this
-    /// event). Once per open, so a flyout too big for that monitor can't
+    /// after winit has put it at the rect Windows suggests (which can come
+    /// before or after this event). Once per open, so a flyout too big for that monitor can't
     /// keep moving between two of them. True when it will be placed.
     pub fn flyout_rescaled(self: &Rc<Self>) -> bool {
         if !self.flyout_open.get() {
@@ -148,11 +148,10 @@ impl<P: Parts> Shell<P> {
             return;
         }
         self.flyout_open.set(true);
-        self.flyout_icon.set(Some(icon));
         self.once_shown(
             |shell| shell.flyout.window(),
             move |shell, hwnd| {
-                shell.place_flyout(icon);
+                shell.flyout_placed_first(icon);
                 put_backdrop(hwnd, true);
                 shell
                     .flyout
@@ -202,9 +201,16 @@ impl<P: Parts> Shell<P> {
             return;
         }
         let _ = self.flyout.hide();
-        self.flyout_icon.set(None);
         self.flyout_closed_at.set(Some(Instant::now()));
         self.schedule.borrow_mut().hide(View::Flyout);
+    }
+
+    /// The first placing of an open flyout. Only a scale change after it
+    /// (most likely caused by it) places the flyout again.
+    pub fn flyout_placed_first(&self, icon: Rect) {
+        // Set first: the scale change can come inside the move.
+        self.flyout_icon.set(Some(icon));
+        self.place_flyout(icon);
     }
 
     fn place_flyout(&self, icon: Rect) {

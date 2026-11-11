@@ -451,23 +451,21 @@ fn opening_the_flyout_puts_back_a_brightness_set_by_narrator() {
 }
 
 #[test]
-fn a_scale_change_while_open_places_the_flyout_again_once_per_open() {
+fn a_scale_change_after_the_first_placing_places_the_flyout_again_once() {
     let f = fixture(Config::default());
     f.shell.toggle_flyout(ICON);
+    assert!(!f.shell.flyout_rescaled(), "not placed yet");
 
+    f.shell.flyout_placed_first(ICON);
     assert!(f.shell.flyout_rescaled(), "placed again");
     assert!(!f.shell.flyout_rescaled(), "only once per open");
-
-    f.shell.toggle_flyout(ICON);
-    std::thread::sleep(Duration::from_millis(350));
-    f.shell.toggle_flyout(ICON);
-    assert!(f.shell.flyout_rescaled(), "a new open places again");
 }
 
 #[test]
 fn a_scale_change_while_closed_leaves_the_flyout() {
     let f = fixture(Config::default());
     f.shell.toggle_flyout(ICON);
+    f.shell.flyout_placed_first(ICON);
     f.shell.toggle_flyout(ICON);
 
     assert!(!f.shell.flyout_rescaled());

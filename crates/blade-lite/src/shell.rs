@@ -147,7 +147,7 @@ pub struct Shell<P: Parts = Laptop> {
     schedule: RefCell<PollSchedule>,
     flyout_open: Cell<bool>,
     flyout_closed_at: Cell<Option<Instant>>,
-    /// The tray icon the open flyout was placed at, kept for one more
+    /// The tray icon the open flyout was first placed at, kept for one more
     /// placing after a DPI scale change (taken by it, cleared on hide).
     flyout_icon: Cell<Option<Rect>>,
     shown_errors: RefCell<ShownErrors>,
