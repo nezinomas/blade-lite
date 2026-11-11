@@ -2002,6 +2002,36 @@ fn a_failed_switch_to_battery_is_sent_again_on_the_poll_after_the_next() {
 }
 
 #[test]
+fn a_lasting_60_hz_error_behind_a_failed_switch_shows_once_the_resend_works() {
+    let f = fixture(Config {
+        preset: Preset::Performance,
+        sixty_hz_on_battery: true,
+        ..Config::default()
+    });
+    f.shell
+        .app()
+        .machine_mut()
+        .displays
+        .0
+        .modes
+        .retain(|mode| mode.hz != 60);
+    FAKE_ON_BATTERY.set(true);
+    f.shell.app().machine_mut().controller.fails = true;
+    let (sender, receiver) = std::sync::mpsc::channel();
+    sender.send(PowerEvent::OnBattery).unwrap();
+    f.shell.follow_power(&receiver);
+    f.shell.app().machine_mut().controller.fails = false;
+    let error = f.shell.window().get_error();
+    assert!(!error.contains("60 Hz"), "{error}");
+
+    f.shell.tick();
+    two_heat_reads(&f);
+
+    let error = f.shell.window().get_error();
+    assert!(error.contains("60 Hz"), "{error}");
+}
+
+#[test]
 fn a_switch_that_fails_again_in_a_tick_is_not_sent_again_in_that_tick() {
     let f = failed_switch_fixture();
     f.shell.tick();
