@@ -19,9 +19,11 @@ use razer_proto::{
 
 mod discovery;
 mod hid;
+mod reopen;
 
 pub use discovery::{HidInfo, find_controller, find_key_collections};
 pub use hid::{HidKeyReports, HidTransport};
+pub use reopen::Reopening;
 
 /// Sends and reads the controller's feature reports.
 pub trait Transport {

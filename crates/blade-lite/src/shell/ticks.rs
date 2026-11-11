@@ -12,7 +12,7 @@ use slint::Timer;
 use ui::{DisplayView, Header, HeatWatch};
 
 use super::popup::{POPUP_HOLD, TOUCHPAD};
-use super::{AppOn, Parts, Shell};
+use super::{AppOn, Parts, Reopened, Shell};
 use crate::bind;
 
 impl<P: Parts> Shell<P> {
@@ -44,16 +44,64 @@ impl<P: Parts> Shell<P> {
         // then stays due, so the first tick after the pause reads it.
         if self.resuming.get() == 0 && self.schedule.borrow_mut().poll_due(now) {
             self.tick_readings(now);
-            if !self.follow_charger() {
-                self.resend_preset();
-            }
+            self.after_reads();
         } else if self.heat_reads_allowed() && self.schedule.borrow_mut().heat_due(now, wall) {
             self.tick_heat(now);
-            if !self.follow_charger() {
-                self.resend_preset();
-            }
+            self.after_reads();
         }
         self.preset_failures_seen.set(failures);
+    }
+
+    /// Follows the charger, or sends the preset again, unless a read just
+    /// opened the controller again: the wake's pause then comes first.
+    fn after_reads(self: &Rc<Self>) {
+        if self.follow_reopen() {
+            return;
+        }
+        if !self.follow_charger() {
+            self.resend_preset();
+        }
+    }
+
+    /// After the controller was opened again: clicks and polls wait out the
+    /// wake's pause (the controller holds its new handle until then), then
+    /// Razer software is looked for (a Razer driver install may be what
+    /// killed the old handle), the handle is released and the settings are
+    /// sent again, as the controller may have lost them. The power source is
+    /// read again first, as power events in the pause are dropped. Unlike a
+    /// wake, the heat watch is left alone, and the rate changes only with
+    /// the source. After an open that failed
+    /// for a new reason, only the look. Returns whether a pause began.
+    fn follow_reopen(self: &Rc<Self>) -> bool {
+        match P::controller_reopened() {
+            Reopened::No => false,
+            Reopened::Failed => {
+                if self.look_for_razer() {
+                    self.show_window();
+                }
+                false
+            }
+            Reopened::Opened => {
+                self.resuming.set(self.resuming.get().saturating_add(1));
+                let shell = Rc::clone(self);
+                Timer::single_shot(RESUME_PAUSE, move || {
+                    shell.resuming.set(shell.resuming.get().saturating_sub(1));
+                    let first = shell.look_for_razer();
+                    P::release_controller();
+                    // A power event in the pause was dropped: read the
+                    // source, so a pulled charger sends the battery preset
+                    // and rate before the settings go again.
+                    shell.follow_source();
+                    // As the wake: an unknown source runs the battery presets.
+                    shell.app.borrow_mut().take_on_battery(P::on_battery());
+                    shell.act(AppOn::<P>::start);
+                    if first {
+                        shell.show_window();
+                    }
+                });
+                true
+            }
+        }
     }
 
     /// Sends the preset that runs again if its last send failed, so the
@@ -249,6 +297,8 @@ impl<P: Parts> Shell<P> {
     /// listened for. If none can come (Windows refused them, or their
     /// thread ended), the power source is read instead.
     pub fn follow_own_power(self: &Rc<Self>) {
+        // First, so a new handle's pause holds this click or poll too.
+        self.follow_reopen();
         let power = self.power.borrow().clone();
         if let Some(power) = power
             && !self.follow_power(&power)

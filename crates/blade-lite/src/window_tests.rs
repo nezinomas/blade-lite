@@ -26,7 +26,7 @@ use slint::{ComponentHandle, LogicalSize};
 use tempfile::TempDir;
 
 use crate::fakes::{FakeController, FakeDisplays, FakeKeys, FakeRegistry, app_on};
-use crate::shell::{Parts, PickedFile, Shell};
+use crate::shell::{Parts, PickedFile, Reopened, Shell};
 use crate::{FlyoutWindow, MainWindow, ModePopup, bind};
 
 /// The fakes in place of the laptop.
@@ -66,6 +66,14 @@ impl Parts for Fakes {
         FAKE_MIC.set(FAKE_MIC.get().map(|muted| !muted));
         FAKE_MIC.get()
     }
+
+    fn controller_reopened() -> Reopened {
+        FAKE_REOPENED.take()
+    }
+
+    fn release_controller() {
+        FAKE_RELEASED.set(true);
+    }
 }
 
 thread_local! {
@@ -82,6 +90,10 @@ thread_local! {
     pub static FAKE_HELD: RefCell<Option<Box<dyn FnOnce()>>> = const { RefCell::new(None) };
     /// The default mic's mute: unknown unless a test sets it.
     pub static FAKE_MIC: std::cell::Cell<Option<bool>> = const { std::cell::Cell::new(None) };
+    /// What opens of the controller again asked: nothing unless a test sets it.
+    pub static FAKE_REOPENED: std::cell::Cell<Reopened> = const { std::cell::Cell::new(Reopened::No) };
+    /// Whether the shell let the controller send on a new handle.
+    pub static FAKE_RELEASED: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
     /// The file dialogs shown.
     pub static FAKE_DIALOGS: RefCell<Vec<FileDialog>> = const { RefCell::new(Vec::new()) };
 }
