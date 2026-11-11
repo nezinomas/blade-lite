@@ -102,6 +102,9 @@ pub struct App<C, D, R, K> {
     preset_unsure: bool,
     /// The polls left to send the preset again after a failed send.
     resends_left: u8,
+    /// How many starts, preset changes and switches failed, so the shell
+    /// can wait a poll after each.
+    preset_failures: u32,
     /// Whether the power source was known at the last read. An unknown one
     /// runs the battery presets, but leaves the rate alone at a wake.
     source_known: bool,
@@ -150,6 +153,7 @@ where
             power: Power::Charger,
             preset_unsure: false,
             resends_left: 0,
+            preset_failures: 0,
             source_known: true,
             logo_on: None,
             charge_limit_on: None,
@@ -201,6 +205,9 @@ where
     /// [`start`](Self::start), so a start on battery sends the battery
     /// preset, not the saved one. `None` (unknown) counts as battery.
     pub fn take_on_battery(&mut self, on_battery: Option<bool>) {
+        if on_battery.is_none() {
+            report("the battery presets run");
+        }
         self.power = Power::from_battery(on_battery.unwrap_or(true));
         self.source_known = on_battery.is_some();
     }
@@ -217,6 +224,15 @@ where
     fn note_preset_send(&mut self, sent: bool) {
         self.preset_unsure = !sent;
         self.resends_left = RESEND_TRIES;
+        if !sent {
+            self.preset_failures = self.preset_failures.wrapping_add(1);
+        }
+    }
+
+    /// How many starts, preset changes and switches failed so far.
+    #[must_use]
+    pub fn preset_failures(&self) -> u32 {
+        self.preset_failures
     }
 
     /// Which keys should be red. If the touchpad state can't be read, its

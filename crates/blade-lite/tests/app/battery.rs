@@ -486,3 +486,21 @@ fn a_resume_on_ac_after_the_rate_was_put_back_sends_no_rate() {
 
     assert_eq!(panel_hz(&app), 60);
 }
+
+#[test]
+fn a_resume_with_an_unknown_source_stops_the_60_hz_tries() {
+    let (mut app, _dir, before) = on_battery_at_60_hz();
+    // Windows puts the rate back in the wake, and refuses the next set.
+    app.machine_mut().displays.0.current.hz = before;
+    app.machine_mut().displays.1 = 1;
+    app.take_on_battery(Some(true));
+    app.on_power(PowerEvent::Resumed).unwrap();
+    assert!(app.battery_rate_pending());
+    app.take_on_battery(None);
+    app.on_power(PowerEvent::Resumed).unwrap();
+
+    assert!(!app.battery_rate_pending());
+    app.retry_battery_rate().unwrap();
+
+    assert_eq!(panel_hz(&app), before);
+}

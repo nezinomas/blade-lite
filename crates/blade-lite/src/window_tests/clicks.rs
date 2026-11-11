@@ -1472,16 +1472,49 @@ fn failed_switch_fixture() -> Fixture {
     f
 }
 
+/// Two heat reads in a row, as with no view open: the first poll after a
+/// failure waits, the second may send again.
+fn two_heat_reads(f: &Fixture) {
+    let (start, wall) = (Instant::now(), SystemTime::now());
+    f.shell.tick_at(start, wall);
+    let later = blade_core::HEAT_INTERVAL;
+    f.shell.tick_at(start + later, wall + later);
+}
+
 #[test]
-fn a_failed_switch_to_battery_is_sent_again_on_the_next_tick() {
+fn a_failed_switch_to_battery_is_sent_again_on_the_poll_after_the_next() {
     let f = failed_switch_fixture();
+    let error = f.shell.window().get_error();
     let sent = sent_count(&f);
 
     f.shell.tick();
+    assert_eq!(sent_since(&f, sent), []);
+    two_heat_reads(&f);
 
     let balanced = PerfMode::Balanced.commands(&BLADE_18).unwrap();
     assert_eq!(sent_since(&f, sent), balanced);
-    assert_eq!(f.shell.window().get_error(), "");
+    // Quiet: the switch's error stays shown.
+    assert_ne!(error, "");
+    assert_eq!(f.shell.window().get_error(), error);
+}
+
+#[test]
+fn a_switch_that_fails_again_in_a_tick_is_not_sent_again_in_that_tick() {
+    let f = failed_switch_fixture();
+    f.shell.tick();
+    let (sender, receiver) = std::sync::mpsc::channel();
+    f.shell.listen_for_power(receiver);
+    sender.send(PowerEvent::OnAc).unwrap();
+    FAKE_ON_BATTERY.set(false);
+    // Each run takes one command, then fails.
+    f.shell.app().machine_mut().controller.fails_after = Some(1);
+    let sent = sent_count(&f);
+
+    let later = blade_core::HEAT_INTERVAL;
+    f.shell
+        .tick_at(Instant::now() + later, SystemTime::now() + later);
+
+    assert_eq!(sent_since(&f, sent).len(), 1);
 }
 
 #[test]
@@ -1490,7 +1523,7 @@ fn no_resend_while_a_wake_waits() {
     resuming(&f);
     let sent = sent_count(&f);
 
-    f.shell.tick();
+    two_heat_reads(&f);
 
     assert_eq!(sent_since(&f, sent), []);
 }
@@ -1588,7 +1621,7 @@ fn no_resend_while_razer_software_runs() {
     f.shell.look_for_razer();
     let sent = sent_count(&f);
 
-    f.shell.tick();
+    two_heat_reads(&f);
 
     assert_eq!(sent_since(&f, sent), []);
 }

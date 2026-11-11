@@ -28,9 +28,6 @@ impl<P: Parts> Shell<P> {
     /// [`tick`](Self::tick) at `now`, with the wall clock at `wall`. The
     /// window tests give their own times.
     pub(crate) fn tick_at(self: &Rc<Self>, now: Instant, wall: SystemTime) {
-        // A send that fails in this tick is not sent again at once: the
-        // controller may still run it.
-        let unsure = self.app.borrow().preset_unsure();
         self.follow_own_power();
         if self.resuming.get() == 0 && self.app.borrow().battery_rate_pending() {
             self.retry_battery_rate();
@@ -43,28 +40,34 @@ impl<P: Parts> Shell<P> {
         }
         if self.schedule.borrow_mut().poll_due(now) {
             self.tick_readings(now);
-            if !self.follow_charger() && unsure {
+            if !self.follow_charger() {
                 self.resend_preset();
             }
         } else if self.heat_reads_allowed() && self.schedule.borrow_mut().heat_due(now, wall) {
             self.tick_heat(now);
-            if !self.follow_charger() && unsure {
+            if !self.follow_charger() {
                 self.resend_preset();
             }
         }
+        let failures = self.app.borrow().preset_failures();
+        self.preset_failures_seen.set(failures);
     }
 
     /// Sends the preset that runs again if its last send failed, so the
     /// laptop does not keep running another one (such as Performance on
     /// battery) until the next power event. Not while a resume waits or
-    /// Razer's software runs, as for the heat reads.
+    /// Razer's software runs, as for the heat reads, nor in the tick of a
+    /// failed send or the one after it: the controller may still run it.
+    /// A resend that works is quiet, so the error of the failed send stays
+    /// shown (it may not be the preset's); a failed one is shown.
     fn resend_preset(self: &Rc<Self>) {
-        if !self.heat_reads_allowed() {
+        let quiet = self.app.borrow().preset_failures() == self.preset_failures_seen.get();
+        if !quiet || !self.heat_reads_allowed() {
             return;
         }
         let sent = self.app.borrow_mut().resend_preset();
-        if !matches!(sent, Ok(false)) {
-            self.act(|_| sent.map(|_| ()));
+        if let Err(error) = sent {
+            self.act(|_| Err(error));
         }
     }
 

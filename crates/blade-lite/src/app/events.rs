@@ -243,7 +243,7 @@ where
     /// Whether a wake's 60 Hz on battery failed and is to be tried again.
     #[must_use]
     pub fn battery_rate_pending(&self) -> bool {
-        self.on_battery() && self.battery_rate.retry_pending()
+        self.on_battery() && self.source_known && self.battery_rate.retry_pending()
     }
 
     /// Tries a wake's failed 60 Hz again, on battery only (one try per
@@ -253,7 +253,7 @@ where
     ///
     /// See [`AppError`].
     pub fn retry_battery_rate(&mut self) -> Result<(), AppError> {
-        if !self.on_battery() {
+        if !self.on_battery() || !self.source_known {
             return Ok(());
         }
         let displays = &mut self.machine.displays;

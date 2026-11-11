@@ -161,8 +161,13 @@ pub struct Shell<P: Parts = Laptop> {
     /// The resumes still waiting out their pause. The controller may not be
     /// ready then: clicks and the power-mode key do nothing, and the touchpad
     /// key is not painted on a Num Lock or touchpad change (the resume
-    /// paints it). Power events still go through (ticket 88).
+    /// paints it). A change of power source waits for the resume, which
+    /// reads it (ticket 88).
     resuming: Cell<u32>,
+    /// The app's count of failed preset sends at the end of the last tick.
+    /// A poll sends the preset again only while it is unchanged, so never
+    /// in the tick of a failure or the one after it.
+    preset_failures_seen: Cell<u32>,
     /// The power events, read on each poll and before each click or key.
     power: RefCell<Option<Rc<Receiver<PowerEvent>>>>,
     programs: P::Programs,
@@ -202,6 +207,7 @@ impl<P: Parts> Shell<P> {
             popups: Cell::new(0),
             popup_ready: Cell::new(false),
             resuming: Cell::new(0),
+            preset_failures_seen: Cell::new(0),
             power: RefCell::new(None),
             programs: P::Programs::default(),
             razer_warning: RefCell::new(None),
