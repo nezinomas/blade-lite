@@ -282,3 +282,25 @@ fn a_model_without_a_charge_limit_hides_the_switch() {
 fn the_charge_limit_switch_shows_on_battery_too() {
     assert!(on_battery(Preset::Balanced).charge_limit.is_some());
 }
+
+#[test]
+fn reset_to_balanced_sets_balanced() {
+    for preset in [Preset::Silent, Preset::Performance, Preset::Custom] {
+        let view = PerformanceView::new(&state(preset));
+
+        assert!(view.reset_enabled(), "{preset:?}");
+        assert_eq!(
+            view.reset_to_balanced(),
+            Some(PerformanceCommand::SetPreset(Preset::Balanced)),
+            "{preset:?}"
+        );
+    }
+}
+
+#[test]
+fn reset_does_nothing_when_already_balanced() {
+    let view = PerformanceView::new(&state(Preset::Balanced));
+
+    assert!(!view.reset_enabled());
+    assert_eq!(view.reset_to_balanced(), None);
+}

@@ -127,6 +127,22 @@ impl PerformanceView {
         })
     }
 
+    /// `false` while the preset shown is already Balanced.
+    #[must_use]
+    pub fn reset_enabled(&self) -> bool {
+        !self
+            .presets
+            .iter()
+            .any(|option| option.selected && option.preset == Preset::Balanced)
+    }
+
+    /// The command for "Reset to Balanced", unless it is Balanced already.
+    #[must_use]
+    pub fn reset_to_balanced(&self) -> Option<PerformanceCommand> {
+        self.reset_enabled()
+            .then_some(PerformanceCommand::SetPreset(Preset::Balanced))
+    }
+
     /// The command that flips the charge limit switch, unless it is hidden.
     #[must_use]
     pub fn toggle_charge_limit(&self) -> Option<PerformanceCommand> {
