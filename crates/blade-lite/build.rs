@@ -1,7 +1,6 @@
 use std::path::Path;
 
 // The tray's icon, drawn here too, for the exe's own icon.
-#[allow(dead_code)]
 #[path = "src/icon.rs"]
 mod icon;
 
@@ -24,14 +23,15 @@ fn exe_icon() {
     println!("cargo:rerun-if-changed=src/icon.rs");
     let out = std::env::var("OUT_DIR").expect("Cargo sets OUT_DIR");
     let out = Path::new(&out);
-    let ico = out.join("app.ico");
-    std::fs::write(&ico, icon::ico(icon::DEFAULT_ACCENT, &EXE_ICON_SIZES))
-        .expect("the icon file is written");
-    // The resource compiler reads forward slashes; a backslash in quotes
-    // would start an escape.
-    let ico = ico.display().to_string().replace('\\', "/");
+    std::fs::write(
+        out.join("app.ico"),
+        icon::ico(icon::DEFAULT_ACCENT, &EXE_ICON_SIZES),
+    )
+    .expect("the icon file is written");
+    // A name, not a path: embed-resource gives the resource compiler OUT_DIR
+    // to look in, so no folder name (any letters) goes in the file.
     let rc = out.join("app.rc");
-    std::fs::write(&rc, format!("1 ICON \"{ico}\"\n")).expect("the resource file is written");
+    std::fs::write(&rc, "1 ICON \"app.ico\"\n").expect("the resource file is written");
     embed_resource::compile(&rc, embed_resource::NONE)
         .manifest_required()
         .expect("the icon is built into the exe");

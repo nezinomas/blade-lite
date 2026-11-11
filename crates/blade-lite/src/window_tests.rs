@@ -159,6 +159,7 @@ pub fn fixture(config: Config) -> Fixture {
     let flyout = FlyoutWindow::new().expect("the flyout");
     let popup = ModePopup::new().expect("the popup");
     window.set_app_icon(bind::icon(ACCENT));
+    flyout.set_app_icon(bind::icon(ACCENT));
     window.set_accent(bind::colour(ACCENT));
     flyout.set_accent(bind::colour(ACCENT));
     popup.set_accent(bind::colour(ACCENT));

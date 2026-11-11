@@ -98,3 +98,15 @@ fn each_image_is_a_bottom_up_bgra_bitmap_with_a_clear_mask() {
     let mask = &image[40 + 16 * 16 * 4..];
     assert_eq!(mask, [0; 16 * 4]);
 }
+
+#[test]
+#[should_panic(expected = "icon sizes are 1 to 256")]
+fn an_ico_refuses_a_size_of_0() {
+    let _ = ico(BLUE, &[16, 0]);
+}
+
+#[test]
+#[should_panic(expected = "icon sizes are 1 to 256")]
+fn an_ico_refuses_a_size_over_256() {
+    let _ = ico(BLUE, &[257]);
+}

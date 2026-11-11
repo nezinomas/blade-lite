@@ -203,7 +203,11 @@ export component FlyoutWindow inherits Window {
     callback reset();
     callback open-window();
 
+    // The tray's icon, in case Alt+Tab or the taskbar shows the flyout.
+    in property <image> app-icon;
+
     title: "Blade Lite";
+    icon: app-icon;
     no-frame: true;
     always-on-top: true;
     width: 400px;

@@ -1426,17 +1426,20 @@ fn a_weak_charge_with_balanced_saved_greys_out_performance_and_says_so() {
 }
 
 #[test]
-fn the_window_has_the_tray_icon_in_the_accent_colour() {
+fn the_window_and_flyout_have_the_tray_icon_in_the_accent_colour() {
     let f = fixture(Config::default());
-
-    let icon = f.shell.window().get_app_icon();
 
     let size = bind::ICON_SIZE;
     let edge = u32::from(size);
-    assert_eq!((icon.size().width, icon.size().height), (edge, edge));
-    let pixels = icon.to_rgba8().expect("RGBA pixels");
-    assert_eq!(
-        pixels.as_bytes(),
-        blade_lite::icon::pixels([0x00, 0x78, 0xD4], size)
-    );
+    for icon in [
+        f.shell.window().get_app_icon(),
+        f.shell.flyout().get_app_icon(),
+    ] {
+        assert_eq!((icon.size().width, icon.size().height), (edge, edge));
+        let pixels = icon.to_rgba8().expect("RGBA pixels");
+        assert_eq!(
+            pixels.as_bytes(),
+            blade_lite::icon::pixels([0x00, 0x78, 0xD4], size)
+        );
+    }
 }

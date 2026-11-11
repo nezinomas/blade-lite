@@ -29,8 +29,17 @@ pub fn pixels([red, green, blue]: [u8; 3], size: u16) -> Vec<u8> {
 
 /// An `.ico` file with the icon at each of `sizes` (1 to 256 pixels), as
 /// 32-bit bitmaps.
+///
+/// # Panics
+///
+/// If a size is outside 1 to 256: the file would be broken. Only the build
+/// calls this.
 #[must_use]
 pub fn ico(accent: [u8; 3], sizes: &[u16]) -> Vec<u8> {
+    assert!(
+        sizes.iter().all(|size| (1..=256).contains(size)),
+        "icon sizes are 1 to 256"
+    );
     let images: Vec<Vec<u8>> = sizes.iter().map(|&size| bitmap(accent, size)).collect();
     let count = u16::try_from(sizes.len()).unwrap_or(u16::MAX);
     let mut file = Vec::new();

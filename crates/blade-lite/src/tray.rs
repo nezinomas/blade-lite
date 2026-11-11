@@ -46,7 +46,7 @@ impl Tray {
         menu.append(&open)?;
         menu.append(&autostart)?;
         menu.append(&quit)?;
-        let icon = TrayIconBuilder::new()
+        let tray_icon = TrayIconBuilder::new()
             .with_tooltip("Blade Lite")
             .with_icon(Icon::from_rgba(
                 icon::pixels([accent.red, accent.green, accent.blue], SIZE),
@@ -57,7 +57,7 @@ impl Tray {
             .with_menu_on_left_click(false)
             .build()?;
         Ok(Self {
-            _icon: icon,
+            _icon: tray_icon,
             open: open.id().clone(),
             autostart,
             quit: quit.id().clone(),
