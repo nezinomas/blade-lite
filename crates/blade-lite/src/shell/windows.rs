@@ -12,6 +12,7 @@ use slint::winit_030::{EventResult, WinitWindowAccessor, winit};
 use slint::{ComponentHandle, PhysicalPosition, Timer};
 
 use super::{Parts, Shell};
+use crate::bind;
 use crate::tray::px;
 
 /// A tray click this soon after the flyout closed is the click that closed
@@ -24,8 +25,8 @@ const SHOW_DELAY: Duration = Duration::from_millis(16);
 const SHOW_TRIES: u32 = 60;
 
 impl<P: Parts> Shell<P> {
-    /// Closing the window hides it, focusing it puts the brightness slider
-    /// back, and the flyout hides when it loses focus.
+    /// Closing the window hides it, focusing it puts the sliders back, and the
+    /// flyout hides when it loses focus.
     pub fn watch_windows(self: &Rc<Self>) {
         let shell = Rc::downgrade(self);
         self.window.window().on_close_requested(move || {
@@ -55,15 +56,16 @@ impl<P: Parts> Shell<P> {
     /// The window brought back (restored, Alt+Tab) gets the focus.
     pub fn on_window_event(&self, event: &winit::event::WindowEvent) {
         if matches!(event, winit::event::WindowEvent::Focused(true)) {
-            self.put_back_brightness();
+            self.put_back_sliders();
         }
     }
 
-    /// The window shown or focused shows the laptop's brightness, not a
-    /// Narrator set-value or a drag it lost while away.
-    fn put_back_brightness(&self) {
+    /// The window shown or focused shows the laptop's brightness and Custom
+    /// values, not a Narrator set-value or a drag it lost while away.
+    fn put_back_sliders(&self) {
         drop_lost_drag(self.window.window());
         self.window.invoke_show_brightness();
+        bind::sliders(&self.window, &self.app.borrow().performance_view());
     }
 
     pub fn show_window(self: &Rc<Self>) {
@@ -88,7 +90,7 @@ impl<P: Parts> Shell<P> {
             .borrow_mut()
             .show(View::Window, Instant::now());
         self.refresh(None);
-        self.put_back_brightness();
+        self.put_back_sliders();
     }
 
     /// Opens the flyout above the tray icon, or closes it if it is open.
@@ -201,7 +203,8 @@ impl<P: Parts> Shell<P> {
 /// window on. The Slider still
 /// thinks its handle is pressed, so a later mouse-up over it calls
 /// `released` with the value `show-brightness` set: the laptop's own, which
-/// `KeyboardView::move_brightness` skips, so nothing is sent.
+/// `KeyboardView::move_brightness` skips, so nothing is sent. The Custom
+/// sliders have no such value to set, so `bind::sliders` makes them again.
 fn drop_lost_drag(window: &slint::Window) {
     window.dispatch_event(WindowEvent::PointerExited);
 }

@@ -1698,6 +1698,53 @@ fn a_custom_slider_goes_back_after_a_failed_send() {
     assert_eq!(slider.accessible_value().unwrap(), "1");
 }
 
+#[test]
+fn focusing_the_window_puts_back_a_custom_slider_drag_cut_short() {
+    custom_drag_cut_short_is_put_back(|f| f.shell.on_window_event(&WinitEvent::Focused(true)));
+}
+
+#[test]
+fn showing_the_window_puts_back_a_custom_slider_drag_cut_short() {
+    custom_drag_cut_short_is_put_back(|f| f.shell.show_window());
+}
+
+/// Presses the CPU boost slider at its left end and never lets it go, runs
+/// `come_back` (a show or focus), then lets go there: nothing is sent and
+/// the slider shows the saved 1 again.
+fn custom_drag_cut_short_is_put_back(come_back: impl FnOnce(&Fixture)) {
+    let f = fixture(Config {
+        preset: Preset::Custom,
+        ..Config::default()
+    });
+    let slider = control(f.shell.window(), Slider, "CPU boost");
+    let start = slider.absolute_position();
+    let left_end = LogicalPosition::new(start.x, start.y + slider.size().height / 2.0);
+    f.shell
+        .window()
+        .window()
+        .dispatch_event(WindowEvent::PointerPressed {
+            position: left_end,
+            button: PointerEventButton::Left,
+        });
+    assert_eq!(slider.accessible_value().unwrap(), "0");
+    let before = sent_count(&f);
+
+    come_back(&f);
+    // Back again: a press elsewhere, let go over the slider.
+    f.shell
+        .window()
+        .window()
+        .dispatch_event(WindowEvent::PointerReleased {
+            position: left_end,
+            button: PointerEventButton::Left,
+        });
+
+    assert_eq!(sent_since(&f, before), []);
+    assert_eq!(f.shell.app().config().custom.cpu_boost, 1);
+    let slider = control(f.shell.window(), Slider, "CPU boost");
+    assert_eq!(slider.accessible_value().unwrap(), "1");
+}
+
 fn charger_reads_since(f: &Fixture, before: usize) -> usize {
     let app = f.shell.app();
     let asked = &app.machine().controller.asked[before..];

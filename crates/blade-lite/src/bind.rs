@@ -73,12 +73,7 @@ pub fn display(window: &MainWindow, view: &DisplayView) {
 
 pub fn performance(window: &MainWindow, view: &PerformanceView) {
     window.set_presets(preset_choices(&view.presets));
-    window.set_sliders(model(view.sliders.iter().map(|slider| SliderRow {
-        label: text(slider.label),
-        stops: int(slider.stops),
-        position: int(slider.position),
-        text: text(&slider.text),
-    })));
+    sliders(window, view);
     let limit = view.charge_limit;
     window.set_charge_limit_shown(limit.is_some());
     window.set_charge_limit_on(limit.is_some_and(|switch| switch.on));
@@ -87,6 +82,17 @@ pub fn performance(window: &MainWindow, view: &PerformanceView) {
         Some(switch) => format!("Off. Turn on to stop at {}%", switch.percent).into(),
         None => "".into(),
     });
+}
+
+/// Makes the Custom slider rows again. New rows drop a drag the old ones
+/// still thought was pressed.
+pub fn sliders(window: &MainWindow, view: &PerformanceView) {
+    window.set_sliders(model(view.sliders.iter().map(|slider| SliderRow {
+        label: text(slider.label),
+        stops: int(slider.stops),
+        position: int(slider.position),
+        text: text(&slider.text),
+    })));
 }
 
 pub fn keyboard(window: &MainWindow, view: &KeyboardView) {
