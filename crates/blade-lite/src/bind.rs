@@ -5,7 +5,7 @@ use std::rc::{Rc, Weak};
 
 use razer_proto::Rgb;
 use slint::{ModelRc, SharedString, VecModel};
-use ui::{DisplayView, FlyoutView, Header, KeyboardView, PerformanceView, PresetOption};
+use ui::{DisplayView, Header, KeyboardView, PerformanceView, PresetOption};
 
 use crate::shell::{AppOn, Parts, Shell};
 use crate::{Choice, FlyoutWindow, MainWindow, SliderRow, Stat, SwatchItem};
@@ -100,7 +100,6 @@ pub fn keyboard(window: &MainWindow, view: &KeyboardView) {
     window.set_custom_selected(view.custom_selected);
     let Rgb { red, green, blue } = view.custom_colour;
     window.set_custom_hex(format!("#{red:02X}{green:02X}{blue:02X}").into());
-    window.set_touchpad_on(view.touchpad_on);
     window.set_logo_shown(view.logo_on.is_some());
     window.set_logo_on(view.logo_on == Some(true));
     window.set_vapor_light_shown(view.vapor_light_on.is_some());
@@ -115,18 +114,27 @@ fn index(value: i32) -> usize {
     usize::try_from(value).unwrap_or(usize::MAX)
 }
 
-pub fn flyout(window: &FlyoutWindow, view: &FlyoutView, header: &Header) {
+/// The flyout's header, presets and reset, which need no read that can
+/// fail.
+pub fn flyout_performance(window: &FlyoutWindow, view: &PerformanceView, header: &Header) {
     window.set_device(text(&header.title));
     window.set_power(text(header.power.label()));
     window.set_presets(preset_choices(&view.presets));
+    window.set_reset_enabled(view.reset_enabled());
+}
+
+/// The flyout's rates and 60 Hz switch, as the Display group shows them.
+pub fn flyout_display(window: &FlyoutWindow, view: &DisplayView) {
     window.set_rates(model(
         view.rates.iter().map(|r| choice(&r.label, r.selected)),
     ));
     window.set_rates_enabled(view.rates_enabled);
     window.set_sixty_hz_on_battery(view.sixty_hz_on_battery);
+}
+
+/// The flyout's brightness, as the Keyboard group shows it.
+pub fn flyout_keyboard(window: &FlyoutWindow, view: &KeyboardView) {
     window.set_brightness(i32::from(view.brightness));
-    window.set_touchpad_on(view.touchpad_on);
-    window.set_reset_enabled(view.reset_enabled);
 }
 
 /// Runs `act` with the shell, while it still exists.
@@ -191,13 +199,9 @@ fn flyout_callbacks<P: Parts>(shell: &Rc<Shell<P>>) {
     let s = Rc::downgrade(shell);
     flyout.on_reset(move || {
         on(&s, |shell| {
-            shell.user_act(|app| {
-                let view = app.performance_view();
-                let reset = ui::FlyoutView::new(&view, &app.display_view()?, &app.keyboard_view()?);
-                match reset.reset_to_balanced() {
-                    Some(command) => app.on_performance(command),
-                    None => Ok(()),
-                }
+            shell.user_act(|app| match app.performance_view().reset_to_balanced() {
+                Some(command) => app.on_performance(command),
+                None => Ok(()),
             });
         });
     });

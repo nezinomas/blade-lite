@@ -526,6 +526,49 @@ fn the_flyout_sets_a_preset_and_resets_to_balanced() {
 }
 
 #[test]
+fn the_flyout_shows_and_resets_the_preset_when_the_touchpad_cant_be_read() {
+    let f = fixture(Config::default());
+    f.shell.app().machine_mut().registry.touchpad = None;
+
+    click(f.shell.flyout(), Button, "Silent");
+    assert!(f.shell.flyout().get_reset_enabled());
+    let before = sent_count(&f);
+    click(f.shell.flyout(), Button, "Reset to Balanced");
+
+    assert_eq!(
+        sent_since(&f, before),
+        PerfMode::Balanced.commands(&BLADE_18).unwrap()
+    );
+    assert_eq!(f.shell.app().config().preset, Preset::Balanced);
+    assert!(!f.shell.flyout().get_reset_enabled());
+}
+
+#[test]
+fn the_touchpad_switches_show_off_and_greyed_when_the_touchpad_cant_be_read() {
+    let f = fixture(Config::default());
+    f.shell.app().machine_mut().registry.touchpad = None;
+    f.shell.refresh(None);
+
+    assert!(!f.shell.window().get_touchpad_on());
+    assert!(!f.shell.window().get_touchpad_known());
+    assert!(!f.shell.flyout().get_touchpad_on());
+    assert!(!f.shell.flyout().get_touchpad_known());
+    click(f.shell.flyout(), Switch, "Touchpad");
+    click(f.shell.window(), Switch, "Touchpad");
+    assert_eq!(f.shell.app().machine().keys.0, []);
+    assert!(!f.shell.window().get_touchpad_on());
+    assert!(!f.shell.flyout().get_touchpad_on());
+
+    f.shell.app().machine_mut().registry.touchpad = Some(1);
+    f.shell.refresh(None);
+
+    assert!(f.shell.window().get_touchpad_on());
+    assert!(f.shell.window().get_touchpad_known());
+    assert!(f.shell.flyout().get_touchpad_on());
+    assert!(f.shell.flyout().get_touchpad_known());
+}
+
+#[test]
 fn a_failed_click_shows_the_error_and_logs_it() {
     let f = fixture(Config::default());
     // Other tests fail the touchpad read too, so the shared log check shows
