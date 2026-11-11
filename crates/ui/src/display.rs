@@ -10,7 +10,9 @@ pub struct DisplayState<'a> {
     /// The rates the panel offers at its current resolution.
     pub offered: Vec<RefreshRate>,
     pub current: RefreshRate,
-    pub native: NativeModeState,
+    /// `None` if not known, such as not read while Razer's own software
+    /// runs: no native mode is chosen then.
+    pub native: Option<NativeModeState>,
     pub sixty_hz_on_battery: bool,
     pub on_battery: bool,
 }
@@ -61,8 +63,9 @@ impl DisplayView {
     pub fn new(state: &DisplayState) -> Self {
         let locked = state.on_battery && state.sixty_hz_on_battery;
         let (chosen, pending) = match state.native {
-            NativeModeState::Active(mode) => (mode, false),
-            NativeModeState::AppliesAfterRestart(mode) => (mode, true),
+            Some(NativeModeState::Active(mode)) => (Some(mode), false),
+            Some(NativeModeState::AppliesAfterRestart(mode)) => (Some(mode), true),
+            None => (None, false),
         };
         Self {
             rates: rate_segments(&state.offered, state.current),
@@ -70,7 +73,7 @@ impl DisplayView {
             rate_note: rate_note(locked),
             sixty_hz_on_battery: state.sixty_hz_on_battery,
             native_modes: native_options(state.model, chosen),
-            native_note: native_note(chosen, pending),
+            native_note: chosen.map_or_else(|| "Unknown".into(), |c| native_note(c, pending)),
             restart_infobar: pending,
         }
     }
@@ -116,14 +119,14 @@ fn rate_note(locked: bool) -> String {
     }
 }
 
-fn native_options(model: &ModelProfile, chosen: NativeMode) -> Vec<NativeOption> {
+fn native_options(model: &ModelProfile, chosen: Option<NativeMode>) -> Vec<NativeOption> {
     model
         .native_modes
         .iter()
         .map(|&mode| NativeOption {
             mode,
             label: format!("{}, up to {} Hz", resolution(mode), mode.hz),
-            selected: mode == chosen,
+            selected: Some(mode) == chosen,
         })
         .collect()
 }

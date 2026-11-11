@@ -8,7 +8,7 @@ use i_slint_backend_testing::AccessibleRole::Button;
 use platform::PowerEvent;
 use razer_proto::NativeMode;
 
-use super::{Fixture, click, fixture, log_path};
+use super::{FAKE_ON_BATTERY, Fixture, click, fixture, fixture_with_programs, log_path};
 use crate::Choice;
 
 const SYNAPSE: &str = "Razer Synapse Service";
@@ -109,6 +109,55 @@ fn while_razer_software_runs_a_fill_shows_the_rate_and_the_native_mode_last_read
     assert_eq!(chosen(&f.shell.flyout().get_rates()), "120 Hz");
     let natives = f.shell.window().get_native_modes();
     assert_eq!(chosen(&natives), "3840 × 2400, up to 240 Hz");
+}
+
+#[test]
+fn with_razer_software_at_start_the_rates_show_and_no_native_mode_is_chosen() {
+    let f = fixture_with_programs(Config::default(), &[SYNAPSE]);
+
+    assert_eq!(native_reads_since(&f, 0), 0);
+    assert_eq!(chosen(&f.shell.window().get_rates()), "240 Hz");
+    assert_eq!(chosen(&f.shell.flyout().get_rates()), "240 Hz");
+    let natives = f.shell.window().get_native_modes();
+    use slint::Model;
+    assert!(natives.row_count() > 0);
+    assert!(natives.iter().all(|choice| !choice.selected));
+    assert_eq!(f.shell.window().get_native_note(), "Unknown");
+}
+
+#[test]
+fn while_razer_software_runs_a_rate_click_sets_the_rate_and_reads_no_native_mode() {
+    let f = fixture_with_programs(Config::default(), &[SYNAPSE]);
+
+    click(f.shell.window(), Button, "120 Hz");
+
+    assert_eq!(native_reads_since(&f, 0), 0);
+    assert_eq!(f.shell.app().machine().displays.0.current.hz, 120);
+    assert_eq!(chosen(&f.shell.window().get_rates()), "120 Hz");
+}
+
+#[test]
+fn while_razer_software_runs_a_refused_60_hz_tried_again_shows_with_no_native_mode_read() {
+    let f = fixture_with_programs(
+        Config {
+            sixty_hz_on_battery: true,
+            ..Config::default()
+        },
+        &[SYNAPSE],
+    );
+    FAKE_ON_BATTERY.set(true);
+    f.shell.app().machine_mut().displays.1 = 1;
+    let (sender, receiver) = std::sync::mpsc::channel();
+    f.shell.listen_for_power(receiver);
+    sender.send(PowerEvent::OnBattery).unwrap();
+
+    for _ in 0..3 {
+        f.shell.tick();
+    }
+
+    assert_eq!(f.shell.app().machine().displays.0.current.hz, 60);
+    assert_eq!(chosen(&f.shell.window().get_rates()), "60 Hz");
+    assert_eq!(native_reads_since(&f, 0), 0);
 }
 
 #[test]

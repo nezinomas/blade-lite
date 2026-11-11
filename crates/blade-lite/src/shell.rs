@@ -321,15 +321,13 @@ impl<P: Parts> Shell<P> {
         bind::header(&self.window, &header);
         bind::performance(&self.window, &performance);
         bind::flyout_performance(&self.flyout, &performance, &header);
-        // A failed view leaves its parts as last shown and shows the error;
-        // no view (no native mode known) leaves them too.
+        // A failed view leaves its parts as last shown and shows the error.
         match self.display_view(&mut app) {
-            Some(Ok(view)) => {
+            Ok(view) => {
                 bind::display(&self.window, &view);
                 bind::flyout_display(&self.flyout, &view);
             }
-            Some(Err(error)) => errors.push(error.to_string()),
-            None => {}
+            Err(error) => errors.push(error.to_string()),
         }
         match app.keyboard_view() {
             Ok(view) => {

@@ -182,6 +182,9 @@ where
                 set_refresh_rate(&mut self.machine.displays, rate)?;
             }
             DisplayCommand::SetNativeMode(mode) => {
+                // A failed send may still have changed it: unknown until it
+                // works or is read again.
+                self.native_mode = None;
                 set_native_mode(mode, &mut self.machine.controller, self.model)?;
                 self.native_mode = Some(mode);
             }

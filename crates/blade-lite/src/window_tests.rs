@@ -139,6 +139,12 @@ pub struct Fixture {
 /// Starts the shell over fakes with `config`, as the app starts, with the
 /// lid logo on and the charge limit off, so every row shows.
 pub fn fixture(config: Config) -> Fixture {
+    fixture_with_programs(config, &[])
+}
+
+/// [`fixture`], with `programs` running at start: the shell looks for
+/// Razer software before the first fill, as the app does.
+pub fn fixture_with_programs(config: Config, programs: &[&str]) -> Fixture {
     // Each test runs on its own thread, and Slint keeps one platform per
     // thread. The software renderer lets a test take a picture.
     slint::platform::set_platform(Box::new(TestingBackend::new(TestingBackendOptions {
@@ -164,8 +170,10 @@ pub fn fixture(config: Config) -> Fixture {
     window.set_accent(bind::colour(ACCENT));
     flyout.set_accent(bind::colour(ACCENT));
     popup.set_accent(bind::colour(ACCENT));
-    let shell = Shell::new(window, flyout, popup, app);
+    let shell: Rc<Shell<Fakes>> = Shell::new(window, flyout, popup, app);
     bind::callbacks(&shell);
+    shell.programs().set(programs);
+    shell.look_for_razer();
     shell.refresh(started.err().as_ref());
     shell.window().window().set_size(WINDOW_SIZE);
     shell.window().show().expect("the window shows");

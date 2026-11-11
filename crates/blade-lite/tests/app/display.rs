@@ -31,8 +31,8 @@ fn the_display_view_shows_the_chosen_native_mode() {
 
 /// The native mode chosen in the view made without reading the controller.
 fn unread_native_mode(app: &TestApp) -> Option<razer_proto::NativeMode> {
-    let view = app.display_view_unread()?.unwrap();
-    Some(view.native_modes.iter().find(|o| o.selected).unwrap().mode)
+    let view = app.display_view_unread().unwrap();
+    Some(view.native_modes.iter().find(|o| o.selected)?.mode)
 }
 
 #[test]
@@ -56,6 +56,17 @@ fn a_failed_native_mode_read_leaves_none_for_a_view_without_a_read() {
     app.machine_mut().controller.native_fails = true;
 
     assert!(app.display_view().is_err());
+
+    assert_eq!(unread_native_mode(&app), None);
+}
+
+#[test]
+fn a_failed_native_mode_set_leaves_none_for_a_view_without_a_read() {
+    let (mut app, _dir, _) = app();
+    app.display_view().unwrap();
+    app.machine_mut().controller.fails_after = Some(0);
+
+    assert!(app.on_display(DisplayCommand::SetNativeMode(FHD)).is_err());
 
     assert_eq!(unread_native_mode(&app), None);
 }

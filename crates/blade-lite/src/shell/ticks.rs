@@ -105,10 +105,10 @@ impl<P: Parts> Shell<P> {
 
     /// The display view, with the native mode read only if
     /// [`heat_reads_allowed`](Self::heat_reads_allowed): else the one last
-    /// read or set, and `None` if none is known.
-    pub(super) fn display_view(&self, app: &mut AppOn<P>) -> Option<Result<DisplayView, AppError>> {
+    /// read or set, or none chosen if none is known.
+    pub(super) fn display_view(&self, app: &mut AppOn<P>) -> Result<DisplayView, AppError> {
         if self.heat_reads_allowed() {
-            Some(app.display_view())
+            app.display_view()
         } else {
             app.display_view_unread()
         }
@@ -154,7 +154,7 @@ impl<P: Parts> Shell<P> {
         if app.battery_rate_pending() {
             return;
         }
-        if let Some(Ok(view)) = self.display_view(&mut app) {
+        if let Ok(view) = self.display_view(&mut app) {
             bind::display(&self.window, &view);
         }
     }

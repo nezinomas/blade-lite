@@ -808,10 +808,11 @@ fn a_failed_click_shows_the_error_and_logs_it() {
     // Other tests fail the native mode read too, so the shared log check
     // shows only that such a line is logged, not that this test wrote it.
     f.shell.app().machine_mut().controller.native_fails = true;
+    let before = sent_count(&f);
 
-    click(f.shell.window(), Button, "60 Hz");
+    click(f.shell.window(), Button, "1920 × 1200, up to 440 Hz");
 
-    assert_eq!(f.shell.app().machine().displays.0.current.hz, 240);
+    assert_eq!(sent_since(&f, before), []);
     let error = f.shell.window().get_error();
     assert!(error.contains("busy"), "{error}");
     let log = std::fs::read_to_string(log_path()).unwrap();
