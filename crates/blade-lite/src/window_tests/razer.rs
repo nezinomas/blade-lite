@@ -7,12 +7,13 @@ use blade_core::{Config, RESUME_PAUSE};
 use i_slint_backend_testing::AccessibleRole::Button;
 use platform::PowerEvent;
 use razer_proto::NativeMode;
-use slint::Model;
+use slint::{ComponentHandle, Model};
 
 use super::{
     FAKE_ON_BATTERY, FAKE_REOPENED, Fixture, click, fixture, fixture_with_programs, log_path,
 };
 use crate::Choice;
+use crate::shell::note_open;
 
 const SYNAPSE: &str = "Razer Synapse Service";
 
@@ -75,26 +76,71 @@ fn razer_software_is_looked_for_after_a_resume() {
     assert!(f.shell.window().get_error().contains(SYNAPSE));
 }
 
+/// Opens the controller again, as a failed send would, ticks once, and
+/// lets the wake's pause pass. Returns what was sent in the pause.
+fn reopen_and_wait(f: &Fixture) -> usize {
+    f.shell.window().hide().unwrap();
+    let before = f.shell.app().machine().controller.sent.len();
+    FAKE_REOPENED.set(true);
+    f.shell.tick();
+    let in_pause = f.shell.app().machine().controller.sent.len() - before;
+    i_slint_backend_testing::mock_elapsed_time(RESUME_PAUSE + Duration::from_millis(1));
+    in_pause
+}
+
 #[test]
-fn razer_software_is_looked_for_after_the_controller_is_opened_again() {
+fn after_the_controller_is_opened_again_razer_software_shows_and_the_window_opens() {
     let f = fixture(Config::default());
     f.shell.programs().set(&[SYNAPSE]);
     f.shell.tick();
-    f.shell.refresh(None);
     assert_eq!(
         f.shell.window().get_error(),
         "",
         "no look without a new open"
     );
 
-    FAKE_REOPENED.set(true);
-    f.shell.tick();
-    f.shell.refresh(None);
+    assert_eq!(reopen_and_wait(&f), 0, "nothing is sent in the pause");
 
     assert!(f.shell.window().get_error().contains(SYNAPSE));
+    assert!(f.shell.window().window().is_visible());
     assert!(!FAKE_REOPENED.get(), "the flag is taken");
 }
 
+#[test]
+fn after_the_controller_is_opened_again_the_settings_are_sent_again() {
+    let f = fixture(Config::default());
+    let before = f.shell.app().machine().controller.sent.len();
+
+    assert_eq!(reopen_and_wait(&f), 0);
+
+    assert!(f.shell.app().machine().controller.sent.len() > before);
+    assert_eq!(f.shell.window().get_error(), "");
+    assert!(!f.shell.window().window().is_visible());
+}
+
+#[test]
+fn each_open_again_is_logged_and_each_new_failure_once() {
+    // Texts no other test uses, as the log is shared.
+    let gone = std::io::Error::other("ReopenLogTest gone");
+    let taken = std::io::Error::other("ReopenLogTest taken");
+    let lines = |text: &str| {
+        let log = std::fs::read_to_string(log_path()).unwrap();
+        log.lines().filter(|line| line.contains(text)).count()
+    };
+    let mut said = blade_lite::ShownErrors::default();
+
+    assert!(note_open(&mut said, Some(&gone)), "a first failure looks");
+    assert!(!note_open(&mut said, Some(&gone)), "the same one does not");
+    assert!(note_open(&mut said, Some(&taken)), "a new reason looks");
+    assert!(note_open(&mut said, None), "an open that works looks");
+    assert!(
+        note_open(&mut said, Some(&gone)),
+        "a failure after it looks"
+    );
+
+    assert_eq!(lines("ReopenLogTest gone"), 2);
+    assert_eq!(lines("ReopenLogTest taken"), 1);
+}
 /// The label chosen in `choices`.
 fn chosen(choices: &slint::ModelRc<Choice>) -> String {
     let chosen = choices.iter().find(|choice| choice.selected);

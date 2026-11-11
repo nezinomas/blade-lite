@@ -62,33 +62,47 @@ pub type PickedFile = Box<dyn FnOnce(io::Result<Option<PathBuf>>)>;
 /// The controller, opened again after its handle dies.
 pub type LaptopTransport = Reopening<HidTransport, fn() -> io::Result<HidTransport>>;
 
+/// How long a failed open again waits before the next try: each open lists
+/// every HID device, on the event-loop thread.
+pub const REOPEN_GAP: Duration = Duration::from_secs(5);
+
 thread_local! {
-    /// Whether [`reopen_controller`] opened the controller since the last
-    /// look. Both run on the event-loop thread.
+    /// Whether [`reopen_controller`] asked for a look since the last one.
+    /// Both run on the event-loop thread.
     static CONTROLLER_REOPENED: Cell<bool> = const { Cell::new(false) };
     /// The last failed open again, so each one is logged once.
     static REOPEN_ERRORS: RefCell<ShownErrors> = RefCell::new(ShownErrors::default());
 }
 
 /// Opens the controller again after its handle died (a driver install, the
-/// USB device going and coming back). A new open is logged, and each new
-/// reason it fails once.
+/// USB device going and coming back). See [`note_open`].
 pub fn reopen_controller() -> io::Result<HidTransport> {
     let opened = HidTransport::open(&BLADE_18);
-    let problem = match &opened {
-        Ok(_) => String::new(),
-        Err(error) => format!("can't open the controller again: {error}"),
-    };
-    REOPEN_ERRORS.with_borrow_mut(|said| {
-        if let Some(text) = said.new_text(&problem) {
-            report(text);
-        }
-    });
-    if opened.is_ok() {
-        report("the controller was opened again");
+    let look = REOPEN_ERRORS.with_borrow_mut(|said| note_open(said, opened.as_ref().err()));
+    if look {
         CONTROLLER_REOPENED.set(true);
     }
     opened
+}
+
+/// Logs an open again: each one that works, and each new reason one fails
+/// (`error`) once. Returns whether to look for Razer software and send the
+/// settings again, as after a wake: after each open that works, and the
+/// first failure of a run, since a Razer driver that took the controller
+/// makes every open fail.
+pub fn note_open(said: &mut ShownErrors, error: Option<&io::Error>) -> bool {
+    let problem = error.map_or_else(String::new, |error| {
+        format!("can't open the controller again: {error}")
+    });
+    let new = said.new_text(&problem).is_some();
+    if new {
+        report(&problem);
+    }
+    if error.is_none() {
+        report("the controller was opened again");
+        return true;
+    }
+    new
 }
 
 /// The real laptop.

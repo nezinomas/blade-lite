@@ -30,10 +30,7 @@ impl<P: Parts> Shell<P> {
     /// window tests give their own times.
     pub(crate) fn tick_at(self: &Rc<Self>, now: Instant, wall: SystemTime) {
         let failures = self.app.borrow().preset_failures();
-        // A driver install may be what killed the old handle.
-        if P::controller_reopened() && self.look_for_razer() {
-            self.show_window();
-        }
+        self.follow_reopen();
         self.follow_own_power();
         if self.resuming.get() == 0 && self.app.borrow().battery_rate_pending() {
             self.retry_battery_rate();
@@ -48,16 +45,36 @@ impl<P: Parts> Shell<P> {
         // then stays due, so the first tick after the pause reads it.
         if self.resuming.get() == 0 && self.schedule.borrow_mut().poll_due(now) {
             self.tick_readings(now);
-            if !self.follow_charger() {
-                self.resend_preset();
-            }
+            self.after_reads();
         } else if self.heat_reads_allowed() && self.schedule.borrow_mut().heat_due(now, wall) {
             self.tick_heat(now);
-            if !self.follow_charger() {
-                self.resend_preset();
-            }
+            self.after_reads();
         }
         self.preset_failures_seen.set(failures);
+    }
+
+    /// Follows the charger, or sends the preset again, unless a read just
+    /// opened the controller again: the wake's pause then comes first.
+    fn after_reads(self: &Rc<Self>) {
+        if self.follow_reopen() {
+            return;
+        }
+        if !self.follow_charger() {
+            self.resend_preset();
+        }
+    }
+
+    /// After the controller was opened again, or failed to open for a new
+    /// reason, acts as after a wake: nothing goes to the controller in the
+    /// pause, then Razer software is looked for (a Razer driver install
+    /// may be what killed the old handle) and the settings are sent again,
+    /// as the controller may have lost them. Returns whether it did.
+    fn follow_reopen(self: &Rc<Self>) -> bool {
+        let reopened = P::controller_reopened();
+        if reopened {
+            self.power_event(PowerEvent::Resumed);
+        }
+        reopened
     }
 
     /// Sends the preset that runs again if its last send failed, so the

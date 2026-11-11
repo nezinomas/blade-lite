@@ -45,7 +45,7 @@ use crate::background::{
     follow_the_power_key, follow_the_touchpad, on_battery_now, open_window_on_wake, power_events,
     watch_touchpad,
 };
-use crate::shell::{Laptop, Parts, Shell, reopen_controller};
+use crate::shell::{Laptop, Parts, REOPEN_GAP, Shell, reopen_controller};
 use crate::tray::Tray;
 use crate::tray_menu::{autostart_shown, on_tray};
 
@@ -140,7 +140,11 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     let config = Config::load(&config_path)?;
     let machine = Machine {
         controller: Device::new(
-            Reopening::new(open_controller()?, reopen_controller as fn() -> _),
+            Reopening::new(
+                open_controller()?,
+                reopen_controller as fn() -> _,
+                REOPEN_GAP,
+            ),
             SystemClock,
         ),
         displays: WindowsDisplays,
