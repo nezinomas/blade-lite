@@ -24,7 +24,8 @@ const SHOW_DELAY: Duration = Duration::from_millis(16);
 const SHOW_TRIES: u32 = 60;
 
 impl<P: Parts> Shell<P> {
-    /// Closing the window hides it, and the flyout hides when it loses focus.
+    /// Closing the window hides it, focusing it puts the brightness slider
+    /// back, and the flyout hides when it loses focus.
     pub fn watch_windows(self: &Rc<Self>) {
         let shell = Rc::downgrade(self);
         self.window.window().on_close_requested(move || {
@@ -42,6 +43,27 @@ impl<P: Parts> Shell<P> {
             }
             EventResult::Propagate
         });
+        let shell = Rc::downgrade(self);
+        self.window.window().on_winit_window_event(move |_, event| {
+            if let Some(shell) = shell.upgrade() {
+                shell.on_window_event(event);
+            }
+            EventResult::Propagate
+        });
+    }
+
+    /// The window brought back (restored, Alt+Tab) gets the focus.
+    pub fn on_window_event(&self, event: &winit::event::WindowEvent) {
+        if matches!(event, winit::event::WindowEvent::Focused(true)) {
+            self.put_back_brightness();
+        }
+    }
+
+    /// The window shown or focused shows the laptop's brightness, not a
+    /// Narrator set-value or a drag it lost while away.
+    fn put_back_brightness(&self) {
+        drop_lost_drag(self.window.window());
+        self.window.invoke_show_brightness();
     }
 
     pub fn show_window(self: &Rc<Self>) {
@@ -66,8 +88,7 @@ impl<P: Parts> Shell<P> {
             .borrow_mut()
             .show(View::Window, Instant::now());
         self.refresh(None);
-        drop_lost_drag(self.window.window());
-        self.window.invoke_show_brightness();
+        self.put_back_brightness();
     }
 
     /// Opens the flyout above the tray icon, or closes it if it is open.
@@ -175,8 +196,9 @@ impl<P: Parts> Shell<P> {
     }
 }
 
-/// Ends a drag the window lost (hidden before the mouse-up), so the next
-/// mouse move can't drag a slider of the shown window on. The Slider still
+/// Ends a drag the window lost (hidden, minimised or left by Alt+Tab before
+/// the mouse-up), so the next mouse move can't drag a slider of the shown
+/// window on. The Slider still
 /// thinks its handle is pressed, so a later mouse-up over it calls
 /// `released` with the value `show-brightness` set: the laptop's own, which
 /// `KeyboardView::move_brightness` skips, so nothing is sent.
