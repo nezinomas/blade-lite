@@ -1610,6 +1610,49 @@ fn a_wake_60_hz_refused_every_time_shows_only_the_last_error() {
     assert_eq!(f.shell.app().machine().displays.0.current.hz, 240);
 }
 
+/// A switch to battery whose 60 Hz Windows refuses `refusals` times,
+/// passed on by one tick.
+fn switched_with_60_hz_refused(refusals: usize) -> Fixture {
+    let f = fixture(Config {
+        sixty_hz_on_battery: true,
+        ..Config::default()
+    });
+    FAKE_ON_BATTERY.set(true);
+    let (sender, receiver) = std::sync::mpsc::channel();
+    f.shell.listen_for_power(receiver);
+    f.shell.app().machine_mut().displays.1 = refusals;
+    sender.send(PowerEvent::OnBattery).unwrap();
+    f.shell.tick();
+    f
+}
+
+#[test]
+fn a_switch_60_hz_refused_is_set_on_the_next_tick_with_no_error() {
+    let f = switched_with_60_hz_refused(1);
+    // Not tried again in the tick that was refused.
+    assert_eq!(f.shell.app().machine().displays.0.current.hz, 240);
+    assert_eq!(f.shell.window().get_error(), "");
+
+    f.shell.tick();
+
+    assert_eq!(f.shell.app().machine().displays.0.current.hz, 60);
+    assert_eq!(f.shell.window().get_error(), "");
+}
+
+#[test]
+fn a_switch_60_hz_refused_every_time_shows_only_the_last_error() {
+    let f = switched_with_60_hz_refused(usize::MAX);
+
+    for _ in 1..blade_core::RESUME_RATE_TRIES {
+        f.shell.tick();
+        assert_eq!(f.shell.window().get_error(), "");
+    }
+    f.shell.tick();
+
+    assert!(f.shell.window().get_error().contains("refresh rate"));
+    assert_eq!(f.shell.app().machine().displays.0.current.hz, 240);
+}
+
 #[test]
 fn a_typed_custom_colour_sends_and_saves_it_on_enter() {
     let f = fixture(Config::default());

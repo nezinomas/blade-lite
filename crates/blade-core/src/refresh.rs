@@ -26,6 +26,16 @@ pub enum DisplayError {
     Set(io::Error),
 }
 
+impl DisplayError {
+    /// Whether the same set may work a few seconds later: Windows refused
+    /// it or could not list the displays. A rate the panel does not offer,
+    /// or no active panel, stays so.
+    #[must_use]
+    pub fn may_work_later(&self) -> bool {
+        matches!(self, Self::Set(_) | Self::Query(_))
+    }
+}
+
 /// The rates the panel offers at its current resolution, lowest first.
 /// External monitors are never looked at.
 ///

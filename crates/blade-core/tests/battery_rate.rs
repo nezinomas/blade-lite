@@ -165,6 +165,77 @@ fn a_60_hz_refused_at_a_wake_with_no_saved_rate_is_tried_again() {
 }
 
 #[test]
+fn a_60_hz_refused_at_a_switch_to_battery_is_an_error_and_tried_again() {
+    let mut api = panel_at(240);
+    let mut battery_rate = BatteryRate::default();
+    api.failing_sets = 1;
+
+    let switched = battery_rate.on_event(PowerEvent::OnBattery, &config(true), &mut api);
+    assert!(switched.is_err());
+    assert!(battery_rate.retry_pending());
+    battery_rate.retry(&config(true), &mut api).unwrap();
+    battery_rate.retry(&config(true), &mut api).unwrap();
+
+    assert_eq!(api.panel_mode(), mode(3840, 2400, 60));
+    assert!(!battery_rate.retry_pending());
+}
+
+#[test]
+fn the_first_poll_after_a_refused_switch_sends_nothing() {
+    // The poll may come at once; a set seconds later is the one that works.
+    let mut api = panel_at(240);
+    let mut battery_rate = BatteryRate::default();
+    api.failing_sets = 1;
+    let _ = battery_rate.on_event(PowerEvent::OnBattery, &config(true), &mut api);
+    let before = api.set.len();
+
+    battery_rate.retry(&config(true), &mut api).unwrap();
+
+    assert_eq!(api.set.len(), before);
+    assert!(battery_rate.retry_pending());
+}
+
+#[test]
+fn a_failed_display_read_at_a_switch_is_tried_again() {
+    let mut api = FakeDisplays::new(None);
+    let mut battery_rate = BatteryRate::default();
+
+    let switched = battery_rate.on_event(PowerEvent::OnBattery, &config(true), &mut api);
+    assert!(matches!(switched, Err(DisplayError::Query(_))));
+    api.displays = Some(vec![panel(mode(3840, 2400, 240))]);
+    battery_rate.retry(&config(true), &mut api).unwrap();
+    battery_rate.retry(&config(true), &mut api).unwrap();
+
+    assert_eq!(api.panel_mode(), mode(3840, 2400, 60));
+}
+
+#[test]
+fn a_60_hz_the_panel_does_not_offer_at_a_switch_starts_no_tries() {
+    // Trying again can't make the panel offer it.
+    let mut no_60 = panel(mode(3840, 2400, 240));
+    no_60.modes.retain(|mode| mode.hz != 60);
+    let mut api = FakeDisplays::new(Some(vec![no_60]));
+    let mut battery_rate = BatteryRate::default();
+
+    let switched = battery_rate.on_event(PowerEvent::OnBattery, &config(true), &mut api);
+
+    assert!(matches!(switched, Err(DisplayError::Unsupported(_))));
+    assert!(!battery_rate.retry_pending());
+}
+
+#[test]
+fn a_switch_to_battery_with_no_panel_active_starts_no_tries() {
+    // The lid shut, a monitor only.
+    let mut api = FakeDisplays::new(Some(vec![]));
+    let mut battery_rate = BatteryRate::default();
+
+    let switched = battery_rate.on_event(PowerEvent::OnBattery, &config(true), &mut api);
+
+    assert!(matches!(switched, Err(DisplayError::NoInternalPanel)));
+    assert!(!battery_rate.retry_pending());
+}
+
+#[test]
 fn a_resume_on_battery_with_no_panel_active_and_no_saved_rate_is_not_an_error() {
     // The lid shut, a monitor only.
     let mut api = FakeDisplays::new(Some(vec![]));

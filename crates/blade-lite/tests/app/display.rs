@@ -117,6 +117,25 @@ fn turning_it_on_on_battery_when_60_hz_fails_keeps_it_off() {
 }
 
 #[test]
+fn turning_it_on_on_battery_when_60_hz_is_refused_keeps_it_off_with_no_tries() {
+    let (mut app, _dir, _) = app();
+    app.on_power(PowerEvent::OnBattery).unwrap();
+    app.machine_mut().displays.1 = 1;
+
+    assert!(
+        app.on_display(DisplayCommand::SetSixtyHzOnBattery(true))
+            .is_err()
+    );
+    let before = app.machine().displays.1;
+    app.retry_battery_rate().unwrap();
+
+    assert!(!app.config().sixty_hz_on_battery);
+    assert!(!app.battery_rate_pending());
+    assert_eq!(app.machine().displays.1, before);
+    assert_eq!(panel_hz(&app), 240);
+}
+
+#[test]
 fn the_switch_flips_the_saved_value() {
     let (mut app, _dir, path) = app();
 
