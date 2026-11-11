@@ -69,7 +69,7 @@ where
         let red = self.key_should_be_red();
         let applied = apply(&running, self.model, &mut self.machine.controller, red);
         self.key_red = applied.is_ok().then_some(red);
-        self.note_preset_send(applied.is_ok());
+        self.note_preset_send(&applied);
         self.read_logo();
         applied?;
         // The switch goes through the click's path, which keeps it off if

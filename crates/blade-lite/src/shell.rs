@@ -164,7 +164,7 @@ pub struct Shell<P: Parts = Laptop> {
     /// paints it). A change of power source waits for the resume, which
     /// reads it (ticket 88).
     resuming: Cell<u32>,
-    /// The app's count of failed preset sends at the end of the last tick.
+    /// The app's count of failed preset sends at the start of the last tick.
     /// A poll sends the preset again only while it is unchanged, so never
     /// in the tick of a failure or the one after it.
     preset_failures_seen: Cell<u32>,

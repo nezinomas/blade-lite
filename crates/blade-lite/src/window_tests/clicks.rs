@@ -1642,3 +1642,51 @@ fn with_no_power_events_an_unknown_source_changes_nothing() {
     assert_eq!(sent_since(&f, sent), []);
     assert!(!f.shell.app().on_battery());
 }
+
+/// A heat read `n` intervals after `start`, as with no view open.
+fn heat_read(f: &Fixture, start: (Instant, SystemTime), n: u32) {
+    let later = blade_core::HEAT_INTERVAL * n;
+    f.shell.tick_at(start.0 + later, start.1 + later);
+}
+
+#[test]
+fn a_switch_that_fails_in_a_tick_waits_out_the_next_tick_too() {
+    let f = fixture(Config {
+        preset: Preset::Performance,
+        ..Config::default()
+    });
+    let (sender, receiver) = std::sync::mpsc::channel();
+    f.shell.listen_for_power(receiver);
+    FAKE_ON_BATTERY.set(true);
+    sender.send(PowerEvent::OnBattery).unwrap();
+    f.shell.app().machine_mut().controller.fails = true;
+    let start = (Instant::now(), SystemTime::now());
+    heat_read(&f, start, 0);
+    f.shell.app().machine_mut().controller.fails = false;
+    let sent = sent_count(&f);
+
+    heat_read(&f, start, 1);
+    assert_eq!(sent_since(&f, sent), []);
+    heat_read(&f, start, 2);
+
+    let balanced = PerfMode::Balanced.commands(&BLADE_18).unwrap();
+    assert_eq!(sent_since(&f, sent), balanced);
+}
+
+#[test]
+fn a_failed_resend_waits_out_the_next_poll() {
+    let f = failed_switch_fixture();
+    let start = (Instant::now(), SystemTime::now());
+    heat_read(&f, start, 0);
+    f.shell.app().machine_mut().controller.fails = true;
+    heat_read(&f, start, 1);
+    f.shell.app().machine_mut().controller.fails = false;
+    let sent = sent_count(&f);
+
+    heat_read(&f, start, 2);
+    assert_eq!(sent_since(&f, sent), []);
+    heat_read(&f, start, 3);
+
+    let balanced = PerfMode::Balanced.commands(&BLADE_18).unwrap();
+    assert_eq!(sent_since(&f, sent), balanced);
+}

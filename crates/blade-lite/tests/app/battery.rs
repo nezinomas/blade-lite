@@ -488,7 +488,7 @@ fn a_resume_on_ac_after_the_rate_was_put_back_sends_no_rate() {
 }
 
 #[test]
-fn a_resume_with_an_unknown_source_stops_the_60_hz_tries() {
+fn a_resume_with_an_unknown_source_pauses_the_60_hz_tries() {
     let (mut app, _dir, before) = on_battery_at_60_hz();
     // Windows puts the rate back in the wake, and refuses the next set.
     app.machine_mut().displays.0.current.hz = before;
@@ -503,4 +503,34 @@ fn a_resume_with_an_unknown_source_stops_the_60_hz_tries() {
     app.retry_battery_rate().unwrap();
 
     assert_eq!(panel_hz(&app), before);
+}
+
+#[test]
+fn a_known_read_that_matches_follows_the_rate_again_at_a_wake() {
+    let (mut app, _dir, _) = app_with(Config {
+        sixty_hz_on_battery: true,
+        ..Config::default()
+    });
+    app.take_on_battery(None);
+    app.source_read(true);
+
+    app.on_power(PowerEvent::Resumed).unwrap();
+
+    assert_eq!(panel_hz(&app), 60);
+}
+
+#[test]
+fn a_value_refused_before_any_send_is_not_sent_again() {
+    let (mut app, _dir, _) = app_with(Config {
+        preset: Preset::Custom,
+        ..Config::default()
+    });
+
+    assert!(
+        app.on_performance(PerformanceCommand::SetCpuBoost(200))
+            .is_err()
+    );
+
+    assert!(!app.resend_preset().unwrap());
+    assert_eq!(sent(&app), []);
 }

@@ -33,7 +33,7 @@ where
         let red = self.key_should_be_red();
         let applied = apply(&config, self.model, &mut self.machine.controller, red);
         self.key_red = applied.is_ok().then_some(red);
-        self.note_preset_send(applied.is_ok());
+        self.note_preset_send(&applied);
         self.read_logo();
         Ok(applied?)
     }
@@ -213,6 +213,10 @@ where
         let config = self.running(self.config);
         let applied = apply_performance(&config, self.model, &mut self.machine.controller);
         self.preset_unsure = applied.is_err();
+        if applied.is_err() {
+            // The next poll waits too, but the tries left stay.
+            self.preset_failures = self.preset_failures.wrapping_add(1);
+        }
         applied?;
         Ok(true)
     }
@@ -223,7 +227,7 @@ where
         let config = self.running(self.config);
         if config.preset != before || self.preset_unsure {
             let applied = apply_performance(&config, self.model, &mut self.machine.controller);
-            self.note_preset_send(applied.is_ok());
+            self.note_preset_send(&applied);
             applied?;
         }
         Ok(())

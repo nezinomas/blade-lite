@@ -19,8 +19,8 @@ impl<P: Parts> Shell<P> {
     /// Passes on power events, tries a wake's refused 60 Hz again, passes
     /// on Num Lock, then reads the sensors if a view shows them, or only
     /// the temperatures now and then if none does. Each such read also
-    /// reads the charger, and sends the preset again if a send before this
-    /// tick failed and nothing was sent since.
+    /// reads the charger, and sends the preset again if a send failed
+    /// before the last tick began and none failed since.
     pub fn tick(self: &Rc<Self>) {
         self.tick_at(Instant::now(), SystemTime::now());
     }
@@ -28,6 +28,7 @@ impl<P: Parts> Shell<P> {
     /// [`tick`](Self::tick) at `now`, with the wall clock at `wall`. The
     /// window tests give their own times.
     pub(crate) fn tick_at(self: &Rc<Self>, now: Instant, wall: SystemTime) {
+        let failures = self.app.borrow().preset_failures();
         self.follow_own_power();
         if self.resuming.get() == 0 && self.app.borrow().battery_rate_pending() {
             self.retry_battery_rate();
@@ -49,7 +50,6 @@ impl<P: Parts> Shell<P> {
                 self.resend_preset();
             }
         }
-        let failures = self.app.borrow().preset_failures();
         self.preset_failures_seen.set(failures);
     }
 
@@ -232,6 +232,7 @@ impl<P: Parts> Shell<P> {
             return;
         };
         if on_battery == self.app.borrow().on_battery() {
+            self.app.borrow_mut().source_read(on_battery);
             return;
         }
         self.power_event(if on_battery {

@@ -10,8 +10,8 @@ mod views;
 use std::path::PathBuf;
 
 use blade_core::{
-    BatteryRate, Config, Controller, Lighting, Query, charge_limit_on, full_power_charger, logo_on,
-    touchpad_on,
+    ApplyError, BatteryRate, Config, Controller, Lighting, Query, charge_limit_on,
+    full_power_charger, logo_on, touchpad_on,
 };
 use platform::{DisplayApi, KeyInjector, Registry};
 use razer_proto::{ModelProfile, RedKey, RedKeys, Rgb};
@@ -102,8 +102,8 @@ pub struct App<C, D, R, K> {
     preset_unsure: bool,
     /// The polls left to send the preset again after a failed send.
     resends_left: u8,
-    /// How many starts, preset changes and switches failed, so the shell
-    /// can wait a poll after each.
+    /// How many preset sends failed (resends too), so the shell can wait a
+    /// poll after each.
     preset_failures: u32,
     /// Whether the power source was known at the last read. An unknown one
     /// runs the battery presets, but leaves the rate alone at a wake.
@@ -205,11 +205,19 @@ where
     /// [`start`](Self::start), so a start on battery sends the battery
     /// preset, not the saved one. `None` (unknown) counts as battery.
     pub fn take_on_battery(&mut self, on_battery: Option<bool>) {
-        if on_battery.is_none() {
+        if on_battery.is_none() && self.source_known {
             report("the battery presets run");
         }
         self.power = Power::from_battery(on_battery.unwrap_or(true));
         self.source_known = on_battery.is_some();
+    }
+
+    /// Notes a known read that matches the source the app follows, so a
+    /// wake after it follows the rate again. Nothing is sent.
+    pub fn source_read(&mut self, on_battery: bool) {
+        if on_battery == self.on_battery() {
+            self.source_known = true;
+        }
     }
 
     /// Whether the last preset send failed, so the controller may not run
@@ -219,9 +227,11 @@ where
         self.preset_unsure
     }
 
-    /// Notes a start, preset change or switch: a failed one is sent again
-    /// on the next few polls.
-    fn note_preset_send(&mut self, sent: bool) {
+    /// Notes a start, preset change or switch: one the controller may have
+    /// taken in part is sent again on the next few polls. A value refused
+    /// before anything was sent leaves the controller as it was.
+    fn note_preset_send(&mut self, applied: &Result<(), ApplyError>) {
+        let sent = !matches!(applied, Err(ApplyError::Device(_)));
         self.preset_unsure = !sent;
         self.resends_left = RESEND_TRIES;
         if !sent {
@@ -229,7 +239,7 @@ where
         }
     }
 
-    /// How many starts, preset changes and switches failed so far.
+    /// How many preset sends failed so far, resends too.
     #[must_use]
     pub fn preset_failures(&self) -> u32 {
         self.preset_failures
