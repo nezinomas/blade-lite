@@ -340,6 +340,8 @@ fn a_switch_60_hz_the_panel_does_not_offer_is_shown_with_a_wake_s_tries_left() {
         .retain(|mode| mode.hz != 60);
 
     assert!(app.on_power(PowerEvent::OnBattery).is_err());
+    // Trying again can't make the panel offer it, so it is not shown twice.
+    assert!(!app.battery_rate_pending());
 }
 
 #[test]
