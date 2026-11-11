@@ -11,7 +11,7 @@ use platform::{Key, PowerEvent};
 use razer_proto::{BLADE_18, Celsius, Charger, Command, PerfMode, Rgb, static_colour};
 use slint::platform::{PointerEventButton, WindowEvent};
 use slint::winit_030::winit::event::WindowEvent as WinitEvent;
-use slint::{ComponentHandle, LogicalPosition};
+use slint::{ComponentHandle, LogicalPosition, Model};
 
 use super::{
     FAKE_MIC, FAKE_ON_BATTERY, Fixture, click, control, fixture, log_path, selected_preset,
@@ -126,6 +126,47 @@ fn a_native_mode_click_sends_that_mode() {
     click(f.shell.window(), Button, "1920 × 1200, up to 440 Hz");
 
     assert_eq!(sent_since(&f, before), [BLADE_18.native_modes[1].command()]);
+}
+
+/// A byte for no native mode of the Blade 18.
+const UNKNOWN_NATIVE: u8 = 0x7F;
+
+#[test]
+fn a_native_mode_the_model_lacks_shows_the_rates_unknown_and_the_error() {
+    let f = fixture(Config::default());
+    f.shell.app().machine_mut().controller.native_byte = UNKNOWN_NATIVE;
+    f.shell.app().machine_mut().displays.0.current.hz = 120;
+
+    f.shell.refresh(None);
+
+    for rates in [f.shell.window().get_rates(), f.shell.flyout().get_rates()] {
+        let chosen = rates.iter().find(|rate| rate.selected).unwrap();
+        assert_eq!(chosen.label, "120 Hz");
+    }
+    let natives = f.shell.window().get_native_modes();
+    assert!(natives.row_count() > 0);
+    assert!(natives.iter().all(|choice| !choice.selected));
+    assert_eq!(f.shell.window().get_native_note(), "Unknown");
+    let error = f.shell.window().get_error();
+    assert!(error.contains("native mode the model lacks"), "{error}");
+}
+
+#[test]
+fn a_native_mode_click_sends_nothing_while_the_chosen_mode_is_unknown() {
+    let f = fixture(Config::default());
+    f.shell.app().machine_mut().controller.native_byte = UNKNOWN_NATIVE;
+    f.shell.refresh(None);
+    let before = sent_count(&f);
+
+    click(f.shell.window(), Button, "1920 × 1200, up to 440 Hz");
+
+    assert_eq!(sent_since(&f, before), []);
+    let error = f.shell.window().get_error();
+    assert_eq!(
+        error.matches("native mode the model lacks").count(),
+        1,
+        "{error}"
+    );
 }
 
 #[test]
