@@ -37,6 +37,8 @@ use platform::{
 };
 use razer_device::{Device, HidTransport, SystemClock};
 use razer_proto::{BLADE_18, Rgb};
+use slint::winit_030::winit::platform::windows::WindowAttributesExtWindows;
+use slint::winit_030::winit::window::{BadIcon, Icon};
 use slint::{Timer, TimerMode};
 
 use crate::background::{
@@ -54,6 +56,9 @@ const DEFAULT_ACCENT: Rgb = {
     let [red, green, blue] = icon::DEFAULT_ACCENT;
     Rgb::new(red, green, blue)
 };
+
+/// The window icon's size in pixels, big enough for the taskbar at 200%.
+const WINDOW_ICON_SIZE: u16 = 64;
 
 thread_local! {
     /// The shell, for the tray's handlers on the event-loop thread.
@@ -84,6 +89,15 @@ fn open_controller() -> Result<HidTransport, Box<dyn std::error::Error>> {
     })
 }
 
+/// The tray's icon in the accent colour, for the title bars and the taskbar.
+/// Given to winit as each window is made: Slint's `icon` property drops a
+/// picture made from pixels (it has no cache key, so it looks unchanged).
+fn window_icon(accent: Rgb) -> Result<Icon, BadIcon> {
+    let pixels = icon::pixels([accent.red, accent.green, accent.blue], WINDOW_ICON_SIZE);
+    let size = WINDOW_ICON_SIZE.into();
+    Icon::from_rgba(pixels, size, size)
+}
+
 fn run() -> Result<(), Box<dyn std::error::Error>> {
     // With no APPDATA there is no log: this error goes to stderr only.
     let appdata = PathBuf::from(std::env::var_os("APPDATA").ok_or("no APPDATA")?);
@@ -100,13 +114,19 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         return Ok(());
     }
 
+    let accent = accent_colour(&WindowsRegistry).unwrap_or(DEFAULT_ACCENT);
+    let window_icon = window_icon(accent)?;
     slint::BackendSelector::new()
         .backend_name("winit".into())
-        .with_winit_window_attributes_hook(|attributes| {
+        .with_winit_window_attributes_hook(move |attributes| {
             // Inactive: winit then shows each window without the focus,
             // each time, which the power mode popup needs. The window and
             // the flyout ask for the focus after each show.
-            attributes.with_transparent(true).with_active(false)
+            attributes
+                .with_transparent(true)
+                .with_active(false)
+                .with_window_icon(Some(window_icon.clone()))
+                .with_taskbar_icon(Some(window_icon.clone()))
         })
         .select()?;
 
@@ -128,12 +148,9 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     let touchpad = watch_touchpad();
     let started = app.start();
 
-    let accent = accent_colour(&WindowsRegistry).unwrap_or(DEFAULT_ACCENT);
     let window = MainWindow::new()?;
     let flyout = FlyoutWindow::new()?;
     let popup = ModePopup::new()?;
-    window.set_app_icon(bind::icon(accent));
-    flyout.set_app_icon(bind::icon(accent));
     window.set_accent(bind::colour(accent));
     flyout.set_accent(bind::colour(accent));
     popup.set_accent(bind::colour(accent));

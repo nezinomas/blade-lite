@@ -4,7 +4,7 @@
 use std::rc::{Rc, Weak};
 
 use razer_proto::Rgb;
-use slint::{Image, ModelRc, SharedPixelBuffer, SharedString, VecModel};
+use slint::{ModelRc, SharedString, VecModel};
 use ui::{DisplayView, FlyoutView, Header, KeyboardView, PerformanceView, PresetOption};
 
 use crate::shell::{AppOn, Parts, Shell};
@@ -12,16 +12,6 @@ use crate::{Choice, FlyoutWindow, MainWindow, SliderRow, Stat, SwatchItem};
 
 pub fn colour(rgb: Rgb) -> slint::Color {
     slint::Color::from_rgb_u8(rgb.red, rgb.green, rgb.blue)
-}
-
-/// The window icon's size in pixels, big enough for the taskbar at 200%.
-pub const ICON_SIZE: u16 = 64;
-
-/// The tray's icon in the accent colour, for the window and the taskbar.
-pub fn icon(rgb: Rgb) -> Image {
-    let pixels = blade_lite::icon::pixels([rgb.red, rgb.green, rgb.blue], ICON_SIZE);
-    let size = ICON_SIZE.into();
-    Image::from_rgba8(SharedPixelBuffer::clone_from_slice(&pixels, size, size))
 }
 
 fn model<T: Clone + 'static>(items: impl IntoIterator<Item = T>) -> ModelRc<T> {
