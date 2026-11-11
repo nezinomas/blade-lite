@@ -19,8 +19,8 @@ impl<P: Parts> Shell<P> {
     /// Passes on power events, tries a wake's refused 60 Hz again, passes
     /// on Num Lock, then reads the sensors if a view shows them, or only
     /// the temperatures now and then if none does. Each such read also
-    /// reads the charger, and sends the preset again if its last send
-    /// failed.
+    /// reads the charger, and sends the preset again if a send before this
+    /// tick failed and nothing was sent since.
     pub fn tick(self: &Rc<Self>) {
         self.tick_at(Instant::now(), SystemTime::now());
     }
@@ -28,6 +28,9 @@ impl<P: Parts> Shell<P> {
     /// [`tick`](Self::tick) at `now`, with the wall clock at `wall`. The
     /// window tests give their own times.
     pub(crate) fn tick_at(self: &Rc<Self>, now: Instant, wall: SystemTime) {
+        // A send that fails in this tick is not sent again at once: the
+        // controller may still run it.
+        let unsure = self.app.borrow().preset_unsure();
         self.follow_own_power();
         if self.resuming.get() == 0 && self.app.borrow().battery_rate_pending() {
             self.retry_battery_rate();
@@ -40,12 +43,14 @@ impl<P: Parts> Shell<P> {
         }
         if self.schedule.borrow_mut().poll_due(now) {
             self.tick_readings(now);
-            self.follow_charger();
-            self.resend_preset();
+            if !self.follow_charger() && unsure {
+                self.resend_preset();
+            }
         } else if self.heat_reads_allowed() && self.schedule.borrow_mut().heat_due(now, wall) {
             self.tick_heat(now);
-            self.follow_charger();
-            self.resend_preset();
+            if !self.follow_charger() && unsure {
+                self.resend_preset();
+            }
         }
     }
 
@@ -66,15 +71,17 @@ impl<P: Parts> Shell<P> {
     /// Sends the preset that runs if a weak charge came or went, such as a
     /// USB-C monitor plugged in while the Razer charger is pulled (Windows
     /// sees no power change then). Not while a resume waits or Razer's
-    /// software runs, as for the heat reads.
-    fn follow_charger(self: &Rc<Self>) {
+    /// software runs, as for the heat reads. Returns whether it acted.
+    fn follow_charger(self: &Rc<Self>) -> bool {
         if !self.heat_reads_allowed() {
-            return;
+            return false;
         }
         let changed = self.app.borrow_mut().follow_charger();
-        if !matches!(changed, Ok(false)) {
+        let acted = !matches!(changed, Ok(false));
+        if acted {
             self.act(|_| changed.map(|_| ()));
         }
+        acted
     }
 
     /// Whether the controller may be read in the background: not while a
@@ -214,9 +221,13 @@ impl<P: Parts> Shell<P> {
     }
 
     /// Passes on a change of the power source read now as its event, for
-    /// when no power events come. A wake is not seen then.
+    /// when no power events come. An unknown read changes nothing, so a
+    /// read that flickers to unknown does not switch the preset back and
+    /// forth. A wake is not seen then.
     fn follow_source(self: &Rc<Self>) {
-        let on_battery = P::on_battery();
+        let Some(on_battery) = P::on_battery() else {
+            return;
+        };
         if on_battery == self.app.borrow().on_battery() {
             return;
         }

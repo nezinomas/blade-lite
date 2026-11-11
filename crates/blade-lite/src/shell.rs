@@ -37,8 +37,9 @@ pub trait Parts: 'static {
     type Keys: KeyInjector;
     /// What runs, to look for Razer's own software. Read only.
     type Programs: Programs + Default;
-    /// Whether the laptop runs on its battery now. Read only.
-    fn on_battery() -> bool;
+    /// Whether the laptop runs on its battery now; `None` if Windows can't
+    /// tell. Read only.
+    fn on_battery() -> Option<bool>;
     /// Asks the user for a file in the `dialog` over the `owner` window,
     /// then calls `done` on the app's thread with the file, `None` if the
     /// user cancels, or the dialog's error. The app keeps running while
@@ -64,7 +65,7 @@ impl Parts for Laptop {
     type Keys = WindowsKeys;
     type Programs = WindowsPrograms;
 
-    fn on_battery() -> bool {
+    fn on_battery() -> Option<bool> {
         crate::background::on_battery_now()
     }
 

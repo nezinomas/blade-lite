@@ -20,6 +20,10 @@ pub use error::{AppError, took_effect};
 
 use crate::report;
 
+/// How many polls send the preset again after a failed send. Then the
+/// next power event or change sends it.
+pub const RESEND_TRIES: u8 = 3;
+
 /// What the window shows before the user sets the lighting.
 const DEFAULT_LIGHTING: Lighting = Lighting {
     brightness: 100,
@@ -96,6 +100,11 @@ pub struct App<C, D, R, K> {
     /// may also be a lighting send; a resend then does no harm). The next
     /// poll or power event sends it, even if the source is the same.
     preset_unsure: bool,
+    /// The polls left to send the preset again after a failed send.
+    resends_left: u8,
+    /// Whether the power source was known at the last read. An unknown one
+    /// runs the battery presets, but leaves the rate alone at a wake.
+    source_known: bool,
     /// The lid logo state, read after the settings are sent at start and
     /// after each resume. `None` if the model has none or it could not be
     /// read.
@@ -140,6 +149,8 @@ where
             battery_rate: BatteryRate::default(),
             power: Power::Charger,
             preset_unsure: false,
+            resends_left: 0,
+            source_known: true,
             logo_on: None,
             charge_limit_on: None,
             key_red: None,
@@ -188,9 +199,24 @@ where
 
     /// Takes the power source without sending, for use before
     /// [`start`](Self::start), so a start on battery sends the battery
-    /// preset, not the saved one.
-    pub fn take_on_battery(&mut self, on_battery: bool) {
-        self.power = Power::from_battery(on_battery);
+    /// preset, not the saved one. `None` (unknown) counts as battery.
+    pub fn take_on_battery(&mut self, on_battery: Option<bool>) {
+        self.power = Power::from_battery(on_battery.unwrap_or(true));
+        self.source_known = on_battery.is_some();
+    }
+
+    /// Whether the last preset send failed, so the controller may not run
+    /// the preset the app shows.
+    #[must_use]
+    pub fn preset_unsure(&self) -> bool {
+        self.preset_unsure
+    }
+
+    /// Notes a start, preset change or switch: a failed one is sent again
+    /// on the next few polls.
+    fn note_preset_send(&mut self, sent: bool) {
+        self.preset_unsure = !sent;
+        self.resends_left = RESEND_TRIES;
     }
 
     /// Which keys should be red. If the touchpad state can't be read, its

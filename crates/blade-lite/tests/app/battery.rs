@@ -175,7 +175,7 @@ fn a_start_on_battery_sends_balanced_for_a_saved_custom_fan() {
         },
         ..Config::default()
     });
-    app.take_on_battery(true);
+    app.take_on_battery(Some(true));
 
     app.start().unwrap();
 
@@ -197,7 +197,7 @@ fn a_start_on_battery_sends_balanced_for_a_saved_custom_fan() {
 #[test]
 fn the_power_event_after_a_start_on_battery_sends_nothing() {
     let (mut app, _dir, _) = performance_app();
-    app.take_on_battery(true);
+    app.take_on_battery(Some(true));
     app.start().unwrap();
     app.machine_mut().controller.sent.clear();
 
@@ -209,7 +209,7 @@ fn the_power_event_after_a_start_on_battery_sends_nothing() {
 #[test]
 fn an_ac_event_after_a_start_taken_as_battery_sends_the_saved_preset_once() {
     let (mut app, _dir, _) = performance_app();
-    app.take_on_battery(true);
+    app.take_on_battery(Some(true));
     app.start().unwrap();
     app.machine_mut().controller.sent.clear();
 
@@ -225,7 +225,7 @@ fn an_ac_event_after_a_start_taken_as_battery_sends_the_saved_preset_once() {
 #[test]
 fn a_resume_taken_as_battery_sends_balanced_for_a_saved_performance() {
     let (mut app, _dir, _) = performance_app();
-    app.take_on_battery(true);
+    app.take_on_battery(Some(true));
 
     app.on_power(PowerEvent::Resumed).unwrap();
 
@@ -246,7 +246,7 @@ fn a_resume_taken_as_battery_sends_balanced_for_a_saved_performance() {
 #[test]
 fn a_power_event_sends_again_after_a_failed_start() {
     let (mut app, _dir, _) = performance_app();
-    app.take_on_battery(true);
+    app.take_on_battery(Some(true));
     app.machine_mut().controller.fails = true;
     assert!(app.start().is_err());
     app.machine_mut().controller.fails = false;
@@ -313,7 +313,7 @@ fn on_battery_at_60_hz() -> (crate::fakes::TestApp, tempfile::TempDir, u32) {
 fn a_resume_on_ac_puts_the_rate_back() {
     // The charger went in during the sleep, before its power event.
     let (mut app, _dir, before) = on_battery_at_60_hz();
-    app.take_on_battery(false);
+    app.take_on_battery(Some(false));
 
     app.on_power(PowerEvent::Resumed).unwrap();
 
@@ -327,7 +327,7 @@ fn a_resume_on_a_new_battery_sets_60_hz() {
         sixty_hz_on_battery: true,
         ..Config::default()
     });
-    app.take_on_battery(true);
+    app.take_on_battery(Some(true));
 
     app.on_power(PowerEvent::Resumed).unwrap();
 
@@ -398,7 +398,7 @@ fn a_custom_send_cut_before_the_fan_is_sent_whole_on_the_next_poll() {
     blade_core::apply_performance(&config, &BLADE_18, &mut whole).unwrap();
     let fan_at = whole.sent.iter().position(|c| c.id == SET_FAN).unwrap();
     let (mut app, _dir, _) = app_with(config);
-    app.take_on_battery(true);
+    app.take_on_battery(Some(true));
     app.start().unwrap();
     app.machine_mut().controller.sent.clear();
     // The mode write goes, the fan target does not.
@@ -411,4 +411,78 @@ fn a_custom_send_cut_before_the_fan_is_sent_whole_on_the_next_poll() {
     assert!(app.resend_preset().unwrap());
 
     assert_eq!(sent(&app), whole.sent);
+}
+
+#[test]
+fn the_poll_sends_again_only_a_few_times() {
+    let (mut app, _dir, _) = performance_app();
+    app.machine_mut().controller.fails = true;
+    assert!(app.on_power(PowerEvent::OnBattery).is_err());
+    for _ in 0..blade_lite::RESEND_TRIES {
+        assert!(app.resend_preset().is_err());
+    }
+    app.machine_mut().controller.fails = false;
+
+    assert!(!app.resend_preset().unwrap());
+
+    assert_eq!(sent(&app), []);
+    assert!(app.preset_unsure());
+}
+
+#[test]
+fn a_new_failure_gives_the_poll_its_tries_again() {
+    let (mut app, _dir, _) = performance_app();
+    app.machine_mut().controller.fails = true;
+    assert!(app.on_power(PowerEvent::OnBattery).is_err());
+    for _ in 0..blade_lite::RESEND_TRIES {
+        assert!(app.resend_preset().is_err());
+    }
+    assert!(app.on_power(PowerEvent::OnBattery).is_err());
+    app.machine_mut().controller.fails = false;
+
+    assert!(app.resend_preset().unwrap());
+}
+
+#[test]
+fn the_poll_after_a_failed_preset_click_sends_the_old_preset() {
+    let (mut app, _dir, _) = app();
+    app.machine_mut().controller.fails = true;
+    let click = app.on_performance(PerformanceCommand::SetPreset(Preset::Performance));
+    assert!(click.is_err());
+    app.machine_mut().controller.fails = false;
+
+    assert!(app.resend_preset().unwrap());
+
+    assert_eq!(sent(&app), PerfMode::Balanced.commands(&BLADE_18).unwrap());
+    assert_eq!(app.config().preset, Preset::Balanced);
+}
+
+#[test]
+fn a_resume_with_an_unknown_source_keeps_the_rate_on_ac() {
+    let (mut app, _dir, _) = app_with(Config {
+        preset: Preset::Performance,
+        sixty_hz_on_battery: true,
+        ..Config::default()
+    });
+    let before = panel_hz(&app);
+    app.take_on_battery(None);
+
+    app.on_power(PowerEvent::Resumed).unwrap();
+
+    assert_eq!(panel_hz(&app), before);
+    assert_eq!(app.running_preset(), Preset::Balanced);
+}
+
+#[test]
+fn a_resume_on_ac_after_the_rate_was_put_back_sends_no_rate() {
+    let (mut app, _dir, before) = on_battery_at_60_hz();
+    app.on_power(PowerEvent::OnAc).unwrap();
+    assert_eq!(panel_hz(&app), before);
+    // Set outside the app: nothing is left to put back.
+    app.machine_mut().displays.0.current.hz = 60;
+    app.take_on_battery(Some(false));
+
+    app.on_power(PowerEvent::Resumed).unwrap();
+
+    assert_eq!(panel_hz(&app), 60);
 }

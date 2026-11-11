@@ -33,7 +33,7 @@ where
         let red = self.key_should_be_red();
         let applied = apply(&config, self.model, &mut self.machine.controller, red);
         self.key_red = applied.is_ok().then_some(red);
-        self.preset_unsure = applied.is_err();
+        self.note_preset_send(applied.is_ok());
         self.read_logo();
         Ok(applied?)
     }
@@ -125,11 +125,16 @@ where
                 // The rate follows even if the start fails.
                 let started = self.start();
                 // The source read now, as the charger may have gone in or
-                // out in the sleep, before its power event comes.
-                let rate = if self.on_battery() {
-                    self.follow_power(event)
+                // out in the sleep, before its power event comes. An
+                // unknown source leaves the rate alone.
+                let rate = if self.source_known {
+                    let displays = &mut self.machine.displays;
+                    let on_battery = self.power == Power::Battery;
+                    self.battery_rate
+                        .on_resume(on_battery, &self.config, displays)
+                        .map_err(AppError::from)
                 } else {
-                    self.follow_power(PowerEvent::OnAc)
+                    Ok(())
                 };
                 if let (Err(_), Err(error)) = (&started, &rate) {
                     // Only the start error is shown, so this one is logged.
@@ -155,6 +160,7 @@ where
     fn set_on_battery(&mut self, on_battery: bool) -> Result<(), AppError> {
         let before = self.running(self.config).preset;
         self.power = Power::from_battery(on_battery);
+        self.source_known = true;
         self.read_charger();
         self.send_if_changed(before)
     }
@@ -193,17 +199,21 @@ where
     /// Sends the preset that runs again if the last start, preset change,
     /// power switch or resend failed, so the laptop does not keep running
     /// a preset the app does not show (such as Performance on battery).
-    /// Called on the polls. Returns whether it sent.
+    /// Called on the polls, [`RESEND_TRIES`](crate::RESEND_TRIES) times at
+    /// most after each failed send. Returns whether it sent.
     ///
     /// # Errors
     ///
-    /// See [`AppError`]. The next poll tries again.
+    /// See [`AppError`]. The next poll tries again, while tries are left.
     pub fn resend_preset(&mut self) -> Result<bool, AppError> {
-        if !self.preset_unsure {
+        if !self.preset_unsure || self.resends_left == 0 {
             return Ok(false);
         }
-        let before = self.running(self.config).preset;
-        self.send_if_changed(before)?;
+        self.resends_left -= 1;
+        let config = self.running(self.config);
+        let applied = apply_performance(&config, self.model, &mut self.machine.controller);
+        self.preset_unsure = applied.is_err();
+        applied?;
         Ok(true)
     }
 
@@ -213,7 +223,7 @@ where
         let config = self.running(self.config);
         if config.preset != before || self.preset_unsure {
             let applied = apply_performance(&config, self.model, &mut self.machine.controller);
-            self.preset_unsure = applied.is_err();
+            self.note_preset_send(applied.is_ok());
             applied?;
         }
         Ok(())

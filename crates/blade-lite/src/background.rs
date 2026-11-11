@@ -191,15 +191,19 @@ fn toggle_the_mic() -> bool {
     .is_ok()
 }
 
-/// Whether the laptop runs on its battery now. If Windows can't tell, the
-/// battery preset runs (fail safe) until the next power event (or the
-/// next read, when no power events come).
-pub fn on_battery_now() -> bool {
-    platform::on_battery().unwrap_or_else(|| {
+/// Whether the laptop runs on its battery now; `None` if Windows can't
+/// tell. An unknown source is logged once, until a read tells again.
+pub fn on_battery_now() -> Option<bool> {
+    let read = platform::on_battery();
+    let unknown = read.is_none();
+    if SOURCE_UNKNOWN.swap(unknown, Ordering::Relaxed) != unknown && unknown {
         report("power source unknown: the battery preset runs");
-        true
-    })
+    }
+    read
 }
+
+/// Whether the last power source read was unknown.
+static SOURCE_UNKNOWN: AtomicBool = AtomicBool::new(false);
 
 /// Power events, read on their own thread. No events come if Windows
 /// refuses to send them.

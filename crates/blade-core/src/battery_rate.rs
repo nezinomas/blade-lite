@@ -22,11 +22,9 @@ pub struct BatteryRate {
 }
 
 impl BatteryRate {
-    /// Sets the rate for a change of power source, and sets 60 Hz again
-    /// after a wake on battery. `Resumed` is a wake on battery: the caller
-    /// passes a wake on AC on as `OnAc`. A refused set after a wake is not an error
-    /// yet: it starts the tries ([`Self::retry`]), which AC stops. Other
-    /// events, and every event while the option is off, change nothing.
+    /// Sets the rate for a change of power source. A wake goes to
+    /// [`Self::on_resume`], so `Resumed` changes nothing here, nor does any
+    /// event while the option is off (but AC still puts a rate back).
     ///
     /// # Errors
     ///
@@ -43,13 +41,32 @@ impl BatteryRate {
                 self.tries = 0;
                 self.put_back(api)
             }
-            PowerEvent::Resumed if config.sixty_hz_on_battery => {
-                let refused = self.after_resume(api).is_err();
-                self.tries = if refused { RESUME_RATE_TRIES } else { 0 };
-                Ok(())
-            }
             _ => Ok(()),
         }
+    }
+
+    /// Follows the power source read at a wake: on AC as an AC event, on
+    /// battery it sets 60 Hz again (see `after_resume`). A refused set on
+    /// battery is not an error yet: it starts the tries ([`Self::retry`]),
+    /// which AC stops.
+    ///
+    /// # Errors
+    ///
+    /// See [`DisplayError`].
+    pub fn on_resume(
+        &mut self,
+        on_battery: bool,
+        config: &Config,
+        api: &mut impl DisplayApi,
+    ) -> Result<(), DisplayError> {
+        if !on_battery {
+            return self.on_event(PowerEvent::OnAc, config, api);
+        }
+        if config.sixty_hz_on_battery {
+            let refused = self.after_resume(api).is_err();
+            self.tries = if refused { RESUME_RATE_TRIES } else { 0 };
+        }
+        Ok(())
     }
 
     /// Remembers the rate once, then sets 60 Hz if the panel is not there yet.
@@ -79,9 +96,10 @@ impl BatteryRate {
     /// Sets 60 Hz again if the panel is back at the rate saved before
     /// battery: Windows puts its saved rate back in a wake (seen after a lid
     /// sleep, 2026-11-10). Any other rate was set outside the app, and is
-    /// kept. With no rate saved, the battery is new since the sleep (the
-    /// charger was pulled in it), so it is a switch to battery. A panel that
-    /// is not active (lid shut, a monitor only) is left alone.
+    /// kept. With no rate saved (the charger was pulled in the sleep, the
+    /// app started on battery, or the switch's 60 Hz failed) it is a switch
+    /// to battery. A panel that is not active (lid shut, a monitor only) is
+    /// left alone.
     fn after_resume(&mut self, api: &mut impl DisplayApi) -> Result<(), DisplayError> {
         let Some(saved) = self.saved else {
             return match self.on_battery(api) {
@@ -133,7 +151,8 @@ impl BatteryRate {
     /// Puts back the rate that was active before battery, if there is one:
     /// on AC, and when the app quits. Nothing is sent if the panel no
     /// longer runs at 60 Hz, as the rate was then changed outside the app.
-    /// Each saved rate is tried once, so a failed put-back is not retried.
+    /// Each saved rate is set once, so a failed set is not retried; a failed
+    /// read of the rate keeps it for the next AC event or the quit.
     /// The rate may be the one Windows has saved, taken at a start on
     /// battery at 60 Hz. It is not saved, so the rate Windows has saved
     /// stays the user's, even when the one put back was set by another
@@ -144,10 +163,12 @@ impl BatteryRate {
     ///
     /// See [`DisplayError`].
     pub fn put_back(&mut self, api: &mut impl DisplayApi) -> Result<(), DisplayError> {
-        let Some(rate) = self.saved.take() else {
+        let Some(rate) = self.saved else {
             return Ok(());
         };
-        if current_rate(api)? != BATTERY_RATE {
+        let current = current_rate(api)?;
+        self.saved = None;
+        if current != BATTERY_RATE {
             return Ok(());
         }
         let life = if saved_rate(api) == Some(BATTERY_RATE) {

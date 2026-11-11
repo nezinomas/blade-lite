@@ -39,8 +39,8 @@ impl Parts for Fakes {
     type Keys = FakeKeys;
     type Programs = FakePrograms;
 
-    fn on_battery() -> bool {
-        FAKE_ON_BATTERY.get()
+    fn on_battery() -> Option<bool> {
+        (!FAKE_SOURCE_UNKNOWN.get()).then(|| FAKE_ON_BATTERY.get())
     }
 
     /// Answers at once, unless the test holds the answer back.
@@ -72,6 +72,8 @@ thread_local! {
     /// The power source the fakes report: AC unless a test sets it. Each
     /// test runs on its own thread.
     pub static FAKE_ON_BATTERY: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    /// Whether the power source can't be told: known unless a test sets it.
+    pub static FAKE_SOURCE_UNKNOWN: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
     /// What the user does in a file dialog: cancel unless a test sets it.
     pub static FAKE_PICKED: RefCell<FakePick> = const { RefCell::new(FakePick::Cancel) };
     /// Whether the dialog stays open until the test answers it.
@@ -147,6 +149,7 @@ pub fn fixture(config: Config) -> Fixture {
     .expect("the first Slint call on this thread");
     log_path();
     FAKE_ON_BATTERY.set(false);
+    FAKE_SOURCE_UNKNOWN.set(false);
     FAKE_MIC.set(None);
     FAKE_HOLD.set(false);
     FAKE_HELD.take();

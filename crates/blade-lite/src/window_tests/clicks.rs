@@ -1560,3 +1560,52 @@ fn with_power_events_a_tick_does_not_read_the_power_source() {
     assert_eq!(sent_since(&f, sent), []);
     assert!(!f.shell.app().on_battery());
 }
+
+#[test]
+fn a_switch_that_fails_in_a_tick_is_not_sent_again_in_that_tick() {
+    let f = fixture(Config {
+        preset: Preset::Performance,
+        ..Config::default()
+    });
+    let (sender, receiver) = std::sync::mpsc::channel();
+    f.shell.listen_for_power(receiver);
+    FAKE_ON_BATTERY.set(true);
+    sender.send(PowerEvent::OnBattery).unwrap();
+    // Each run takes one command, then fails.
+    f.shell.app().machine_mut().controller.fails_after = Some(1);
+    let sent = sent_count(&f);
+
+    f.shell.tick();
+
+    assert_eq!(sent_since(&f, sent).len(), 1);
+    assert!(f.shell.app().preset_unsure());
+}
+
+#[test]
+fn no_resend_while_razer_software_runs() {
+    let f = failed_switch_fixture();
+    f.shell.programs().set(&["Razer Synapse Service"]);
+    f.shell.look_for_razer();
+    let sent = sent_count(&f);
+
+    f.shell.tick();
+
+    assert_eq!(sent_since(&f, sent), []);
+}
+
+#[test]
+fn with_no_power_events_an_unknown_source_changes_nothing() {
+    let f = fixture(Config {
+        preset: Preset::Performance,
+        ..Config::default()
+    });
+    let (_, receiver) = std::sync::mpsc::channel();
+    f.shell.listen_for_power(receiver);
+    super::FAKE_SOURCE_UNKNOWN.set(true);
+    let sent = sent_count(&f);
+
+    f.shell.tick();
+
+    assert_eq!(sent_since(&f, sent), []);
+    assert!(!f.shell.app().on_battery());
+}
