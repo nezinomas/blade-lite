@@ -123,12 +123,54 @@ fn a_panel_already_at_60_hz_is_left_alone() {
 }
 
 #[test]
-fn a_resume_with_no_saved_rate_does_not_touch_the_rate() {
+fn a_resume_on_battery_with_no_saved_rate_sets_60_hz() {
+    // The charger was pulled in the sleep: no battery event came first.
     let mut api = panel_at(240);
 
     feed(&[PowerEvent::Resumed], config(true), &mut api);
 
+    assert_eq!(api.panel_mode(), mode(3840, 2400, 60));
+}
+
+#[test]
+fn a_resume_on_battery_with_no_saved_rate_and_the_option_off_changes_nothing() {
+    let mut api = panel_at(240);
+
+    feed(&[PowerEvent::Resumed], config(false), &mut api);
+
     assert_eq!(api.set, []);
+}
+
+#[test]
+fn a_60_hz_refused_at_a_wake_with_no_saved_rate_is_tried_again() {
+    let mut api = panel_at(240);
+    let mut battery_rate = BatteryRate::default();
+    api.failing_sets = 1;
+
+    battery_rate
+        .on_event(PowerEvent::Resumed, &config(true), &mut api)
+        .unwrap();
+    battery_rate.retry(&config(true), &mut api).unwrap();
+    battery_rate
+        .on_event(PowerEvent::OnAc, &config(true), &mut api)
+        .unwrap();
+
+    assert_eq!(api.panel_mode(), mode(3840, 2400, 240));
+    let rates: Vec<u32> = api.set.iter().map(|(_, mode, _)| mode.hz).collect();
+    assert_eq!(rates, [60, 240]);
+}
+
+#[test]
+fn a_resume_on_battery_with_no_panel_active_and_no_saved_rate_is_not_an_error() {
+    // The lid shut, a monitor only.
+    let mut api = FakeDisplays::new(Some(vec![]));
+    let mut battery_rate = BatteryRate::default();
+
+    battery_rate
+        .on_event(PowerEvent::Resumed, &config(true), &mut api)
+        .unwrap();
+
+    assert!(!battery_rate.retry_pending());
 }
 
 #[test]
@@ -231,11 +273,12 @@ fn a_resume_with_the_panel_still_at_60_hz_changes_nothing() {
 }
 
 #[test]
-fn a_resume_after_the_rate_was_put_back_on_ac_changes_nothing() {
+fn a_resume_on_ac_after_the_rate_was_put_back_changes_nothing() {
+    // The app passes a wake on AC on as an AC event.
     let mut api = panel_at(240);
 
     feed(
-        &[PowerEvent::OnBattery, PowerEvent::OnAc, PowerEvent::Resumed],
+        &[PowerEvent::OnBattery, PowerEvent::OnAc, PowerEvent::OnAc],
         config(true),
         &mut api,
     );

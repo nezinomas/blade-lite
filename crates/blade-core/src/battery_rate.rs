@@ -23,7 +23,8 @@ pub struct BatteryRate {
 
 impl BatteryRate {
     /// Sets the rate for a change of power source, and sets 60 Hz again
-    /// after a wake on battery. A refused set after a wake is not an error
+    /// after a wake on battery. `Resumed` is a wake on battery: the caller
+    /// passes a wake on AC on as `OnAc`. A refused set after a wake is not an error
     /// yet: it starts the tries ([`Self::retry`]), which AC stops. Other
     /// events, and every event while the option is off, change nothing.
     ///
@@ -78,11 +79,15 @@ impl BatteryRate {
     /// Sets 60 Hz again if the panel is back at the rate saved before
     /// battery: Windows puts its saved rate back in a wake (seen after a lid
     /// sleep, 2026-11-10). Any other rate was set outside the app, and is
-    /// kept. A panel that is not active (lid shut, a monitor only) is left
-    /// alone.
+    /// kept. With no rate saved, the battery is new since the sleep (the
+    /// charger was pulled in it), so it is a switch to battery. A panel that
+    /// is not active (lid shut, a monitor only) is left alone.
     fn after_resume(&mut self, api: &mut impl DisplayApi) -> Result<(), DisplayError> {
         let Some(saved) = self.saved else {
-            return Ok(());
+            return match self.on_battery(api) {
+                Err(DisplayError::NoInternalPanel) => Ok(()),
+                other => other,
+            };
         };
         match current_rate(api) {
             Ok(rate) if rate == saved => {}
