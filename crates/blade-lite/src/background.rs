@@ -3,10 +3,12 @@
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use blade_core::{PowerKeyPresses, TOUCHPAD_KEY};
-use blade_lite::{KeyEvent, ReaderEnd, ShownErrors, WindowsFnKeys, report, step_on_presses};
+use blade_lite::{
+    KEY_REOPEN_PAUSE, KeyEvent, ReaderEnd, ShownErrors, WindowsFnKeys, report, step_on_presses,
+};
 use platform::{PowerEvent, PowerEvents, RegistryWatch, WakeListener, WindowsPowerEvents};
 use razer_device::HidKeyReports;
 use razer_proto::BLADE_18;
@@ -94,10 +96,6 @@ fn wait_for_quiet_change(watch: &RegistryWatch) -> std::io::Result<bool> {
     Ok(true)
 }
 
-/// How long to wait before opening the key reports again, after they
-/// fail or stay quiet too long.
-const KEY_REOPEN_PAUSE: Duration = Duration::from_secs(5);
-
 /// Steps the preset each time the power-mode key is pressed, and reads the
 /// keyboard brightness while Fn is held and as it comes up, from a thread that reads the
 /// keyboard's key reports (no keyboard hook). Nothing if the model has no
@@ -110,21 +108,28 @@ pub fn follow_the_power_key() {
         // Each problem is said once, not each time it is tried again.
         let mut said = ShownErrors::default();
         loop {
-            let problem = match HidKeyReports::open(&BLADE_18) {
+            let (problem, pause) = match HidKeyReports::open(&BLADE_18) {
                 Ok(mut reports) => {
                     let presses = PowerKeyPresses::new(key);
-                    match step_on_presses(&mut reports, &mut WindowsFnKeys, presses, on_key) {
+                    let started = Instant::now();
+                    let end = step_on_presses(&mut reports, &mut WindowsFnKeys, presses, on_key);
+                    let pause = end.pause_before_open(started.elapsed());
+                    let problem = match end {
                         ReaderEnd::Quit => return,
                         ReaderEnd::Reopen => String::new(),
                         ReaderEnd::Failed(error) => format!("the key reports stopped: {error}"),
-                    }
+                    };
+                    (problem, pause)
                 }
-                Err(error) => format!("no power-mode key for now: {error}"),
+                Err(error) => (
+                    format!("no power-mode key for now: {error}"),
+                    KEY_REOPEN_PAUSE,
+                ),
             };
             if let Some(text) = said.new_text(&problem) {
                 report(text);
             }
-            std::thread::sleep(KEY_REOPEN_PAUSE);
+            std::thread::sleep(pause);
         }
     });
 }
