@@ -234,8 +234,7 @@ pub const BLADE_18: ModelProfile = ModelProfile {
         plain_with_num_lock: true,
     }),
     // Numpad 0, with a mic icon on the second layer (Num Lock off). Fn + mic
-    // sends Win + Alt + K (read on the laptop, 2026-11-11). The position is
-    // a guess next to numpad "." until checked by eye.
+    // sends Win + Alt + K (read on the laptop, 2026-11-11). Found by eye.
     mic_key: Some(RedKey {
         row: 5,
         column: 16,
