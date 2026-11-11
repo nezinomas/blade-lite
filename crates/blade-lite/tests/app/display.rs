@@ -5,7 +5,7 @@ use platform::PowerEvent;
 use razer_proto::{BLADE_18, PerfMode};
 use ui::{DisplayCommand, PowerPill};
 
-use crate::fakes::TestApp;
+use crate::fakes::{FakeCharger, TestApp};
 use crate::{FHD, WHITE, app, app_with, lighting_commands, panel_hz, sent};
 
 #[test]
@@ -296,6 +296,76 @@ fn a_wake_60_hz_refused_is_not_tried_again_on_ac() {
 
     assert!(!app.battery_rate_pending());
     app.retry_battery_rate().unwrap();
+
+    assert_eq!(panel_hz(&app), 240);
+}
+
+/// The panel at 60 Hz with 240 Hz saved, as a crash on battery leaves it.
+fn left_at_60(sixty_hz_on_battery: bool) -> (TestApp, tempfile::TempDir) {
+    let (mut app, dir, _) = app_with(Config {
+        sixty_hz_on_battery,
+        ..Config::default()
+    });
+    let displays = &mut app.machine_mut().displays;
+    displays.2 = Some(displays.0.current);
+    displays.0.current.hz = 60;
+    (app, dir)
+}
+
+/// A start [`left_at_60`]; `on_battery` is the source the start reads.
+fn start_left_at_60(
+    sixty_hz_on_battery: bool,
+    on_battery: Option<bool>,
+) -> (TestApp, tempfile::TempDir) {
+    let (mut app, dir) = left_at_60(sixty_hz_on_battery);
+    app.take_on_battery(on_battery);
+    app.start().unwrap();
+    app.start_rate().unwrap();
+    (app, dir)
+}
+
+#[test]
+fn a_start_on_ac_at_60_hz_puts_the_saved_rate_back() {
+    let (app, _dir) = start_left_at_60(true, Some(false));
+
+    assert_eq!(panel_hz(&app), 240);
+}
+
+#[test]
+fn a_start_on_ac_with_the_switch_off_leaves_the_rate() {
+    let (app, _dir) = start_left_at_60(false, Some(false));
+
+    assert_eq!(panel_hz(&app), 60);
+}
+
+#[test]
+fn a_start_on_battery_or_an_unknown_source_leaves_the_rate() {
+    for on_battery in [Some(true), None] {
+        let (app, _dir) = start_left_at_60(true, on_battery);
+
+        assert_eq!(panel_hz(&app), 60, "source {on_battery:?}");
+    }
+}
+
+#[test]
+fn the_first_ac_event_after_a_start_on_battery_or_unknown_puts_the_saved_rate_back() {
+    for on_battery in [Some(true), None] {
+        let (mut app, _dir) = start_left_at_60(true, on_battery);
+
+        app.on_power(PowerEvent::OnAc).unwrap();
+
+        assert_eq!(panel_hz(&app), 240, "source {on_battery:?}");
+    }
+}
+
+#[test]
+fn a_start_on_a_weak_charge_puts_the_saved_rate_back() {
+    let (mut app, _dir) = left_at_60(true);
+    app.machine_mut().controller.charger = FakeCharger::UsbC;
+    app.take_on_battery(Some(false));
+    app.start().unwrap();
+
+    app.start_rate().unwrap();
 
     assert_eq!(panel_hz(&app), 240);
 }

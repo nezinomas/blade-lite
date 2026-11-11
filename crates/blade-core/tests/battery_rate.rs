@@ -2,7 +2,7 @@
 
 mod common;
 
-use blade_core::{BatteryRate, Config, RefreshRate, set_refresh_rate};
+use blade_core::{BatteryRate, Config, DisplayError, RefreshRate, set_refresh_rate};
 use common::{FakeDisplays, mode, panel};
 use platform::{DisplayMode, ModeLife, PowerEvent};
 
@@ -570,4 +570,155 @@ fn a_quit_after_a_start_at_60_hz_puts_the_saved_rate_back() {
     battery_rate.put_back(&mut api).unwrap();
 
     assert_eq!(api.panel_mode(), mode(3840, 2400, 240));
+}
+
+/// The first source a fresh [`BatteryRate`] gets is AC, with the switch
+/// as `on`.
+fn start_on_ac(on: bool, api: &mut FakeDisplays) {
+    feed(&[PowerEvent::OnAc], config(on), api);
+}
+
+#[test]
+fn a_start_on_ac_at_60_hz_puts_the_saved_rate_back_unsaved() {
+    let mut api = left_at_60(Some(mode(3840, 2400, 240)));
+
+    start_on_ac(true, &mut api);
+
+    let lives: Vec<(u32, ModeLife)> = api
+        .set
+        .iter()
+        .map(|(_, mode, life)| (mode.hz, *life))
+        .collect();
+    assert_eq!(lives, [(240, ModeLife::UntilRestart)]);
+}
+
+#[test]
+fn a_start_on_ac_with_the_switch_off_changes_nothing() {
+    let mut api = left_at_60(Some(mode(3840, 2400, 240)));
+
+    start_on_ac(false, &mut api);
+
+    assert_eq!(api.set, []);
+}
+
+#[test]
+fn a_start_on_ac_not_at_60_hz_changes_nothing() {
+    let mut api = panel_at(120);
+    api.saved = Some(mode(3840, 2400, 240));
+
+    start_on_ac(true, &mut api);
+
+    assert_eq!(api.set, []);
+}
+
+#[test]
+fn a_start_on_ac_puts_back_no_saved_rate_that_is_60_hz_not_offered_or_missing() {
+    for saved in [
+        Some(mode(3840, 2400, 60)),
+        Some(mode(3840, 2400, 75)),
+        Some(mode(1920, 1200, 240)),
+        None,
+    ] {
+        let mut api = left_at_60(saved);
+
+        start_on_ac(true, &mut api);
+
+        assert_eq!(api.set, [], "saved {saved:?}");
+    }
+}
+
+#[test]
+fn a_start_on_ac_with_no_panel_active_is_not_an_error() {
+    let mut api = FakeDisplays::new(Some(vec![]));
+
+    start_on_ac(true, &mut api);
+
+    assert_eq!(api.set, []);
+}
+
+#[test]
+fn ac_after_a_start_on_ac_put_back_sends_nothing_more() {
+    let mut api = left_at_60(Some(mode(3840, 2400, 240)));
+    let mut battery_rate = BatteryRate::default();
+    battery_rate
+        .on_event(PowerEvent::OnAc, &config(true), &mut api)
+        .unwrap();
+
+    battery_rate
+        .on_event(PowerEvent::OnAc, &config(true), &mut api)
+        .unwrap();
+    battery_rate.put_back(&mut api).unwrap();
+
+    assert_eq!(api.set.len(), 1);
+}
+
+#[test]
+fn a_source_after_the_first_puts_no_saved_rate_back() {
+    // Such as another program's 60 Hz, not saved, set after the start.
+    for first in [PowerEvent::OnAc, PowerEvent::OnBattery] {
+        let mut api = panel_at(240);
+        api.saved = Some(mode(3840, 2400, 240));
+        let mut battery_rate = BatteryRate::default();
+        battery_rate
+            .on_event(first, &config(false), &mut api)
+            .unwrap();
+        api.displays.as_mut().unwrap()[0].current = mode(3840, 2400, 60);
+
+        battery_rate
+            .on_event(PowerEvent::OnAc, &config(true), &mut api)
+            .unwrap();
+
+        assert_eq!(api.set, [], "first {first:?}");
+    }
+}
+
+#[test]
+fn a_battery_read_at_a_wake_counts_as_the_first_source() {
+    let mut api = left_at_60(Some(mode(3840, 2400, 240)));
+    let mut battery_rate = BatteryRate::default();
+    battery_rate
+        .on_resume(true, &config(false), &mut api)
+        .unwrap();
+
+    battery_rate
+        .on_event(PowerEvent::OnAc, &config(true), &mut api)
+        .unwrap();
+
+    assert_eq!(api.set, []);
+}
+
+#[test]
+fn a_first_ac_read_at_a_wake_puts_the_saved_rate_back() {
+    let mut api = left_at_60(Some(mode(3840, 2400, 240)));
+
+    BatteryRate::default()
+        .on_resume(false, &config(true), &mut api)
+        .unwrap();
+
+    assert_eq!(api.panel_mode(), mode(3840, 2400, 240));
+}
+
+#[test]
+fn a_first_ac_whose_display_query_fails_is_an_error_and_sets_nothing() {
+    let mut api = FakeDisplays::new(None);
+
+    let result = BatteryRate::default().on_event(PowerEvent::OnAc, &config(true), &mut api);
+
+    assert!(matches!(result, Err(DisplayError::Query(_))));
+    assert_eq!(api.set, []);
+}
+
+#[test]
+fn a_refused_put_back_at_the_first_ac_is_not_tried_again() {
+    let mut api = left_at_60(Some(mode(3840, 2400, 240)));
+    api.failing_sets = 1;
+    let mut battery_rate = BatteryRate::default();
+
+    let first = battery_rate.on_event(PowerEvent::OnAc, &config(true), &mut api);
+    battery_rate
+        .on_event(PowerEvent::OnAc, &config(true), &mut api)
+        .unwrap();
+
+    assert!(matches!(first, Err(DisplayError::Set(_))));
+    assert_eq!(api.panel_mode(), mode(3840, 2400, 60));
 }

@@ -153,6 +153,13 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     // Before the start reads the touchpad, so no switch is missed.
     let touchpad = watch_touchpad();
     let started = app.start();
+    // The rate follows even if the start fails.
+    let rate = app.start_rate();
+    if let (Err(_), Err(error)) = (&started, &rate) {
+        // Only the start error is shown, so this one is logged.
+        report(&format!("the rate put back at start failed too: {error}"));
+    }
+    let started = started.and(rate);
 
     let window = MainWindow::new()?;
     let flyout = FlyoutWindow::new()?;

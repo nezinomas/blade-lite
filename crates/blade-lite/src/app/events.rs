@@ -244,6 +244,21 @@ where
         Ok(self.battery_rate.put_back(&mut self.machine.displays)?)
     }
 
+    /// At the app's start on AC, follows AC, so the rate a crash on
+    /// battery left at 60 Hz is put back (see
+    /// [`blade_core::BatteryRate::on_event`]). On battery or an unknown
+    /// source nothing is sent: the first power event takes the rate then.
+    ///
+    /// # Errors
+    ///
+    /// See [`AppError`].
+    pub fn start_rate(&mut self) -> Result<(), AppError> {
+        if self.on_battery() || !self.source_known {
+            return Ok(());
+        }
+        self.follow_power(PowerEvent::OnAc)
+    }
+
     /// Whether a wake's 60 Hz on battery failed and is to be tried again.
     #[must_use]
     pub fn battery_rate_pending(&self) -> bool {
