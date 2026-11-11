@@ -192,7 +192,8 @@ fn toggle_the_mic() -> bool {
 }
 
 /// Whether the laptop runs on its battery now. If Windows can't tell, the
-/// battery preset runs (fail safe) until the next power event.
+/// battery preset runs (fail safe) until the next power event (or the
+/// next read, when no power events come).
 pub fn on_battery_now() -> bool {
     platform::on_battery().unwrap_or_else(|| {
         report("power source unknown: the battery preset runs");
