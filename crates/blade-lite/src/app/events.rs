@@ -120,6 +120,7 @@ where
     ///
     /// See [`AppError`].
     pub fn on_power(&mut self, event: PowerEvent) -> Result<(), AppError> {
+        self.held_rate_error = None;
         match event {
             PowerEvent::Resumed => {
                 // The rate follows even if the start fails.
@@ -138,23 +139,35 @@ where
                 } else {
                     Ok(())
                 };
-                if let (Err(_), Err(error)) = (&started, &rate) {
-                    // Only the start error is shown, so this one is logged.
-                    crate::report(&format!("the rate after the wake failed too: {error}"));
-                }
-                started.and(rate)
+                self.hold_rate_error(started, rate, "the rate after the wake failed too")
             }
             PowerEvent::OnBattery | PowerEvent::OnAc => {
                 // The rate follows even if the preset send fails.
                 let preset = self.set_on_battery(event == PowerEvent::OnBattery);
                 let rate = self.follow_power(event);
                 let rate = self.quiet_if_tried_again(rate);
-                if let (Err(_), Err(error)) = (&preset, &rate) {
-                    // Only the preset error is shown, so this one is logged.
-                    crate::report(&format!("the rate change failed too: {error}"));
-                }
-                preset.and(rate)
+                self.hold_rate_error(preset, rate, "the rate change failed too")
             }
+        }
+    }
+
+    /// Shows the preset error of a power event before its rate error. A
+    /// rate error behind a failed preset is logged and, if the preset is
+    /// to be sent again, held, to show once a resend works; one tried again
+    /// on the polls is already quiet here.
+    fn hold_rate_error(
+        &mut self,
+        preset: Result<(), AppError>,
+        rate: Result<(), AppError>,
+        context: &str,
+    ) -> Result<(), AppError> {
+        match (preset, rate) {
+            (Err(preset), Err(rate)) => {
+                report(&format!("{context}: {rate}"));
+                self.held_rate_error = self.preset_unsure.then_some(rate);
+                Err(preset)
+            }
+            (preset, rate) => preset.and(rate),
         }
     }
 
@@ -208,6 +221,8 @@ where
     /// # Errors
     ///
     /// See [`AppError`]. The next poll tries again, while tries are left.
+    /// A resend that works returns the rate error held behind the failed
+    /// send, if any (see `hold_rate_error`), so it shows then.
     pub fn resend_preset(&mut self) -> Result<bool, AppError> {
         if !self.preset_unsure || self.resends_left == 0 {
             return Ok(false);
@@ -221,7 +236,10 @@ where
             Err(_) => {}
         }
         applied?;
-        Ok(true)
+        match self.held_rate_error.take() {
+            Some(error) => Err(error),
+            None => Ok(true),
+        }
     }
 
     /// Sends the preset that runs now if it is not `before`, or the last
