@@ -1238,6 +1238,11 @@ fn the_battery_health_ends_the_charge_limit_note() {
         "Off. Turn on to stop at 80% \u{b7} Health 99%, 86 cycles"
     ));
     assert!(!text_shown(&f, "Battery health"), "no row of its own");
+    click(f.shell.window(), Switch, "Battery charge limit");
+    assert!(text_shown(
+        &f,
+        "Stops charging at 80% \u{b7} Health 99%, 86 cycles"
+    ));
 }
 
 #[test]

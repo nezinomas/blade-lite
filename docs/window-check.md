@@ -19,7 +19,7 @@ Each step says what to put back after.
 3. **Refresh rate.** Click 120 Hz. The screen switches. Click your old rate to put it back.
 4. **60 Hz on battery.** Turn the switch on, then off. The switch follows the click. Put it back as it was.
 5. **Native mode.** Click the other mode. The yellow "Restart to apply" bar shows. Click your old mode. The bar goes away. Do not restart.
-6. **Performance.** Click Silent. The header says Silent. Click Custom. Three sliders show. Move CPU boost one step. Click your old preset to put it back.
+6. **Performance.** Click Silent. The Performance mode row shows Silent. Click Custom. Three sliders show. Move CPU boost one step. Click your old preset to put it back.
 7. **Brightness.** Drag the slider to 50%. The keyboard dims. Drag it to 0%. The keyboard goes dark and the colours grey out.
 8. **Colour.** Set brightness back up. Click the red swatch. The keys turn red. Type `#00B7C3` in the Custom box and press Enter. The keys turn teal. Click the white swatch to put it back.
 9. **Touchpad.** Flip the switch. The touchpad turns on or off. Flip it back.
@@ -46,7 +46,7 @@ Start the app as above. A blue bolt icon shows in the tray. It may hide under th
 
 Start the app on the charger, with Performance set.
 
-1. **Unplug.** The header and the buttons say Balanced. Performance and Custom grey out, in the window and the flyout. Clicking them does nothing.
+1. **Unplug.** The Performance mode buttons show Balanced. Performance and Custom grey out, in the window and the flyout. Clicking them does nothing.
 2. **Pick Silent.** It works on battery.
 3. **Plug in.** The preset you picked last comes back. If you picked nothing on battery, Performance comes back.
 
