@@ -16,7 +16,7 @@ use std::sync::mpsc::Receiver;
 use std::time::{Duration, Instant};
 
 use blade_core::{Controller, PollSchedule, Query, Readings, ReadingsSampler};
-use blade_lite::{App, AppError, SaidLately, ShownErrors, report, took_effect};
+use blade_lite::{App, AppError, Rect, SaidLately, ShownErrors, report, took_effect};
 use platform::{
     DisplayApi, FileDialog, KeyInjector, PowerEvent, Programs, Registry, WindowsDisplays,
     WindowsKeys, WindowsPrograms, WindowsRegistry, WindowsSensors,
@@ -147,6 +147,9 @@ pub struct Shell<P: Parts = Laptop> {
     schedule: RefCell<PollSchedule>,
     flyout_open: Cell<bool>,
     flyout_closed_at: Cell<Option<Instant>>,
+    /// The tray icon the open flyout was first placed at, kept for one more
+    /// placing after a DPI scale change (taken by it, cleared on hide).
+    flyout_icon: Cell<Option<Rect>>,
     shown_errors: RefCell<ShownErrors>,
     read_errors: RefCell<SaidLately>,
     mode_watch: Cell<ModeWatch>,
@@ -199,6 +202,7 @@ impl<P: Parts> Shell<P> {
             schedule: RefCell::new(PollSchedule::default()),
             flyout_open: Cell::new(false),
             flyout_closed_at: Cell::new(None),
+            flyout_icon: Cell::new(None),
             shown_errors: RefCell::new(ShownErrors::default()),
             read_errors: RefCell::new(SaidLately::new(READ_ERROR_QUIET)),
             mode_watch,

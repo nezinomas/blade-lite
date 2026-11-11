@@ -37,10 +37,8 @@ impl<P: Parts> Shell<P> {
         });
         let shell = Rc::downgrade(self);
         self.flyout.window().on_winit_window_event(move |_, event| {
-            if matches!(event, winit::event::WindowEvent::Focused(false))
-                && let Some(shell) = shell.upgrade()
-            {
-                shell.hide_flyout();
+            if let Some(shell) = shell.upgrade() {
+                shell.on_flyout_event(event);
             }
             EventResult::Propagate
         });
@@ -58,6 +56,42 @@ impl<P: Parts> Shell<P> {
         if matches!(event, winit::event::WindowEvent::Focused(true)) {
             self.put_back_sliders();
         }
+    }
+
+    /// The flyout hides when it loses focus, and is placed again when its
+    /// DPI scale changes.
+    fn on_flyout_event(self: &Rc<Self>, event: &winit::event::WindowEvent) {
+        match event {
+            winit::event::WindowEvent::Focused(false) => self.hide_flyout(),
+            winit::event::WindowEvent::ScaleFactorChanged { .. } => {
+                self.flyout_rescaled();
+            }
+            _ => {}
+        }
+    }
+
+    /// Placing the flyout on the tray icon's monitor can give it that
+    /// monitor's DPI scale, and Windows then resizes it, so it can end up
+    /// over the taskbar or off centre. Placed once more, with the new size,
+    /// after winit has put it at the rect Windows suggests (which can come
+    /// before or after this event). Once per open, so a flyout too big for that monitor can't
+    /// keep moving between two of them. True when it will be placed.
+    pub fn flyout_rescaled(self: &Rc<Self>) -> bool {
+        if !self.flyout_open.get() {
+            return false;
+        }
+        let Some(icon) = self.flyout_icon.take() else {
+            return false;
+        };
+        let shell = Rc::downgrade(self);
+        Timer::single_shot(Duration::ZERO, move || {
+            if let Some(shell) = shell.upgrade()
+                && shell.flyout_open.get()
+            {
+                shell.place_flyout(icon);
+            }
+        });
+        true
     }
 
     /// The window shown or focused shows the laptop's brightness and Custom
@@ -117,7 +151,7 @@ impl<P: Parts> Shell<P> {
         self.once_shown(
             |shell| shell.flyout.window(),
             move |shell, hwnd| {
-                shell.place_flyout(icon);
+                shell.flyout_placed_first(icon);
                 put_backdrop(hwnd, true);
                 shell
                     .flyout
@@ -171,7 +205,24 @@ impl<P: Parts> Shell<P> {
         self.schedule.borrow_mut().hide(View::Flyout);
     }
 
+    /// The first placing of an open flyout. Only a scale change after it
+    /// (most likely caused by it) places the flyout again.
+    pub fn flyout_placed_first(&self, icon: Rect) {
+        // Set first: the scale change can come inside the move.
+        self.flyout_icon.set(Some(icon));
+        self.place_flyout(icon);
+    }
+
     fn place_flyout(&self, icon: Rect) {
+        if let Some((x, y)) = self.flyout_place(icon) {
+            self.flyout
+                .window()
+                .set_position(PhysicalPosition::new(x, y));
+        }
+    }
+
+    /// Where the flyout goes for the tray icon, at its present size.
+    fn flyout_place(&self, icon: Rect) -> Option<(i32, i32)> {
         let size = self.flyout.window().size();
         let flyout = (px(size.width), px(size.height));
         // The icon's own monitor, less its taskbars: the flyout's last
@@ -189,13 +240,10 @@ impl<P: Parts> Shell<P> {
             },
             Err(error) => {
                 report(&format!("the flyout can't find a screen: {error}"));
-                return;
+                return None;
             }
         };
-        let (x, y) = flyout_position(icon, flyout, screen);
-        self.flyout
-            .window()
-            .set_position(PhysicalPosition::new(x, y));
+        Some(flyout_position(icon, flyout, screen))
     }
 }
 
