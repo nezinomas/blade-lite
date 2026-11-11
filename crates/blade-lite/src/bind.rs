@@ -49,7 +49,6 @@ pub fn header(window: &MainWindow, header: &Header) {
     // Two rows, as in the mockup.
     let (top, bottom) = stats.split_at(stats.len().div_ceil(2));
     window.set_device(text(&header.title));
-    window.set_preset(text(header.preset));
     window.set_power(text(header.power.label()));
     window.set_health(text(&header.health));
     window.set_stats_top(model(top.to_vec()));

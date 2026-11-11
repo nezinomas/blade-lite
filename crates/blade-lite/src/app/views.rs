@@ -28,7 +28,6 @@ where
         self.cpu_celsius = celsius(controller.cpu);
         Header::new(&HeaderState {
             model: self.model,
-            preset: self.config.preset,
             on_battery: self.on_battery(),
             weak_charge: self.power.is_weak(),
             readings,

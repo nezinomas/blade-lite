@@ -1245,6 +1245,7 @@ fn without_the_charge_limit_the_battery_health_has_its_own_row() {
     let f = fixture(Config::default());
     // A failed set, then a failed read, leaves the limit's state unknown.
     f.shell.app().machine_mut().controller.fails = true;
+    f.shell.app().machine_mut().controller.charge = None;
     click(f.shell.window(), Switch, "Battery charge limit");
     f.shell.app().machine_mut().controller.fails = false;
     assert!(!text_shown(&f, "Battery health"), "nothing known yet");

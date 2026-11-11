@@ -9,6 +9,8 @@ export component PerformanceGroup inherits VerticalLayout {
     in property <bool> charge-limit-shown;
     in-out property <bool> charge-limit-on;
     in property <string> charge-limit-note;
+    // Such as "99%, 86 cycles". Empty when the battery health is not known.
+    in property <string> health;
     in property <color> accent;
 
     callback pick-preset(int);
@@ -60,11 +62,17 @@ export component PerformanceGroup inherits VerticalLayout {
     }
     if root.charge-limit-shown: Row {
         title: "Battery charge limit";
-        note: root.charge-limit-note;
+        note: root.health == "" ? root.charge-limit-note
+            : root.charge-limit-note + " · Health " + root.health;
         Switch {
             accessible-label: "Battery charge limit";
             checked <=> root.charge-limit-on;
             toggled => { root.toggle-charge-limit(); }
         }
+    }
+    // Read only: shown only when the charge limit row is not.
+    if !root.charge-limit-shown && root.health != "": Row {
+        title: "Battery health";
+        note: root.health;
     }
 }

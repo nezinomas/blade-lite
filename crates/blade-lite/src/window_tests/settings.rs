@@ -9,7 +9,8 @@ use razer_proto::{BLADE_18, PerfMode};
 use tempfile::TempDir;
 
 use super::clicks::resuming;
-use super::{FAKE_DIALOGS, FAKE_HELD, FAKE_HOLD, FAKE_PICKED, FakePick, Fixture, click, fixture,
+use super::{
+    FAKE_DIALOGS, FAKE_HELD, FAKE_HOLD, FAKE_PICKED, FakePick, Fixture, click, fixture,
     selected_preset,
 };
 
