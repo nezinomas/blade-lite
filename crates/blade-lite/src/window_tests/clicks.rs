@@ -170,6 +170,37 @@ fn a_native_mode_click_sends_nothing_while_the_chosen_mode_is_unknown() {
 }
 
 #[test]
+fn a_refused_60_hz_tried_again_shows_the_rate_while_the_native_mode_is_unknown() {
+    let f = fixture(Config {
+        sixty_hz_on_battery: true,
+        ..Config::default()
+    });
+    f.shell.app().machine_mut().controller.native_byte = UNKNOWN_NATIVE;
+    FAKE_ON_BATTERY.set(true);
+    f.shell.app().machine_mut().displays.1 = 1;
+    let (sender, receiver) = std::sync::mpsc::channel();
+    f.shell.listen_for_power(receiver);
+    sender.send(PowerEvent::OnBattery).unwrap();
+    let before = sent_count(&f);
+
+    for _ in 0..3 {
+        f.shell.tick();
+    }
+
+    assert_eq!(sent_since(&f, before), []);
+    assert_eq!(f.shell.app().machine().displays.0.current.hz, 60);
+    let rates = f.shell.window().get_rates();
+    let chosen = rates.iter().find(|rate| rate.selected).unwrap();
+    assert_eq!(chosen.label, "60 Hz");
+    assert_eq!(f.shell.window().get_native_note(), "Unknown");
+    let log = std::fs::read_to_string(log_path()).unwrap();
+    assert!(
+        log.contains("read failed: the controller chose a native mode the model lacks"),
+        "{log}"
+    );
+}
+
+#[test]
 fn the_touchpad_switch_presses_the_touchpad_shortcut_once() {
     let f = fixture(Config::default());
 

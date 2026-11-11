@@ -157,7 +157,8 @@ impl<P: Parts> Shell<P> {
     /// failed try is shown, so a quiet try does not clear the other errors
     /// or read the controller. When the tries end, the window's rate buttons
     /// show the panel's rate (one display view, so one native mode read);
-    /// the flyout is filled when it opens.
+    /// the flyout is filled when it opens. A native mode the model lacks
+    /// shows none chosen; its error is logged, and shown at the next fill.
     fn retry_battery_rate(self: &Rc<Self>) {
         let tried = self.app.borrow_mut().retry_battery_rate();
         if let Err(error) = tried {
@@ -168,9 +169,11 @@ impl<P: Parts> Shell<P> {
         if app.battery_rate_pending() {
             return;
         }
-        if let Some(view) = self.display_view(&mut app, &mut Vec::new()) {
+        let mut errors = Vec::new();
+        if let Some(view) = self.display_view(&mut app, &mut errors) {
             bind::display(&self.window, &view);
         }
+        self.say_read_errors(&errors);
     }
 
     /// Paints the touchpad key again if Num Lock changed since the last look.

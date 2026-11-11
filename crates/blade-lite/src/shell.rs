@@ -349,7 +349,8 @@ impl<P: Parts> Shell<P> {
             .set_vapor_light_on(app.vapor_light_on() == Some(true));
         self.window.set_logo_shown(app.logo_on().is_some());
         self.window.set_logo_on(app.logo_on() == Some(true));
-        // A click's error may be found again by the fill: show it once.
+        // Equal lines next to each other show once, such as a click's error
+        // that the fill finds again.
         errors.dedup();
         let errors = errors.join("\n");
         if let Some(new) = self.shown_errors.borrow_mut().new_text(&errors) {
