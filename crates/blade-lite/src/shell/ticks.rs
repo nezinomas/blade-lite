@@ -105,13 +105,27 @@ impl<P: Parts> Shell<P> {
 
     /// The display view, with the native mode read only if
     /// [`heat_reads_allowed`](Self::heat_reads_allowed): else the one last
-    /// read or set, or none chosen if none is known.
-    pub(super) fn display_view(&self, app: &mut AppOn<P>) -> Result<DisplayView, AppError> {
-        if self.heat_reads_allowed() {
+    /// read or set, or none chosen if none is known. A native mode read
+    /// that names a mode the model lacks shows none chosen. A failed view
+    /// is `None`. Each error is put in `errors`.
+    pub(super) fn display_view(
+        &self,
+        app: &mut AppOn<P>,
+        errors: &mut Vec<String>,
+    ) -> Option<DisplayView> {
+        let view = if self.heat_reads_allowed() {
             app.display_view()
         } else {
             app.display_view_unread()
-        }
+        };
+        let view = match view {
+            Err(error @ AppError::UnknownNativeMode) => {
+                errors.push(error.to_string());
+                app.display_view_unread()
+            }
+            view => view,
+        };
+        view.map_err(|error| errors.push(error.to_string())).ok()
     }
 
     /// Whether the controller may be read in the background: not while a
@@ -154,7 +168,7 @@ impl<P: Parts> Shell<P> {
         if app.battery_rate_pending() {
             return;
         }
-        if let Ok(view) = self.display_view(&mut app) {
+        if let Some(view) = self.display_view(&mut app, &mut Vec::new()) {
             bind::display(&self.window, &view);
         }
     }
