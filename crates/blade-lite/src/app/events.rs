@@ -140,7 +140,7 @@ where
                 };
                 if let (Err(_), Err(error)) = (&started, &rate) {
                     // Only the start error is shown, so this one is logged.
-                    crate::report(&format!("the 60 Hz after the wake failed too: {error}"));
+                    crate::report(&format!("the rate after the wake failed too: {error}"));
                 }
                 started.and(rate)
             }
@@ -151,7 +151,7 @@ where
                 let rate = self.quiet_if_tried_again(rate);
                 if let (Err(_), Err(error)) = (&preset, &rate) {
                     // Only the preset error is shown, so this one is logged.
-                    crate::report(&format!("the 60 Hz on battery failed too: {error}"));
+                    crate::report(&format!("the rate change failed too: {error}"));
                 }
                 preset.and(rate)
             }

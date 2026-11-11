@@ -791,15 +791,25 @@ fn refused_at_the_first_ac(refusals: usize) -> (BatteryRate, FakeDisplays) {
 }
 
 #[test]
-fn a_refused_put_back_at_the_first_ac_is_not_tried_by_the_next_ac() {
-    let (mut battery_rate, mut api) = refused_at_the_first_ac(1);
+fn a_second_ac_or_a_wake_on_ac_keeps_the_put_back_tries() {
+    // The app's start puts back, then Windows sends AC at once.
+    for wake in [false, true] {
+        let (mut battery_rate, mut api) = refused_at_the_first_ac(1);
+        let before = api.set.len();
 
-    battery_rate
-        .on_event(PowerEvent::OnAc, &config(true), &mut api)
+        if wake {
+            battery_rate.on_resume(false, &config(true), &mut api)
+        } else {
+            battery_rate.on_event(PowerEvent::OnAc, &config(true), &mut api)
+        }
         .unwrap();
+        assert_eq!(api.set.len(), before, "wake {wake}");
+        assert!(battery_rate.retry_pending(), "wake {wake}");
+        battery_rate.retry(&config(true), &mut api).unwrap();
+        battery_rate.retry(&config(true), &mut api).unwrap();
 
-    assert_eq!(api.panel_mode(), mode(3840, 2400, 60));
-    assert!(!battery_rate.retry_pending());
+        assert_eq!(api.panel_mode(), mode(3840, 2400, 240), "wake {wake}");
+    }
 }
 
 #[test]

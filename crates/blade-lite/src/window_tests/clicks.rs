@@ -1698,7 +1698,7 @@ fn a_switch_60_hz_refused_every_time_shows_only_the_last_error() {
 }
 
 #[test]
-fn a_first_ac_put_back_refused_is_set_on_the_next_tick_with_no_error() {
+fn a_start_put_back_refused_is_set_on_a_later_tick_with_no_error() {
     let f = fixture(Config {
         sixty_hz_on_battery: true,
         ..Config::default()
@@ -1711,6 +1711,9 @@ fn a_first_ac_put_back_refused_is_set_on_the_next_tick_with_no_error() {
         displays.0.current.hz = 60;
         displays.1 = 1;
     }
+    // The start puts back first, as in `main`; then Windows sends AC
+    // once when the app listens, and both stay quiet.
+    f.shell.app().start_rate().unwrap();
     let (sender, receiver) = std::sync::mpsc::channel();
     f.shell.listen_for_power(receiver);
     sender.send(PowerEvent::OnAc).unwrap();

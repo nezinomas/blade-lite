@@ -404,6 +404,19 @@ fn a_put_back_refused_at_the_start_is_tried_again_on_the_polls() {
 }
 
 #[test]
+fn a_put_back_refused_at_the_start_is_tried_after_the_ac_windows_sends() {
+    let (mut app, _dir) = start_refused_at_60();
+    app.start_rate().unwrap();
+
+    // Windows sends the source once when the app listens.
+    app.on_power(PowerEvent::OnAc).unwrap();
+    app.retry_battery_rate().unwrap();
+    app.retry_battery_rate().unwrap();
+
+    assert_eq!(panel_hz(&app), 240);
+}
+
+#[test]
 fn a_put_back_refused_at_the_start_is_not_tried_on_battery() {
     let (mut app, _dir) = start_refused_at_60();
     app.start_rate().unwrap();

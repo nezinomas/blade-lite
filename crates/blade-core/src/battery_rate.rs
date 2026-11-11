@@ -70,6 +70,11 @@ impl BatteryRate {
                 set
             }
             PowerEvent::OnAc => {
+                // The put-back tries are AC's own: they go on (Windows
+                // sends AC once more when the app listens, after the start).
+                if self.put_back_tries {
+                    return Ok(());
+                }
                 self.stop_tries();
                 let first = !std::mem::replace(&mut self.source_seen, true);
                 // A held rate is always put back first (none is held now,
@@ -247,7 +252,10 @@ impl BatteryRate {
                 self.stop_tries();
                 Ok(())
             }
-            Err(error) if self.tries == 0 => Err(error),
+            Err(error) if self.tries == 0 => {
+                self.stop_tries();
+                Err(error)
+            }
             Err(_) => Ok(()),
         }
     }
@@ -255,7 +263,8 @@ impl BatteryRate {
     /// Puts back the rate that was active before battery, if there is one:
     /// on AC, and when the app quits. Nothing is sent if the panel no
     /// longer runs at 60 Hz, as the rate was then changed outside the app.
-    /// Each saved rate is set once, so a failed set is not retried; a failed
+    /// Each saved rate is set once, so a failed set is not retried (unlike
+    /// the first AC's put-back, [`Self::first_on_ac`]); a failed
     /// read of the rate keeps it for the next AC event or the quit.
     /// The rate may be the one Windows has saved, taken at a start on
     /// battery at 60 Hz. It is not saved, so the rate Windows has saved
