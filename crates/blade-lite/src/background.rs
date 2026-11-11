@@ -179,6 +179,10 @@ fn step_the_preset() -> bool {
 /// Mutes or unmutes the mic on the event-loop thread. False once the app
 /// is quitting.
 fn toggle_the_mic() -> bool {
+    // Only a model with a mic key reads its keys as one.
+    if BLADE_18.mic_key.is_none() {
+        return true;
+    }
     slint::invoke_from_event_loop(|| {
         if let Some(shell) = SHELL.with(|cell| cell.borrow().clone()) {
             shell.toggle_mic();

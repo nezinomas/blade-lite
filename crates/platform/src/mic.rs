@@ -24,7 +24,8 @@ pub fn mic_muted() -> io::Result<bool> {
 }
 
 /// Mutes the default mic if it is not muted, or the other way round.
-/// Returns whether it is muted after, read back.
+/// Returns whether it is muted after, read back, or the state set if the
+/// read back fails.
 ///
 /// # Errors
 ///
@@ -37,7 +38,9 @@ pub fn toggle_mic_mute() -> io::Result<bool> {
         unsafe {
             let muted = volume.GetMute()?.as_bool();
             volume.SetMute(!muted, std::ptr::null())?;
-            Ok(volume.GetMute()?.as_bool())
+            Ok(volume
+                .GetMute()
+                .map_or(!muted, windows::core::BOOL::as_bool))
         }
     })
 }

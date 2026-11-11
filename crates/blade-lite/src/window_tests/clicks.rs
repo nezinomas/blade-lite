@@ -562,6 +562,16 @@ fn mic_fixture() -> Fixture {
     f
 }
 
+/// The frame with the mic key red, or plain while the real Num Lock is on:
+/// the poll and the resume read it.
+fn mic_red_unless_num_lock() -> Vec<Command> {
+    if platform::num_lock_on() {
+        static_colour(WHITE, &BLADE_18)
+    } else {
+        mic_red()
+    }
+}
+
 fn mic_red() -> Vec<Command> {
     let mic = razer_proto::RedKeys {
         touchpad: false,
@@ -606,7 +616,43 @@ fn the_poll_follows_a_mute_made_elsewhere() {
     f.shell.tick();
 
     assert_eq!(f.shell.app().mic_muted(), Some(true));
-    assert_eq!(sent_since(&f, before), mic_red());
+    let sent = sent_since(&f, before);
+    if platform::num_lock_on() {
+        assert_eq!(sent, []);
+    } else {
+        assert_eq!(sent, mic_red());
+    }
+}
+
+#[test]
+fn a_failed_mic_read_keeps_the_key_as_it_is() {
+    let f = mic_fixture();
+    FAKE_MIC.set(Some(true));
+    f.shell.tick();
+    let before = sent_count(&f);
+
+    FAKE_MIC.set(None);
+    f.shell.tick();
+    FAKE_MIC.set(Some(true));
+    f.shell.tick();
+
+    assert_eq!(f.shell.app().mic_muted(), Some(true));
+    assert_eq!(sent_since(&f, before), []);
+}
+
+#[test]
+fn fn_mic_with_a_wake_not_yet_followed_mutes_but_sends_nothing() {
+    let f = mic_fixture();
+    FAKE_MIC.set(Some(false));
+    let (sender, receiver) = std::sync::mpsc::channel();
+    f.shell.listen_for_power(receiver);
+    sender.send(PowerEvent::Resumed).unwrap();
+    let before = sent_count(&f);
+
+    f.shell.toggle_mic();
+
+    assert_eq!(FAKE_MIC.get(), Some(true));
+    assert_eq!(sent_since(&f, before), []);
 }
 
 #[test]
@@ -623,6 +669,11 @@ fn fn_mic_during_the_resume_pause_mutes_but_sends_nothing() {
     assert_eq!(FAKE_MIC.get(), Some(true));
     assert_eq!(f.shell.app().mic_muted(), Some(true));
     assert_eq!(sent_since(&f, before), []);
+    // The resume paints it.
+    i_slint_backend_testing::mock_elapsed_time(
+        blade_core::RESUME_PAUSE + std::time::Duration::from_millis(1),
+    );
+    assert!(sent_since(&f, before).ends_with(&mic_red_unless_num_lock()));
 }
 
 #[test]

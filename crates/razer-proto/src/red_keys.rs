@@ -5,7 +5,7 @@
 use crate::Rgb;
 
 /// The colour a red key shows.
-pub const TOUCHPAD_OFF: Rgb = Rgb::new(0xFF, 0x00, 0x00);
+pub const RED_KEY: Rgb = Rgb::new(0xFF, 0x00, 0x00);
 
 /// Where a key that can turn red sits in the key grid.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

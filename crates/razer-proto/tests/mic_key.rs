@@ -1,5 +1,5 @@
 use razer_proto::{
-    BLADE_18, ModelProfile, RedKey, RedKeys, Rgb, TOUCHPAD_OFF, static_colour, static_colour_red,
+    BLADE_18, ModelProfile, RED_KEY, RedKey, RedKeys, Rgb, static_colour, static_colour_red,
 };
 
 const GREEN: Rgb = Rgb::new(0x44, 0xD6, 0x2C);
@@ -22,7 +22,7 @@ fn red_keys(frame: &[razer_proto::Command]) -> Vec<(u8, u8)> {
     for row in 0..BLADE_18.keys.rows {
         for column in 0..BLADE_18.keys.columns {
             if colour_at(frame, row, column) != colour_at(&plain, row, column) {
-                assert_eq!(colour_at(frame, row, column), TOUCHPAD_OFF);
+                assert_eq!(colour_at(frame, row, column), RED_KEY);
                 red.push((row, column));
             }
         }

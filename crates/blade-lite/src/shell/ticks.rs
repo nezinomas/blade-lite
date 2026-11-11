@@ -32,7 +32,11 @@ impl<P: Parts> Shell<P> {
             self.retry_battery_rate();
         }
         self.follow_num_lock(num_lock_on());
-        self.follow_mic(P::mic_muted());
+        // A failed read keeps the last state, so a flaky read can't
+        // send a frame each poll.
+        if let Some(muted) = P::mic_muted() {
+            self.follow_mic(Some(muted));
+        }
         if self.schedule.borrow_mut().poll_due(now) {
             self.tick_readings(now);
             self.follow_charger();
@@ -135,9 +139,15 @@ impl<P: Parts> Shell<P> {
     }
 
     /// Fn + mic: mutes or unmutes the default mic, then paints the key. The
-    /// mic changes during a resume's pause too; only the paint waits.
+    /// mic changes during a resume's pause too; only the paint waits. The
+    /// Win + Alt + K the key sends still reaches Windows, so an app in a
+    /// call may mute itself too; the key shows only the mic's own mute.
     pub fn toggle_mic(self: &Rc<Self>) {
-        self.follow_mic(P::toggle_mic_mute());
+        // A wake not yet polled must hold the paint too.
+        self.follow_own_power();
+        if let Some(muted) = P::toggle_mic_mute() {
+            self.follow_mic(Some(muted));
+        }
     }
 
     /// Paints the touchpad key after a touchpad change, unless a resume

@@ -1,5 +1,5 @@
 use razer_proto::{
-    BLADE_18, ModelProfile, RedKey, Rgb, TOUCHPAD_OFF, static_colour, static_colour_touchpad_off,
+    BLADE_18, ModelProfile, RED_KEY, RedKey, Rgb, static_colour, static_colour_touchpad_off,
 };
 
 const GREEN: Rgb = Rgb::new(0x44, 0xD6, 0x2C);
@@ -29,7 +29,7 @@ fn only_the_touchpad_key_turns_red() {
     let off = static_colour_touchpad_off(GREEN, &BLADE_18);
 
     assert_eq!(off.len(), plain.len());
-    assert_eq!(colour_at(&off, 5, 17), TOUCHPAD_OFF);
+    assert_eq!(colour_at(&off, 5, 17), RED_KEY);
     for row in 0..BLADE_18.keys.rows {
         for column in 0..BLADE_18.keys.columns {
             if (row, column) != (5, 17) {

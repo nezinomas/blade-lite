@@ -41,7 +41,7 @@ pub use power_key::PowerKey;
 pub use preset::{PerfMode, PerfModeBytes, PresetError};
 pub use profile::{BLADE_18, KeyGrid, ModelProfile, UsbId};
 pub use readings::{Celsius, FanRpm};
-pub use red_keys::{RedKey, RedKeys, TOUCHPAD_OFF};
+pub use red_keys::{RED_KEY, RedKey, RedKeys};
 
 /// The first arg of most commands, as Synapse sends it.
 const VARIABLE_STORAGE: u8 = 0x01;
