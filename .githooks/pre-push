@@ -2,6 +2,14 @@
 # Same checks as CI, so a branch is checked before it reaches master.
 set -e
 
+# The checks build the folder, so it must hold only what is pushed.
+# Changes here can be another thread's unfinished work (ticket 75).
+if [ -n "$(git status --porcelain --untracked-files=no)" ]; then
+  echo "pre-push: the folder has changes that are not committed." >&2
+  echo "pre-push: commit or stash them, or wait for the thread that made them." >&2
+  exit 1
+fi
+
 # A stage or ticket merge (feature/, fix/, spike/) must tick docs/PLAN.md.
 # Other merges (docs/, chore/) are not checked.
 zero=0000000000000000000000000000000000000000
