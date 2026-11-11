@@ -66,6 +66,10 @@ impl Parts for Fakes {
         FAKE_MIC.set(FAKE_MIC.get().map(|muted| !muted));
         FAKE_MIC.get()
     }
+
+    fn controller_reopened() -> bool {
+        FAKE_REOPENED.take()
+    }
 }
 
 thread_local! {
@@ -82,6 +86,8 @@ thread_local! {
     pub static FAKE_HELD: RefCell<Option<Box<dyn FnOnce()>>> = const { RefCell::new(None) };
     /// The default mic's mute: unknown unless a test sets it.
     pub static FAKE_MIC: std::cell::Cell<Option<bool>> = const { std::cell::Cell::new(None) };
+    /// Whether the controller was opened again: no unless a test sets it.
+    pub static FAKE_REOPENED: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
     /// The file dialogs shown.
     pub static FAKE_DIALOGS: RefCell<Vec<FileDialog>> = const { RefCell::new(Vec::new()) };
 }

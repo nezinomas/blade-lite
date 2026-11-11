@@ -30,6 +30,10 @@ impl<P: Parts> Shell<P> {
     /// window tests give their own times.
     pub(crate) fn tick_at(self: &Rc<Self>, now: Instant, wall: SystemTime) {
         let failures = self.app.borrow().preset_failures();
+        // A driver install may be what killed the old handle.
+        if P::controller_reopened() && self.look_for_razer() {
+            self.show_window();
+        }
         self.follow_own_power();
         if self.resuming.get() == 0 && self.app.borrow().battery_rate_pending() {
             self.retry_battery_rate();

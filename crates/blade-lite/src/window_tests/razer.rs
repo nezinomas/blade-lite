@@ -9,7 +9,9 @@ use platform::PowerEvent;
 use razer_proto::NativeMode;
 use slint::Model;
 
-use super::{FAKE_ON_BATTERY, Fixture, click, fixture, fixture_with_programs, log_path};
+use super::{
+    FAKE_ON_BATTERY, FAKE_REOPENED, Fixture, click, fixture, fixture_with_programs, log_path,
+};
 use crate::Choice;
 
 const SYNAPSE: &str = "Razer Synapse Service";
@@ -71,6 +73,26 @@ fn razer_software_is_looked_for_after_a_resume() {
     i_slint_backend_testing::mock_elapsed_time(RESUME_PAUSE + Duration::from_millis(1));
 
     assert!(f.shell.window().get_error().contains(SYNAPSE));
+}
+
+#[test]
+fn razer_software_is_looked_for_after_the_controller_is_opened_again() {
+    let f = fixture(Config::default());
+    f.shell.programs().set(&[SYNAPSE]);
+    f.shell.tick();
+    f.shell.refresh(None);
+    assert_eq!(
+        f.shell.window().get_error(),
+        "",
+        "no look without a new open"
+    );
+
+    FAKE_REOPENED.set(true);
+    f.shell.tick();
+    f.shell.refresh(None);
+
+    assert!(f.shell.window().get_error().contains(SYNAPSE));
+    assert!(!FAKE_REOPENED.get(), "the flag is taken");
 }
 
 /// The label chosen in `choices`.

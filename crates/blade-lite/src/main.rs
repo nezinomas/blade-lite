@@ -35,7 +35,7 @@ use blade_lite::{App, Machine, accent_colour, icon, open_log, report, report_pan
 use platform::{
     WindowsDisplays, WindowsInstance, WindowsKeys, WindowsPrograms, WindowsRegistry, num_lock_on,
 };
-use razer_device::{Device, HidTransport, SystemClock};
+use razer_device::{Device, HidTransport, Reopening, SystemClock};
 use razer_proto::{BLADE_18, Rgb};
 use slint::winit_030::winit::platform::windows::WindowAttributesExtWindows;
 use slint::winit_030::winit::window::{BadIcon, Icon};
@@ -45,7 +45,7 @@ use crate::background::{
     follow_the_power_key, follow_the_touchpad, on_battery_now, open_window_on_wake, power_events,
     watch_touchpad,
 };
-use crate::shell::{Laptop, Parts, Shell};
+use crate::shell::{Laptop, Parts, Shell, reopen_controller};
 use crate::tray::Tray;
 use crate::tray_menu::{autostart_shown, on_tray};
 
@@ -139,7 +139,10 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     let config_path = Config::path_in(&appdata);
     let config = Config::load(&config_path)?;
     let machine = Machine {
-        controller: Device::new(open_controller()?, SystemClock),
+        controller: Device::new(
+            Reopening::new(open_controller()?, reopen_controller as fn() -> _),
+            SystemClock,
+        ),
         displays: WindowsDisplays,
         registry: WindowsRegistry,
         keys: WindowsKeys,

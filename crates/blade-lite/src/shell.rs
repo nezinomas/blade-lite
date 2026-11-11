@@ -21,7 +21,8 @@ use platform::{
     DisplayApi, FileDialog, KeyInjector, PowerEvent, Programs, Registry, WindowsDisplays,
     WindowsKeys, WindowsPrograms, WindowsRegistry, WindowsSensors,
 };
-use razer_device::{Device, HidTransport, SystemClock};
+use razer_device::{Device, HidTransport, Reopening, SystemClock};
+use razer_proto::BLADE_18;
 use ui::{HeatWatch, ModeWatch, TouchpadWatch};
 
 use popup::{POPUP_HOLD, POWER_MODE};
@@ -50,16 +51,51 @@ pub trait Parts: 'static {
     /// Mutes the default mic if it is not muted, or the other way round.
     /// Whether it is muted after; `None` if that can't be told.
     fn toggle_mic_mute() -> Option<bool>;
+    /// Whether the controller was opened again since the last call, after
+    /// its handle died.
+    fn controller_reopened() -> bool;
 }
 
 /// What [`Parts::pick_file`] calls with the user's answer.
 pub type PickedFile = Box<dyn FnOnce(io::Result<Option<PathBuf>>)>;
 
+/// The controller, opened again after its handle dies.
+pub type LaptopTransport = Reopening<HidTransport, fn() -> io::Result<HidTransport>>;
+
+thread_local! {
+    /// Whether [`reopen_controller`] opened the controller since the last
+    /// look. Both run on the event-loop thread.
+    static CONTROLLER_REOPENED: Cell<bool> = const { Cell::new(false) };
+    /// The last failed open again, so each one is logged once.
+    static REOPEN_ERRORS: RefCell<ShownErrors> = RefCell::new(ShownErrors::default());
+}
+
+/// Opens the controller again after its handle died (a driver install, the
+/// USB device going and coming back). A new open is logged, and each new
+/// reason it fails once.
+pub fn reopen_controller() -> io::Result<HidTransport> {
+    let opened = HidTransport::open(&BLADE_18);
+    let problem = match &opened {
+        Ok(_) => String::new(),
+        Err(error) => format!("can't open the controller again: {error}"),
+    };
+    REOPEN_ERRORS.with_borrow_mut(|said| {
+        if let Some(text) = said.new_text(&problem) {
+            report(text);
+        }
+    });
+    if opened.is_ok() {
+        report("the controller was opened again");
+        CONTROLLER_REOPENED.set(true);
+    }
+    opened
+}
+
 /// The real laptop.
 pub struct Laptop;
 
 impl Parts for Laptop {
-    type Controller = Device<HidTransport, SystemClock>;
+    type Controller = Device<LaptopTransport, SystemClock>;
     type Displays = WindowsDisplays;
     type Registry = WindowsRegistry;
     type Keys = WindowsKeys;
@@ -74,6 +110,10 @@ impl Parts for Laptop {
         let read = platform::mic_muted();
         say_mic_error(read.as_ref().err());
         read.ok()
+    }
+
+    fn controller_reopened() -> bool {
+        CONTROLLER_REOPENED.take()
     }
 
     fn toggle_mic_mute() -> Option<bool> {
