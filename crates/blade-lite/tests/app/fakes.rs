@@ -45,6 +45,11 @@ pub enum FakeCharger {
 pub struct FakeController {
     pub sent: Vec<Command>,
     pub fails: bool,
+    /// Fails this many runs before anything is sent, as a held or closed
+    /// handle does (`NotConnected`).
+    pub not_connected_runs: usize,
+    /// How many runs were asked for, failed ones too.
+    pub runs: usize,
     /// Fails the native mode query, as a Busy reply.
     pub native_fails: bool,
     /// The native mode byte it reads back: 0 is the first mode.
@@ -74,6 +79,12 @@ pub struct FakeController {
 
 impl Controller for FakeController {
     fn run(&mut self, commands: &[Command]) -> Result<(), DeviceError> {
+        self.runs += 1;
+        if self.not_connected_runs > 0 {
+            self.not_connected_runs -= 1;
+            let closed = std::io::Error::new(std::io::ErrorKind::NotConnected, "held");
+            return Err(DeviceError::Io(closed));
+        }
         if self.fails {
             return Err(DeviceError::Busy);
         }

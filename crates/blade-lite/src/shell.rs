@@ -333,16 +333,18 @@ impl<P: Parts> Shell<P> {
         self.app.borrow_mut()
     }
 
-    /// Sends Balanced in place of Performance or Custom, then puts back the
-    /// rate from before battery, as the app quits. A failure goes to the
-    /// log, as no window is left to show it.
+    /// Sends Balanced (Silent stays Silent; see `App::quit_preset`), then
+    /// puts back the rate from before battery, as the app quits. A failure
+    /// goes to the log, as no window is left to show it.
     pub fn quit(&self) {
         let mut app = self.app.borrow_mut();
         // First: the fans matter more than the rate.
         let mut sent = app.quit_preset();
         if sent.as_ref().is_err_and(nothing_sent) {
             // The controller holds a new handle (or just opened one), so
-            // nothing reached it: one more try is safe.
+            // nothing reached it: one more try is safe. It skips the 2 s
+            // pause and the Razer look a reopen gets, as the app ends; a
+            // controller not ready fails the reply check, and is logged.
             P::release_controller();
             sent = app.quit_preset();
         }

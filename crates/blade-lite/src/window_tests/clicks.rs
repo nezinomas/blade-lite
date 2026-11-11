@@ -14,7 +14,8 @@ use slint::winit_030::winit::event::WindowEvent as WinitEvent;
 use slint::{ComponentHandle, LogicalPosition, Model};
 
 use super::{
-    FAKE_MIC, FAKE_ON_BATTERY, Fixture, click, control, fixture, log_path, selected_preset,
+    FAKE_MIC, FAKE_ON_BATTERY, FAKE_RELEASED, Fixture, click, control, fixture, log_path,
+    selected_preset,
 };
 use crate::fakes::{FakeCharger, brightness_commands, lighting_commands, logo};
 
@@ -112,7 +113,6 @@ fn quitting_from_a_manual_fan_sends_the_fans_on_auto_then_balanced() {
     let (auto_fans, last) = sent.split_at(sent.len() - balanced.len());
     assert_eq!(last, balanced);
     // Custom again with the fan byte on auto, and no fan target.
-
     let modes = auto_fans.iter().filter(|c| c.id == 0x0D02);
     assert!(modes.clone().count() > 0);
     assert!(modes.clone().all(|c| c.args[3] == 0), "{auto_fans:?}");
@@ -160,13 +160,69 @@ fn a_failed_balanced_on_quit_is_logged_and_not_sent_again() {
         ..Config::default()
     });
     f.shell.app().machine_mut().controller.fails = true;
+    let runs = f.shell.app().machine().controller.runs;
+
+    f.shell.quit();
+
+    // A Busy failure: one run, not tried again.
+    assert_eq!(f.shell.app().machine().controller.runs - runs, 1);
+    assert!(!FAKE_RELEASED.get());
+    let log = std::fs::read_to_string(log_path()).unwrap();
+    assert!(log.contains("Balanced was not sent at quit"), "{log}");
+}
+
+#[test]
+fn a_quit_send_refused_by_a_held_controller_is_tried_once_more() {
+    let f = fixture(Config {
+        preset: Preset::Performance,
+        ..Config::default()
+    });
+    FAKE_RELEASED.set(false);
+    f.shell.app().machine_mut().controller.not_connected_runs = 1;
     let before = sent_count(&f);
 
     f.shell.quit();
 
-    assert!(sent_count(&f) - before <= 1, "one failed send at most");
-    let log = std::fs::read_to_string(log_path()).unwrap();
-    assert!(log.contains("Balanced was not sent at quit"), "{log}");
+    assert!(FAKE_RELEASED.get());
+    assert_eq!(
+        sent_since(&f, before),
+        PerfMode::Balanced.commands(&BLADE_18).unwrap()
+    );
+}
+
+#[test]
+fn a_quit_send_refused_twice_is_not_tried_a_third_time() {
+    let f = fixture(Config {
+        preset: Preset::Performance,
+        ..Config::default()
+    });
+    f.shell.app().machine_mut().controller.not_connected_runs = 5;
+    let runs = f.shell.app().machine().controller.runs;
+
+    f.shell.quit();
+
+    assert_eq!(f.shell.app().machine().controller.runs - runs, 2);
+}
+
+#[test]
+fn quitting_after_a_failed_switch_from_a_manual_fan_sends_the_fans_on_auto() {
+    let mut config = Config {
+        preset: Preset::Custom,
+        ..Config::default()
+    };
+    config.custom.fan_rpm = Some(1600);
+    let f = fixture(config);
+    f.shell.app().machine_mut().controller.fails = true;
+    f.shell.act(|app| app.on_power(PowerEvent::OnBattery));
+    f.shell.app().machine_mut().controller.fails = false;
+    let before = sent_count(&f);
+
+    f.shell.quit();
+
+    let sent = sent_since(&f, before);
+    let balanced = PerfMode::Balanced.commands(&BLADE_18).unwrap();
+    assert!(sent.len() > balanced.len(), "{sent:?}");
+    assert_eq!(sent[sent.len() - balanced.len()..], balanced);
 }
 
 #[test]

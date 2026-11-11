@@ -287,10 +287,19 @@ where
     /// See [`AppError`]. A failure stops the sends after it.
     pub fn quit_preset(&mut self) -> Result<(), AppError> {
         let running = self.running(self.config);
-        if running.preset == Preset::Custom && running.custom.fan_rpm.is_some() {
-            let mut auto_fans = running;
+        let manual_saved =
+            self.config.preset == Preset::Custom && self.config.custom.fan_rpm.is_some();
+        // After a failed send the controller may still run the manual fan,
+        // though the battery preset should run.
+        if manual_saved && (running.preset == Preset::Custom || self.preset_unsure) {
+            let mut auto_fans = self.config;
             auto_fans.custom.fan_rpm = None;
-            apply_performance(&auto_fans, self.model, &mut self.machine.controller)?;
+            match apply_performance(&auto_fans, self.model, &mut self.machine.controller) {
+                // A saved boost out of range: nothing was sent, so the
+                // preset below still goes.
+                Ok(()) | Err(ApplyError::Custom(_)) => {}
+                Err(error) => return Err(error.into()),
+            }
         }
         let preset = if running.preset == Preset::Silent {
             Preset::Silent
