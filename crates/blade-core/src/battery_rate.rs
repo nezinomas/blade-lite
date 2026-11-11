@@ -111,6 +111,9 @@ impl BatteryRate {
             return self.on_event(PowerEvent::OnAc, config, api);
         }
         self.source_seen = true;
+        if self.put_back_tries {
+            self.stop_tries();
+        }
         if config.sixty_hz_on_battery {
             let refused = self.after_resume(api).is_err();
             self.stop_tries();

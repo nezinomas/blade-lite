@@ -862,10 +862,16 @@ fn a_put_back_try_sends_nothing_once_the_panel_left_60_hz() {
 }
 
 #[test]
-fn battery_or_the_option_off_stops_the_put_back_tries() {
+fn battery_a_wake_on_battery_or_the_option_off_stops_the_put_back_tries() {
     let (mut battery_rate, mut api) = refused_at_the_first_ac(1);
     battery_rate
         .on_event(PowerEvent::OnBattery, &config(true), &mut api)
+        .unwrap();
+    assert!(!battery_rate.retry_pending());
+
+    let (mut battery_rate, mut api) = refused_at_the_first_ac(1);
+    battery_rate
+        .on_resume(true, &config(false), &mut api)
         .unwrap();
     assert!(!battery_rate.retry_pending());
 

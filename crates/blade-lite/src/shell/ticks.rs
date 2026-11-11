@@ -128,9 +128,9 @@ impl<P: Parts> Shell<P> {
     /// the first AC, again: Windows can refuse a set just after a wake, and
     /// a refused one would leave the panel at the wrong rate. Only the last
     /// failed try is shown, so a quiet try does not clear the other errors
-    /// or read the controller. When the tries
-    /// end, the window's rate buttons show the panel's rate (one display
-    /// view, so one native mode read); the flyout is filled when it opens.
+    /// or read the controller. When the tries end, the window's rate buttons
+    /// show the panel's rate (one display view, so one native mode read);
+    /// the flyout is filled when it opens.
     fn retry_battery_rate(self: &Rc<Self>) {
         let tried = self.app.borrow_mut().retry_battery_rate();
         if let Err(error) = tried {
