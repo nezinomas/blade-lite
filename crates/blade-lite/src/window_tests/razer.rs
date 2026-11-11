@@ -3,10 +3,10 @@
 
 use std::time::Duration;
 
-use blade_core::{Config, RESUME_PAUSE};
+use blade_core::{Config, Preset, RESUME_PAUSE};
 use i_slint_backend_testing::AccessibleRole::Button;
 use platform::PowerEvent;
-use razer_proto::NativeMode;
+use razer_proto::{BLADE_18, NativeMode, PerfMode};
 use slint::{ComponentHandle, Model};
 
 use super::{
@@ -140,6 +140,32 @@ fn a_click_before_the_tick_after_an_open_again_sends_nothing() {
 
     assert_eq!(f.shell.app().machine().controller.sent.len(), before);
     pause_ends();
+}
+
+#[test]
+fn a_charger_pulled_in_the_pause_after_an_open_again_sends_no_ac_preset() {
+    let f = fixture(Config {
+        preset: Preset::Performance,
+        ..Config::default()
+    });
+    let (sender, receiver) = std::sync::mpsc::channel();
+    f.shell.listen_for_power(receiver);
+    let before = f.shell.app().machine().controller.sent.len();
+
+    reopen(&f, Reopened::Opened);
+    FAKE_ON_BATTERY.set(true);
+    sender.send(PowerEvent::OnBattery).unwrap();
+    f.shell.tick();
+    pause_ends();
+
+    let app = f.shell.app();
+    let sent = &app.machine().controller.sent[before..];
+    let performance = PerfMode::Performance.commands(&BLADE_18).unwrap();
+    assert!(
+        !sent.iter().any(|command| performance.contains(command)),
+        "{sent:?}"
+    );
+    assert!(app.on_battery());
 }
 
 #[test]

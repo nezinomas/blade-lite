@@ -11,7 +11,7 @@ use razer_proto::REPORT_LEN;
 use crate::Transport;
 
 /// How many gaps to wait before opening again after a handle that died
-/// before any send on it worked: such a controller opens but can't be
+/// before any reply was read on it: such a controller opens but can't be
 /// used (still coming up, or held by a driver).
 const DEAD_HANDLE_GAPS: u32 = 6;
 
@@ -29,20 +29,24 @@ const DEAD_HANDLE_GAPS: u32 = 6;
 ///
 /// An open is not tried sooner than `gap` after the last one, whether it
 /// worked or not, as each open lists every HID device; after a handle that
-/// died before any send worked, not sooner than 6 gaps.
+/// died before any reply was read on it, not sooner than 6 gaps.
 pub struct Reopening<T, O> {
     transport: Option<T>,
     open: O,
     gap: Duration,
     held: Rc<Cell<bool>>,
     opened_at: Option<Instant>,
-    /// Whether a send on the handle (the last one, if it is closed) worked.
+    /// Whether a reply was read on the handle (the last one, if it is
+    /// closed): a whole exchange, as a write can go through to a
+    /// controller whose replies can't be read.
     worked: bool,
+    /// The time now: `Instant::now`, or a fake in the tests.
+    now: fn() -> Instant,
 }
 
 impl<T: Transport, O: FnMut(bool) -> io::Result<T>> Reopening<T, O> {
     /// Wraps a controller that is already open. `open` opens it again; it
-    /// is told whether a send on the last handle worked, so the first open
+    /// is told whether a reply was read on the last handle, so the first open
     /// of a run of failures can be told from the next ones. A new handle
     /// sets `held`.
     pub fn new(transport: T, open: O, gap: Duration, held: Rc<Cell<bool>>) -> Self {
@@ -53,6 +57,7 @@ impl<T: Transport, O: FnMut(bool) -> io::Result<T>> Reopening<T, O> {
             held,
             opened_at: None,
             worked: true,
+            now: Instant::now,
         }
     }
 
@@ -86,10 +91,14 @@ impl<T: Transport, O: FnMut(bool) -> io::Result<T>> Reopening<T, O> {
         } else {
             self.gap * DEAD_HANDLE_GAPS
         };
-        if self.opened_at.is_some_and(|at| at.elapsed() < gap) {
+        let now = (self.now)();
+        if self
+            .opened_at
+            .is_some_and(|at| now.duration_since(at) < gap)
+        {
             return closed("the controller is closed, and was tried a moment ago");
         }
-        self.opened_at = Some(Instant::now());
+        self.opened_at = Some(now);
         match (self.open)(self.worked) {
             Ok(transport) => {
                 self.transport = Some(transport);
@@ -112,7 +121,6 @@ impl<T: Transport, O: FnMut(bool) -> io::Result<T>> Transport for Reopening<T, O
             return Err(self.open_again());
         };
         let sent = transport.send_report(report);
-        self.worked |= sent.is_ok();
         self.keep_if_alive(sent)
     }
 
@@ -121,9 +129,11 @@ impl<T: Transport, O: FnMut(bool) -> io::Result<T>> Transport for Reopening<T, O
             .usable()?
             .ok_or_else(|| closed("the controller is closed"))?;
         let read = transport.read_report();
+        self.worked |= read.is_ok();
         self.keep_if_alive(read)
     }
 }
+
 #[cfg(test)]
 mod tests {
     use std::cell::RefCell;
@@ -209,7 +219,23 @@ mod tests {
             })
         };
         let held = Rc::clone(&setup.held);
-        (setup, Reopening::new(first, open, gap, held))
+        let mut controller = Reopening::new(first, open, gap, held);
+        controller.now = fake_now;
+        (setup, controller)
+    }
+
+    thread_local! {
+        static START: Instant = Instant::now();
+        static PASSED: Cell<Duration> = const { Cell::new(Duration::ZERO) };
+    }
+
+    /// The test's own time: its start, plus what [`pass`] moved it on.
+    fn fake_now() -> Instant {
+        START.with(|start| *start + PASSED.get())
+    }
+
+    fn pass(time: Duration) {
+        PASSED.set(PASSED.get() + time);
     }
 
     const REPORT: [u8; REPORT_LEN] = [0; REPORT_LEN];
@@ -305,28 +331,47 @@ mod tests {
         assert!(not_connected(controller.send_report(&REPORT)));
         assert_eq!(*s.log.borrow(), [(0, "send"), (1, "open")]);
 
-        let (s, mut controller) = setup(&[DEAD], &[], gap);
+        // A handle that opened, then died, is not opened again within the
+        // gap either.
+        let (s, mut controller) = setup(&[DEAD, None, DEAD], &[], gap);
         assert!(controller.send_report(&REPORT).is_err());
         assert!(controller.send_report(&REPORT).is_err());
         s.held.set(false);
         controller.send_report(&REPORT).unwrap();
-        // A handle that opens is not opened again within the gap either.
-        assert_eq!(*s.log.borrow(), [(0, "send"), (1, "open"), (1, "send")]);
+        assert!(controller.read_report().is_err());
+        assert!(not_connected(controller.send_report(&REPORT)));
+        assert_eq!(s.told.borrow().len(), 1);
     }
 
     #[test]
-    fn a_handle_that_dies_before_any_send_worked_waits_longer() {
-        let gap = Duration::from_millis(20);
+    fn a_handle_that_dies_before_any_reply_was_read_waits_longer() {
+        let gap = Duration::from_secs(5);
         let (s, mut controller) = setup(&[DEAD, DEAD], &[], gap);
         assert!(controller.send_report(&REPORT).is_err());
         assert!(controller.send_report(&REPORT).is_err());
         s.held.set(false);
         // The new handle dies at once.
         assert!(controller.send_report(&REPORT).is_err());
-        std::thread::sleep(gap * 2);
+        pass(gap * 2);
         assert!(not_connected(controller.send_report(&REPORT)));
         assert_eq!(s.told.borrow().len(), 1, "one gap is not enough");
-        std::thread::sleep(gap * DEAD_HANDLE_GAPS);
+        pass(gap * DEAD_HANDLE_GAPS);
+        assert!(controller.send_report(&REPORT).is_err());
+        assert_eq!(*s.told.borrow(), [true, false]);
+    }
+
+    #[test]
+    fn a_handle_whose_sends_work_but_reads_fail_waits_longer() {
+        let gap = Duration::from_secs(5);
+        let (s, mut controller) = setup(&[DEAD, None, DEAD], &[], gap);
+        assert!(controller.send_report(&REPORT).is_err());
+        assert!(controller.send_report(&REPORT).is_err());
+        s.held.set(false);
+        controller.send_report(&REPORT).unwrap();
+        assert!(controller.read_report().is_err());
+        pass(gap * 2);
+        assert!(not_connected(controller.send_report(&REPORT)));
+        pass(gap * DEAD_HANDLE_GAPS);
         assert!(controller.send_report(&REPORT).is_err());
         assert_eq!(*s.told.borrow(), [true, false]);
     }

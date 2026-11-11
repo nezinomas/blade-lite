@@ -86,6 +86,10 @@ impl<P: Parts> Shell<P> {
                     shell.resuming.set(shell.resuming.get().saturating_sub(1));
                     let first = shell.look_for_razer();
                     P::release_controller();
+                    // A power event in the pause was dropped: read the
+                    // source, so a pulled charger sends the battery preset
+                    // and rate before the settings go again.
+                    shell.follow_source();
                     shell.act(AppOn::<P>::start);
                     if first {
                         shell.show_window();
