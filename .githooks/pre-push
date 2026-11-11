@@ -2,19 +2,21 @@
 # Same checks as CI, so a branch is checked before it reaches master.
 set -e
 
-# The checks build the folder, so it must hold only what is pushed.
-# Changes here can be another thread's unfinished work (ticket 75).
-if [ -n "$(git status --porcelain --untracked-files=no)" ]; then
-  echo "pre-push: the folder has changes that are not committed." >&2
-  echo "pre-push: commit or stash them, or wait for the thread that made them." >&2
-  exit 1
-fi
-
 # A stage or ticket merge (feature/, fix/, spike/) must tick docs/PLAN.md.
 # Other merges (docs/, chore/) are not checked.
+# The checks build this folder, so it must be the commit that is pushed,
+# with nothing else in it: changes here can be another thread's unfinished
+# work (ticket 75). A branch delete builds nothing and is not checked.
 zero=0000000000000000000000000000000000000000
+pushes=0
 while read -r local_ref local_sha remote_ref remote_sha; do
   [ "$local_sha" = "$zero" ] && continue
+  pushes=$((pushes + 1))
+  if [ "$local_sha" != "$(git rev-parse HEAD)" ]; then
+    echo "pre-push: $local_ref is not the commit checked out here." >&2
+    echo "pre-push: check out the branch you push, in this folder." >&2
+    exit 1
+  fi
   if [ "$remote_sha" = "$zero" ]; then range="$local_sha --not --remotes"; else range="$remote_sha..$local_sha"; fi
   for merge in $(git rev-list --merges $range); do
     git log -1 --format=%s "$merge" | grep -qE "^Merge branch '(feature|fix|spike)/" || continue
@@ -25,6 +27,13 @@ while read -r local_ref local_sha remote_ref remote_sha; do
     fi
   done
 done
+[ "$pushes" -eq 0 ] && exit 0
+
+if [ -n "$(git status --porcelain)" ]; then
+  echo "pre-push: the folder has changes or new files that are not committed." >&2
+  echo "pre-push: commit or stash them, or wait for the thread that made them." >&2
+  exit 1
+fi
 
 cargo fmt --all --check
 cargo clippy --workspace --all-targets -- -D warnings
