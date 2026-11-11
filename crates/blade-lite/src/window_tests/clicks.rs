@@ -14,7 +14,8 @@ use slint::winit_030::winit::event::WindowEvent as WinitEvent;
 use slint::{ComponentHandle, LogicalPosition, Model};
 
 use super::{
-    FAKE_MIC, FAKE_ON_BATTERY, Fixture, click, control, fixture, log_path, selected_preset,
+    FAKE_MIC, FAKE_ON_BATTERY, FAKE_RELEASED, Fixture, click, control, fixture, log_path,
+    selected_preset,
 };
 use crate::fakes::{FakeCharger, brightness_commands, lighting_commands, logo};
 
@@ -93,6 +94,170 @@ fn quitting_on_battery_puts_the_rate_back() {
     f.shell.quit();
 
     assert_eq!(f.shell.app().machine().displays.0.current.hz, 240);
+}
+
+#[test]
+fn quitting_from_a_manual_fan_sends_the_fans_on_auto_then_balanced() {
+    let mut config = Config {
+        preset: Preset::Custom,
+        ..Config::default()
+    };
+    config.custom.fan_rpm = Some(1600);
+    let f = fixture(config);
+    let before = sent_count(&f);
+
+    f.shell.quit();
+
+    let sent = sent_since(&f, before);
+    let balanced = PerfMode::Balanced.commands(&BLADE_18).unwrap();
+    let (auto_fans, last) = sent.split_at(sent.len() - balanced.len());
+    assert_eq!(last, balanced);
+    // Custom again with the fan byte on auto, and no fan target.
+    let modes = auto_fans.iter().filter(|c| c.id == 0x0D02);
+    assert!(modes.clone().count() > 0);
+    assert!(modes.clone().all(|c| c.args[3] == 0), "{auto_fans:?}");
+    assert!(auto_fans.iter().all(|c| c.id != 0x0D01), "{auto_fans:?}");
+    assert_eq!(f.shell.app().config().preset, Preset::Custom);
+}
+
+#[test]
+fn quitting_from_performance_sends_balanced() {
+    let f = fixture(Config {
+        preset: Preset::Performance,
+        ..Config::default()
+    });
+    let before = sent_count(&f);
+
+    f.shell.quit();
+
+    assert_eq!(
+        sent_since(&f, before),
+        PerfMode::Balanced.commands(&BLADE_18).unwrap()
+    );
+    assert_eq!(f.shell.app().config().preset, Preset::Performance);
+}
+
+#[test]
+fn quitting_from_silent_sends_silent() {
+    let f = fixture(Config {
+        preset: Preset::Silent,
+        ..Config::default()
+    });
+    let before = sent_count(&f);
+
+    f.shell.quit();
+
+    assert_eq!(
+        sent_since(&f, before),
+        PerfMode::Silent.commands(&BLADE_18).unwrap()
+    );
+}
+
+#[test]
+fn a_failed_balanced_on_quit_is_logged_and_not_sent_again() {
+    let f = fixture(Config {
+        preset: Preset::Performance,
+        ..Config::default()
+    });
+    f.shell.app().machine_mut().controller.fails = true;
+    FAKE_RELEASED.set(false);
+    let runs = f.shell.app().machine().controller.runs;
+
+    f.shell.quit();
+
+    // A Busy failure: one run, not tried again.
+    assert_eq!(f.shell.app().machine().controller.runs - runs, 1);
+    assert!(!FAKE_RELEASED.get());
+    let log = std::fs::read_to_string(log_path()).unwrap();
+    assert!(log.contains("Balanced was not sent at quit"), "{log}");
+}
+
+#[test]
+fn a_quit_send_refused_by_a_held_controller_is_tried_once_more() {
+    let f = fixture(Config {
+        preset: Preset::Performance,
+        ..Config::default()
+    });
+    FAKE_RELEASED.set(false);
+    f.shell.app().machine_mut().controller.not_connected_runs = 1;
+    let before = sent_count(&f);
+
+    f.shell.quit();
+
+    assert!(FAKE_RELEASED.get());
+    assert_eq!(
+        sent_since(&f, before),
+        PerfMode::Balanced.commands(&BLADE_18).unwrap()
+    );
+}
+
+#[test]
+fn a_quit_send_refused_twice_is_not_tried_a_third_time() {
+    let f = fixture(Config {
+        preset: Preset::Performance,
+        ..Config::default()
+    });
+    f.shell.app().machine_mut().controller.not_connected_runs = 5;
+    let runs = f.shell.app().machine().controller.runs;
+
+    f.shell.quit();
+
+    assert_eq!(f.shell.app().machine().controller.runs - runs, 2);
+}
+
+#[test]
+fn quitting_after_a_failed_switch_from_a_manual_fan_sends_the_fans_on_auto() {
+    let mut config = Config {
+        preset: Preset::Custom,
+        ..Config::default()
+    };
+    config.custom.fan_rpm = Some(1600);
+    let f = fixture(config);
+    f.shell.app().machine_mut().controller.fails = true;
+    f.shell.act(|app| app.on_power(PowerEvent::OnBattery));
+    f.shell.app().machine_mut().controller.fails = false;
+    let before = sent_count(&f);
+
+    f.shell.quit();
+
+    let sent = sent_since(&f, before);
+    let balanced = PerfMode::Balanced.commands(&BLADE_18).unwrap();
+    let (auto_fans, last) = sent.split_at(sent.len() - balanced.len());
+    assert_eq!(last, balanced);
+    let modes = auto_fans.iter().filter(|c| c.id == 0x0D02);
+    assert!(modes.clone().count() > 0, "{sent:?}");
+    assert!(modes.clone().all(|c| c.args[3] == 0), "{auto_fans:?}");
+    assert!(auto_fans.iter().all(|c| c.id != 0x0D01), "{auto_fans:?}");
+    // On battery: the lowest boosts.
+    let boosts = auto_fans.iter().filter(|c| c.id == 0x0D07);
+    assert_eq!(boosts.clone().count(), 2, "{auto_fans:?}");
+    assert!(boosts.clone().all(|c| c.args[2] == 0), "{auto_fans:?}");
+}
+
+#[test]
+fn balanced_is_sent_at_quit_even_when_the_rate_put_back_fails() {
+    let f = fixture(Config {
+        preset: Preset::Performance,
+        sixty_hz_on_battery: true,
+        ..Config::default()
+    });
+    f.shell.act(|app| app.on_power(PowerEvent::OnBattery));
+    f.shell
+        .app()
+        .machine_mut()
+        .displays
+        .0
+        .modes
+        .retain(|mode| mode.hz != 240);
+    let before = sent_count(&f);
+
+    f.shell.quit();
+
+    // On battery Balanced runs already; it is sent again all the same.
+    assert_eq!(
+        sent_since(&f, before),
+        PerfMode::Balanced.commands(&BLADE_18).unwrap()
+    );
 }
 
 #[test]

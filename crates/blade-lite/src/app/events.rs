@@ -2,7 +2,7 @@
 //! a Num Lock or mic mute change and on quit.
 
 use blade_core::{
-    ApplyError, Controller, DisplayError, Preset, Query, apply, apply_performance,
+    ApplyError, Config, Controller, DisplayError, Preset, Query, apply, apply_performance,
     full_power_charger, paint_red_keys, touchpad_on,
 };
 use platform::{DisplayApi, KeyInjector, PowerEvent, Registry};
@@ -272,6 +272,54 @@ where
     /// See [`AppError`].
     pub fn on_quit(&mut self) -> Result<(), AppError> {
         Ok(self.battery_rate.put_back(&mut self.machine.displays)?)
+    }
+
+    /// Sends Balanced (Silent if Silent runs) as the app quits: no app is
+    /// left to watch a manual fan or a charger pulled. Always sent, as what
+    /// the controller runs may differ from the config after a failed send.
+    /// If a manual fan is saved and Custom runs or the last preset send
+    /// failed, Custom with the fans on auto goes first (with the lowest
+    /// boosts when Custom is not what should run), the known way to end a
+    /// manual fan; whether the preset's own mode write ends it too is not
+    /// checked on the laptop. The saved preset is kept, so the next start
+    /// sends it again.
+    ///
+    /// # Errors
+    ///
+    /// See [`AppError`]. A failure stops the sends after it.
+    pub fn quit_preset(&mut self) -> Result<(), AppError> {
+        let running = self.running(self.config);
+        let manual_saved =
+            self.config.preset == Preset::Custom && self.config.custom.fan_rpm.is_some();
+        // After a failed send the controller may still run the manual fan,
+        // though the battery preset should run.
+        if manual_saved && (running.preset == Preset::Custom || self.preset_unsure) {
+            let mut auto_fans = self.config;
+            auto_fans.custom.fan_rpm = None;
+            if running.preset != Preset::Custom {
+                // Custom is refused here (battery or a weak charge): the
+                // lowest boosts, for the moment before the preset below.
+                auto_fans.custom.cpu_boost = 0;
+                auto_fans.custom.gpu_boost = 0;
+            }
+            match apply_performance(&auto_fans, self.model, &mut self.machine.controller) {
+                // A saved boost out of range: nothing was sent, so the
+                // preset below still goes.
+                Ok(()) | Err(ApplyError::Custom(_)) => {}
+                Err(error) => return Err(error.into()),
+            }
+        }
+        let preset = if running.preset == Preset::Silent {
+            Preset::Silent
+        } else {
+            Preset::Balanced
+        };
+        let last = Config { preset, ..running };
+        Ok(apply_performance(
+            &last,
+            self.model,
+            &mut self.machine.controller,
+        )?)
     }
 
     /// At the app's start on AC, follows AC, so the rate a crash on
