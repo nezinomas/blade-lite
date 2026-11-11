@@ -94,7 +94,7 @@ pub struct App<C, D, R, K> {
     /// Whether the last start, preset change or power switch failed, so
     /// the controller may not run the preset the app shows (a failed start
     /// may also be a lighting send; a resend then does no harm). The next
-    /// power event sends it, even if the source is the same.
+    /// poll or power event sends it, even if the source is the same.
     preset_unsure: bool,
     /// The lid logo state, read after the settings are sent at start and
     /// after each resume. `None` if the model has none or it could not be
@@ -237,7 +237,9 @@ where
         self.power != Power::Charger
     }
 
-    fn on_battery(&self) -> bool {
+    /// Whether the app takes the laptop to run on its battery now.
+    #[must_use]
+    pub fn on_battery(&self) -> bool {
         self.power == Power::Battery
     }
 

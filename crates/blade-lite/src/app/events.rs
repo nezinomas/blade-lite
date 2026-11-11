@@ -124,12 +124,12 @@ where
             PowerEvent::Resumed => {
                 // The rate follows even if the start fails.
                 let started = self.start();
-                // Only on battery: the charger may have gone in during the
-                // sleep, before its power event comes.
+                // The source read now, as the charger may have gone in or
+                // out in the sleep, before its power event comes.
                 let rate = if self.on_battery() {
                     self.follow_power(event)
                 } else {
-                    Ok(())
+                    self.follow_power(PowerEvent::OnAc)
                 };
                 if let (Err(_), Err(error)) = (&started, &rate) {
                     // Only the start error is shown, so this one is logged.
@@ -188,6 +188,23 @@ where
             self.send_if_changed(before)?;
         }
         Ok(self.power.is_weak() != was_weak)
+    }
+
+    /// Sends the preset that runs again if the last start, preset change,
+    /// power switch or resend failed, so the laptop does not keep running
+    /// a preset the app does not show (such as Performance on battery).
+    /// Called on the polls. Returns whether it sent.
+    ///
+    /// # Errors
+    ///
+    /// See [`AppError`]. The next poll tries again.
+    pub fn resend_preset(&mut self) -> Result<bool, AppError> {
+        if !self.preset_unsure {
+            return Ok(false);
+        }
+        let before = self.running(self.config).preset;
+        self.send_if_changed(before)?;
+        Ok(true)
     }
 
     /// Sends the preset that runs now if it is not `before`, or the last
