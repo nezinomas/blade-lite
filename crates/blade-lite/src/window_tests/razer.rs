@@ -208,6 +208,21 @@ fn opens_again_are_logged_once_per_run_and_each_new_failure_once() {
     // Other tests may log it too, at the same time.
     assert!(lines("the controller was opened again") > opened_before);
 }
+
+#[test]
+fn an_unlisted_firmware_shows_a_warning_beside_the_razer_one() {
+    let f = fixture(Config::default());
+    f.shell.programs().set(&[SYNAPSE]);
+    f.shell.app().machine_mut().controller.firmware = Some(vec![1, 9]);
+    f.shell.app().check_firmware();
+
+    look(&f);
+
+    let error = f.shell.window().get_error();
+    assert!(error.contains(SYNAPSE), "{error}");
+    assert!(error.contains("firmware is 1.9"), "{error}");
+}
+
 /// The label chosen in `choices`.
 fn chosen(choices: &slint::ModelRc<Choice>) -> String {
     let chosen = choices.iter().find(|choice| choice.selected);

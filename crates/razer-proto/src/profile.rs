@@ -2,8 +2,8 @@
 //! Adding a model means adding a profile, not changing the code.
 
 use crate::{
-    ChargeLimit, Charger, CustomLimits, Logo, NativeMode, PerfMode, PerfModeBytes, PowerKey,
-    RedKey, RpmRange, VaporLight,
+    ChargeLimit, Charger, CustomLimits, FirmwareVersion, Logo, NativeMode, PerfMode, PerfModeBytes,
+    PowerKey, RedKey, RpmRange, VaporLight,
 };
 
 /// How the controller shows up on USB.
@@ -79,12 +79,16 @@ pub struct ModelProfile {
     /// The key that steps through [`ModelProfile::presets`], or `None` if
     /// the model has none.
     pub power_key: Option<PowerKey>,
+    /// The controller firmware versions the app is checked on. Another
+    /// version gets a warning; the app still sends.
+    pub firmware: &'static [FirmwareVersion],
 }
 
 impl ModelProfile {
     /// Whether the profile keeps the rules its fields name: each mode byte
     /// differs from the others and from Custom's, and the battery presets
-    /// are offered presets that hold Balanced. Each profile is checked with
+    /// are offered presets that hold Balanced, and at least one firmware
+    /// version is listed. Each profile is checked with
     /// it at build time.
     #[must_use]
     pub const fn is_valid(&self) -> bool {
@@ -108,7 +112,7 @@ impl ModelProfile {
             }
             battery = others;
         }
-        holds(self.battery_presets, PerfMode::Balanced)
+        holds(self.battery_presets, PerfMode::Balanced) && !self.firmware.is_empty()
     }
 }
 
@@ -253,6 +257,11 @@ pub const BLADE_18: ModelProfile = ModelProfile {
         // gets a plain Enter (read on the laptop 2026-11-10).
         fn_code: 0x0A,
     }),
+    // 1.6 on this laptop (`blade-dev probe`); r-helper's owner saw 1.7.
+    firmware: &[
+        FirmwareVersion { major: 1, minor: 6 },
+        FirmwareVersion { major: 1, minor: 7 },
+    ],
 };
 
 const _: () = assert!(BLADE_18.is_valid());

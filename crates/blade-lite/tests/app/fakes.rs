@@ -11,8 +11,8 @@ use platform::{
 };
 use razer_device::DeviceError;
 use razer_proto::{
-    BLADE_18, Brightness, Celsius, ChargeLimit, Charger, Command, Logo, ModelProfile, NativeMode,
-    Rgb, static_colour,
+    BLADE_18, Brightness, Celsius, ChargeLimit, Charger, Command, FirmwareVersion, Logo,
+    ModelProfile, NativeMode, Rgb, static_colour,
 };
 use tempfile::TempDir;
 
@@ -73,6 +73,8 @@ pub struct FakeController {
     /// The CPU temperature the controller reads back. `None` fails the query.
     pub cpu_celsius: Option<u8>,
     pub charger: FakeCharger,
+    /// The firmware version reply. `None` fails the query.
+    pub firmware: Option<Vec<u8>>,
     /// Every query asked, in order.
     pub asked: Vec<Command>,
 }
@@ -137,6 +139,8 @@ impl Query for FakeController {
                 FakeCharger::UsbC => Ok(vec![0x04, 0x13]),
                 FakeCharger::Fails => Err(DeviceError::Busy),
             }
+        } else if *command == FirmwareVersion::query() {
+            self.firmware.clone().ok_or(DeviceError::Busy)
         } else if *command == Celsius::query() {
             self.cpu_celsius
                 .map(|celsius| vec![2, celsius, 0, 0])

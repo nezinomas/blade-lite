@@ -160,6 +160,9 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     app.take_on_battery(on_battery_now());
     // Before the start reads the touchpad, so no switch is missed.
     let touchpad = watch_touchpad();
+    // Once, before the first send, so the log has it.
+    app.check_firmware();
+    let firmware_unchecked = app.firmware_warning().is_some();
     let started = app.start();
     // The rate follows even if the start fails.
     let rate = app.start_rate();
@@ -199,8 +202,9 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     });
 
     // At login the app starts in the tray, with the settings re-applied,
-    // unless Razer software runs: the window then shows the warning.
-    if !in_tray || razer_found {
+    // unless Razer software runs or the firmware is not one checked: the
+    // window then shows the warning.
+    if !in_tray || razer_found || firmware_unchecked {
         shell.show_window();
     }
     // Closing the window keeps the app in the tray. Quit is in its menu.
