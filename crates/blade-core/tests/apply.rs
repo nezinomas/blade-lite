@@ -302,6 +302,24 @@ fn the_preset_is_its_own_run_so_a_lighting_error_is_told_apart() {
 }
 
 #[test]
+fn a_logo_error_after_the_preset_is_told_apart() {
+    let (mut controller, log) = fakes();
+    controller.ok_runs = Some(1);
+    let saved = Config {
+        lid_logo: Some(true),
+        ..Config::default()
+    };
+
+    let result = apply(&saved, &BLADE_18, &mut controller, RedKeys::default());
+
+    assert!(matches!(
+        result,
+        Err(ApplyError::AfterPreset(DeviceError::Busy))
+    ));
+    assert_eq!(*log.borrow(), preset_steps(0x00));
+}
+
+#[test]
 fn an_error_after_the_preset_is_said_in_plain_text() {
     let error = ApplyError::AfterPreset(DeviceError::Busy);
 

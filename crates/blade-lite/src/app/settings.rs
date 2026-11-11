@@ -71,14 +71,19 @@ where
         self.key_red = applied.is_ok().then_some(red);
         self.note_preset_send(&applied);
         // The old config is kept, so a new preset the controller took is
-        // not the one shown: the resends put the shown one back.
+        // not the one shown: the resends put the shown one back, and the
+        // error says the laptop may run part of the change.
         let shown = self.running(self.config);
         let custom_runs = running.preset == Preset::Custom;
         let new_preset =
             shown.preset != running.preset || (custom_runs && shown.custom != running.custom);
-        if new_preset && matches!(applied, Err(ApplyError::AfterPreset(_))) {
-            self.preset_send_cut();
-        }
+        let applied = match applied {
+            Err(ApplyError::AfterPreset(error)) if new_preset => {
+                self.preset_send_cut();
+                Err(ApplyError::Device(error))
+            }
+            other => other,
+        };
         self.read_logo();
         applied?;
         // The switch goes through the click's path, which keeps it off if
