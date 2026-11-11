@@ -34,7 +34,7 @@ pub enum FakeCharger {
 }
 
 /// Records the commands it runs. It answers the native mode query with
-/// mode 0 (Busy while `native_fails` is set), the logo query with `logo_reply`, the charge limit query with
+/// mode 0, the logo query with `logo_reply`, the charge limit query with
 /// `charge`, the brightness query with `brightness_level` and the
 /// temperature query with `cpu_celsius`, the charger query with the Razer
 /// `charger`, and fails
@@ -45,6 +45,7 @@ pub enum FakeCharger {
 pub struct FakeController {
     pub sent: Vec<Command>,
     pub fails: bool,
+    /// Fails the native mode query, as a Busy reply.
     pub native_fails: bool,
     /// Takes this many commands of each run, then fails it, as a Busy
     /// reply to a command the controller still ran. It stays set, and a

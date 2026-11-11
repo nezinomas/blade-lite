@@ -119,7 +119,17 @@ where
     /// can't be read.
     #[must_use]
     pub fn touchpad_on(&self) -> Option<bool> {
-        touchpad_on(&self.machine.registry).ok()
+        self.read_touchpad().ok()
+    }
+
+    /// Whether the touchpad is on, as Windows has it.
+    ///
+    /// # Errors
+    ///
+    /// [`AppError::Touchpad`] if the registry can't be read or holds an
+    /// unknown value.
+    pub fn read_touchpad(&self) -> Result<bool, AppError> {
+        Ok(touchpad_on(&self.machine.registry)?)
     }
 
     /// The lid logo state last read or set, or `None` if the model has no

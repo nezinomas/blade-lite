@@ -299,14 +299,10 @@ impl<P: Parts> Shell<P> {
         errors.extend_from_slice(app.read_errors());
         self.say_read_errors(&errors);
         bind::header(&self.window, &header);
-        let keyboard = app.keyboard_view();
-        if let Ok(view) = &keyboard {
-            bind::keyboard(&self.window, view);
+        if let Ok(view) = app.keyboard_view() {
+            bind::keyboard(&self.window, &view);
         }
-        self.show_touchpad(match &keyboard {
-            Ok(view) => view.touchpad_on,
-            Err(_) => app.touchpad_on(),
-        });
+        self.show_touchpad(app.touchpad_on());
         let cpu = app.cpu_celsius();
         drop(app);
         let gpu = readings.gpu.map(|gpu| gpu.celsius);

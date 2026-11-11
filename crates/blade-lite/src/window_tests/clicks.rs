@@ -593,6 +593,8 @@ fn the_touchpad_switches_show_off_and_greyed_when_the_touchpad_cant_be_read() {
     f.shell.app().machine_mut().registry.touchpad = None;
     f.shell.refresh(None);
 
+    let error = f.shell.window().get_error();
+    assert!(error.contains("touchpad"), "{error}");
     assert!(!f.shell.window().get_touchpad_on());
     assert!(!f.shell.window().get_touchpad_known());
     assert!(!f.shell.flyout().get_touchpad_on());
