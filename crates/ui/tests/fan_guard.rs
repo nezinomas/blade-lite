@@ -157,9 +157,12 @@ fn a_hot_gpu_that_is_no_longer_read_keeps_it_on() {
         Some(60),
         Some(90),
     );
-    let (_, changes) = feed(&mut guard, now, FAN_GUARD_COOL_HOLD * 2, Some(60), None);
+    let (now, changes) = feed(&mut guard, now, FAN_GUARD_COOL_HOLD * 2, Some(60), None);
     assert!(changes.is_empty(), "{changes:?}");
     assert!(guard.on());
+    // After 5 min unread it went to sleep and cooled: off.
+    let (_, changes) = feed(&mut guard, now, Duration::from_secs(300), Some(60), None);
+    assert_eq!(changes, [false]);
 }
 
 #[test]

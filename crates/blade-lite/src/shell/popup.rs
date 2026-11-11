@@ -31,7 +31,8 @@ pub(super) const FANS: &str = "Fans";
 impl<P: Parts> Shell<P> {
     /// Notes the CPU and GPU temperatures read at `now`, `None` for one not
     /// read, and shows and logs the warnings of the sensors that have stayed
-    /// hot, in one popup. Nothing is sent.
+    /// hot, in one popup. Feeds the fan guard too, which may send a fan
+    /// speed, only while `heat_reads_allowed`.
     pub fn watch_heat(self: &Rc<Self>, cpu: Option<u32>, gpu: Option<u32>, now: Instant) {
         self.guard_fans(cpu, gpu, now);
         let mut watch = self.heat_watch.get();

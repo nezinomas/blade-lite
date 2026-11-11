@@ -14,7 +14,7 @@ use blade_core::{
     charge_limit_on, full_power_charger, logo_on, touchpad_on,
 };
 use platform::{DisplayApi, KeyInjector, Registry};
-use razer_proto::{FirmwareVersion, ModelProfile, NativeMode, RedKey, RedKeys, Rgb};
+use razer_proto::{FirmwareVersion, ModelProfile, NativeMode, RedKey, RedKeys, Rgb, Rpm};
 
 pub use error::{AppError, took_effect};
 
@@ -404,7 +404,8 @@ where
 
     /// The config with the preset that runs in place of its saved one.
     /// While the fan guard is on, a manual Custom fan runs at the model's
-    /// top speed; the saved speed is kept.
+    /// top speed; the saved speed is kept. A saved speed the model does not
+    /// take is left as it is, so the send still refuses it.
     fn running(&self, config: Config) -> Config {
         let mut running = Config {
             preset: config.preset.running(self.battery_presets(), self.model),
@@ -412,14 +413,18 @@ where
         };
         if let Some(rpm) = self.fan_boost
             && running.preset == Preset::Custom
-            && running.custom.fan_rpm.is_some()
+            && running
+                .custom
+                .fan_rpm
+                .is_some_and(|saved| Rpm::new(saved, self.model).is_ok())
         {
             running.custom.fan_rpm = Some(rpm);
         }
         running
     }
 
-    /// Turns the fan guard on or off (ticket 129): while it is on, a manual
+    /// Brings the fan boost in line with the fan guard (ticket 129), on each
+    /// allowed reading; usually nothing changes. While it is on, a manual
     /// Custom fan runs at the model's top speed. Sends Custom again only if
     /// Custom with a manual fan runs; a later Custom send takes the guard
     /// too. Returns whether it sent.
@@ -430,13 +435,21 @@ where
     /// send it again. A send that works drops a held rate error unshown, as
     /// a click does.
     pub fn set_fan_boost(&mut self, on: bool) -> Result<bool, AppError> {
-        let boost = on.then_some(self.model.custom.fan_rpm.max);
+        let top = self.model.custom.fan_rpm.max;
+        let boost = on.then_some(top);
         if self.fan_boost == boost {
+            // A failed full-speed send whose resends ran out is tried
+            // again while the guard stays on (the polls send it).
+            if on && self.preset_unsure && self.resends_left == 0 {
+                self.resends_left = RESEND_TRIES;
+            }
             return Ok(false);
         }
         self.fan_boost = boost;
         let running = self.running(self.config);
-        if running.preset != Preset::Custom || running.custom.fan_rpm.is_none() {
+        let manual = running.preset == Preset::Custom && running.custom.fan_rpm.is_some();
+        // Already at the top speed: nothing changes on the laptop.
+        if !manual || self.config.custom.fan_rpm == Some(top) {
             return Ok(false);
         }
         let applied = apply_performance(&running, self.model, &mut self.machine.controller);

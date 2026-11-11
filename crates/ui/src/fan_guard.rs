@@ -17,6 +17,10 @@ const COOL_MARGIN: u32 = 10;
 /// A hot spell ends only this far under the guard limit, so a sensor that
 /// swings around its limit under load still turns the guard on.
 const HOT_MARGIN: u32 = 3;
+/// A GPU not read for this long counts as cool: it went to sleep after a
+/// load (the app reads it only while it is awake), and a sleeping GPU
+/// cools down.
+const GPU_STALE: Duration = Duration::from_secs(300);
 
 impl Sensor {
     /// A reading at or above this, in °C, is hot for the guard (user pick,
@@ -59,7 +63,7 @@ impl FanGuard {
     /// guard limit for [`FAN_GUARD_HOLD`], off once every sensor read lately
     /// has been cool for [`FAN_GUARD_COOL_HOLD`]. The CPU must be among
     /// them: with no CPU reading the guard stays on. A GPU not read lately
-    /// holds it on only if its last reading was not cool.
+    /// holds it on only if its last reading was not cool, for up to 5 min.
     pub fn note(&mut self, cpu: Option<u32>, gpu: Option<u32>, now: Instant) -> Option<bool> {
         self.cpu.note(cpu, Sensor::Cpu.guard_limit(), now);
         self.gpu.note(gpu, Sensor::Gpu.guard_limit(), now);
@@ -67,9 +71,15 @@ impl FanGuard {
             let cpu_cool = self.cpu.settled(now) == Some(true);
             let gpu_cool = match self.gpu.settled(now) {
                 Some(cool) => cool,
-                // Asleep, or its read fails: cool only if it was last read
-                // cool (or never read).
-                None => self.gpu.cool_since.is_some() || self.gpu.last_reading.is_none(),
+                // Asleep, or its read fails: cool if it was last read cool,
+                // never read, or not read for a long time.
+                None => {
+                    self.gpu.cool_since.is_some()
+                        || self
+                            .gpu
+                            .last_reading
+                            .is_none_or(|last| now.saturating_duration_since(last) >= GPU_STALE)
+                }
             };
             !(cpu_cool && gpu_cool)
         } else {
@@ -106,10 +116,17 @@ impl Track {
         }
     }
 
-    /// Whether it has been hot for [`FAN_GUARD_HOLD`].
+    /// Whether it has been hot for [`FAN_GUARD_HOLD`], by a reading taken
+    /// lately: an old hot reading of a sensor no longer read does not turn
+    /// the guard on.
     fn hot_for(&self, now: Instant) -> bool {
-        self.hot_since
-            .is_some_and(|since| now.saturating_duration_since(since) >= FAN_GUARD_HOLD)
+        let recent = self
+            .last_reading
+            .is_some_and(|last| now.saturating_duration_since(last) <= HEAT_GAP);
+        recent
+            && self
+                .hot_since
+                .is_some_and(|since| now.saturating_duration_since(since) >= FAN_GUARD_HOLD)
     }
 
     /// Whether it has been cool for [`FAN_GUARD_COOL_HOLD`]; `None` if it
