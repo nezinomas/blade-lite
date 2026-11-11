@@ -160,6 +160,7 @@ fn a_failed_balanced_on_quit_is_logged_and_not_sent_again() {
         ..Config::default()
     });
     f.shell.app().machine_mut().controller.fails = true;
+    FAKE_RELEASED.set(false);
     let runs = f.shell.app().machine().controller.runs;
 
     f.shell.quit();
@@ -221,8 +222,16 @@ fn quitting_after_a_failed_switch_from_a_manual_fan_sends_the_fans_on_auto() {
 
     let sent = sent_since(&f, before);
     let balanced = PerfMode::Balanced.commands(&BLADE_18).unwrap();
-    assert!(sent.len() > balanced.len(), "{sent:?}");
-    assert_eq!(sent[sent.len() - balanced.len()..], balanced);
+    let (auto_fans, last) = sent.split_at(sent.len() - balanced.len());
+    assert_eq!(last, balanced);
+    let modes = auto_fans.iter().filter(|c| c.id == 0x0D02);
+    assert!(modes.clone().count() > 0, "{sent:?}");
+    assert!(modes.clone().all(|c| c.args[3] == 0), "{auto_fans:?}");
+    assert!(auto_fans.iter().all(|c| c.id != 0x0D01), "{auto_fans:?}");
+    // On battery: the lowest boosts.
+    let boosts = auto_fans.iter().filter(|c| c.id == 0x0D07);
+    assert_eq!(boosts.clone().count(), 2, "{auto_fans:?}");
+    assert!(boosts.clone().all(|c| c.args[2] == 0), "{auto_fans:?}");
 }
 
 #[test]

@@ -278,7 +278,8 @@ where
     /// left to watch a manual fan or a charger pulled. Always sent, as what
     /// the controller runs may differ from the config after a failed send.
     /// If a manual fan is saved and Custom runs or the last preset send
-    /// failed, Custom with the fans on auto goes first, the known way to end a manual fan; whether the preset's own
+    /// failed, Custom with the fans on auto goes first (with the lowest
+    /// boosts when Custom is not what should run), the known way to end a manual fan; whether the preset's own
     /// mode write ends it too is not checked on the laptop. The saved
     /// preset is kept, so the next start sends it again.
     ///
@@ -294,6 +295,12 @@ where
         if manual_saved && (running.preset == Preset::Custom || self.preset_unsure) {
             let mut auto_fans = self.config;
             auto_fans.custom.fan_rpm = None;
+            if running.preset != Preset::Custom {
+                // Custom is refused here (battery or a weak charge): the
+                // lowest boosts, for the moment before the preset below.
+                auto_fans.custom.cpu_boost = 0;
+                auto_fans.custom.gpu_boost = 0;
+            }
             match apply_performance(&auto_fans, self.model, &mut self.machine.controller) {
                 // A saved boost out of range: nothing was sent, so the
                 // preset below still goes.
