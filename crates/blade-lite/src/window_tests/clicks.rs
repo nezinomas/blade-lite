@@ -1608,6 +1608,48 @@ fn a_hot_spell_shows_the_heat_popup_once() {
     assert_eq!(f.shell.popup().get_mode(), "", "once per spell");
 }
 
+#[test]
+fn a_hot_cpu_puts_a_manual_fan_at_full_speed_and_back_when_cool() {
+    let mut config = Config {
+        preset: Preset::Custom,
+        ..Config::default()
+    };
+    config.custom.fan_rpm = Some(1600);
+    let f = fixture(config);
+    let start = Instant::now();
+    let before = sent_count(&f);
+    let top = BLADE_18.custom.fan_rpm.max;
+    let fan_speeds = |f: &Fixture, before| -> Vec<u16> {
+        sent_since(f, before)
+            .iter()
+            .filter(|c| c.id == 0x0D01)
+            .map(|c| u16::from(c.args[2]) * 100)
+            .collect()
+    };
+
+    let hot_end = ui::FAN_GUARD_HOLD.as_secs();
+    for second in 0..=hot_end {
+        f.shell
+            .watch_heat(Some(96), None, start + Duration::from_secs(second));
+    }
+
+    assert_eq!(fan_speeds(&f, before), [top, top]);
+    assert_eq!(f.shell.popup().get_caption(), "Fans");
+    assert_eq!(f.shell.popup().get_mode(), "Full speed");
+    let log = std::fs::read_to_string(log_path()).unwrap();
+    assert!(log.contains("fan guard: Full speed"), "{log}");
+
+    let before = sent_count(&f);
+    let cool_end = hot_end + 1 + ui::FAN_GUARD_COOL_HOLD.as_secs();
+    for second in hot_end + 1..=cool_end {
+        f.shell
+            .watch_heat(Some(70), None, start + Duration::from_secs(second));
+    }
+
+    assert_eq!(fan_speeds(&f, before), [1600, 1600]);
+    assert_eq!(f.shell.popup().get_mode(), "Back to the set speed");
+}
+
 /// The temperature queries the controller got since `before` queries.
 fn temperature_reads_since(f: &Fixture, before: usize) -> usize {
     let app = f.shell.app();

@@ -62,9 +62,9 @@ pub const HEAT_HOLD: Duration = Duration::from_secs(180);
 const HEAT_COOL_MARGIN: u32 = 5;
 /// A longer time without a reading starts the hold again: the sensor was
 /// not watched in between (failed reads, or the event loop stood still).
-const HEAT_GAP: Duration = Duration::from_secs(30);
+pub(crate) const HEAT_GAP: Duration = Duration::from_secs(30);
 /// Readings above this, in °C, are not believed.
-const HEAT_MAX: u32 = 125;
+pub(crate) const HEAT_MAX: u32 = 125;
 
 /// A sensor the heat warning watches.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
