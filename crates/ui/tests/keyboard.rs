@@ -16,7 +16,7 @@ fn state() -> KeyboardState {
     KeyboardState {
         brightness: brightness(70),
         colour: TEAL,
-        touchpad_on: true,
+        touchpad_on: Some(true),
         logo_on: Some(true),
         vapor_light_on: Some(true),
     }
@@ -191,26 +191,40 @@ fn a_custom_colour_that_is_not_hash_rrggbb_sends_nothing() {
 #[test]
 fn the_touchpad_switch_shows_the_current_state() {
     let off = KeyboardView::new(&KeyboardState {
-        touchpad_on: false,
+        touchpad_on: Some(false),
         ..state()
     });
 
-    assert!(view().touchpad_on);
-    assert!(!off.touchpad_on);
+    assert_eq!(view().touchpad_on, Some(true));
+    assert_eq!(off.touchpad_on, Some(false));
 }
 
 #[test]
 fn flipping_the_touchpad_switch_asks_for_the_other_state() {
     let off = KeyboardView::new(&KeyboardState {
-        touchpad_on: false,
+        touchpad_on: Some(false),
         ..state()
     });
 
     assert_eq!(
         view().toggle_touchpad(),
-        KeyboardCommand::SetTouchpad(false)
+        Some(KeyboardCommand::SetTouchpad(false))
     );
-    assert_eq!(off.toggle_touchpad(), KeyboardCommand::SetTouchpad(true));
+    assert_eq!(
+        off.toggle_touchpad(),
+        Some(KeyboardCommand::SetTouchpad(true))
+    );
+}
+
+#[test]
+fn an_unknown_touchpad_state_flips_nothing() {
+    let unknown = KeyboardView::new(&KeyboardState {
+        touchpad_on: None,
+        ..state()
+    });
+
+    assert_eq!(unknown.touchpad_on, None);
+    assert_eq!(unknown.toggle_touchpad(), None);
 }
 
 #[test]

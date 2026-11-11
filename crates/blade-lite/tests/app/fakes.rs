@@ -45,6 +45,8 @@ pub enum FakeCharger {
 pub struct FakeController {
     pub sent: Vec<Command>,
     pub fails: bool,
+    /// Fails the native mode query, as a Busy reply.
+    pub native_fails: bool,
     /// Takes this many commands of each run, then fails it, as a Busy
     /// reply to a command the controller still ran. It stays set, and a
     /// run of `n` or fewer commands still fails.
@@ -93,7 +95,11 @@ impl Query for FakeController {
     fn query(&mut self, command: &Command) -> Result<Vec<u8>, DeviceError> {
         self.asked.push(command.clone());
         if *command == NativeMode::query() {
-            Ok(vec![0])
+            if self.native_fails {
+                Err(DeviceError::Busy)
+            } else {
+                Ok(vec![0])
+            }
         } else if *command == logo().query() {
             self.logo_reply.clone().ok_or(DeviceError::Busy)
         } else if *command == ChargeLimit::query() {

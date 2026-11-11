@@ -42,6 +42,7 @@ export component MainWindow inherits Window {
     in property <bool> custom-selected;
     in property <string> custom-hex;
     in-out property <bool> touchpad-on;
+    in property <bool> touchpad-known: true;
     in property <bool> logo-shown;
     in-out property <bool> logo-on;
     in property <bool> vapor-light-shown;
@@ -141,6 +142,7 @@ export component MainWindow inherits Window {
                 custom-selected: root.custom-selected;
                 custom-hex: root.custom-hex;
                 touchpad-on <=> root.touchpad-on;
+                touchpad-known: root.touchpad-known;
                 logo-shown: root.logo-shown;
                 logo-on <=> root.logo-on;
                 vapor-light-shown: root.vapor-light-shown;
@@ -176,6 +178,7 @@ export component FlyoutWindow inherits Window {
     in-out property <bool> sixty-hz-on-battery;
     in property <int> brightness;
     in-out property <bool> touchpad-on;
+    in property <bool> touchpad-known: true;
     in property <bool> reset-enabled;
     in property <color> accent: #0078d4;
 
@@ -294,6 +297,7 @@ export component FlyoutWindow inherits Window {
             }
             Switch {
                 accessible-label: "Touchpad";
+                enabled: root.touchpad-known;
                 checked <=> root.touchpad-on;
                 toggled => { root.toggle-touchpad(); }
             }

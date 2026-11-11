@@ -10,6 +10,8 @@ export component KeyboardGroup inherits VerticalLayout {
     in property <bool> custom-selected;
     in property <string> custom-hex;
     in-out property <bool> touchpad-on;
+    // `false` greys the touchpad switch: its state can't be read.
+    in property <bool> touchpad-known: true;
     in property <bool> logo-shown;
     in-out property <bool> logo-on;
     in property <bool> vapor-light-shown;
@@ -126,9 +128,10 @@ export component KeyboardGroup inherits VerticalLayout {
     }
     Row {
         title: "Touchpad";
-        note: root.touchpad-on ? "Turn off when you use a mouse" : "Off";
+        note: !root.touchpad-known ? "Unknown" : root.touchpad-on ? "Turn off when you use a mouse" : "Off";
         Switch {
             accessible-label: "Touchpad";
+            enabled: root.touchpad-known;
             checked <=> root.touchpad-on;
             toggled => { root.toggle-touchpad(); }
         }

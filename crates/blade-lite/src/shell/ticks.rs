@@ -302,6 +302,7 @@ impl<P: Parts> Shell<P> {
         if let Ok(view) = app.keyboard_view() {
             bind::keyboard(&self.window, &view);
         }
+        self.show_touchpad(app.touchpad_on());
         let cpu = app.cpu_celsius();
         drop(app);
         let gpu = readings.gpu.map(|gpu| gpu.celsius);

@@ -97,7 +97,8 @@ where
     }
 
     /// The logo switch is hidden if its state could not be read, the vapor
-    /// light switch if the model has none.
+    /// light switch if the model has none. A touchpad state that can't be
+    /// read is `None`, so it fails no other part.
     ///
     /// # Errors
     ///
@@ -108,7 +109,7 @@ where
         Ok(KeyboardView::new(&KeyboardState {
             brightness,
             colour: lighting.colour,
-            touchpad_on: touchpad_on(&self.machine.registry)?,
+            touchpad_on: self.touchpad_on(),
             logo_on: self.logo_on,
             vapor_light_on: self.vapor_light_on(),
         }))
@@ -118,7 +119,17 @@ where
     /// can't be read.
     #[must_use]
     pub fn touchpad_on(&self) -> Option<bool> {
-        touchpad_on(&self.machine.registry).ok()
+        self.read_touchpad().ok()
+    }
+
+    /// Whether the touchpad is on, as Windows has it.
+    ///
+    /// # Errors
+    ///
+    /// [`AppError::Touchpad`] if the registry can't be read or holds an
+    /// unknown value.
+    pub fn read_touchpad(&self) -> Result<bool, AppError> {
+        Ok(touchpad_on(&self.machine.registry)?)
     }
 
     /// The lid logo state last read or set, or `None` if the model has no

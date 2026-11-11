@@ -22,7 +22,7 @@ use platform::{
     WindowsKeys, WindowsPrograms, WindowsRegistry, WindowsSensors,
 };
 use razer_device::{Device, HidTransport, SystemClock};
-use ui::{FlyoutView, HeatWatch, ModeWatch, TouchpadWatch};
+use ui::{HeatWatch, ModeWatch, TouchpadWatch};
 
 use popup::{POPUP_HOLD, POWER_MODE};
 
@@ -298,6 +298,15 @@ impl<P: Parts> Shell<P> {
         }
     }
 
+    /// Sets both touchpad switches. `None`, a state that can't be read,
+    /// shows off and greyed.
+    fn show_touchpad(&self, on: Option<bool>) {
+        self.window.set_touchpad_on(on == Some(true));
+        self.window.set_touchpad_known(on.is_some());
+        self.flyout.set_touchpad_on(on == Some(true));
+        self.flyout.set_touchpad_known(on.is_some());
+    }
+
     /// Fills both windows again. `error` is shown above the groups, if any.
     pub fn refresh(&self, error: Option<&AppError>) {
         let mut app = self.app.borrow_mut();
@@ -307,26 +316,34 @@ impl<P: Parts> Shell<P> {
         let performance = app.performance_view();
         bind::header(&self.window, &header);
         bind::performance(&self.window, &performance);
-        let display = app.display_view();
-        let keyboard = app.keyboard_view();
-        match &display {
-            Ok(view) => bind::display(&self.window, view),
+        bind::flyout_performance(&self.flyout, &performance, &header);
+        // A failed view leaves its parts as last shown and shows the error.
+        match app.display_view() {
+            Ok(view) => {
+                bind::display(&self.window, &view);
+                bind::flyout_display(&self.flyout, &view);
+            }
             Err(error) => errors.push(error.to_string()),
         }
-        match &keyboard {
-            Ok(view) => bind::keyboard(&self.window, view),
+        match app.keyboard_view() {
+            Ok(view) => {
+                bind::keyboard(&self.window, &view);
+                bind::flyout_keyboard(&self.flyout, &view);
+            }
             Err(error) => errors.push(error.to_string()),
         }
-        if let (Ok(display), Ok(keyboard)) = (&display, &keyboard) {
-            let flyout = FlyoutView::new(&performance, display, keyboard);
-            bind::flyout(&self.flyout, &flyout, &header);
-        }
-        // A switch flips itself on a click. Set it from the config, or the
-        // logo state last read or set, even when a view failed, so it never
-        // shows a value that was not saved or sent.
+        // A switch flips itself on a click. Set it from the config, the
+        // touchpad state read now, or the logo state last read or set, even
+        // when a view failed, so it never shows a value that was not saved
+        // or sent. A touchpad state that can't be read shows off, greyed.
         let sixty_hz = app.config().sixty_hz_on_battery;
         self.window.set_sixty_hz_on_battery(sixty_hz);
         self.flyout.set_sixty_hz_on_battery(sixty_hz);
+        let touchpad = app.read_touchpad();
+        if let Err(error) = &touchpad {
+            errors.push(error.to_string());
+        }
+        self.show_touchpad(touchpad.ok());
         self.window
             .set_vapor_light_on(app.vapor_light_on() == Some(true));
         self.window.set_logo_shown(app.logo_on().is_some());
