@@ -67,8 +67,10 @@ impl<P: Parts> Shell<P> {
     /// wake's pause (the controller holds its new handle until then), then
     /// Razer software is looked for (a Razer driver install may be what
     /// killed the old handle), the handle is released and the settings are
-    /// sent again, as the controller may have lost them. Unlike a wake, the
-    /// heat watch and the rate are left alone. After an open that failed
+    /// sent again, as the controller may have lost them. The power source is
+    /// read again first, as power events in the pause are dropped. Unlike a
+    /// wake, the heat watch is left alone, and the rate changes only with
+    /// the source. After an open that failed
     /// for a new reason, only the look. Returns whether a pause began.
     fn follow_reopen(self: &Rc<Self>) -> bool {
         match P::controller_reopened() {
@@ -90,6 +92,8 @@ impl<P: Parts> Shell<P> {
                     // source, so a pulled charger sends the battery preset
                     // and rate before the settings go again.
                     shell.follow_source();
+                    // As the wake: an unknown source runs the battery presets.
+                    shell.app.borrow_mut().take_on_battery(P::on_battery());
                     shell.act(AppOn::<P>::start);
                     if first {
                         shell.show_window();

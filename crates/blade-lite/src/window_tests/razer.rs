@@ -199,7 +199,7 @@ fn opens_again_are_logged_once_per_run_and_each_new_failure_once() {
     assert_eq!(note_open(&mut said, true, Some(&gone)), Reopened::No);
     assert_eq!(note_open(&mut said, true, Some(&taken)), Reopened::Failed);
     assert_eq!(note_open(&mut said, true, None), Reopened::Opened);
-    // That handle died before any send worked: the same run, not logged.
+    // That handle died before any reply was read: the same run, not logged.
     assert_eq!(note_open(&mut said, false, None), Reopened::Opened);
     assert_eq!(note_open(&mut said, false, Some(&gone)), Reopened::Failed);
 

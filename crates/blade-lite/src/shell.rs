@@ -103,8 +103,8 @@ pub fn reopen_controller(worked: bool) -> io::Result<HidTransport> {
     opened
 }
 
-/// Logs an open again (`error` if it failed; `worked`: a send on the last
-/// handle worked): the first that works in a run of failures, and each new
+/// Logs an open again (`error` if it failed; `worked`: a reply was read on the last
+/// handle): the first that works in a run of failures, and each new
 /// reason one fails once. An open that works always asks the shell to
 /// release the handle; a failure asks for a look only when it is new.
 pub fn note_open(said: &mut ShownErrors, worked: bool, error: Option<&io::Error>) -> Reopened {
