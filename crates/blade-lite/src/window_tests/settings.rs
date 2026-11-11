@@ -9,7 +9,9 @@ use razer_proto::{BLADE_18, PerfMode};
 use tempfile::TempDir;
 
 use super::clicks::resuming;
-use super::{FAKE_DIALOGS, FAKE_HELD, FAKE_HOLD, FAKE_PICKED, FakePick, Fixture, click, fixture};
+use super::{FAKE_DIALOGS, FAKE_HELD, FAKE_HOLD, FAKE_PICKED, FakePick, Fixture, click, fixture,
+    selected_preset,
+};
 
 /// The user picks `name` in a folder of its own, which lasts as long as
 /// the `TempDir`.
@@ -56,7 +58,7 @@ fn import_sends_saves_and_shows_the_picked_file() {
     let sent = f.shell.app().machine().controller.sent[before..].to_vec();
     assert!(sent.starts_with(&PerfMode::Silent.commands(&BLADE_18).unwrap()));
     assert_eq!(f.shell.app().config().preset, Preset::Silent);
-    assert_eq!(f.shell.window().get_preset(), "Silent");
+    assert_eq!(selected_preset(&f), "Silent");
     assert_eq!(f.shell.popup().get_mode(), "Silent");
 }
 
@@ -118,7 +120,7 @@ fn reset_sends_and_shows_the_defaults() {
     let sent = f.shell.app().machine().controller.sent[before..].to_vec();
     assert!(sent.starts_with(&PerfMode::Balanced.commands(&BLADE_18).unwrap()));
     assert_eq!(f.shell.app().config().preset, Preset::Balanced);
-    assert_eq!(f.shell.window().get_preset(), "Balanced");
+    assert_eq!(selected_preset(&f), "Balanced");
 }
 
 #[test]
