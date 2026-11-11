@@ -24,7 +24,8 @@ const SHOW_DELAY: Duration = Duration::from_millis(16);
 const SHOW_TRIES: u32 = 60;
 
 impl<P: Parts> Shell<P> {
-    /// Closing the window hides it, and the flyout hides when it loses focus.
+    /// Closing the window hides it, focusing it puts the brightness slider
+    /// back, and the flyout hides when it loses focus.
     pub fn watch_windows(self: &Rc<Self>) {
         let shell = Rc::downgrade(self);
         self.window.window().on_close_requested(move || {
@@ -42,6 +43,22 @@ impl<P: Parts> Shell<P> {
             }
             EventResult::Propagate
         });
+        let shell = Rc::downgrade(self);
+        self.window.window().on_winit_window_event(move |_, event| {
+            if matches!(event, winit::event::WindowEvent::Focused(true))
+                && let Some(shell) = shell.upgrade()
+            {
+                shell.put_back_brightness();
+            }
+            EventResult::Propagate
+        });
+    }
+
+    /// The window shown or brought back (restored, Alt+Tab) shows the laptop's
+    /// brightness, not a Narrator set-value or a drag it lost while away.
+    pub fn put_back_brightness(&self) {
+        drop_lost_drag(self.window.window());
+        self.window.invoke_show_brightness();
     }
 
     pub fn show_window(self: &Rc<Self>) {
@@ -66,8 +83,7 @@ impl<P: Parts> Shell<P> {
             .borrow_mut()
             .show(View::Window, Instant::now());
         self.refresh(None);
-        drop_lost_drag(self.window.window());
-        self.window.invoke_show_brightness();
+        self.put_back_brightness();
     }
 
     /// Opens the flyout above the tray icon, or closes it if it is open.

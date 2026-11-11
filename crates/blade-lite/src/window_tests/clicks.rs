@@ -380,6 +380,28 @@ fn showing_the_window_puts_back_a_brightness_set_by_narrator() {
 }
 
 #[test]
+fn focusing_the_window_puts_back_a_brightness_drag_cut_short() {
+    let f = fixture(Config::default());
+    press_without_release(f.shell.window(), "Brightness");
+    let before = sent_count(&f);
+
+    f.shell.put_back_brightness();
+
+    shows_the_laptop_brightness(&f, f.shell.window(), "Brightness", "KeyboardGroup", before);
+}
+
+#[test]
+fn focusing_the_window_puts_back_a_brightness_set_by_narrator() {
+    let f = fixture(Config::default());
+    let before = sent_count(&f);
+    control(f.shell.window(), Slider, "Brightness").set_accessible_value("30");
+
+    f.shell.put_back_brightness();
+
+    shows_the_laptop_brightness(&f, f.shell.window(), "Brightness", "KeyboardGroup", before);
+}
+
+#[test]
 fn opening_the_flyout_puts_back_a_brightness_drag_cut_short() {
     let f = fixture(Config::default());
     press_without_release(f.shell.flyout(), "Keyboard light");
