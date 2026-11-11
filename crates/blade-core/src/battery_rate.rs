@@ -19,12 +19,16 @@ pub struct BatteryRate {
     saved: Option<RefreshRate>,
     /// The tries left after a wake whose 60 Hz failed.
     tries: u8,
+    /// Whether a known power source has come since the app started.
+    source_seen: bool,
 }
 
 impl BatteryRate {
     /// Sets the rate for a change of power source. A wake goes to
     /// [`Self::on_resume`], so `Resumed` changes nothing here, nor does any
-    /// event while the option is off (but AC still puts a rate back).
+    /// event while the option is off (but AC still puts a rate back). The
+    /// first source since the start that is AC goes to
+    /// [`Self::first_on_ac`].
     ///
     /// # Errors
     ///
@@ -36,12 +40,23 @@ impl BatteryRate {
         api: &mut impl DisplayApi,
     ) -> Result<(), DisplayError> {
         match event {
-            PowerEvent::OnBattery if config.sixty_hz_on_battery => self.on_battery(api),
+            PowerEvent::OnBattery => {
+                self.source_seen = true;
+                if config.sixty_hz_on_battery {
+                    self.on_battery(api)
+                } else {
+                    Ok(())
+                }
+            }
             PowerEvent::OnAc => {
                 self.tries = 0;
+                let first = !std::mem::replace(&mut self.source_seen, true);
+                if first && self.saved.is_none() {
+                    return self.first_on_ac(config, api);
+                }
                 self.put_back(api)
             }
-            _ => Ok(()),
+            PowerEvent::Resumed => Ok(()),
         }
     }
 
@@ -62,6 +77,7 @@ impl BatteryRate {
         if !on_battery {
             return self.on_event(PowerEvent::OnAc, config, api);
         }
+        self.source_seen = true;
         if config.sixty_hz_on_battery {
             let refused = self.after_resume(api).is_err();
             self.tries = if refused { RESUME_RATE_TRIES } else { 0 };
@@ -69,24 +85,21 @@ impl BatteryRate {
         Ok(())
     }
 
-    /// At a start on AC, puts back the rate Windows has saved if the panel
-    /// runs 60 Hz: a crash on battery left it there, and the charger went
-    /// in before the app started again, so no AC event has a rate to put
-    /// back. Only with the switch on, and only a saved rate the panel
-    /// offers that is not 60 Hz. It is not saved, as at a put-back on AC.
-    /// That can't tell such a 60 Hz from one another program set without
-    /// saving it; that one is put back too, as at a start on battery. A
-    /// panel that is not active is left alone.
-    ///
-    /// # Errors
-    ///
-    /// See [`DisplayError`].
-    pub fn on_start_on_ac(
+    /// At the first known source since the start, when it is AC, puts
+    /// back the rate Windows has saved if the panel runs 60 Hz: a crash on
+    /// battery left it there, and the charger went in before the app
+    /// started again (or before its first power event), so no rate is held
+    /// to put back. Only with the switch on, and only a saved rate the
+    /// panel offers that is not 60 Hz. It is not saved, as at a put-back on
+    /// AC. That can't tell such a 60 Hz from one another program set
+    /// without saving it; that one is put back too, as at a start on
+    /// battery. A panel that is not active is left alone. Tried once.
+    fn first_on_ac(
         &mut self,
         config: &Config,
         api: &mut impl DisplayApi,
     ) -> Result<(), DisplayError> {
-        if !config.sixty_hz_on_battery || self.saved.is_some() {
+        if !config.sixty_hz_on_battery {
             return Ok(());
         }
         match current_rate(api) {
