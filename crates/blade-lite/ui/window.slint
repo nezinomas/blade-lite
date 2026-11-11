@@ -66,7 +66,7 @@ export component MainWindow inherits Window {
     callback import-settings();
     callback reset-settings();
 
-    // Called when the window is shown: the brightness slider goes back to
+    // Called when the window is shown or focused: the brightness slider goes back to
     // what the laptop has.
     public function show-brightness() {
         keyboard.show-brightness();

@@ -10,6 +10,7 @@ use i_slint_backend_testing::{ElementHandle, ElementRoot};
 use platform::{Key, PowerEvent};
 use razer_proto::{BLADE_18, Celsius, Charger, Command, PerfMode, Rgb, static_colour};
 use slint::platform::{PointerEventButton, WindowEvent};
+use slint::winit_030::winit::event::WindowEvent as WinitEvent;
 use slint::{ComponentHandle, LogicalPosition};
 
 use super::{FAKE_MIC, FAKE_ON_BATTERY, Fixture, click, control, fixture, log_path};
@@ -385,7 +386,7 @@ fn focusing_the_window_puts_back_a_brightness_drag_cut_short() {
     press_without_release(f.shell.window(), "Brightness");
     let before = sent_count(&f);
 
-    f.shell.put_back_brightness();
+    f.shell.on_window_event(&WinitEvent::Focused(true));
 
     shows_the_laptop_brightness(&f, f.shell.window(), "Brightness", "KeyboardGroup", before);
 }
@@ -396,9 +397,19 @@ fn focusing_the_window_puts_back_a_brightness_set_by_narrator() {
     let before = sent_count(&f);
     control(f.shell.window(), Slider, "Brightness").set_accessible_value("30");
 
-    f.shell.put_back_brightness();
+    f.shell.on_window_event(&WinitEvent::Focused(true));
 
     shows_the_laptop_brightness(&f, f.shell.window(), "Brightness", "KeyboardGroup", before);
+}
+
+#[test]
+fn losing_the_focus_keeps_a_brightness_set_by_narrator() {
+    let f = fixture(Config::default());
+    control(f.shell.window(), Slider, "Brightness").set_accessible_value("30");
+
+    f.shell.on_window_event(&WinitEvent::Focused(false));
+
+    assert_eq!(percent_shown(f.shell.window(), "KeyboardGroup"), "30%");
 }
 
 #[test]

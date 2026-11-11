@@ -34,7 +34,7 @@ export component KeyboardGroup inherits VerticalLayout {
         brightness-slider.value = root.brightness;
     }
 
-    // Called when the window is shown: a drag cut short or a Narrator
+    // Called when the window is shown or focused: a drag cut short or a Narrator
     // set-value left the slider at a value never sent.
     public function show-brightness() {
         brightness-slider.value = root.brightness;

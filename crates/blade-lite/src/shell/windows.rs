@@ -45,18 +45,23 @@ impl<P: Parts> Shell<P> {
         });
         let shell = Rc::downgrade(self);
         self.window.window().on_winit_window_event(move |_, event| {
-            if matches!(event, winit::event::WindowEvent::Focused(true))
-                && let Some(shell) = shell.upgrade()
-            {
-                shell.put_back_brightness();
+            if let Some(shell) = shell.upgrade() {
+                shell.on_window_event(event);
             }
             EventResult::Propagate
         });
     }
 
-    /// The window shown or brought back (restored, Alt+Tab) shows the laptop's
-    /// brightness, not a Narrator set-value or a drag it lost while away.
-    pub fn put_back_brightness(&self) {
+    /// The window brought back (restored, Alt+Tab) gets the focus.
+    pub fn on_window_event(&self, event: &winit::event::WindowEvent) {
+        if matches!(event, winit::event::WindowEvent::Focused(true)) {
+            self.put_back_brightness();
+        }
+    }
+
+    /// The window shown or focused shows the laptop's brightness, not a
+    /// Narrator set-value or a drag it lost while away.
+    fn put_back_brightness(&self) {
         drop_lost_drag(self.window.window());
         self.window.invoke_show_brightness();
     }
@@ -191,8 +196,9 @@ impl<P: Parts> Shell<P> {
     }
 }
 
-/// Ends a drag the window lost (hidden before the mouse-up), so the next
-/// mouse move can't drag a slider of the shown window on. The Slider still
+/// Ends a drag the window lost (hidden, minimised or left by Alt+Tab before
+/// the mouse-up), so the next mouse move can't drag a slider of the shown
+/// window on. The Slider still
 /// thinks its handle is pressed, so a later mouse-up over it calls
 /// `released` with the value `show-brightness` set: the laptop's own, which
 /// `KeyboardView::move_brightness` skips, so nothing is sent.
