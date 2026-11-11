@@ -136,6 +136,16 @@ fn battery_presets_without_balanced_are_not_valid() {
 }
 
 #[test]
+fn a_profile_with_no_firmware_listed_is_not_valid() {
+    let model = ModelProfile {
+        firmware: &[],
+        ..BLADE_18
+    };
+
+    assert!(!model.is_valid());
+}
+
+#[test]
 fn a_battery_preset_the_model_lacks_is_not_valid() {
     let model = ModelProfile {
         presets: &[PerfMode::Balanced, PerfMode::Performance],
