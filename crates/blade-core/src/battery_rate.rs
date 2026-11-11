@@ -51,6 +51,8 @@ impl BatteryRate {
             PowerEvent::OnAc => {
                 self.tries = 0;
                 let first = !std::mem::replace(&mut self.source_seen, true);
+                // A held rate is always put back first (none is held now,
+                // as each path that holds one marks the source seen).
                 if first && self.saved.is_none() {
                     return Self::first_on_ac(config, api);
                 }
