@@ -174,9 +174,39 @@ fn a_60_hz_refused_at_a_switch_to_battery_is_an_error_and_tried_again() {
     assert!(switched.is_err());
     assert!(battery_rate.retry_pending());
     battery_rate.retry(&config(true), &mut api).unwrap();
+    battery_rate.retry(&config(true), &mut api).unwrap();
 
     assert_eq!(api.panel_mode(), mode(3840, 2400, 60));
     assert!(!battery_rate.retry_pending());
+}
+
+#[test]
+fn the_first_poll_after_a_refused_switch_sends_nothing() {
+    // The poll may come at once; a set seconds later is the one that works.
+    let mut api = panel_at(240);
+    let mut battery_rate = BatteryRate::default();
+    api.failing_sets = 1;
+    let _ = battery_rate.on_event(PowerEvent::OnBattery, &config(true), &mut api);
+    let before = api.set.len();
+
+    battery_rate.retry(&config(true), &mut api).unwrap();
+
+    assert_eq!(api.set.len(), before);
+    assert!(battery_rate.retry_pending());
+}
+
+#[test]
+fn a_failed_display_read_at_a_switch_is_tried_again() {
+    let mut api = FakeDisplays::new(None);
+    let mut battery_rate = BatteryRate::default();
+
+    let switched = battery_rate.on_event(PowerEvent::OnBattery, &config(true), &mut api);
+    assert!(matches!(switched, Err(DisplayError::Query(_))));
+    api.displays = Some(vec![panel(mode(3840, 2400, 240))]);
+    battery_rate.retry(&config(true), &mut api).unwrap();
+    battery_rate.retry(&config(true), &mut api).unwrap();
+
+    assert_eq!(api.panel_mode(), mode(3840, 2400, 60));
 }
 
 #[test]

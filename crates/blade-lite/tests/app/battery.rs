@@ -316,9 +316,30 @@ fn a_60_hz_refused_with_a_failed_preset_switch_is_tried_again() {
     assert_eq!(panel_hz(&app), before);
     assert!(app.battery_rate_pending());
     app.retry_battery_rate().unwrap();
+    app.retry_battery_rate().unwrap();
 
     assert_eq!(panel_hz(&app), 60);
     assert!(!app.battery_rate_pending());
+}
+
+#[test]
+fn a_switch_60_hz_the_panel_does_not_offer_is_shown_with_a_wake_s_tries_left() {
+    let (mut app, _dir, _) = app_with(Config {
+        sixty_hz_on_battery: true,
+        ..Config::default()
+    });
+    // A wake on battery whose 60 Hz Windows refused.
+    app.take_on_battery(Some(true));
+    app.machine_mut().displays.1 = 1;
+    app.on_power(PowerEvent::Resumed).unwrap();
+    assert!(app.battery_rate_pending());
+    app.machine_mut()
+        .displays
+        .0
+        .modes
+        .retain(|mode| mode.hz != 60);
+
+    assert!(app.on_power(PowerEvent::OnBattery).is_err());
 }
 
 #[test]
