@@ -1,11 +1,12 @@
 //! What the app does at start, on a power change, on a touchpad switch, on
-//! a Num Lock change and on quit.
+//! a Num Lock or mic mute change and on quit.
 
 use blade_core::{
-    Controller, Preset, Query, apply, apply_performance, full_power_charger, paint_touchpad_key,
+    Controller, Preset, Query, apply, apply_performance, full_power_charger, paint_red_keys,
     touchpad_on,
 };
 use platform::{DisplayApi, KeyInjector, PowerEvent, Registry};
+use razer_proto::RedKeys;
 
 use super::{App, AppError, NOT_UNDERSTOOD, Power};
 use crate::report;
@@ -55,7 +56,7 @@ where
         Ok(())
     }
 
-    /// Paints the touchpad key again when Num Lock changes: a key that is
+    /// Paints the red keys again when Num Lock changes: a key that is
     /// then a numpad key keeps the plain colour. If the touchpad state
     /// can't be read, the key keeps the plain colour, as at start. Returns
     /// whether a frame was sent.
@@ -74,17 +75,36 @@ where
         self.paint_key(red)
     }
 
-    /// Paints the touchpad key red or plain in the saved lighting, unless
-    /// it shows that already or no lighting is saved. Returns whether a
-    /// frame was sent.
-    fn paint_key(&mut self, red: bool) -> Result<bool, AppError> {
+    /// Paints the mic key red when the mic is now muted and Num Lock is
+    /// off, or back in the lighting colour if not. `None` is a mute that
+    /// can't be read: the key is plain then. Returns whether a frame was
+    /// sent.
+    ///
+    /// # Errors
+    ///
+    /// See [`AppError`]. The new state is kept even if the send fails, and
+    /// the next change paints the key.
+    pub fn on_mic_muted(&mut self, muted: Option<bool>) -> Result<bool, AppError> {
+        if self.mic_muted == muted || self.config.lighting.is_none() {
+            self.mic_muted = muted;
+            return Ok(false);
+        }
+        self.mic_muted = muted;
+        let red = self.key_should_be_red();
+        self.paint_key(red)
+    }
+
+    /// Paints the red keys red or plain in the saved lighting, unless the
+    /// frame shows them so already or no lighting is saved. Returns whether
+    /// a frame was sent.
+    fn paint_key(&mut self, red: RedKeys) -> Result<bool, AppError> {
         let Some(lighting) = self.config.lighting else {
             return Ok(false);
         };
         if self.key_red == Some(red) {
             return Ok(false);
         }
-        let painted = paint_touchpad_key(red, lighting, self.model, &mut self.machine.controller);
+        let painted = paint_red_keys(red, lighting, self.model, &mut self.machine.controller);
         self.key_red = painted.is_ok().then_some(red);
         painted?;
         Ok(true)

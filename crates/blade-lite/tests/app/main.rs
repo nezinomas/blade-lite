@@ -7,6 +7,7 @@ mod fakes;
 mod header;
 mod keyboard;
 mod logo;
+mod mic_key;
 mod power_key;
 mod presets;
 mod settings;
