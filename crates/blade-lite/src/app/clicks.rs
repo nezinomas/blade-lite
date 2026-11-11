@@ -24,7 +24,9 @@ where
     /// change that was sent but not saved is kept in memory. A click on a
     /// preset not offered on battery is refused on a weak charge; if the
     /// charger read for it found the weak charge, the battery preset that
-    /// now runs is sent first.
+    /// now runs is sent first. A click refused before any send (a saved
+    /// value out of range) whose read found the full charger sends the
+    /// saved preset that now runs.
     pub fn on_performance(&mut self, command: PerformanceCommand) -> Result<(), AppError> {
         let mut config = self.config;
         // What ran before a charger read, if the click made one.
