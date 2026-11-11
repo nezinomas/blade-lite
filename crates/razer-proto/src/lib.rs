@@ -24,12 +24,14 @@ mod power_key;
 mod preset;
 mod profile;
 mod readings;
-mod touchpad_key;
+mod red_keys;
 
 pub use brightness::{Brightness, BrightnessError, VaporLight};
 pub use charge::{ChargeLimit, ChargeLimitError};
 pub use charger::Charger;
-pub use colour::{ParseRgbError, Rgb, static_colour, static_colour_touchpad_off};
+pub use colour::{
+    ParseRgbError, Rgb, static_colour, static_colour_red, static_colour_touchpad_off,
+};
 pub use command::Command;
 pub use custom::{CpuBoost, Custom, CustomError, CustomLimits, FanMode, GpuBoost, Rpm, RpmRange};
 pub use firmware::FirmwareVersion;
@@ -39,7 +41,7 @@ pub use power_key::PowerKey;
 pub use preset::{PerfMode, PerfModeBytes, PresetError};
 pub use profile::{BLADE_18, KeyGrid, ModelProfile, UsbId};
 pub use readings::{Celsius, FanRpm};
-pub use touchpad_key::{TOUCHPAD_OFF, TouchpadKey};
+pub use red_keys::{RedKey, RedKeys, TOUCHPAD_OFF};
 
 /// The first arg of most commands, as Synapse sends it.
 const VARIABLE_STORAGE: u8 = 0x01;
