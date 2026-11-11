@@ -277,8 +277,8 @@ where
     /// Sends Balanced (Silent if Silent runs) as the app quits: no app is
     /// left to watch a manual fan or a charger pulled. Always sent, as what
     /// the controller runs may differ from the config after a failed send.
-    /// If Custom runs with a manual fan, Custom with the fans on auto goes
-    /// first, the known way to end a manual fan; whether the preset's own
+    /// If a manual fan is saved and Custom runs or the last preset send
+    /// failed, Custom with the fans on auto goes first, the known way to end a manual fan; whether the preset's own
     /// mode write ends it too is not checked on the laptop. The saved
     /// preset is kept, so the next start sends it again.
     ///
