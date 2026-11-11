@@ -262,7 +262,7 @@ fn a_lighting_error_at_start_leaves_the_preset_sure() {
 
     assert!(!app.preset_unsure());
     assert!(!app.resend_preset().unwrap());
-    assert!(sent(&app).is_empty());
+    assert_eq!(sent(&app), []);
 }
 
 #[test]
