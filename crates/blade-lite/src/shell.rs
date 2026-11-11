@@ -463,11 +463,13 @@ impl<P: Parts> Shell<P> {
         if let Some(new) = self.shown_errors.borrow_mut().new_text(&errors) {
             report(new);
         }
-        // The Razer warning is logged when it changes, not with the errors.
+        // The Razer and firmware warnings are logged when they come, not
+        // with the errors.
         let warning = self.razer_warning.borrow();
         let shown: Vec<&str> = warning
             .as_deref()
             .into_iter()
+            .chain(app.firmware_warning())
             .chain((!errors.is_empty()).then_some(errors.as_str()))
             .collect();
         self.window.set_error(shown.join("\n").into());

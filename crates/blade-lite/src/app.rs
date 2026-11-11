@@ -14,11 +14,16 @@ use blade_core::{
     full_power_charger, logo_on, touchpad_on,
 };
 use platform::{DisplayApi, KeyInjector, Registry};
-use razer_proto::{ModelProfile, NativeMode, RedKey, RedKeys, Rgb};
+use razer_proto::{FirmwareVersion, ModelProfile, NativeMode, RedKey, RedKeys, Rgb};
 
 pub use error::{AppError, took_effect};
 
 use crate::report;
+
+/// A firmware version as people write it, such as 1.6.
+fn firmware_text(version: FirmwareVersion) -> String {
+    format!("{}.{}", version.major, version.minor)
+}
 
 /// How many polls send the preset again after a failed send. Then the
 /// next power event or change sends it.
@@ -111,6 +116,9 @@ pub struct App<C, D, R, K> {
     /// failed resend or a preset send that works (a click, or a weak
     /// charger's send on AC) drops it unshown.
     held_rate_error: Option<AppError>,
+    /// The warning for a controller firmware the model profile does not
+    /// list, read once at start.
+    firmware_warning: Option<String>,
     /// Whether the power source was known at the last read. An unknown one
     /// runs the battery presets, but leaves the rate alone at a wake.
     source_known: bool,
@@ -165,6 +173,7 @@ where
             resends_left: 0,
             preset_failures: 0,
             held_rate_error: None,
+            firmware_warning: None,
             source_known: true,
             logo_on: None,
             charge_limit_on: None,
@@ -304,6 +313,47 @@ where
         self.charge_limit_on = charge_limit_on(&mut self.machine.controller, self.model)
             .ok()
             .flatten();
+    }
+
+    /// Reads the controller's firmware version and logs it. A version the
+    /// model profile does not list gets a warning, shown in the window;
+    /// the app still sends (user pick, ticket 135). A failed read, or a
+    /// reply not understood, is only logged. Called once, at start.
+    pub fn check_firmware(&mut self) {
+        let version = match self.machine.controller.query(&FirmwareVersion::query()) {
+            Ok(args) => FirmwareVersion::from_reply(&args),
+            Err(error) => {
+                report(&format!("can't read the controller firmware: {error}"));
+                return;
+            }
+        };
+        let Some(version) = version else {
+            report("the controller firmware reply was not understood");
+            return;
+        };
+        report(&format!("controller firmware {}", firmware_text(version)));
+        if self.model.firmware.contains(&version) {
+            return;
+        }
+        let checked: Vec<String> = self
+            .model
+            .firmware
+            .iter()
+            .map(|&v| firmware_text(v))
+            .collect();
+        let warning = format!(
+            "The controller firmware is {}, and Blade Lite is checked only on {}. Settings are still sent.",
+            firmware_text(version),
+            checked.join(" and ")
+        );
+        report(&warning);
+        self.firmware_warning = Some(warning);
+    }
+
+    /// The warning for a firmware the model profile does not list, if any.
+    #[must_use]
+    pub fn firmware_warning(&self) -> Option<&str> {
+        self.firmware_warning.as_deref()
     }
 
     /// Reads the lid logo state. `None` if the read fails.

@@ -4,6 +4,7 @@ mod battery;
 mod brightness_keys;
 mod display;
 mod fakes;
+mod firmware;
 mod header;
 mod keyboard;
 mod logo;

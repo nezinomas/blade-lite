@@ -160,6 +160,8 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     app.take_on_battery(on_battery_now());
     // Before the start reads the touchpad, so no switch is missed.
     let touchpad = watch_touchpad();
+    // Once, before the first send, so the log has it.
+    app.check_firmware();
     let started = app.start();
     // The rate follows even if the start fails.
     let rate = app.start_rate();
