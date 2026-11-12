@@ -86,6 +86,9 @@ pub struct FakeController {
     /// Keeps the mode writes from changing `modes`, as a controller that
     /// did not take them.
     pub modes_stuck: bool,
+    /// Panics once, at the end of the next run, after its commands went:
+    /// a bug that cuts the sends.
+    pub panics: bool,
 }
 
 impl Controller for FakeController {
@@ -120,6 +123,7 @@ impl Controller for FakeController {
             }
         }
         self.sent.extend_from_slice(taken);
+        assert!(!std::mem::take(&mut self.panics), "a faked bug");
         match self.fails_after {
             Some(_) => Err(DeviceError::Busy),
             None => Ok(()),

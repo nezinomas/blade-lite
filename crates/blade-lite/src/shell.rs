@@ -246,28 +246,6 @@ const READ_ERROR_QUIET: Duration = Duration::from_mins(10);
 /// The error a run ends with when a panic (a bug) stopped it.
 pub const PANICKED: &str = "a bug stopped the app (a panic, in the log)";
 
-/// The start's sends: the saved settings, then the rate, even if the
-/// settings failed. A panic (a bug) in them is kept, not raised: give it
-/// to [`started`] in [`Shell::serve`], which quits (ticket 164).
-pub fn start<P: Parts>(app: &mut AppOn<P>) -> std::thread::Result<Result<(), AppError>> {
-    std::panic::catch_unwind(AssertUnwindSafe(|| {
-        let started = app.start();
-        let rate = app.start_rate();
-        if let (Err(_), Err(error)) = (&started, &rate) {
-            // Only the start error is shown, so this one is logged.
-            report(&format!("the rate put back at start failed too: {error}"));
-        }
-        started.and(rate)
-    }))
-}
-
-/// The start's result, or the panic (a bug) that stopped it raised again,
-/// in [`Shell::serve`]: the start may have sent a manual fan or
-/// Performance, so the quit preset goes then too (ticket 164).
-pub fn started<T>(start: std::thread::Result<T>) -> T {
-    start.unwrap_or_else(|panic| std::panic::resume_unwind(panic))
-}
-
 /// See [`Shell::kept`].
 #[cfg(test)]
 #[derive(Debug)]
@@ -548,11 +526,32 @@ impl<P: Parts> Shell<P> {
         }
     }
 
-    /// Runs `serve`, the app's run after the start, then quits as Quit
+    /// The start's sends: the saved settings, then the rate, even if the
+    /// settings failed. Then the mode and touchpad watches take what the
+    /// start left. Run it first in [`Self::serve`], so a panic in it
+    /// quits too (ticket 164).
+    ///
+    /// # Errors
+    ///
+    /// See [`AppError`]: the settings' error first.
+    pub fn start(&self) -> Result<(), AppError> {
+        let mut app = self.app.borrow_mut();
+        let started = app.start();
+        let rate = app.start_rate();
+        if let (Err(_), Err(error)) = (&started, &rate) {
+            // Only the start error is shown, so this one is logged.
+            report(&format!("the rate put back at start failed too: {error}"));
+        }
+        self.mode_watch.set(ModeWatch::new(app.running_preset()));
+        self.touchpad_watch
+            .set(TouchpadWatch::new(app.touchpad_on()));
+        started.and(rate)
+    }
+
+    /// Runs `serve`, the app's run with its start, then quits as Quit
     /// does, however it ended: an error or a panic (a bug) too ends the app
     /// with the start's settings sent and nothing to watch them. A panic
-    /// ends as the error [`PANICKED`]; the panic hook has logged it. Only
-    /// after the start.
+    /// ends as the error [`PANICKED`]; the panic hook has logged it.
     pub fn serve<T, E: From<&'static str>>(
         &self,
         serve: impl FnOnce() -> Result<T, E>,

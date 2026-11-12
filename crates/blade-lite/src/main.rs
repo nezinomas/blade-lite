@@ -85,7 +85,7 @@ fn main() -> ExitCode {
 
 /// Runs `run`; a panic (a bug) it lets out ends as the error
 /// [`shell::PANICKED`], so the start box shows it (ticket 164). The panic
-/// hook has logged it.
+/// hook has logged it, unless it came before the log was opened.
 fn run_caught(
     run: impl FnOnce() -> Result<(), Box<dyn std::error::Error>> + std::panic::UnwindSafe,
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -354,18 +354,17 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     // Once, before the first send, so the log has it.
     app.check_firmware();
     let firmware_unchecked = app.firmware_warning().is_some();
-    let started = shell::start::<Laptop>(&mut app);
 
     window.set_accent(bind::colour(accent));
     flyout.set_accent(bind::colour(accent));
     popup.set_accent(bind::colour(accent));
     let shell = Shell::new(window, flyout, popup, app);
 
-    // The start has sent settings: however the rest ends (Quit, or an
-    // error or a panic from here on, or in the start), the quit preset
-    // goes, so no manual fan or Performance runs on with no app.
+    // The start sends settings: however the rest ends (Quit, or an error
+    // or a panic in the start or after it), the quit preset goes, so no
+    // manual fan or Performance runs on with no app (ticket 164).
     let served = shell.serve(|| -> Result<(), Box<dyn std::error::Error>> {
-        let started = shell::started(started);
+        let started = shell.start();
         // A failed start shows in the window, so a login start opens it.
         let start_failed = started.is_err();
         bind::callbacks(&shell);

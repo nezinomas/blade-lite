@@ -205,16 +205,49 @@ fn a_panic_in_the_start_sends_the_quit_preset_and_ends_with_an_error() {
         preset: Preset::Performance,
         ..Config::default()
     });
-    let before = sent_count(&f);
-    let start = std::panic::catch_unwind(|| -> Result<(), &str> { panic!("a bug") });
+    f.shell.app().machine_mut().controller.inner.panics = true;
 
-    let ended = f.shell.serve(|| crate::shell::started(start));
+    let ended = f
+        .shell
+        .serve(|| f.shell.start().map_err(|error| error.to_string()));
 
-    assert_eq!(ended, Err(crate::shell::PANICKED));
-    assert_eq!(
-        sent_since(&f, before),
-        PerfMode::Balanced.commands(&BLADE_18).unwrap()
+    assert_eq!(ended, Err(crate::shell::PANICKED.to_owned()));
+    let sent = sent_since(&f, 0);
+    assert!(
+        sent.ends_with(&PerfMode::Balanced.commands(&BLADE_18).unwrap()),
+        "{sent:?}"
     );
+}
+
+#[test]
+fn a_panic_in_the_start_of_a_manual_fan_sends_the_fans_on_auto_first() {
+    let mut config = Config {
+        preset: Preset::Custom,
+        ..Config::default()
+    };
+    config.custom.fan_rpm = Some(1600);
+    let f = fixture(config);
+    let before = sent_count(&f);
+    f.shell.app().machine_mut().controller.inner.panics = true;
+
+    let ended = f
+        .shell
+        .serve(|| f.shell.start().map_err(|error| error.to_string()));
+
+    assert_eq!(ended, Err(crate::shell::PANICKED.to_owned()));
+    // The start's first send, cut by the panic, then the quit's.
+    let sent = sent_since(&f, before);
+    // After the last manual fan write: Custom with the fans on auto, then
+    // Balanced.
+    let manual = sent
+        .iter()
+        .rposition(|c| c.id == 0x0D02 && c.args[3] != 0)
+        .expect("the start's manual fan");
+    let quit = &sent[manual + 1..];
+    let modes: Vec<_> = quit.iter().filter(|c| c.id == 0x0D02).collect();
+    assert_eq!(modes[0].args[2], BLADE_18.custom.mode, "{sent:?}");
+    assert!(modes.iter().all(|c| c.args[3] == 0), "{sent:?}");
+    assert!(quit.ends_with(&PerfMode::Balanced.commands(&BLADE_18).unwrap()));
 }
 
 #[test]
