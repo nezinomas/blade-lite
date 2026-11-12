@@ -233,14 +233,15 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     let shell = Shell::new(window, flyout, popup, app);
     bind::callbacks(&shell);
     shell.watch_windows();
-    let razer_found = shell.look_for_razer();
-    shell.refresh(started.err().as_ref());
     SHELL.with(|cell| cell.replace(Some(Rc::clone(&shell))));
 
     // The start has sent settings: however the rest ends (Quit, or an
     // error from here on), the quit preset goes, so no manual fan or
     // Performance runs on with no app.
     let served = shell.serve(|| -> Result<(), Box<dyn std::error::Error>> {
+        // These read the controller, so a panic in them quits too.
+        let razer_found = shell.look_for_razer();
+        shell.refresh(started.err().as_ref());
         let tray = Rc::new(Tray::new(accent, &autostart_shown())?);
         tray.on_action(on_tray);
         TRAY.with(|cell| cell.replace(Some(Rc::clone(&tray))));

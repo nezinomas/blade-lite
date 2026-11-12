@@ -23,7 +23,7 @@ fn spawn_part(part: &'static str, body: impl FnOnce() + Send + 'static) {
         if std::panic::catch_unwind(AssertUnwindSafe(body)).is_ok() {
             return;
         }
-        // An error: the event loop has ended, so the app is quitting.
+        // If this fails, the event loop has ended, so the app is quitting.
         let _ = slint::invoke_from_event_loop(move || {
             if let Some(shell) = SHELL.with(|cell| cell.borrow().clone()) {
                 shell.part_stopped(part);

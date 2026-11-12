@@ -1,6 +1,8 @@
 //! The tray icon: a click opens the flyout, the menu opens the window,
 //! turns autostart on or off, or quits.
 
+use std::panic::AssertUnwindSafe;
+
 use razer_proto::Rgb;
 use tray_icon::menu::{CheckMenuItem, Menu, MenuEvent, MenuId, MenuItem};
 use tray_icon::{Icon, MouseButton, MouseButtonState, TrayIcon, TrayIconBuilder, TrayIconEvent};
@@ -90,7 +92,7 @@ impl Tray {
                 // on this same thread (the event loop's). So the item is
                 // read again now, not posted, or the menu could show first.
                 (MouseButton::Right, MouseButtonState::Up) => {
-                    handle(TrayAction::MenuOpening);
+                    handle_now(handle, TrayAction::MenuOpening);
                 }
                 _ => {}
             }
@@ -103,7 +105,7 @@ impl Tray {
             } else if event.id == autostart {
                 // Handled now, on this thread (the event loop's), so no
                 // menu refresh can change the tick before it is read.
-                handle(TrayAction::Autostart);
+                handle_now(handle, TrayAction::Autostart);
             } else if event.id == quit {
                 post(handle, TrayAction::Quit);
             }
@@ -134,6 +136,17 @@ fn round(value: f64) -> i32 {
 }
 
 /// Runs `handle` on the event-loop thread, where the windows live.
+/// Runs `action` now, inside tray-icon's own window procedure. A panic
+/// can't unwind out of that (`extern "system"`: Rust aborts), so it is
+/// caught and raised again on the event loop, which then ends the run with
+/// the quit preset (`Shell::serve`).
+fn handle_now(handle: fn(TrayAction), action: TrayAction) {
+    if let Err(panic) = std::panic::catch_unwind(AssertUnwindSafe(move || handle(action))) {
+        // The loop is gone only while the app quits.
+        let _ = slint::invoke_from_event_loop(move || std::panic::resume_unwind(panic));
+    }
+}
+
 fn post(handle: fn(TrayAction), action: TrayAction) {
     // The loop is gone only while the app quits, so the action can go.
     let _ = slint::invoke_from_event_loop(move || handle(action));

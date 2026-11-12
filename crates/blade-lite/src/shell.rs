@@ -380,7 +380,14 @@ impl<P: Parts> Shell<P> {
         // Each borrow taken in `serve` is dropped as the panic unwinds, so
         // the quit finds the app free.
         let served = std::panic::catch_unwind(AssertUnwindSafe(serve));
-        self.quit();
+        if served.is_err() {
+            self.app.borrow_mut().note_panic();
+        }
+        // A quit that panics too still ends with the start box.
+        if std::panic::catch_unwind(AssertUnwindSafe(|| self.quit())).is_err() {
+            report("the quit panicked too, so Balanced may not have been sent");
+            return Err(PANICKED.into());
+        }
         served.unwrap_or_else(|_| Err(PANICKED.into()))
     }
 
@@ -390,7 +397,7 @@ impl<P: Parts> Shell<P> {
     pub fn part_stopped(self: &Rc<Self>, part: &'static str) {
         report(&format!("a bug stopped the {part} part"));
         self.stopped_parts.borrow_mut().push(part);
-        self.refresh(None);
+        // It fills the window too.
         self.show_window();
     }
 
@@ -505,7 +512,7 @@ impl<P: Parts> Shell<P> {
         let stopped = self.stopped_parts.borrow();
         let stopped = stopped
             .iter()
-            .map(|part| format!("A bug stopped the {part} part. Start Blade Lite again."))
+            .map(|part| format!("A bug stopped the {part} part. Quit Blade Lite from the tray and start it again."))
             .collect::<Vec<_>>();
         let shown: Vec<&str> = warning
             .as_deref()
