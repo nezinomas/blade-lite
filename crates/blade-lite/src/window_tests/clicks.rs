@@ -200,6 +200,24 @@ fn a_panic_in_the_run_sends_the_quit_preset_and_ends_with_an_error() {
 }
 
 #[test]
+fn a_panic_in_the_start_sends_the_quit_preset_and_ends_with_an_error() {
+    let f = fixture(Config {
+        preset: Preset::Performance,
+        ..Config::default()
+    });
+    let before = sent_count(&f);
+    let start = std::panic::catch_unwind(|| -> Result<(), &str> { panic!("a bug") });
+
+    let ended = f.shell.serve(|| crate::shell::started(start));
+
+    assert_eq!(ended, Err(crate::shell::PANICKED));
+    assert_eq!(
+        sent_since(&f, before),
+        PerfMode::Balanced.commands(&BLADE_18).unwrap()
+    );
+}
+
+#[test]
 fn a_panic_on_battery_from_a_manual_fan_sends_the_fans_on_auto_first() {
     let mut config = Config {
         preset: Preset::Custom,
