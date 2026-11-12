@@ -241,24 +241,9 @@ const GET_FAN_RPM: u16 = 0x0D88;
 const CLUSTERS: [u8; 2] = [1, 2];
 const FANS: [u8; 2] = [1, 2];
 
-/// Reads `[1, index, 0]` for each index and returns the reply args.
-fn read_each<C: Clock>(
-    device: &mut Device<HidTransport, C>,
-    id: u16,
-    indexes: &[u8],
-) -> Vec<Vec<u8>> {
-    indexes
-        .iter()
-        .map(|&index| device.send(id, &[1, index, 0]).unwrap().args().to_vec())
-        .collect()
-}
-
 /// The preset of each zone, both boosts and both fan targets.
 fn custom_state<C: Clock>(device: &mut Device<HidTransport, C>) -> Vec<Vec<u8>> {
-    let mut state = preset_args(device);
-    state.extend(read_each(device, GET_BOOST, &CLUSTERS));
-    state.extend(read_each(device, GET_FAN, &FANS));
-    state
+    try_custom_state(device).unwrap()
 }
 
 #[test]
@@ -268,6 +253,7 @@ fn custom_is_set_and_read_back_and_the_old_preset_restored() {
 
     let mut device = Device::new(open(), SystemClock);
     let before = custom_state(&mut device);
+    refuse_targets_outside_the_range(&before);
 
     // Safe values: middle boosts, and a fan above what auto runs at idle.
     let custom = Custom {
@@ -275,33 +261,35 @@ fn custom_is_set_and_read_back_and_the_old_preset_restored() {
         gpu: GpuBoost::new(1, &BLADE_18).unwrap(),
         fan: FanMode::Manual(Rpm::new(3000, &BLADE_18).unwrap()),
     };
+
+    // From here on every step keeps its result, and the state is put back
+    // before any assert.
     let set = device.run(&custom.commands(&BLADE_18));
-    let manual = custom_state(&mut device);
-    std::thread::sleep(Duration::from_secs(5));
-    let real_rpm = read_each(&mut device, GET_FAN_RPM, &FANS);
+    let manual = set
+        .as_ref()
+        .map_err(ToString::to_string)
+        .and_then(|()| try_custom_state(&mut device));
+    let real_rpm = manual.as_ref().map_err(Clone::clone).and_then(|_| {
+        std::thread::sleep(Duration::from_secs(5));
+        try_read_each(&mut device, GET_FAN_RPM, &FANS)
+    });
 
     // Boosts and fan targets first, as razer-laptop-control says a mode
     // write after them resets them (not seen on 1.6, ticket 144).
-    let boosts = &before[4..6];
-    let targets = &before[6..8];
-    for args in boosts {
-        device.send(SET_BOOST, args).unwrap();
-    }
-    for args in targets {
-        device.send(SET_FAN, args).unwrap();
-    }
-    for args in &before[..4] {
-        device.send(0x0D02, args).unwrap();
-    }
-    let after = custom_state(&mut device);
+    let put_back = put_back_custom(&mut device, &before);
+    let after = try_custom_state(&mut device);
     eprintln!(
-        "before {before:02X?}\nset {set:?}, read back {manual:02X?}\nreal rpm {real_rpm:02X?}\nafter {after:02X?}"
+        "before {before:02X?}\nset {set:?}, read back {manual:02X?}\nreal rpm {real_rpm:02X?}\nput back {put_back:?}\nafter {after:02X?}"
     );
+    // The lasting state first, so its error is never hidden.
+    assert!(put_back.iter().all(Result::is_ok), "check the fans by hand");
+    assert_eq!(after, Ok(before));
     set.unwrap();
+    let manual = manual.unwrap();
+    real_rpm.unwrap();
     assert!(manual[..4].iter().all(|args| args[2..4] == [0x04, 0x01]));
     assert_eq!(manual[4..6], [vec![1, 1, 1], vec![1, 2, 1]]);
     assert_eq!(manual[6..8], [vec![1, 1, 30], vec![1, 2, 30]]);
-    assert_eq!(after, before);
 }
 
 #[test]
@@ -345,6 +333,24 @@ fn the_key_reports_open_and_wait_quietly() {
         let key = razer_proto::BLADE_18.power_key.unwrap();
         assert_ne!(key.held(&report), Some(true), "{report:02X?}");
     }
+}
+
+/// What [`custom_state`] reads, keeping the first error.
+fn try_custom_state<C: Clock>(
+    device: &mut Device<HidTransport, C>,
+) -> Result<Vec<Vec<u8>>, String> {
+    let mut state = razer_proto::PerfMode::queries(&razer_proto::BLADE_18)
+        .iter()
+        .map(|query| {
+            device
+                .send(query.id, &query.args)
+                .map(|reply| reply.args().to_vec())
+                .map_err(|error| error.to_string())
+        })
+        .collect::<Result<Vec<_>, String>>()?;
+    state.extend(try_read_each(device, GET_BOOST, &CLUSTERS)?);
+    state.extend(try_read_each(device, GET_FAN, &FANS)?);
+    Ok(state)
 }
 
 /// Reads `[1, index, 0]` for each index, keeping the first error.
