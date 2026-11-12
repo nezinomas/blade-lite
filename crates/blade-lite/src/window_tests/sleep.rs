@@ -7,7 +7,7 @@ use std::time::Duration;
 use blade_core::{Config, Preset, RESUME_PAUSE};
 use i_slint_backend_testing::AccessibleRole::Button;
 use platform::PowerEvent;
-use razer_proto::{BLADE_18, Command, PerfMode};
+use razer_proto::{BLADE_18, Command, FirmwareVersion, PerfMode};
 
 use super::{
     FAKE_ON_BATTERY, FAKE_RELEASED, FAKE_REOPENED, FAKE_SLEEP_NOTICE_LATE, Fixture, click, fixture,
@@ -329,7 +329,6 @@ fn a_sleep_and_a_wake_inside_a_wake_pause_leave_the_send_to_the_last_pause() {
     power(&f, &[PowerEvent::Suspending]);
     let before = sent_count(&f);
     let asked = asked_count(&f);
-    let step = |millis| i_slint_backend_testing::mock_elapsed_time(Duration::from_millis(millis));
 
     power(&f, &[PowerEvent::Resumed]);
     step(1000);
@@ -365,13 +364,40 @@ fn opened_again(f: &Fixture) {
     f.shell.tick();
 }
 
-/// Ticket 162: the older pause ends 0.5 s after the wake, and sends nothing
-/// then; only the last pause sends.
-fn only_the_last_pause_sends(f: &Fixture, before: usize) {
+/// How many firmware reads the controller got.
+fn firmware_reads(f: &Fixture) -> usize {
+    let id = FirmwareVersion::query().id;
+    f.shell
+        .app()
+        .machine()
+        .controller
+        .inner
+        .asked
+        .iter()
+        .filter(|c| c.id == id)
+        .count()
+}
+
+/// Ticket 162: the older pause ends 0.5 s after the newer one began, and
+/// sends and reads nothing then; the last pause sends once, and reads the
+/// firmware once if `reads` (an open again or an updater before it).
+fn only_the_last_pause_sends(f: &Fixture, before: usize, reads: bool) {
+    let asked = asked_count(f);
+    let firmware = firmware_reads(f);
     step(600);
     assert_eq!(sent_since(f, before), [], "the older pause sends nothing");
+    assert_eq!(asked_count(f), asked, "nor reads");
     step(1500);
-    assert!(sets_a_manual_fan(&sent_since(f, before)));
+    let targets = sent_since(f, before)
+        .iter()
+        .filter(|c| c.id == SET_FAN_TARGET)
+        .count();
+    assert_eq!(
+        targets,
+        BLADE_18.custom.fan_zones.len(),
+        "one send of the fans"
+    );
+    assert_eq!(firmware_reads(f) - firmware, usize::from(reads));
 }
 
 #[test]
@@ -383,7 +409,7 @@ fn a_wake_in_the_pause_of_an_open_again_leaves_the_send_to_the_wake() {
 
     power(&f, &[PowerEvent::Resumed]);
 
-    only_the_last_pause_sends(&f, before);
+    only_the_last_pause_sends(&f, before, true);
     assert!(FAKE_RELEASED.get(), "the wake releases the handle");
 }
 
@@ -396,7 +422,7 @@ fn a_wake_in_the_pause_after_an_updater_leaves_the_send_to_the_wake() {
 
     power(&f, &[PowerEvent::Resumed]);
 
-    only_the_last_pause_sends(&f, before);
+    only_the_last_pause_sends(&f, before, true);
 }
 
 #[test]
@@ -408,8 +434,26 @@ fn an_open_again_in_a_wake_pause_leaves_the_send_to_its_own_pause() {
 
     opened_again(&f);
 
-    only_the_last_pause_sends(&f, before);
+    only_the_last_pause_sends(&f, before, true);
     assert!(FAKE_RELEASED.get());
+}
+
+#[test]
+fn an_open_again_after_an_updater_leaves_nothing_for_a_later_wake() {
+    let f = fixture(manual_fan());
+    let before = sent_count(&f);
+    updater_ends(&f);
+    step(1500);
+    opened_again(&f);
+    only_the_last_pause_sends(&f, before, true);
+    let firmware = firmware_reads(&f);
+    FAKE_RELEASED.set(false);
+
+    power(&f, &[PowerEvent::Resumed]);
+    pause_ends();
+
+    assert!(!FAKE_RELEASED.get(), "no release left for the wake");
+    assert_eq!(firmware_reads(&f), firmware, "nor a firmware read");
 }
 
 #[test]
@@ -421,5 +465,5 @@ fn two_wakes_under_the_pause_apart_send_once() {
 
     power(&f, &[PowerEvent::Resumed]);
 
-    only_the_last_pause_sends(&f, before);
+    only_the_last_pause_sends(&f, before, false);
 }

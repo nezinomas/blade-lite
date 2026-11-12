@@ -131,7 +131,8 @@ impl<P: Parts> Shell<P> {
     /// sent again, as the controller may have lost them. The power source is
     /// read again first, as power events in the pause are dropped. Unlike a
     /// wake, the heat watch is left alone, and the rate changes only with
-    /// the source. After an open that failed
+    /// the source. Begun in a wake's pause, its end is the wake's, with the
+    /// release and the firmware read (ticket 162). After an open that failed
     /// for a new reason, only the look. Returns whether a pause began.
     fn follow_reopen(self: &Rc<Self>) -> bool {
         match P::controller_reopened() {
@@ -493,7 +494,8 @@ impl<P: Parts> Shell<P> {
         }
     }
 
-    /// The end of the last pause after a wake: sends the saved settings.
+    /// The end of the last pause after a wake (the wake's own, or an open
+    /// again begun in it): sends the saved settings.
     fn end_wake_pause(self: &Rc<Self>) {
         self.wake_due.set(false);
         {

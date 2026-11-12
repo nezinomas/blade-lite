@@ -60,8 +60,8 @@ impl<P: Parts> Shell<P> {
 
     /// After a Razer updater ended: waits the wake's pause, as the
     /// controller may restart, then reads the firmware again (the update may
-    /// have changed it) and sends every setting again. Not in a wake's
-    /// pause: the wake's own send covers it.
+    /// have changed it) and sends every setting again. Not in a pause: the
+    /// last pause's send covers it.
     pub(super) fn start_after_updater(self: &Rc<Self>) {
         if self.resuming.get() > 0 || !self.updater_ended.take() {
             return;
