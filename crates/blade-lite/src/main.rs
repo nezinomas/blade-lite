@@ -47,8 +47,8 @@ use slint::winit_030::winit::window::{BadIcon, Icon};
 use slint::{Timer, TimerMode};
 
 use crate::background::{
-    follow_the_power_key, follow_the_touchpad, on_battery_now, open_window_on_wake, power_events,
-    watch_touchpad,
+    beat, follow_the_power_key, follow_the_touchpad, on_battery_now, open_window_on_wake,
+    power_events, watch_the_loop, watch_touchpad,
 };
 use crate::shell::{CONTROLLER_HELD, Laptop, Parts, REOPEN_GAP, Shell, reopen_controller};
 use crate::tray::Tray;
@@ -149,6 +149,19 @@ fn window_icon(accent: Rgb) -> Result<Icon, BadIcon> {
 #[test]
 fn the_window_icon_is_made_from_the_tray_picture() {
     assert!(window_icon(DEFAULT_ACCENT).is_ok());
+}
+
+/// Starts the poll, each [`POLL_INTERVAL`], and the watchdog that logs it
+/// if it stalls (ticket 143).
+fn poll(shell: &Rc<Shell>) -> Timer {
+    let poll = Timer::default();
+    let ticking = Rc::clone(shell);
+    poll.start(TimerMode::Repeated, POLL_INTERVAL, move || {
+        beat();
+        ticking.tick();
+    });
+    watch_the_loop();
+    poll
 }
 
 /// Windows ends the session: the quit preset goes before it returns.
@@ -269,11 +282,8 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         follow_the_power_key();
 
         shell.listen_for_power(power_events());
-        let poll = Timer::default();
-        let ticking = Rc::clone(&shell);
-        poll.start(TimerMode::Repeated, POLL_INTERVAL, move || {
-            ticking.tick();
-        });
+        // Held to the end of the run: dropping it stops the poll.
+        let _poll = poll(&shell);
 
         // At login the app starts in the tray, with the settings re-applied,
         // unless Razer software runs or the firmware is not one checked: the

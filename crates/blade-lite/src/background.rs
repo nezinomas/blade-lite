@@ -2,13 +2,15 @@
 //! touchpad, the power-mode key and the power source.
 
 use std::panic::AssertUnwindSafe;
+use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver};
 use std::time::{Duration, Instant};
 
 use blade_core::{PowerKeyPresses, TOUCHPAD_KEY};
 use blade_lite::{
-    KEY_REOPEN_PAUSE, KeyEvent, ReaderEnd, ShownErrors, WindowsFnKeys, report, step_on_presses,
+    KEY_REOPEN_PAUSE, KeyEvent, LOOK_GAP, ReaderEnd, ShownErrors, Watchdog, WindowsFnKeys, report,
+    step_on_presses,
 };
 use platform::{PowerEvent, PowerEvents, RegistryWatch, WakeListener, WindowsPowerEvents};
 use razer_device::HidKeyReports;
@@ -29,6 +31,31 @@ fn spawn_part(part: &'static str, body: impl FnOnce() + Send + 'static) {
                 shell.part_stopped(part);
             }
         });
+    });
+}
+
+/// The event loop's last beat, stamped by its poll.
+static BEAT: Mutex<Option<Instant>> = Mutex::new(None);
+
+/// Stamps a beat: the event loop runs its checks.
+pub fn beat() {
+    if let Ok(mut beat) = BEAT.lock() {
+        *beat = Some(Instant::now());
+    }
+}
+
+/// Logs a stalled event loop (no beat for 30 s), and its end, from a
+/// thread that looks every few seconds. It only logs: it sends nothing.
+pub fn watch_the_loop() {
+    spawn_part("watchdog", || {
+        let mut dog = Watchdog::new(Instant::now());
+        loop {
+            std::thread::sleep(LOOK_GAP);
+            let beat = BEAT.lock().ok().and_then(|beat| *beat);
+            if let Some(text) = dog.look(beat, Instant::now()) {
+                report(&text);
+            }
+        }
     });
 }
 
