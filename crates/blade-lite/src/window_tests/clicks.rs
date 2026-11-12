@@ -216,6 +216,23 @@ fn a_panic_on_battery_from_a_manual_fan_sends_the_fans_on_auto_first() {
 }
 
 #[test]
+fn a_session_end_sends_the_quit_preset_once() {
+    let f = fixture(Config {
+        preset: Preset::Performance,
+        ..Config::default()
+    });
+    let before = sent_count(&f);
+
+    f.shell.end_session();
+    f.shell.quit();
+
+    assert_eq!(
+        sent_since(&f, before),
+        PerfMode::Balanced.commands(&BLADE_18).unwrap()
+    );
+}
+
+#[test]
 fn a_stopped_background_part_shows_in_the_window() {
     let f = fixture(Config::default());
     let before = sent_count(&f);

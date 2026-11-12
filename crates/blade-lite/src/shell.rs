@@ -279,6 +279,8 @@ pub struct Shell<P: Parts = Laptop> {
     dialog_open: Cell<bool>,
     /// The background parts a panic stopped, shown above the groups.
     stopped_parts: RefCell<Vec<&'static str>>,
+    /// Whether the quit preset went, so it goes once.
+    quit_sent: Cell<bool>,
 }
 
 impl<P: Parts> Shell<P> {
@@ -317,6 +319,7 @@ impl<P: Parts> Shell<P> {
             razer_opened: Cell::new(false),
             dialog_open: Cell::new(false),
             stopped_parts: RefCell::new(Vec::new()),
+            quit_sent: Cell::new(false),
         })
     }
 
@@ -347,6 +350,10 @@ impl<P: Parts> Shell<P> {
     /// puts back the rate from before battery, as the app quits. A failure
     /// goes to the log, as no window is left to show it.
     pub fn quit(&self) {
+        // Once: a session end may have sent it already.
+        if self.quit_sent.replace(true) {
+            return;
+        }
         let mut app = self.app.borrow_mut();
         // First: the fans matter more than the rate.
         let mut sent = app.quit_preset();
@@ -389,6 +396,17 @@ impl<P: Parts> Shell<P> {
             return Err(PANICKED.into());
         }
         served.unwrap_or_else(|_| Err(PANICKED.into()))
+    }
+
+    /// Windows ends the session (shut down, restart, sign out) or an
+    /// installer closes the app: quits as Quit does, at once, as Windows
+    /// may end the process when this returns (no wake pause, no retry
+    /// beyond Quit's own), then ends the event loop.
+    pub fn end_session(&self) {
+        report("Windows ends the session, so the app quits");
+        self.quit();
+        // An error: the loop has already ended.
+        let _ = slint::quit_event_loop();
     }
 
     /// Notes a background part (a thread) that a panic stopped: the app
