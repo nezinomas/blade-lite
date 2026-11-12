@@ -97,6 +97,8 @@ impl<P: Parts> Shell<P> {
                     // This start covers an updater that just ended.
                     shell.updater_ended.set(false);
                     P::release_controller();
+                    // A firmware update may be what killed the old handle.
+                    shell.app.borrow_mut().check_firmware();
                     // A power event in the pause was dropped: read the
                     // source, so a pulled charger sends the battery preset
                     // and rate before the settings go again.
