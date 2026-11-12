@@ -14,6 +14,8 @@ pub struct Gated<C> {
     /// outside the tests goes around the gate.
     pub inner: C,
     closed: bool,
+    /// While a Razer updater runs: nothing may meet a firmware update.
+    held: bool,
 }
 
 impl<C> Gated<C> {
@@ -21,6 +23,7 @@ impl<C> Gated<C> {
         Self {
             inner,
             closed: false,
+            held: false,
         }
     }
 
@@ -29,9 +32,24 @@ impl<C> Gated<C> {
         self.closed = true;
     }
 
+    /// Whether every send and read is held.
+    pub fn held(&self) -> bool {
+        self.held
+    }
+
+    /// Refuses every send and read while `held`.
+    pub fn hold(&mut self, held: bool) {
+        self.held = held;
+    }
+
     fn open(&mut self) -> Result<&mut C, DeviceError> {
         if self.closed {
             return Err(DeviceError::Io(io::Error::other("the app has quit")));
+        }
+        if self.held {
+            return Err(DeviceError::Io(io::Error::other(
+                "a Razer updater runs, so the app sends nothing",
+            )));
         }
         Ok(&mut self.inner)
     }

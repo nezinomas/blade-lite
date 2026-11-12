@@ -30,7 +30,9 @@ impl<P: Parts> Shell<P> {
     /// window tests give their own times.
     pub(crate) fn tick_at(self: &Rc<Self>, now: Instant, wall: SystemTime) {
         let failures = self.app.borrow().preset_failures();
+        self.look_for_razer_now_and_then(now);
         self.follow_own_power();
+        self.start_after_updater();
         if self.resuming.get() == 0 && self.app.borrow().battery_rate_pending() {
             self.retry_battery_rate();
         }
@@ -87,6 +89,8 @@ impl<P: Parts> Shell<P> {
                 Timer::single_shot(RESUME_PAUSE, move || {
                     shell.resuming.set(shell.resuming.get().saturating_sub(1));
                     let first = shell.look_for_razer();
+                    // This start covers an updater that just ended.
+                    shell.updater_ended.set(false);
                     P::release_controller();
                     // A power event in the pause was dropped: read the
                     // source, so a pulled charger sends the battery preset
@@ -323,7 +327,7 @@ impl<P: Parts> Shell<P> {
     /// when no power events come. An unknown read changes nothing, so a
     /// read that flickers to unknown does not switch the preset back and
     /// forth. A wake is not seen then.
-    fn follow_source(self: &Rc<Self>) {
+    pub(super) fn follow_source(self: &Rc<Self>) {
         let Some(on_battery) = P::on_battery() else {
             return;
         };
@@ -363,6 +367,8 @@ impl<P: Parts> Shell<P> {
                     app.take_on_battery(P::on_battery());
                 }
                 let first = shell.look_for_razer();
+                // This send covers an updater that just ended.
+                shell.updater_ended.set(false);
                 shell.act(|app| app.on_power(PowerEvent::Resumed));
                 if first {
                     shell.show_window();

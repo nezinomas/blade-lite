@@ -1,6 +1,7 @@
 //! Razer's own software, such as Synapse or a Razer driver from Windows
-//! Update. It would talk to the controller beside the app, so the app warns.
-//! It only looks: nothing sent changes.
+//! Update. It would talk to the controller beside the app, so the app warns
+//! and stops its background reads and fan guard; an updater stops every
+//! send. The names are a guess: no Razer updater was seen on the laptop.
 
 use std::io;
 
@@ -39,13 +40,36 @@ fn is_razer(name: &str) -> bool {
     name.starts_with(RZ) || MARKS.iter().any(|mark| name.contains(mark))
 }
 
+/// Words that mark a Razer program as an updater, in lower case. A
+/// firmware update must never meet the app's sends.
+const UPDATER_MARKS: [&str; 4] = ["update", "firmware", "flash", "bios"];
+
+/// Whether what [`razer_software`] found holds an updater, such as a
+/// firmware updater: the app then sends nothing at all.
+#[must_use]
+pub fn razer_updater(found: &[String]) -> bool {
+    found.iter().any(|name| {
+        let name = name.to_lowercase();
+        UPDATER_MARKS.iter().any(|mark| name.contains(mark))
+    })
+}
+
 /// The warning for what [`razer_software`] found, or `None` if nothing.
 #[must_use]
 pub fn razer_warning(found: &[String]) -> Option<String> {
     (!found.is_empty()).then(|| {
+        if razer_updater(found) {
+            return format!(
+                "A Razer updater runs ({}). The app sends nothing to the \
+                 controller until it ends, and the fan guard is off. A \
+                 manual fan stays as set until then.",
+                found.join(", ")
+            );
+        }
         format!(
             "Razer software runs ({}). It can talk to the controller too, \
-             and the two can clash: quit or remove it.",
+             and the two can clash: quit or remove it. The fan guard is off \
+             while it runs.",
             found.join(", ")
         )
     })

@@ -17,6 +17,7 @@ use crate::Choice;
 use crate::shell::{Reopened, note_open};
 
 const SYNAPSE: &str = "Razer Synapse Service";
+const UPDATER: &str = "RazerFirmwareUpdater.exe";
 
 /// Looks, then fills the windows, as the app does at start.
 fn look(f: &Fixture) -> bool {
@@ -224,6 +225,110 @@ fn an_unlisted_firmware_shows_a_warning_beside_the_razer_one() {
 }
 
 #[test]
+fn a_click_sends_nothing_while_a_razer_updater_runs() {
+    let f = fixture(Config::default());
+    f.shell.programs().set(&[UPDATER]);
+    look(&f);
+    let before = f.shell.app().machine().controller.inner.sent.len();
+
+    click(f.shell.window(), Button, "Performance");
+
+    assert_eq!(f.shell.app().machine().controller.inner.sent.len(), before);
+    let error = f.shell.window().get_error();
+    assert!(error.contains("updater"), "{error}");
+}
+
+#[test]
+fn a_click_looks_for_a_razer_updater_first() {
+    let f = fixture(Config::default());
+    f.shell.programs().set(&[UPDATER]);
+    let before = f.shell.app().machine().controller.inner.sent.len();
+
+    click(f.shell.window(), Button, "Silent");
+
+    assert_eq!(f.shell.app().machine().controller.inner.sent.len(), before);
+    let error = f.shell.window().get_error();
+    assert!(error.contains("updater"), "{error}");
+}
+
+/// How many Balanced preset runs were sent since `before` commands.
+fn balanced_runs_since(f: &Fixture, before: usize) -> usize {
+    let balanced = PerfMode::Balanced.commands(&BLADE_18).unwrap();
+    let sent = f.shell.app().machine().controller.inner.sent[before..].to_vec();
+    sent.windows(balanced.len())
+        .filter(|run| *run == balanced.as_slice())
+        .count()
+}
+
+#[test]
+fn the_settings_go_again_after_a_pause_when_a_razer_updater_ends() {
+    let f = fixture(Config::default());
+    f.shell.programs().set(&[UPDATER]);
+    look(&f);
+    f.shell.programs().set(&[]);
+    look(&f);
+    let before = f.shell.app().machine().controller.inner.sent.len();
+
+    f.shell.tick();
+    assert_eq!(
+        f.shell.app().machine().controller.inner.sent.len(),
+        before,
+        "not at once"
+    );
+    pause_ends();
+
+    assert_eq!(balanced_runs_since(&f, before), 1);
+}
+
+#[test]
+fn an_updater_that_ends_at_a_wake_gets_the_wake_send_only() {
+    let f = fixture(Config::default());
+    f.shell.programs().set(&[UPDATER]);
+    look(&f);
+    f.shell.programs().set(&[]);
+    let before = f.shell.app().machine().controller.inner.sent.len();
+    let (sender, receiver) = std::sync::mpsc::channel();
+    sender.send(PowerEvent::Resumed).unwrap();
+
+    f.shell.follow_power(&receiver);
+    pause_ends();
+    f.shell.tick();
+    pause_ends();
+
+    assert_eq!(balanced_runs_since(&f, before), 1);
+}
+
+#[test]
+fn the_firmware_is_read_again_when_a_razer_updater_ends() {
+    let f = fixture(Config::default());
+    f.shell.programs().set(&[UPDATER]);
+    look(&f);
+    f.shell.app().machine_mut().controller.inner.firmware = Some(vec![1, 9]);
+    f.shell.programs().set(&[]);
+    look(&f);
+
+    f.shell.tick();
+    pause_ends();
+
+    let error = f.shell.window().get_error();
+    assert!(error.contains("firmware is 1.9"), "{error}");
+}
+
+#[test]
+fn razer_software_started_later_is_found_within_a_minute() {
+    let f = fixture(Config::default());
+    f.shell.programs().set(&[SYNAPSE]);
+    let now = std::time::Instant::now();
+
+    f.shell.tick_at(now, std::time::SystemTime::now());
+    f.shell
+        .tick_at(now + Duration::from_secs(61), std::time::SystemTime::now());
+
+    let error = f.shell.window().get_error();
+    assert!(error.contains(SYNAPSE), "{error}");
+}
+
+#[test]
 fn the_fan_guard_sends_nothing_while_razer_software_runs() {
     let mut config = Config {
         preset: Preset::Custom,
@@ -232,6 +337,34 @@ fn the_fan_guard_sends_nothing_while_razer_software_runs() {
     config.custom.fan_rpm = Some(1600);
     let f = fixture(config);
     f.shell.programs().set(&[SYNAPSE]);
+    look(&f);
+    let before = f.shell.app().machine().controller.inner.sent.len();
+    let start = std::time::Instant::now();
+    let hold = ui::FAN_GUARD_HOLD.as_secs();
+
+    for second in 0..=hold {
+        f.shell
+            .watch_heat(None, Some(90), start + Duration::from_secs(second));
+    }
+    assert_eq!(f.shell.app().machine().controller.inner.sent.len(), before);
+
+    // Once it is gone, the next reading sends the top speed.
+    f.shell.programs().set(&[]);
+    look(&f);
+    f.shell
+        .watch_heat(None, Some(90), start + Duration::from_secs(hold + 1));
+    assert!(f.shell.app().machine().controller.inner.sent.len() > before);
+}
+
+#[test]
+fn the_fan_guard_sends_nothing_while_a_razer_updater_runs() {
+    let mut config = Config {
+        preset: Preset::Custom,
+        ..Config::default()
+    };
+    config.custom.fan_rpm = Some(1600);
+    let f = fixture(config);
+    f.shell.programs().set(&[UPDATER]);
     look(&f);
     let before = f.shell.app().machine().controller.inner.sent.len();
     let start = std::time::Instant::now();

@@ -281,6 +281,18 @@ where
         self.machine.controller.close();
     }
 
+    /// Holds every send and read while a Razer updater runs, or lets them
+    /// go again.
+    pub fn hold_controller(&mut self, held: bool) {
+        self.machine.controller.hold(held);
+    }
+
+    /// Whether every send and read is held for a Razer updater.
+    #[must_use]
+    pub fn controller_held(&self) -> bool {
+        self.machine.controller.held()
+    }
+
     /// Notes a panic (a bug) that may have cut a send: the preset is then
     /// unsure, so a quit sends the fans on auto first, as after a failed
     /// send.
@@ -344,6 +356,7 @@ where
     /// warning, shown in the window; the app still sends (user pick,
     /// ticket 135). Called once, at start.
     pub fn check_firmware(&mut self) {
+        self.firmware_warning = None;
         let version = match self.machine.controller.query(&FirmwareVersion::query()) {
             Ok(args) => {
                 FirmwareVersion::from_reply(&args).ok_or_else(|| "reply not understood".to_owned())
