@@ -188,6 +188,9 @@ pub fn fixture_with_programs(config: Config, programs: &[&str]) -> Fixture {
     // A checked firmware, as the laptop has: a reopen reads it again.
     controller.firmware = Some(vec![1, 6]);
     let started = app.start();
+    // Tests that tick with the real clock must not meet the start's fan
+    // targets sent once more (ticket 173); its own tests start again.
+    app.forget_fan_targets();
     let window = MainWindow::new().expect("the window");
     let flyout = FlyoutWindow::new().expect("the flyout");
     let popup = ModePopup::new().expect("the popup");

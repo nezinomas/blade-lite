@@ -123,9 +123,12 @@ pub struct App<C, D, R, K> {
     /// preset run marks it, not a lid logo or lighting send after it. The
     /// next poll or power event sends it, even if the source is the same.
     preset_unsure: bool,
-    /// The manual fan speed of the last preset sent, if it was Custom with
-    /// one: its fan targets go once more (ticket 173).
-    fan_targets_due: Option<u16>,
+    /// The number of the last preset send, if it was a manual Custom taken
+    /// whole: its fan targets go once more (ticket 173). A new number tells
+    /// the shell to wait its 2 s again.
+    fan_targets_due: Option<u32>,
+    /// Counts the manual Custom sends, for `fan_targets_due`.
+    manual_sends: u32,
     /// The polls left to send the preset again after a failed send.
     resends_left: u8,
     /// How many preset sends failed (resends too), so the shell can wait a
@@ -203,6 +206,7 @@ where
             power: Power::Charger,
             preset_unsure: false,
             fan_targets_due: None,
+            manual_sends: 0,
             resends_left: 0,
             preset_failures: 0,
             held_rate_error: None,
@@ -292,21 +296,35 @@ where
     }
 
     /// Notes whether the fan targets of `config` are due to go once more:
-    /// only after a manual Custom taken whole. A failed send is sent again
-    /// whole.
-    fn note_fan_targets(&mut self, config: &Config, applied: &Result<(), ApplyError>) {
-        let taken = matches!(applied, Ok(()) | Err(ApplyError::AfterPreset(_)));
-        self.fan_targets_due = config
-            .custom
-            .fan_rpm
-            .filter(|_| taken && config.preset == Preset::Custom);
+    /// only after a manual Custom taken whole. A send cut partway drops it
+    /// (the controller may run part of it; the resend goes whole), and one
+    /// refused before anything was sent leaves it as it was.
+    pub(crate) fn note_fan_targets(&mut self, config: &Config, applied: &Result<(), ApplyError>) {
+        match applied {
+            Ok(()) | Err(ApplyError::AfterPreset(_)) => {
+                let manual = config.preset == Preset::Custom && config.custom.fan_rpm.is_some();
+                self.fan_targets_due = None;
+                if manual {
+                    self.manual_sends = self.manual_sends.wrapping_add(1);
+                    self.fan_targets_due = Some(self.manual_sends);
+                }
+            }
+            Err(ApplyError::Device(_)) => self.fan_targets_due = None,
+            Err(_) => {}
+        }
     }
 
-    /// Whether the fan targets of a manual Custom just sent are due to go
-    /// once more: see [`Self::send_fan_targets_again`].
+    /// The number of the manual Custom send whose fan targets are due to go
+    /// once more, if any: see [`Self::send_fan_targets_again`].
     #[must_use]
-    pub fn fan_targets_due(&self) -> bool {
-        self.fan_targets_due.is_some()
+    pub fn fan_targets_due(&self) -> Option<u32> {
+        self.fan_targets_due
+    }
+
+    /// Drops fan targets due to go once more, such as while Razer software
+    /// may have changed the fan mode.
+    pub fn forget_fan_targets(&mut self) {
+        self.fan_targets_due = None;
     }
 
     /// Sends the fan targets of the Custom that runs once more, if a manual
@@ -322,7 +340,9 @@ where
     ///
     /// See [`AppError`].
     pub fn send_fan_targets_again(&mut self) -> Result<(), AppError> {
-        if self.fan_targets_due.take().is_none() {
+        // After a failed send the controller may run part of another
+        // preset: the resend of the whole preset comes first.
+        if self.fan_targets_due.take().is_none() || self.preset_unsure {
             return Ok(());
         }
         let running = self.running(self.config);

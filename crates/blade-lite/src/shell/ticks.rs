@@ -79,16 +79,28 @@ impl<P: Parts> Shell<P> {
     /// quit: it waits for the pause to end, and the wake's own send starts
     /// it again.
     fn send_fan_targets_again(self: &Rc<Self>, now: Instant) {
-        if !self.app.borrow().fan_targets_due() {
+        let Some(due) = self.app.borrow().fan_targets_due() else {
             self.fan_targets_seen.set(None);
             return;
-        }
+        };
         if self.resuming.get() > 0 || self.quit_sent.get() {
             return;
         }
-        let Some(seen) = self.fan_targets_seen.get() else {
-            self.fan_targets_seen.set(Some(now));
+        // Razer software may have set the fans on auto since (a target
+        // write needs the manual flag), and an updater refuses every send:
+        // the other background sends stop then too.
+        if self.razer_warning.borrow().is_some() || self.app.borrow().controller_held() {
+            self.app.borrow_mut().forget_fan_targets();
+            self.fan_targets_seen.set(None);
             return;
+        }
+        let seen = match self.fan_targets_seen.get() {
+            // A newer send waits its own 2 s.
+            Some((seen_due, seen)) if seen_due == due => seen,
+            _ => {
+                self.fan_targets_seen.set(Some((due, now)));
+                return;
+            }
         };
         if now.saturating_duration_since(seen) >= FAN_TARGETS_AGAIN {
             self.fan_targets_seen.set(None);

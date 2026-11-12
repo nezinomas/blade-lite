@@ -465,6 +465,41 @@ fn a_custom_mode_write_alone_and_what_the_fans_do() {
     assert!(last.iter().all(|args| args[2] > 0), "{last:02X?}");
 }
 
+/// Refuses to run when a fan target read before the test is outside the
+/// model's range, such as 0, which would stop the fans: the put-back
+/// writes it while the fans are still manual.
+fn refuse_targets_outside_the_range(before: &[Vec<u8>]) {
+    let range = razer_proto::BLADE_18.custom.fan_rpm;
+    for args in &before[6..8] {
+        let rpm = u16::from(args[2]) * 100;
+        assert!(
+            (range.min..=range.max).contains(&rpm),
+            "fan target {rpm} RPM is outside the model's range: not run"
+        );
+    }
+}
+
+/// Puts back what [`custom_state`] read, as the Custom test does: boosts and
+/// fan targets, then modes. Every send is tried, so a failed one does not
+/// keep the fans manual.
+fn put_back_custom<C: Clock>(
+    device: &mut Device<HidTransport, C>,
+    before: &[Vec<u8>],
+) -> Vec<Result<(), String>> {
+    before[4..6]
+        .iter()
+        .map(|args| (SET_BOOST, args))
+        .chain(before[6..8].iter().map(|args| (SET_FAN, args)))
+        .chain(before[..4].iter().map(|args| (0x0D02, args)))
+        .map(|(id, args)| {
+            device
+                .send(id, args)
+                .map(|_| ())
+                .map_err(|error| error.to_string())
+        })
+        .collect()
+}
+
 /// The fan targets and the real speeds, one reply's args per fan.
 type FanReads = (Vec<Vec<u8>>, Vec<Vec<u8>>);
 
@@ -488,6 +523,7 @@ fn custom_from_balanced_and_again_and_what_the_fans_do() {
 
     let mut device = Device::new(open(), SystemClock);
     let before = custom_state(&mut device);
+    refuse_targets_outside_the_range(&before);
     // A full Custom with a manual fan, as the app sends it on a click from
     // Balanced and again on a slider release (ticket 173: about 2900 RPM
     // after the click, more after a slider move).
@@ -515,19 +551,7 @@ fn custom_from_balanced_and_again_and_what_the_fans_do() {
         .and_then(|_| device.run(&custom).map_err(|error| error.to_string()))
         .and_then(|()| watch_fans(&mut device));
 
-    // Put back as the Custom test does: boosts and fan targets, then modes.
-    let put_back: Vec<_> = before[4..6]
-        .iter()
-        .map(|args| (SET_BOOST, args))
-        .chain(before[6..8].iter().map(|args| (SET_FAN, args)))
-        .chain(before[..4].iter().map(|args| (0x0D02, args)))
-        .map(|(id, args)| {
-            device
-                .send(id, args)
-                .map(|_| ())
-                .map_err(|error| error.to_string())
-        })
-        .collect();
+    let put_back = put_back_custom(&mut device, &before);
     let after = custom_state(&mut device);
 
     eprintln!("before {before:02X?}");
@@ -591,6 +615,7 @@ fn the_users_custom_with_and_without_the_app_reads() {
 
     let mut device = Device::new(open(), SystemClock);
     let before = custom_state(&mut device);
+    refuse_targets_outside_the_range(&before);
     // The user's saved Custom (ticket 173): both boosts at the top, 3600 RPM,
     // sent from Performance as the app's click from it does.
     let custom = Custom {
@@ -619,19 +644,7 @@ fn the_users_custom_with_and_without_the_app_reads() {
         .map_err(Clone::clone)
         .and_then(|_| from_performance(&mut device, true));
 
-    // Put back as the Custom test does: boosts and fan targets, then modes.
-    let put_back: Vec<_> = before[4..6]
-        .iter()
-        .map(|args| (SET_BOOST, args))
-        .chain(before[6..8].iter().map(|args| (SET_FAN, args)))
-        .chain(before[..4].iter().map(|args| (0x0D02, args)))
-        .map(|(id, args)| {
-            device
-                .send(id, args)
-                .map(|_| ())
-                .map_err(|error| error.to_string())
-        })
-        .collect();
+    let put_back = put_back_custom(&mut device, &before);
     let after = custom_state(&mut device);
 
     eprintln!("before {before:02X?}");
@@ -663,6 +676,7 @@ fn which_boost_holds_a_manual_fan_back() {
 
     let mut device = Device::new(open(), SystemClock);
     let before = custom_state(&mut device);
+    refuse_targets_outside_the_range(&before);
     // CPU boost, GPU boost, fan RPM (ticket 173: 3 and 3 held 3600 at 2900).
     let cases = [(3, 1, 3600), (1, 3, 3600), (2, 2, 3600), (3, 3, 4500)];
 
@@ -687,19 +701,7 @@ fn which_boost_holds_a_manual_fan_back() {
         }
     }
 
-    // Put back as the Custom test does: boosts and fan targets, then modes.
-    let put_back: Vec<_> = before[4..6]
-        .iter()
-        .map(|args| (SET_BOOST, args))
-        .chain(before[6..8].iter().map(|args| (SET_FAN, args)))
-        .chain(before[..4].iter().map(|args| (0x0D02, args)))
-        .map(|(id, args)| {
-            device
-                .send(id, args)
-                .map(|_| ())
-                .map_err(|error| error.to_string())
-        })
-        .collect();
+    let put_back = put_back_custom(&mut device, &before);
     let after = custom_state(&mut device);
 
     eprintln!("before {before:02X?}");
@@ -733,6 +735,7 @@ fn what_frees_a_manual_fan_stalled_after_a_custom_from_auto() {
 
     let mut device = Device::new(open(), SystemClock);
     let before = custom_state(&mut device);
+    refuse_targets_outside_the_range(&before);
     // The user's Custom (ticket 173): from auto it stalls near 2900 RPM
     // until the next Custom send.
     let custom = Custom {
@@ -774,19 +777,7 @@ fn what_frees_a_manual_fan_stalled_after_a_custom_from_auto() {
         }
     }
 
-    // Put back as the Custom test does: boosts and fan targets, then modes.
-    let put_back: Vec<_> = before[4..6]
-        .iter()
-        .map(|args| (SET_BOOST, args))
-        .chain(before[6..8].iter().map(|args| (SET_FAN, args)))
-        .chain(before[..4].iter().map(|args| (0x0D02, args)))
-        .map(|(id, args)| {
-            device
-                .send(id, args)
-                .map(|_| ())
-                .map_err(|error| error.to_string())
-        })
-        .collect();
+    let put_back = put_back_custom(&mut device, &before);
     let after = custom_state(&mut device);
 
     eprintln!("before {before:02X?}");

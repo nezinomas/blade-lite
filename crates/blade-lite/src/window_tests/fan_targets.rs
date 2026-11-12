@@ -9,7 +9,10 @@ use i_slint_backend_testing::AccessibleRole::Button;
 use platform::PowerEvent;
 use razer_proto::Command;
 
-use super::{Fixture, click, fixture};
+use super::{
+    FAKE_REOPENED, FAKE_SLEEP_NOTICE_LATE, Fixture, click, fixture, fixture_with_programs,
+};
+use crate::shell::Reopened;
 
 const SET_FAN_TARGET: u16 = 0x0D01;
 
@@ -45,6 +48,12 @@ fn targets_3600() -> Vec<Command> {
         .to_vec()
 }
 
+fn power(f: &Fixture, event: PowerEvent) {
+    let (sender, receiver) = std::sync::mpsc::channel();
+    sender.send(event).unwrap();
+    f.shell.follow_power(&receiver);
+}
+
 fn tick(f: &Fixture, at: Instant) {
     f.shell.tick_at(at, SystemTime::now());
 }
@@ -73,10 +82,18 @@ fn the_start_with_a_manual_fan_sends_its_fan_targets_once_more() {
     let before = sent_count(&f);
     let t0 = Instant::now();
 
+    f.shell.act(blade_lite::App::start);
     tick(&f, t0);
     tick(&f, t0 + Duration::from_secs(2));
 
-    assert_eq!(targets_since(&f, before), targets_3600());
+    let start_targets = targets_3600();
+    let mut expected = start_targets.clone();
+    expected.extend(start_targets);
+    assert_eq!(
+        targets_since(&f, before),
+        expected,
+        "the start's, then once more"
+    );
 }
 
 #[test]
@@ -110,26 +127,107 @@ fn custom_with_the_fans_on_auto_sends_no_fan_targets_again() {
 #[test]
 fn the_wake_sends_the_fan_targets_once_more_after_its_own_send() {
     let f = fixture(manual_fan_saved(Preset::Custom));
-    let (sender, receiver) = std::sync::mpsc::channel();
-    sender.send(PowerEvent::Suspending).unwrap();
-    f.shell.follow_power(&receiver);
+    f.shell.act(blade_lite::App::start);
+    // A late notice sends no quit preset, so the start's targets stay due
+    // over the sleep.
+    FAKE_SLEEP_NOTICE_LATE.set(true);
+    power(&f, PowerEvent::Suspending);
     let before = sent_count(&f);
     let t0 = Instant::now();
 
     // Asleep: nothing, however long.
     tick(&f, t0);
     tick(&f, t0 + Duration::from_secs(10));
-    assert_eq!(targets_since(&f, before), []);
-    sender.send(PowerEvent::Resumed).unwrap();
-    f.shell.follow_power(&receiver);
+    assert_eq!(sent_count(&f), before);
+    power(&f, PowerEvent::Resumed);
     i_slint_backend_testing::mock_elapsed_time(RESUME_PAUSE + Duration::from_millis(1));
     let woke = sent_count(&f);
-    // The wake's own Custom, with its targets, then once more.
-    assert_eq!(targets_since(&f, woke), []);
+    assert_eq!(
+        targets_since(&f, before),
+        targets_3600(),
+        "the wake's own Custom"
+    );
+    // Its own 2 s, not the old send's.
     tick(&f, t0 + Duration::from_secs(20));
+    assert_eq!(targets_since(&f, woke), []);
     tick(&f, t0 + Duration::from_secs(22));
 
     assert_eq!(targets_since(&f, woke), targets_3600());
+}
+
+#[test]
+fn a_newer_custom_send_waits_its_own_two_seconds() {
+    let f = fixture(manual_fan_saved(Preset::Balanced));
+    click(f.shell.window(), Button, "Custom");
+    let t0 = Instant::now();
+    tick(&f, t0);
+    // Before the next tick: Balanced, then Custom again.
+    click(f.shell.window(), Button, "Balanced");
+    click(f.shell.window(), Button, "Custom");
+    let before = sent_count(&f);
+
+    tick(&f, t0 + Duration::from_secs(2));
+    assert_eq!(targets_since(&f, before), [], "the newer send's 2 s");
+    tick(&f, t0 + Duration::from_secs(4));
+
+    assert_eq!(targets_since(&f, before), targets_3600());
+}
+
+#[test]
+fn the_fan_guard_s_full_speed_goes_once_more_too() {
+    let f = fixture(manual_fan_saved(Preset::Balanced));
+    click(f.shell.window(), Button, "Custom");
+    let t0 = Instant::now();
+    tick(&f, t0);
+    f.shell.watch_heat(Some(96), None, t0);
+    let before = sent_count(&f);
+
+    tick(&f, t0 + Duration::from_secs(2));
+    tick(&f, t0 + Duration::from_secs(4));
+
+    let top = u8::try_from(razer_proto::BLADE_18.custom.fan_rpm.max / 100).unwrap();
+    let speeds: Vec<u8> = targets_since(&f, before)
+        .iter()
+        .map(|c| c.args[2])
+        .collect();
+    assert_eq!(speeds, [top, top]);
+}
+
+#[test]
+fn no_fan_targets_go_again_in_the_pause_of_an_open_again_but_after_its_start() {
+    let f = fixture(manual_fan_saved(Preset::Balanced));
+    click(f.shell.window(), Button, "Custom");
+    let t0 = Instant::now();
+    tick(&f, t0);
+    FAKE_REOPENED.set(Reopened::Opened);
+    tick(&f, t0 + Duration::from_secs(1));
+    let before = sent_count(&f);
+
+    tick(&f, t0 + Duration::from_secs(2));
+    tick(&f, t0 + Duration::from_secs(3));
+    assert_eq!(sent_count(&f), before, "nothing in the pause");
+    i_slint_backend_testing::mock_elapsed_time(RESUME_PAUSE + Duration::from_millis(1));
+    let started = sent_count(&f);
+    tick(&f, t0 + Duration::from_secs(4));
+    tick(&f, t0 + Duration::from_secs(6));
+
+    assert_eq!(targets_since(&f, started), targets_3600());
+}
+
+#[test]
+fn no_fan_targets_go_again_while_razer_software_runs() {
+    let f = fixture_with_programs(
+        manual_fan_saved(Preset::Balanced),
+        &["Razer Synapse Service"],
+    );
+    click(f.shell.window(), Button, "Custom");
+    let before = sent_count(&f);
+    let t0 = Instant::now();
+
+    tick(&f, t0);
+    tick(&f, t0 + Duration::from_secs(2));
+
+    assert_eq!(targets_since(&f, before), []);
 }
 
 #[test]
