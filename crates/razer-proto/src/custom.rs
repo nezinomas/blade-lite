@@ -149,10 +149,20 @@ impl Custom {
         let mut commands = self.mode_commands(model);
         commands.push(boost_command(CPU_CLUSTER, self.cpu.0));
         commands.push(boost_command(GPU_CLUSTER, self.gpu.0));
-        if let FanMode::Manual(rpm) = self.fan {
-            commands.extend(fan_commands(rpm, model));
-        }
+        commands.extend(self.fan_target_commands(model));
         commands
+    }
+
+    /// Only the fan targets, the last of [`commands`](Self::commands); none
+    /// with the fans on auto. Sent again about 2 s after a Custom from auto
+    /// fans: on firmware 1.6 the fans then stall near 2900 RPM until the
+    /// next target write (ticket 173).
+    #[must_use]
+    pub fn fan_target_commands(self, model: &ModelProfile) -> Vec<Command> {
+        match self.fan {
+            FanMode::Manual(rpm) => fan_commands(rpm, model).collect(),
+            FanMode::Auto => Vec::new(),
+        }
     }
 
     fn mode_commands(self, model: &ModelProfile) -> Vec<Command> {

@@ -11,8 +11,8 @@ mod views;
 use std::path::PathBuf;
 
 use blade_core::{
-    ApplyError, BatteryRate, Config, Controller, Lighting, Preset, Query, apply_performance,
-    charge_limit_on, full_power_charger, logo_on, preset_differs, touchpad_on,
+    ApplyError, BatteryRate, Config, Controller, Lighting, Preset, Query, apply_fan_targets,
+    apply_performance, charge_limit_on, full_power_charger, logo_on, preset_differs, touchpad_on,
 };
 use platform::{DisplayApi, KeyInjector, Registry};
 use razer_proto::{FirmwareVersion, ModelProfile, NativeMode, RedKey, RedKeys, Rgb, Rpm};
@@ -123,6 +123,9 @@ pub struct App<C, D, R, K> {
     /// preset run marks it, not a lid logo or lighting send after it. The
     /// next poll or power event sends it, even if the source is the same.
     preset_unsure: bool,
+    /// The manual fan speed of the last preset sent, if it was Custom with
+    /// one: its fan targets go once more (ticket 173).
+    fan_targets_due: Option<u16>,
     /// The polls left to send the preset again after a failed send.
     resends_left: u8,
     /// How many preset sends failed (resends too), so the shell can wait a
@@ -199,6 +202,7 @@ where
             battery_rate: BatteryRate::default(),
             power: Power::Charger,
             preset_unsure: false,
+            fan_targets_due: None,
             resends_left: 0,
             preset_failures: 0,
             held_rate_error: None,
@@ -283,7 +287,47 @@ where
     fn send_preset(&mut self, config: &Config) -> Result<(), ApplyError> {
         let applied = apply_performance(config, self.model, &mut self.machine.controller);
         self.check_preset_if_sent(config, &applied);
+        self.note_fan_targets(config, &applied);
         applied
+    }
+
+    /// Notes whether the fan targets of `config` are due to go once more:
+    /// only after a manual Custom taken whole. A failed send is sent again
+    /// whole.
+    fn note_fan_targets(&mut self, config: &Config, applied: &Result<(), ApplyError>) {
+        let taken = matches!(applied, Ok(()) | Err(ApplyError::AfterPreset(_)));
+        self.fan_targets_due = config
+            .custom
+            .fan_rpm
+            .filter(|_| taken && config.preset == Preset::Custom);
+    }
+
+    /// Whether the fan targets of a manual Custom just sent are due to go
+    /// once more: see [`Self::send_fan_targets_again`].
+    #[must_use]
+    pub fn fan_targets_due(&self) -> bool {
+        self.fan_targets_due.is_some()
+    }
+
+    /// Sends the fan targets of the Custom that runs once more, if a manual
+    /// Custom was the last preset sent (ticket 173). Sent while the fans ran
+    /// on auto (another preset), a Custom with a manual fan leaves them
+    /// stalled near 2900 RPM on firmware 1.6, whatever the target, until the
+    /// next target write; the shell calls this about 2 s after the send. It
+    /// sends the speed that should run now (the fan guard's, if it runs),
+    /// and nothing if Custom with a manual fan no longer runs. Once per
+    /// send: a failure is not tried again.
+    ///
+    /// # Errors
+    ///
+    /// See [`AppError`].
+    pub fn send_fan_targets_again(&mut self) -> Result<(), AppError> {
+        if self.fan_targets_due.take().is_none() {
+            return Ok(());
+        }
+        let running = self.running(self.config);
+        apply_fan_targets(&running, self.model, &mut self.machine.controller)?;
+        Ok(())
     }
 
     /// Reads back the preset of `config` if `applied` sent it whole, and

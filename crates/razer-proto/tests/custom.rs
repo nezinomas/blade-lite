@@ -86,6 +86,26 @@ fn every_boost_level_matches_the_capture() {
 }
 
 #[test]
+fn the_fan_targets_alone_are_the_last_commands_of_a_manual_custom() {
+    let fan = FanMode::Manual(Rpm::new(3600, &BLADE_18).unwrap());
+    let full = custom(3, 3, fan).commands(&BLADE_18);
+
+    let targets = custom(3, 3, fan).fan_target_commands(&BLADE_18);
+
+    assert_eq!(targets.len(), BLADE_18.custom.fan_zones.len());
+    assert_eq!(targets, full[full.len() - targets.len()..]);
+    assert!(targets.iter().all(|c| c.id == 0x0D01 && c.args[2] == 36));
+}
+
+#[test]
+fn a_custom_with_auto_fans_has_no_fan_targets_to_send_again() {
+    assert_eq!(
+        custom(1, 1, FanMode::Auto).fan_target_commands(&BLADE_18),
+        []
+    );
+}
+
+#[test]
 fn going_back_to_auto_sends_no_fan_target() {
     let commands = custom(1, 1, FanMode::Auto).commands(&BLADE_18);
 

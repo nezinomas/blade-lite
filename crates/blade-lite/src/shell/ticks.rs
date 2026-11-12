@@ -20,6 +20,10 @@ use crate::bind;
 /// in the quiet time.
 const GONE_KEY: &str = "controller closed or held";
 
+/// How long after a manual Custom send its fan targets go once more
+/// (ticket 173; on the laptop 2 s worked).
+const FAN_TARGETS_AGAIN: Duration = Duration::from_secs(2);
+
 impl<P: Parts> Shell<P> {
     /// Passes on power events, tries a refused rate again, passes
     /// on Num Lock, then reads the sensors if a view shows them, or only
@@ -38,6 +42,7 @@ impl<P: Parts> Shell<P> {
         let looked = self.look_for_razer_now_and_then(now);
         self.follow_own_power();
         self.start_after_updater();
+        self.send_fan_targets_again(now);
         if looked {
             self.read_firmware_if_unread();
         }
@@ -65,6 +70,35 @@ impl<P: Parts> Shell<P> {
             self.after_reads();
         }
         self.preset_failures_seen.set(failures);
+    }
+
+    /// Sends the fan targets of a manual Custom once more, on the first
+    /// tick at least [`FAN_TARGETS_AGAIN`] after the tick that saw it sent
+    /// (ticket 173: sent from auto fans, the fans stall near 2900 RPM until
+    /// the next target write). Not in a pause or a sleep, nor after the
+    /// quit: it waits for the pause to end, and the wake's own send starts
+    /// it again.
+    fn send_fan_targets_again(self: &Rc<Self>, now: Instant) {
+        if !self.app.borrow().fan_targets_due() {
+            self.fan_targets_seen.set(None);
+            return;
+        }
+        if self.resuming.get() > 0 || self.quit_sent.get() {
+            return;
+        }
+        let Some(seen) = self.fan_targets_seen.get() else {
+            self.fan_targets_seen.set(Some(now));
+            return;
+        };
+        if now.saturating_duration_since(seen) >= FAN_TARGETS_AGAIN {
+            self.fan_targets_seen.set(None);
+            // Nothing shown changes, so the windows are filled again only
+            // to show a failure (it is not tried again).
+            let sent = self.app.borrow_mut().send_fan_targets_again();
+            if let Err(error) = sent {
+                self.refresh(Some(&error));
+            }
+        }
     }
 
     /// Follows the charger, or sends the preset again, unless a read just

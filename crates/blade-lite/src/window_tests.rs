@@ -4,6 +4,7 @@
 //! Windows call is a read of the work area, when a click shows the popup.
 
 mod clicks;
+mod fan_targets;
 mod razer;
 mod screens;
 mod settings;
