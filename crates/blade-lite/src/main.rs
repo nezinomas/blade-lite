@@ -186,6 +186,10 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     let config = config_or_defaults(&config_path, |question| {
         platform::ask_yes_no(START_BOX_TITLE, question)
     })?;
+    // Before the start sends settings: a failure here sends nothing.
+    let window = MainWindow::new()?;
+    let flyout = FlyoutWindow::new()?;
+    let popup = ModePopup::new()?;
     let controller = open_controller_at_start(in_tray)?;
     let machine = Machine {
         controller: Device::new(
@@ -223,9 +227,6 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     // A failed start shows in the window, so a login start opens it.
     let start_failed = started.is_err();
 
-    let window = MainWindow::new()?;
-    let flyout = FlyoutWindow::new()?;
-    let popup = ModePopup::new()?;
     window.set_accent(bind::colour(accent));
     flyout.set_accent(bind::colour(accent));
     popup.set_accent(bind::colour(accent));
@@ -236,33 +237,37 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     shell.refresh(started.err().as_ref());
     SHELL.with(|cell| cell.replace(Some(Rc::clone(&shell))));
 
-    let tray = Rc::new(Tray::new(accent, &autostart_shown())?);
-    tray.on_action(on_tray);
-    TRAY.with(|cell| cell.replace(Some(Rc::clone(&tray))));
-    open_window_on_wake(instance.listener()?);
-    if let Some(watch) = touchpad {
-        follow_the_touchpad(watch);
-    }
-    follow_the_power_key();
+    // The start has sent settings: however the rest ends (Quit, or an
+    // error from here on), the quit preset goes, so no manual fan or
+    // Performance runs on with no app.
+    let served = shell.serve(|| -> Result<(), Box<dyn std::error::Error>> {
+        let tray = Rc::new(Tray::new(accent, &autostart_shown())?);
+        tray.on_action(on_tray);
+        TRAY.with(|cell| cell.replace(Some(Rc::clone(&tray))));
+        open_window_on_wake(instance.listener()?);
+        if let Some(watch) = touchpad {
+            follow_the_touchpad(watch);
+        }
+        follow_the_power_key();
 
-    shell.listen_for_power(power_events());
-    let poll = Timer::default();
-    let ticking = Rc::clone(&shell);
-    poll.start(TimerMode::Repeated, POLL_INTERVAL, move || {
-        ticking.tick();
+        shell.listen_for_power(power_events());
+        let poll = Timer::default();
+        let ticking = Rc::clone(&shell);
+        poll.start(TimerMode::Repeated, POLL_INTERVAL, move || {
+            ticking.tick();
+        });
+
+        // At login the app starts in the tray, with the settings re-applied,
+        // unless Razer software runs or the firmware is not one checked: the
+        // window then shows the warning.
+        if !in_tray || razer_found || firmware_unchecked || start_failed {
+            shell.show_window();
+        }
+        // Closing the window keeps the app in the tray. Quit is in its menu.
+        slint::run_event_loop_until_quit()?;
+        Ok(())
     });
-
-    // At login the app starts in the tray, with the settings re-applied,
-    // unless Razer software runs or the firmware is not one checked: the
-    // window then shows the warning.
-    if !in_tray || razer_found || firmware_unchecked || start_failed {
-        shell.show_window();
-    }
-    // Closing the window keeps the app in the tray. Quit is in its menu.
-    let looped = slint::run_event_loop_until_quit();
-    shell.quit();
-    looped?;
     SHELL.with(RefCell::take);
     TRAY.with(RefCell::take);
-    Ok(())
+    served
 }

@@ -361,6 +361,15 @@ impl<P: Parts> Shell<P> {
         }
     }
 
+    /// Runs `serve`, the app's run after the start, then quits as Quit
+    /// does, however it ended: an error too ends the app with the start's
+    /// settings sent and nothing to watch them. Only after the start.
+    pub fn serve<T, E>(&self, serve: impl FnOnce() -> Result<T, E>) -> Result<T, E> {
+        let served = serve();
+        self.quit();
+        served
+    }
+
     /// Reads the keyboard brightness while Fn is held or as it comes up,
     /// as Fn + F10 or F11 may have set it. The window is filled again only for a new level
     /// or a failed send or save, so an Fn press for anything else leaves a
