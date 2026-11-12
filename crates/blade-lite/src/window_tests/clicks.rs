@@ -235,7 +235,7 @@ fn a_panic_in_the_start_of_a_manual_fan_sends_the_fans_on_auto_first() {
         .serve(|| f.shell.start().map_err(|error| error.to_string()));
 
     assert_eq!(ended, Err(crate::shell::PANICKED.to_owned()));
-    // The start's first send, cut by the panic, then the quit's.
+    // The start's first run, then a panic, then the quit's sends.
     let sent = sent_since(&f, before);
     // After the last manual fan write: Custom with the fans on auto, then
     // Balanced.
@@ -2669,6 +2669,22 @@ fn a_weak_charge_seen_on_a_tick_runs_balanced_and_says_so() {
     );
     assert_eq!(f.shell.popup().get_mode(), "Balanced");
     assert_eq!(f.shell.app().config().preset, Preset::Performance);
+}
+
+#[test]
+fn the_start_sets_the_mode_watch_from_what_it_left() {
+    let f = fixture(Config {
+        preset: Preset::Performance,
+        ..Config::default()
+    });
+    f.shell.app().machine_mut().controller.inner.charger = FakeCharger::UsbC;
+
+    // The start reads the weak charger and runs Balanced, so the next
+    // change sees no change of mode and pops nothing up.
+    f.shell.start().unwrap();
+    f.shell.act(|_| Ok(()));
+
+    assert_eq!(f.shell.popup().get_mode(), "");
 }
 
 #[test]

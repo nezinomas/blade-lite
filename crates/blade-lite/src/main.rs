@@ -364,6 +364,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     // or a panic in the start or after it), the quit preset goes, so no
     // manual fan or Performance runs on with no app (ticket 164).
     let served = shell.serve(|| -> Result<(), Box<dyn std::error::Error>> {
+        // First, inside `serve`: never move it out (ticket 164).
         let started = shell.start();
         // A failed start shows in the window, so a login start opens it.
         let start_failed = started.is_err();
