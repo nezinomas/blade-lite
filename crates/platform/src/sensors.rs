@@ -24,8 +24,8 @@ use windows_sys::Win32::System::Power::{
     BATTERY_INFORMATION, BATTERY_QUERY_INFORMATION, BATTERY_TAG_INVALID, BATTERY_UNKNOWN_CAPACITY,
     BATTERY_UNKNOWN_RATE, BatteryInformation, CM_POWER_DATA, CallNtPowerInformation,
     DEVICE_POWER_STATE, GUID_DEVICE_BATTERY, GetSystemPowerStatus, IOCTL_BATTERY_QUERY_INFORMATION,
-    IOCTL_BATTERY_QUERY_TAG, PowerDeviceD0, SYSTEM_BATTERY_STATE, SYSTEM_POWER_STATUS,
-    SystemBatteryState,
+    IOCTL_BATTERY_QUERY_TAG, PowerDeviceD0, PowerDeviceD1, PowerDeviceD2, PowerDeviceD3,
+    SYSTEM_BATTERY_STATE, SYSTEM_POWER_STATUS, SystemBatteryState,
 };
 use windows_sys::Win32::System::Threading::GetSystemTimes;
 
@@ -83,14 +83,29 @@ impl Sensors for WindowsSensors {
             .unwrap_or_default())
     }
 
+    /// A missing adapter or a power state not known is an error: only a
+    /// real sleep state counts as asleep, so the fan guard can tell a GPU
+    /// that cools from one in trouble (ticket 139).
     fn gpu_awake(&mut self) -> io::Result<bool> {
         let Some(id) = nvidia_display()? else {
-            return Ok(false);
+            return Err(io::Error::other("no NVIDIA display adapter is present"));
         };
-        Ok(is_awake(device_power_state(&id)?))
+        is_awake(device_power_state(&id)?)
     }
 
+    /// A failed read drops NVML, so the next read starts it again: an old
+    /// handle can keep failing after a driver reset (ticket 156).
     fn gpu(&mut self) -> io::Result<GpuReading> {
+        let read = self.read_gpu();
+        if read.is_err() {
+            self.nvml = None;
+        }
+        read
+    }
+}
+
+impl WindowsSensors {
+    fn read_gpu(&mut self) -> io::Result<GpuReading> {
         if self.nvml.is_none() {
             self.nvml = Some(Nvml::init().map_err(io::Error::other)?);
         }
@@ -322,9 +337,18 @@ fn device_power_state(id: &str) -> io::Result<DEVICE_POWER_STATE> {
     Ok(data.PD_MostRecentPowerState)
 }
 
-/// Only D0 is awake. D1 to D3 are the sleep states.
-fn is_awake(state: DEVICE_POWER_STATE) -> bool {
-    state == PowerDeviceD0
+/// D0 is awake, D1 to D3 are the sleep states; any other state is not
+/// known.
+fn is_awake(state: DEVICE_POWER_STATE) -> io::Result<bool> {
+    if state == PowerDeviceD0 {
+        Ok(true)
+    } else if [PowerDeviceD1, PowerDeviceD2, PowerDeviceD3].contains(&state) {
+        Ok(false)
+    } else {
+        Err(io::Error::other(format!(
+            "GPU power state {state} not known"
+        )))
+    }
 }
 
 fn check(result: CONFIGRET) -> io::Result<()> {
@@ -490,8 +514,8 @@ mod tests {
 
     #[test]
     fn only_d0_is_awake() {
-        assert!(is_awake(PowerDeviceD0));
-        assert!(!is_awake(PowerDeviceD3));
-        assert!(!is_awake(PowerDeviceUnspecified));
+        assert!(is_awake(PowerDeviceD0).unwrap());
+        assert!(!is_awake(PowerDeviceD3).unwrap());
+        assert!(is_awake(PowerDeviceUnspecified).is_err());
     }
 }

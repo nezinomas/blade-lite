@@ -33,8 +33,11 @@ pub struct FanGuard {
     cpu: Track,
     gpu: Track,
     /// Whether the last GPU read failed (ticket 139): unlike a GPU asleep,
-    /// it may be hot, so it never counts as cool.
-    gpu_failed: bool,
+    /// it may be hot.
+    gpu_failing: bool,
+    /// The last failed GPU read, or one past any real heat. A GPU not read
+    /// lately counts as cool only [`FAN_GUARD_COOL_HOLD`] after it.
+    gpu_failed_at: Option<Instant>,
 }
 
 /// One sensor's recent readings.
@@ -56,7 +59,7 @@ impl FanGuard {
     /// Notes whether the last GPU read failed, before [`note`](Self::note)
     /// takes its `None`.
     pub fn gpu_failed(&mut self, failed: bool) {
-        self.gpu_failed = failed;
+        self.gpu_failing = failed;
     }
 
     /// Takes one reading of each sensor at `now` (`None`: not read). Returns
@@ -66,15 +69,20 @@ impl FanGuard {
     /// them: with no CPU reading the guard stays on. A GPU not read lately
     /// holds it on only while its reads fail (see [`gpu_failed`](Self::gpu_failed)).
     pub fn note(&mut self, cpu: Option<u32>, gpu: Option<u32>, now: Instant) -> Option<bool> {
+        if self.gpu_failing || gpu.is_some_and(|celsius| celsius > HEAT_MAX) {
+            self.gpu_failed_at = Some(now);
+        }
         self.cpu.note(cpu, Sensor::Cpu.guard_limit(), now);
         self.gpu.note(gpu, Sensor::Gpu.guard_limit(), now);
         let next = if self.on {
             let cpu_cool = self.cpu.settled(now) == Some(true);
             let gpu_cool = match self.gpu.settled(now) {
                 Some(cool) => cool,
-                // Not read lately: a GPU asleep (or never awake) cools; one
-                // whose reads fail may be hot.
-                None => !self.gpu_failed,
+                // Not read lately: a GPU asleep cools, but only once no read
+                // has failed for the cool hold, as one that fails may be hot.
+                None => self
+                    .gpu_failed_at
+                    .is_none_or(|at| now.saturating_duration_since(at) >= FAN_GUARD_COOL_HOLD),
             };
             !(cpu_cool && gpu_cool)
         } else {
