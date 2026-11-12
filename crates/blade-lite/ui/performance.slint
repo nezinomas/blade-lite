@@ -42,16 +42,26 @@ export component PerformanceGroup inherits VerticalLayout {
                     width: 110px;
                     vertical-alignment: center;
                 }
-                Slider {
+                slider := Slider {
                     accessible-label: row.label;
                     minimum: 0;
                     maximum: row.stops - 1;
                     step: 1;
                     value: row.position;
-                    released(value) => { root.move-slider(index, round(value)); }
+                    // Sent only when the slider is let go. Then the slider goes
+                    // back to what the laptop has, so a release that sends
+                    // nothing (the pause after a wake) does not leave it at
+                    // the new value. A change makes the rows again.
+                    released(value) => {
+                        root.move-slider(index, round(value));
+                        self.value = row.position;
+                    }
                 }
-                Text {
-                    text: row.text;
+                slider-text := Text {
+                    // Follows the slider, also while it is dragged. At the
+                    // laptop's stop it shows the laptop's own value.
+                    text: round(slider.value) == row.position ? row.text
+                        : row.texts[round(slider.value)];
                     width: 84px;
                     horizontal-alignment: right;
                     vertical-alignment: center;

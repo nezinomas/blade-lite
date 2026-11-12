@@ -89,9 +89,10 @@ pub fn performance(window: &MainWindow, view: &PerformanceView) {
 pub fn sliders(window: &MainWindow, view: &PerformanceView) {
     window.set_sliders(model(view.sliders.iter().map(|slider| SliderRow {
         label: text(slider.label),
-        stops: int(slider.stops),
+        stops: int(slider.stops()),
         position: int(slider.position),
         text: text(&slider.text),
+        texts: model(slider.texts.iter().map(|t| text(t))),
     })));
 }
 

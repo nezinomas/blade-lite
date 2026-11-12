@@ -66,10 +66,20 @@ pub enum SliderKind {
 pub struct Slider {
     pub kind: SliderKind,
     pub label: &'static str,
-    pub stops: usize,
     pub position: usize,
     /// The value at `position`, as text.
     pub text: String,
+    /// The value at each stop, as text, so the slider's text can follow a
+    /// drag before it is let go.
+    pub texts: Vec<String>,
+}
+
+impl Slider {
+    /// How many stops the slider has.
+    #[must_use]
+    pub fn stops(&self) -> usize {
+        self.texts.len()
+    }
 }
 
 /// The Performance group, ready to show.
@@ -119,7 +129,7 @@ impl PerformanceView {
         let slider = self
             .sliders
             .get(index)
-            .filter(|s| s.position != position && position < s.stops)?;
+            .filter(|s| s.position != position && position < s.stops())?;
         Some(match slider.kind {
             SliderKind::CpuBoost => PerformanceCommand::SetCpuBoost(level(position)),
             SliderKind::GpuBoost => PerformanceCommand::SetGpuBoost(level(position)),
@@ -196,31 +206,39 @@ fn boost_slider(kind: SliderKind, label: &'static str, max: u8, level: u8) -> Sl
     Slider {
         kind,
         label,
-        stops: usize::from(max) + 1,
         position: usize::from(level),
         text: level.to_string(),
+        texts: (0..=max).map(|level| level.to_string()).collect(),
     }
 }
 
 /// Auto first, then each speed of the model's range.
 fn fan_slider(model: &ModelProfile, rpm: Option<u16>) -> Slider {
     let range = model.custom.fan_rpm;
-    let speeds = usize::from((range.max - range.min) / RPM_STEP) + 1;
+    let speeds = (range.max - range.min) / RPM_STEP + 1;
     let (position, text) = match rpm {
         None => (0, AUTO.to_owned()),
         Some(rpm) => (
             // A hand-edited config may hold a speed off the range.
             usize::from((rpm.clamp(range.min, range.max) - range.min) / RPM_STEP) + 1,
-            format!("{rpm} rpm"),
+            rpm_text(rpm),
         ),
     };
+    // From `fan_rpm`, so each stop shows the speed it sends.
+    let texts = (0..=usize::from(speeds))
+        .map(|position| fan_rpm(position, range.min).map_or_else(|| AUTO.to_owned(), rpm_text))
+        .collect();
     Slider {
         kind: SliderKind::Fan,
         label: "Fan",
-        stops: speeds + 1,
         position,
         text,
+        texts,
     }
+}
+
+fn rpm_text(rpm: u16) -> String {
+    format!("{rpm} rpm")
 }
 
 fn level(position: usize) -> u8 {

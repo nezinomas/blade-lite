@@ -127,9 +127,9 @@ fn the_boost_sliders_run_from_0_to_the_models_highest_level() {
     let view = custom();
 
     let cpu = slider(&view, "CPU boost");
-    assert_eq!((cpu.stops, cpu.position, cpu.text.as_str()), (4, 2, "2"));
+    assert_eq!((cpu.stops(), cpu.position, cpu.text.as_str()), (4, 2, "2"));
     let gpu = slider(&view, "GPU boost");
-    assert_eq!((gpu.stops, gpu.position, gpu.text.as_str()), (4, 1, "1"));
+    assert_eq!((gpu.stops(), gpu.position, gpu.text.as_str()), (4, 1, "1"));
 }
 
 #[test]
@@ -139,7 +139,7 @@ fn the_fan_slider_starts_at_auto_then_runs_over_the_models_range() {
     // Auto, then 1600 to 4500 rpm in steps of 100.
     let fan = slider(&view, "Fan");
     assert_eq!(
-        (fan.stops, fan.position, fan.text.as_str()),
+        (fan.stops(), fan.position, fan.text.as_str()),
         (31, 0, "Auto")
     );
 }
@@ -153,6 +153,40 @@ fn a_manual_fan_speed_shows_its_rpm() {
 
     let fan = slider(&view, "Fan");
     assert_eq!((fan.position, fan.text.as_str()), (16, "3100 rpm"));
+}
+
+#[test]
+fn each_boost_stop_has_its_level_as_text() {
+    let view = custom();
+
+    let cpu = slider(&view, "CPU boost");
+    assert_eq!(cpu.texts, ["0", "1", "2", "3"]);
+    assert_eq!(cpu.stops(), 4);
+}
+
+#[test]
+fn each_fan_stop_has_its_text_auto_then_the_rpm() {
+    let view = custom();
+
+    let fan = slider(&view, "Fan");
+    assert_eq!(fan.texts.len(), fan.stops());
+    assert_eq!(fan.texts[0], "Auto");
+    assert_eq!(fan.texts[1], "1600 rpm");
+    assert_eq!(fan.texts[16], "3100 rpm");
+    assert_eq!(fan.texts[30], "4500 rpm");
+}
+
+#[test]
+fn each_fan_stop_shows_the_speed_it_sends() {
+    let view = custom();
+    let fan = slider(&view, "Fan");
+
+    for (position, text) in fan.texts.iter().enumerate().skip(1) {
+        let Some(PerformanceCommand::SetFanRpm(Some(rpm))) = view.move_slider(2, position) else {
+            panic!("stop {position} sends no speed");
+        };
+        assert_eq!(*text, format!("{rpm} rpm"));
+    }
 }
 
 #[test]

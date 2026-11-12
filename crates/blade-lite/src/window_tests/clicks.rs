@@ -2414,6 +2414,117 @@ fn a_custom_cpu_boost_click_one_step_up_sends_the_custom_commands() {
     assert_eq!(slider.accessible_value().unwrap(), "2");
 }
 
+/// The text beside the Custom slider in row `row` (0 CPU, 1 GPU, 2 Fan).
+fn custom_text_shown(f: &Fixture, row: usize) -> String {
+    let id = "PerformanceGroup::slider-text";
+    let text = ElementHandle::find_by_element_id(f.shell.window(), id)
+        .nth(row)
+        .unwrap_or_else(|| panic!("no {id} in row {row}"));
+    text.accessible_label().unwrap().into()
+}
+
+/// Presses the Custom slider `label` (in row `row`) at `at`, a share of its
+/// width, drags it to its left end and lets go there. Before the release
+/// its text shows `pressed`, then `left_end`, and nothing is sent; the
+/// release sends `sent`.
+fn custom_drag_shows_the_text(
+    label: &str,
+    row: usize,
+    at: f32,
+    pressed: &str,
+    left_end: &str,
+    sent: &[Command],
+) {
+    let mut config = Config {
+        preset: Preset::Custom,
+        ..Config::default()
+    };
+    config.custom.fan_rpm = Some(1600);
+    let f = fixture(config);
+    let before = sent_count(&f);
+    let slider = control(f.shell.window(), Slider, label);
+    let start = slider.absolute_position();
+    let size = slider.size();
+    let y = start.y + size.height / 2.0;
+    let press = LogicalPosition::new(start.x + size.width * at, y);
+    let end = LogicalPosition::new(start.x, y);
+    let window = f.shell.window().window();
+    let button = PointerEventButton::Left;
+
+    window.dispatch_event(WindowEvent::PointerPressed {
+        position: press,
+        button,
+    });
+    assert_eq!(custom_text_shown(&f, row), pressed);
+    window.dispatch_event(WindowEvent::PointerMoved { position: end });
+    assert_eq!(custom_text_shown(&f, row), left_end);
+    assert_eq!(sent_since(&f, before), []);
+
+    window.dispatch_event(WindowEvent::PointerReleased {
+        position: end,
+        button,
+    });
+    assert_eq!(sent_since(&f, before), sent);
+    assert_eq!(custom_text_shown(&f, row), left_end);
+}
+
+fn custom_commands(cpu: u8, fan: razer_proto::FanMode) -> Vec<Command> {
+    razer_proto::Custom {
+        cpu: razer_proto::CpuBoost::new(cpu, &BLADE_18).unwrap(),
+        gpu: razer_proto::GpuBoost::new(1, &BLADE_18).unwrap(),
+        fan,
+    }
+    .commands(&BLADE_18)
+}
+
+#[test]
+fn the_cpu_boost_text_follows_the_slider_while_it_is_dragged() {
+    let fan = razer_proto::FanMode::Manual(razer_proto::Rpm::new(1600, &BLADE_18).unwrap());
+    let sent = custom_commands(0, fan);
+    custom_drag_shows_the_text("CPU boost", 0, 2.0 / 3.0, "2", "0", &sent);
+}
+
+#[test]
+fn the_gpu_boost_text_follows_the_slider_while_it_is_dragged() {
+    let fan = razer_proto::FanMode::Manual(razer_proto::Rpm::new(1600, &BLADE_18).unwrap());
+    let sent = razer_proto::Custom {
+        cpu: razer_proto::CpuBoost::new(1, &BLADE_18).unwrap(),
+        gpu: razer_proto::GpuBoost::new(0, &BLADE_18).unwrap(),
+        fan,
+    }
+    .commands(&BLADE_18);
+    custom_drag_shows_the_text("GPU boost", 1, 2.0 / 3.0, "2", "0", &sent);
+}
+
+#[test]
+fn the_fan_text_follows_the_slider_while_it_is_dragged() {
+    let sent = custom_commands(1, razer_proto::FanMode::Auto);
+    custom_drag_shows_the_text("Fan", 2, 0.5, "3000 rpm", "Auto", &sent);
+}
+
+#[test]
+fn a_custom_slider_let_go_in_the_pause_after_a_wake_goes_back_unsent() {
+    let f = fixture(Config {
+        preset: Preset::Custom,
+        ..Config::default()
+    });
+    let (sender, receiver) = std::sync::mpsc::channel();
+    sender.send(PowerEvent::Resumed).unwrap();
+    f.shell.follow_power(&receiver);
+    let before = sent_count(&f);
+    let slider = control(f.shell.window(), Slider, "CPU boost");
+    let start = slider.absolute_position();
+    let left_end = LogicalPosition::new(start.x, start.y + slider.size().height / 2.0);
+
+    slider.mock_drag(left_end, PointerEventButton::Left);
+
+    assert_eq!(sent_since(&f, before), []);
+    assert_eq!(f.shell.app().config().custom.cpu_boost, 1);
+    let slider = control(f.shell.window(), Slider, "CPU boost");
+    assert_eq!(slider.accessible_value().unwrap(), "1");
+    assert_eq!(custom_text_shown(&f, 0), "1");
+}
+
 #[test]
 fn a_custom_slider_goes_back_after_a_failed_send() {
     let f = fixture(Config {
