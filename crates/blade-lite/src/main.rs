@@ -34,7 +34,7 @@ use blade_core::{
 };
 use blade_lite::{
     App, Machine, accent_colour, config_or_defaults, icon, open_log, report, report_panics,
-    try_times,
+    try_times, try_until_it_works,
 };
 use platform::{
     SessionEndWatch, WindowsDisplays, WindowsInstance, WindowsKeys, WindowsPrograms,
@@ -93,14 +93,42 @@ const RECOVERY: &str =
 /// Shows a failed start in a message box with the log's path: a release
 /// build has no console, and the app ends with no window or tray icon.
 fn show_start_error(error: &str) {
+    platform::show_error(
+        START_BOX_TITLE,
+        &start_box_text("Blade Lite stopped:", error),
+    );
+}
+
+/// The start box's text: `headline`, the error, the log's path and where
+/// to read about stuck fans.
+fn start_box_text(headline: &str, error: &str) -> String {
     let log = std::env::var_os("APPDATA").map_or_else(
         || "not written (no APPDATA)".to_owned(),
         |appdata| Log::path_in(&PathBuf::from(appdata)).display().to_string(),
     );
-    platform::show_error(
-        START_BOX_TITLE,
-        &format!("Blade Lite stopped:\n\n{error}\n\nLog: {log}\n\n{RECOVERY}"),
+    format!("{headline}\n\n{error}\n\nLog: {log}\n\n{RECOVERY}")
+}
+
+/// How long apart a login start tries the controller again once its first
+/// tries failed (ticket 153).
+const TRAY_RETRY_PAUSE: Duration = Duration::from_secs(30);
+
+/// A login start whose first tries failed: shows the error once, on a
+/// thread of its own so the tries don't wait for the user, then tries every
+/// [`TRAY_RETRY_PAUSE`] until the controller opens. What a crash or a kill
+/// left running (a manual fan, Performance) then gets the app back.
+fn keep_trying_to_open(error: &dyn std::error::Error) -> HidTransport {
+    report(&format!(
+        "the controller can't be opened at login, so the app tries again every {} s: {error}",
+        TRAY_RETRY_PAUSE.as_secs()
+    ));
+    let text = start_box_text(
+        "Blade Lite can't open the controller yet. It tries again every 30 s in the \
+         background; to stop it, end blade-lite.exe in Task Manager.",
+        &error.to_string(),
     );
+    std::thread::spawn(move || platform::show_error(START_BOX_TITLE, &text));
+    try_until_it_works(TRAY_RETRY_PAUSE, open_controller)
 }
 
 /// How many times a login start (`--tray`) tries to open the controller,
@@ -126,7 +154,7 @@ fn open_controller() -> Result<HidTransport, Box<dyn std::error::Error>> {
 fn open_controller_at_start(in_tray: bool) -> Result<HidTransport, Box<dyn std::error::Error>> {
     let tries = if in_tray { TRAY_OPEN_TRIES } else { 1 };
     let mut count = 0;
-    try_times(tries, TRAY_OPEN_PAUSE, || {
+    let opened = try_times(tries, TRAY_OPEN_PAUSE, || {
         count += 1;
         let opened = open_controller();
         if let Err(error) = &opened
@@ -137,7 +165,11 @@ fn open_controller_at_start(in_tray: bool) -> Result<HidTransport, Box<dyn std::
             ));
         }
         opened
-    })
+    });
+    match opened {
+        Err(error) if in_tray => Ok(keep_trying_to_open(error.as_ref())),
+        opened => opened,
+    }
 }
 
 /// The tray's icon in the accent colour, for the title bars and the taskbar.

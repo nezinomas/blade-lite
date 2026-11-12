@@ -26,5 +26,5 @@ pub use placement::{Rect, flyout_position, popup_position};
 pub use report::{
     Reporter, SaidLately, ShownErrors, open_log, open_quiet_log, report, report_panics,
 };
-pub use start::{config_or_defaults, try_times};
+pub use start::{config_or_defaults, try_times, try_until_it_works};
 pub use watchdog::{LOOK_GAP, Watchdog};

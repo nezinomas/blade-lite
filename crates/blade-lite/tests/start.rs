@@ -5,7 +5,7 @@ use std::io;
 use std::time::Duration;
 
 use blade_core::{Config, Preset};
-use blade_lite::{config_or_defaults, try_times};
+use blade_lite::{config_or_defaults, try_times, try_until_it_works};
 
 fn dir_with(text: &str) -> (tempfile::TempDir, std::path::PathBuf) {
     let dir = tempfile::tempdir().unwrap();
@@ -132,4 +132,20 @@ fn no_config_yet_gives_the_defaults_without_asking() {
     let config = config_or_defaults(&path, |_| panic!("asked")).unwrap();
 
     assert_eq!(config, Config::default());
+}
+
+#[test]
+fn trying_until_it_works_goes_on_past_any_count_of_failures() {
+    let mut calls = 0;
+
+    let got = try_until_it_works(Duration::ZERO, || {
+        calls += 1;
+        if calls < 20 {
+            Err("not yet")
+        } else {
+            Ok(calls)
+        }
+    });
+
+    assert_eq!(got, 20);
 }
