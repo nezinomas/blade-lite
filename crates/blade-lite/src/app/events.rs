@@ -8,7 +8,7 @@ use blade_core::{
 use platform::{DisplayApi, KeyInjector, PowerEvent, Registry};
 use razer_proto::RedKeys;
 
-use super::{App, AppError, NOT_UNDERSTOOD, Power};
+use super::{App, AppError, FullSpeed, NOT_UNDERSTOOD, Power};
 use crate::report;
 
 impl<C, D, R, K> App<C, D, R, K>
@@ -248,7 +248,10 @@ where
         let applied = self.send_preset(&config);
         // Only the preset run is sent, so `AfterPreset` can't come here.
         match &applied {
-            Ok(()) => self.preset_unsure = false,
+            Ok(()) => {
+                self.preset_unsure = false;
+                self.full_speed = FullSpeed::Sent;
+            }
             Err(ApplyError::Device(_)) => self.preset_send_failed(),
             Err(_) => {}
         }

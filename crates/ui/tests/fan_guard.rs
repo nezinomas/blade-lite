@@ -193,3 +193,41 @@ fn a_gpu_reading_past_any_real_heat_counts_as_a_failed_read() {
     assert!(changes.is_empty(), "{changes:?}");
     assert!(guard.on());
 }
+
+#[test]
+fn it_says_when_only_failed_gpu_reads_hold_it_on() {
+    let mut guard = FanGuard::default();
+    guard.gpu_failed(true);
+    let (now, _) = feed(&mut guard, Instant::now(), HOT_TIME, Some(96), None);
+    assert!(!guard.held_by_gpu_fault(), "the CPU is hot");
+    let (now, _) = feed(
+        &mut guard,
+        now,
+        FAN_GUARD_COOL_HOLD.saturating_sub(SECOND),
+        Some(60),
+        None,
+    );
+    assert!(
+        !guard.held_by_gpu_fault(),
+        "the CPU has not cooled long enough"
+    );
+
+    let (now, _) = feed(&mut guard, now, 2 * SECOND, Some(60), None);
+    assert!(guard.on());
+    assert!(guard.held_by_gpu_fault());
+
+    // Read again: held by its own cool hold now, not by the fault.
+    guard.gpu_failed(false);
+    guard.note(Some(60), Some(60), now);
+    assert!(guard.on());
+    assert!(!guard.held_by_gpu_fault());
+}
+
+#[test]
+fn it_is_not_held_by_a_gpu_fault_while_off() {
+    let mut guard = FanGuard::default();
+    guard.gpu_failed(true);
+    feed(&mut guard, Instant::now(), HOT_TIME, Some(60), None);
+    assert!(!guard.on());
+    assert!(!guard.held_by_gpu_fault());
+}
