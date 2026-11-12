@@ -138,6 +138,37 @@ fn quitting_from_performance_sends_balanced() {
 }
 
 #[test]
+fn a_run_error_after_the_start_sends_the_quit_preset() {
+    let f = fixture(Config {
+        preset: Preset::Performance,
+        ..Config::default()
+    });
+    let before = sent_count(&f);
+
+    let ended = f.shell.quit_on_error(Err::<(), _>("no tray"));
+
+    assert_eq!(ended, Err("no tray"));
+    assert_eq!(
+        sent_since(&f, before),
+        PerfMode::Balanced.commands(&BLADE_18).unwrap()
+    );
+}
+
+#[test]
+fn a_run_that_goes_on_sends_no_quit_preset() {
+    let f = fixture(Config {
+        preset: Preset::Performance,
+        ..Config::default()
+    });
+    let before = sent_count(&f);
+
+    let ended = f.shell.quit_on_error(Ok::<_, &str>(7));
+
+    assert_eq!(ended, Ok(7));
+    assert_eq!(sent_since(&f, before), []);
+}
+
+#[test]
 fn quitting_from_silent_sends_silent() {
     let f = fixture(Config {
         preset: Preset::Silent,
