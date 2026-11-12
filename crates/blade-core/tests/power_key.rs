@@ -369,3 +369,27 @@ fn a_new_fn_hold_waits_a_full_gap() {
     assert!(!presses.brightness_due(again));
     assert!(presses.brightness_due(again + BRIGHTNESS_READ_GAP));
 }
+
+#[test]
+fn after_a_quiet_spell_the_key_state_stays_and_the_fn_state_goes() {
+    let now = Instant::now();
+    let mut presses = fn_held_enter_up(now).after_quiet_spell();
+
+    // Fn's release may have been lost in the gap.
+    assert!(!presses.watching_enter(now));
+    assert!(!presses.brightness_due(now + BRIGHTNESS_READ_GAP));
+    // The key was last seen up, so the first press counts (ticket 158).
+    assert!(presses.on_report(&report(&[0x04, 0xD3]), now));
+}
+
+#[test]
+fn after_a_quiet_spell_the_pause_still_holds() {
+    let now = Instant::now();
+    let mut presses = presses();
+    assert!(presses.on_report(&report(&KEY_DOWN), now));
+    assert!(!presses.on_report(&report(&ALL_UP), now));
+
+    let mut presses = presses.after_quiet_spell();
+
+    assert!(!presses.on_report(&report(&KEY_DOWN), now + POWER_KEY_PAUSE / 2));
+}

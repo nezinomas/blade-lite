@@ -442,20 +442,30 @@ fn the_brightness_is_read_while_fn_is_held_then_once_more_on_brightness_keys() {
 }
 
 #[test]
-fn the_key_state_lasts_over_a_quiet_spell_reopen() {
-    let mut reads = vec![Some(report(&[0x04]))];
-    reads.extend((0..KEY_IDLE_READS).map(|_| None));
-    let mut presses = presses();
-    let end = step_on_presses(
-        &mut source(reads),
+fn only_a_full_quiet_spell_keeps_the_key_state() {
+    let spell = KEY_READ_WAIT * KEY_IDLE_READS;
+    assert!(ReaderEnd::Reopen.keeps_key_state(spell));
+    assert!(ReaderEnd::Reopen.keeps_key_state(spell / 2));
+    // Quiet reads that did not wait: a broken handle, as a failure.
+    let short = (spell / 2).saturating_sub(Duration::from_millis(1));
+    assert!(!ReaderEnd::Reopen.keeps_key_state(short));
+    assert!(!ReaderEnd::Failed("gone".into()).keeps_key_state(spell));
+    assert!(!ReaderEnd::Quit.keeps_key_state(spell));
+}
+
+/// Presses after a run that saw the key up and ended as `end` after `ran`,
+/// then given `04 D3` (numpad Enter, Num Lock off) as the first report.
+fn power_key_calls_after(end: &ReaderEnd, ran: Duration) -> usize {
+    let mut before = presses();
+    let mut quiet_run = source(vec![Some(report(&[0x04]))]);
+    step_on_presses(
+        &mut quiet_run,
         &mut FakeEnter::default(),
-        &mut presses,
+        &mut before,
         |_| true,
     );
-    assert_eq!(end, ReaderEnd::Reopen);
+    let mut presses = end.next_presses(ran, &before);
     let mut calls = 0;
-
-    // Num Lock off, numpad Enter alone: the first report after the reopen.
     step_on_presses(
         &mut source(vec![Some(report(&[0x04, 0xD3]))]),
         &mut FakeEnter::default(),
@@ -465,13 +475,18 @@ fn the_key_state_lasts_over_a_quiet_spell_reopen() {
             true
         },
     );
-
-    assert_eq!(calls, 1);
+    calls
 }
 
 #[test]
-fn only_a_quiet_spell_keeps_the_key_state() {
-    assert!(ReaderEnd::Reopen.keeps_key_state());
-    assert!(!ReaderEnd::Failed("gone".into()).keeps_key_state());
-    assert!(!ReaderEnd::Quit.keeps_key_state());
+fn the_first_press_after_a_quiet_spell_counts_but_not_after_a_failure() {
+    let spell = KEY_READ_WAIT * KEY_IDLE_READS;
+    assert_eq!(power_key_calls_after(&ReaderEnd::Reopen, spell), 1);
+    // A broken handle, or a failure, may hide a sleep: the key's earlier
+    // state is unknown, so a key already down is not a press.
+    assert_eq!(power_key_calls_after(&ReaderEnd::Reopen, Duration::ZERO), 0);
+    assert_eq!(
+        power_key_calls_after(&ReaderEnd::Failed("gone".into()), spell),
+        0
+    );
 }

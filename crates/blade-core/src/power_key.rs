@@ -91,6 +91,27 @@ impl PowerKeyPresses {
         }
     }
 
+    /// A new state for the same key, as at a first open.
+    #[must_use]
+    pub fn fresh(&self) -> Self {
+        Self::new(self.key)
+    }
+
+    /// The state to go on with after the reports were opened again over a
+    /// quiet spell. The key as last seen stays, so a first press after it
+    /// counts (ticket 158), and so do the step and mic times, so the pause
+    /// still holds. Fn, Enter and the mic keys start unknown: a release
+    /// may have been lost in the gap.
+    #[must_use]
+    pub fn after_quiet_spell(&self) -> Self {
+        Self {
+            held: self.held,
+            last_step: self.last_step,
+            last_mic: self.last_mic,
+            ..self.fresh()
+        }
+    }
+
     /// True if this report is a new press that should step the preset.
     pub fn on_report(&mut self, report: &[u8], now: Instant) -> bool {
         self.fn_up = false;

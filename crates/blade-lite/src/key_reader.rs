@@ -104,23 +104,37 @@ impl ReaderEnd {
     /// in a long run gets one open at once; the next, short run pauses.
     #[must_use]
     pub fn pause_before_open(&self, ran: Duration) -> Duration {
-        let full_spell = KEY_READ_WAIT * KEY_IDLE_READS;
-        if *self == Self::Reopen && ran >= full_spell / 2 {
+        if self.keeps_key_state(ran) {
             Duration::ZERO
         } else {
             KEY_REOPEN_PAUSE
         }
     }
 
-    /// Whether the next open keeps the key state of this run. Only a quiet
-    /// spell does: no report came, so the keys are as last seen, and a
-    /// first press after it counts. A failure may hide a gap, such as a
-    /// sleep, so the state starts unknown again. Any Fn state kept is older
-    /// than the spell, so past [`blade_core::FN_HOLD_LIMIT`] and
-    /// [`blade_core::BRIGHTNESS_HOLD_LIMIT`].
+    /// Whether this was a real quiet spell, after a reader that ran for
+    /// `ran`, so the next open keeps the key as last seen and a first
+    /// press after it counts (ticket 158; see
+    /// [`blade_core::PowerKeyPresses::after_quiet_spell`]). Not after a
+    /// failure, or a run too short for its quiet reads to have waited (a
+    /// broken handle): either may hide a gap, such as a sleep, so the
+    /// state starts unknown again. A full spell may hide a sleep too; then
+    /// a key pressed down in the gap counts once: a real press, still held
+    /// to the pause between steps.
     #[must_use]
-    pub fn keeps_key_state(&self) -> bool {
-        *self == Self::Reopen
+    pub fn keeps_key_state(&self, ran: Duration) -> bool {
+        let full_spell = KEY_READ_WAIT * KEY_IDLE_READS;
+        *self == Self::Reopen && ran >= full_spell / 2
+    }
+
+    /// The key state for the next open, after a reader that ran for `ran`
+    /// with `presses`: kept after a real quiet spell, else new.
+    #[must_use]
+    pub fn next_presses(&self, ran: Duration, presses: &PowerKeyPresses) -> PowerKeyPresses {
+        if self.keeps_key_state(ran) {
+            presses.after_quiet_spell()
+        } else {
+            presses.fresh()
+        }
     }
 }
 
