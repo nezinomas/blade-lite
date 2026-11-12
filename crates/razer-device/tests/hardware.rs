@@ -803,3 +803,137 @@ fn what_frees_a_manual_fan_stalled_after_a_custom_from_auto() {
         watched.unwrap();
     }
 }
+
+/// The CPU temperature at or above which the load test stops at once.
+const LOAD_STOP_CELSIUS: u8 = 95;
+
+/// Fan targets, real speeds and the CPU temperature, one read.
+type LoadRead = (Vec<Vec<u8>>, Vec<Vec<u8>>, u8);
+
+/// Reads the fan targets, the real speeds and the CPU temperature each 5 s
+/// for `seconds`. Stops with an error at [`LOAD_STOP_CELSIUS`] or a CPU
+/// temperature that can't be read.
+fn watch_under_load<C: Clock>(
+    device: &mut Device<HidTransport, C>,
+    seconds: u64,
+    seen: &mut Vec<LoadRead>,
+) -> Result<(), String> {
+    use razer_proto::Celsius;
+
+    for _ in 0..seconds / 5 {
+        std::thread::sleep(Duration::from_secs(5));
+        let target = try_read_each(device, GET_FAN, &FANS)?;
+        let real = try_read_each(device, GET_FAN_RPM, &FANS)?;
+        let query = Celsius::query();
+        let reply = device
+            .send(query.id, &query.args)
+            .map_err(|error| error.to_string())?;
+        let cpu = Celsius::cpu_from_reply(reply.args())
+            .ok_or("the CPU temperature can't be read: stopped")?
+            .0;
+        seen.push((target, real, cpu));
+        if cpu >= LOAD_STOP_CELSIUS {
+            return Err(format!("CPU at {cpu} °C: stopped"));
+        }
+    }
+    Ok(())
+}
+
+#[test]
+#[ignore = "needs the Blade 18; loads every CPU core with the fans at full speed for about 2.5 min"]
+fn the_sleep_and_wake_sends_under_load() {
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicBool, Ordering};
+
+    use razer_proto::{BLADE_18, CpuBoost, Custom, FanMode, GpuBoost, PerfMode, Rpm};
+
+    let mut device = Device::new(open(), SystemClock);
+    let before = custom_state(&mut device);
+    refuse_targets_outside_the_range(&before);
+    // A stand-in for laptop check 34 (a lid close mid-game): the fan guard's
+    // full speed, the quit preset the app sends at a sleep notice, and the
+    // full speed again at the wake with its fan targets once more (tickets
+    // 169, 172, 173). The fans are never manual below full speed under load.
+    let custom = |fan| Custom {
+        cpu: CpuBoost::new(3, &BLADE_18).unwrap(),
+        gpu: GpuBoost::new(3, &BLADE_18).unwrap(),
+        fan,
+    };
+    let full = custom(FanMode::Manual(
+        Rpm::new(BLADE_18.custom.fan_rpm.max, &BLADE_18).unwrap(),
+    ));
+    let mut sleep = custom(FanMode::Auto).commands(&BLADE_18);
+    sleep.extend(PerfMode::Balanced.commands(&BLADE_18).unwrap());
+
+    // Game-like heat: every core busy until stopped.
+    let stop = Arc::new(AtomicBool::new(false));
+    let cores = std::thread::available_parallelism().map_or(4, std::num::NonZeroUsize::get);
+    let load: Vec<_> = (0..cores)
+        .map(|_| {
+            let stop = Arc::clone(&stop);
+            std::thread::spawn(move || {
+                let mut x = 0_u64;
+                while !stop.load(Ordering::Relaxed) {
+                    x = std::hint::black_box(
+                        x.wrapping_mul(6_364_136_223_846_793_005).wrapping_add(1),
+                    );
+                }
+            })
+        })
+        .collect();
+
+    // From here on every step keeps its result; the load stops and the
+    // state is put back before any assert.
+    let mut phases: Vec<(&str, Vec<LoadRead>)> = Vec::new();
+    let mut run = |name,
+                   commands: &[razer_proto::Command],
+                   seconds,
+                   device: &mut Device<HidTransport, SystemClock>| {
+        let mut seen = Vec::new();
+        let result = device
+            .run(commands)
+            .map_err(|error| error.to_string())
+            .and_then(|()| watch_under_load(device, seconds, &mut seen));
+        phases.push((name, seen));
+        result
+    };
+    let result = run("full speed", &full.commands(&BLADE_18), 60, &mut device)
+        .and_then(|()| run("sleep's quit preset", &sleep, 30, &mut device))
+        .and_then(|()| {
+            run(
+                "wake's full speed",
+                &full.commands(&BLADE_18),
+                0,
+                &mut device,
+            )?;
+            std::thread::sleep(Duration::from_secs(2));
+            run(
+                "fan targets again",
+                &full.fan_target_commands(&BLADE_18),
+                30,
+                &mut device,
+            )
+        });
+
+    stop.store(true, Ordering::Relaxed);
+    for thread in load {
+        let _ = thread.join();
+    }
+    let put_back = put_back_custom(&mut device, &before);
+    let after = custom_state(&mut device);
+
+    eprintln!("before {before:02X?}");
+    for (name, seen) in &phases {
+        for (step, (target, real, cpu)) in seen.iter().enumerate() {
+            eprintln!(
+                "{name} {:>2} s: target {target:02X?}, real {real:02X?}, CPU {cpu} °C",
+                (step + 1) * 5
+            );
+        }
+    }
+    eprintln!("result {result:?}\nput back {put_back:?}\nafter {after:02X?}");
+    // The lasting state first, so its error is never hidden.
+    assert!(put_back.iter().all(Result::is_ok), "check the fans by hand");
+    assert_eq!(after, before);
+    result.unwrap();
+}
