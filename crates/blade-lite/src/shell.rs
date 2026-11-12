@@ -22,7 +22,7 @@ use blade_core::{
 use blade_lite::{App, AppError, Rect, SaidLately, ShownErrors, report, took_effect};
 use platform::{
     DisplayApi, FileDialog, KeyInjector, PowerEvent, Programs, Registry, WindowsDisplays,
-    WindowsKeys, WindowsPrograms, WindowsRegistry, WindowsSensors,
+    Sensors, WindowsKeys, WindowsPrograms, WindowsRegistry, WindowsSensors,
 };
 use razer_device::{Device, DeviceError, HidTransport, Reopening, SystemClock};
 use razer_proto::BLADE_18;
@@ -41,6 +41,8 @@ pub trait Parts: 'static {
     type Keys: KeyInjector;
     /// What runs, to look for Razer's own software. Read only.
     type Programs: Programs + Default;
+    /// The CPU, battery and GPU sensors. Read only.
+    type Sensors: Sensors + Default;
     /// Whether the laptop runs on its battery now; `None` if Windows can't
     /// tell. Read only.
     fn on_battery() -> Option<bool>;
@@ -143,6 +145,7 @@ impl Parts for Laptop {
     type Registry = WindowsRegistry;
     type Keys = WindowsKeys;
     type Programs = WindowsPrograms;
+    type Sensors = WindowsSensors;
 
     fn on_battery() -> Option<bool> {
         crate::background::on_battery_now()
@@ -257,7 +260,7 @@ pub struct Shell<P: Parts = Laptop> {
     flyout: FlyoutWindow,
     popup: ModePopup,
     app: RefCell<AppOn<P>>,
-    sampler: RefCell<(ReadingsSampler, WindowsSensors)>,
+    sampler: RefCell<(ReadingsSampler, P::Sensors)>,
     readings: Cell<Readings>,
     schedule: RefCell<PollSchedule>,
     flyout_open: Cell<bool>,
@@ -346,7 +349,7 @@ impl<P: Parts> Shell<P> {
             flyout,
             popup,
             app: RefCell::new(app),
-            sampler: RefCell::new((ReadingsSampler::default(), WindowsSensors::default())),
+            sampler: RefCell::new((ReadingsSampler::default(), P::Sensors::default())),
             readings: Cell::new(Readings::default()),
             schedule: RefCell::new(PollSchedule::default()),
             flyout_open: Cell::new(false),

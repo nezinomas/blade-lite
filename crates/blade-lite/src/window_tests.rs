@@ -4,6 +4,7 @@
 //! Windows call is a read of the work area, when a click shows the popup.
 
 mod clicks;
+mod fan_guard;
 mod fan_targets;
 mod razer;
 mod screens;
@@ -22,7 +23,7 @@ use blade_lite::open_quiet_log;
 use i_slint_backend_testing::{
     AccessibleRole, ElementHandle, ElementRoot, TestingBackend, TestingBackendOptions,
 };
-use platform::{FileDialog, Programs};
+use platform::{BatteryHealth, CpuTimes, FileDialog, GpuReading, PowerReading, Programs, Sensors};
 use razer_proto::{BLADE_18, Rgb};
 use slint::platform::PointerEventButton;
 use slint::{ComponentHandle, LogicalSize};
@@ -41,6 +42,7 @@ impl Parts for Fakes {
     type Registry = FakeRegistry;
     type Keys = FakeKeys;
     type Programs = FakePrograms;
+    type Sensors = FakeSensors;
 
     fn on_battery() -> Option<bool> {
         (!FAKE_SOURCE_UNKNOWN.get()).then(|| FAKE_ON_BATTERY.get())
@@ -104,6 +106,8 @@ thread_local! {
     /// Whether Windows stopped waiting for the last sleep notice before the
     /// app read it: it waits unless a test sets it.
     pub static FAKE_SLEEP_NOTICE_LATE: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    /// What the GPU reads: asleep unless a test sets it.
+    pub static FAKE_GPU: std::cell::Cell<FakeGpu> = const { std::cell::Cell::new(FakeGpu::Asleep) };
     /// The file dialogs shown.
     pub static FAKE_DIALOGS: RefCell<Vec<FileDialog>> = const { RefCell::new(Vec::new()) };
 }
@@ -114,6 +118,49 @@ pub enum FakePick {
     Cancel,
     /// The dialog itself fails.
     Fail,
+}
+
+/// What the fake GPU reads.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FakeGpu {
+    Asleep,
+    /// Awake at this heat, in °C.
+    Celsius(u32),
+    /// Awake, but its read (NVML) fails.
+    Fails,
+}
+
+/// The sensors: an idle CPU, nothing known of the battery, and the GPU
+/// as [`FAKE_GPU`] says.
+#[derive(Default)]
+pub struct FakeSensors;
+
+impl Sensors for FakeSensors {
+    fn cpu_times(&mut self) -> io::Result<CpuTimes> {
+        Ok(CpuTimes { idle: 0, total: 0 })
+    }
+
+    fn power(&mut self) -> io::Result<PowerReading> {
+        Ok(PowerReading::default())
+    }
+
+    fn battery_health(&mut self) -> io::Result<BatteryHealth> {
+        Ok(BatteryHealth::default())
+    }
+
+    fn gpu_awake(&mut self) -> io::Result<bool> {
+        Ok(FAKE_GPU.get() != FakeGpu::Asleep)
+    }
+
+    fn gpu(&mut self) -> io::Result<GpuReading> {
+        match FAKE_GPU.get() {
+            FakeGpu::Celsius(celsius) => Ok(GpuReading {
+                celsius,
+                load_percent: 0,
+            }),
+            FakeGpu::Asleep | FakeGpu::Fails => Err(io::Error::other("driver error")),
+        }
+    }
 }
 
 /// What runs: nothing at first. `None` fails the read.
@@ -182,6 +229,7 @@ pub fn fixture_with_programs(config: Config, programs: &[&str]) -> Fixture {
     FAKE_HOLD.set(false);
     FAKE_HELD.take();
     FAKE_SLEEP_NOTICE_LATE.set(false);
+    FAKE_GPU.set(FakeGpu::Asleep);
     let (mut app, dir, _) = app_on(&BLADE_18, config);
     let controller = &mut app.machine_mut().controller.inner;
     controller.logo_reply = Some(vec![0, 4, 1]);
