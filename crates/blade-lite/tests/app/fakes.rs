@@ -42,6 +42,10 @@ pub enum FakeCharger {
 /// changes `logo_reply`. While `fails_after` is set, a run takes only
 /// that many commands, then fails.
 #[derive(Default)]
+#[allow(
+    clippy::struct_excessive_bools,
+    reason = "a test fake: each flag is one failure to fake"
+)]
 pub struct FakeController {
     pub sent: Vec<Command>,
     pub fails: bool,
@@ -77,6 +81,11 @@ pub struct FakeController {
     pub firmware: Option<Vec<u8>>,
     /// Every query asked, in order.
     pub asked: Vec<Command>,
+    /// The last mode write of each zone, which the mode query reads back.
+    pub modes: std::collections::HashMap<u8, Vec<u8>>,
+    /// Keeps the mode writes from changing `modes`, as a controller that
+    /// did not take them.
+    pub modes_stuck: bool,
 }
 
 impl Controller for FakeController {
@@ -105,6 +114,9 @@ impl Controller for FakeController {
             }
             if command.id == SET_LOGO {
                 self.logo_reply = Some(command.args.clone());
+            }
+            if command.id == 0x0D02 && !self.modes_stuck {
+                self.modes.insert(command.args[1], command.args.clone());
             }
         }
         self.sent.extend_from_slice(taken);
@@ -141,6 +153,11 @@ impl Query for FakeController {
             }
         } else if *command == FirmwareVersion::query() {
             self.firmware.clone().ok_or(DeviceError::Busy)
+        } else if command.id == 0x0D82 {
+            self.modes
+                .get(&command.args[1])
+                .cloned()
+                .ok_or(DeviceError::Busy)
         } else if *command == Celsius::query() {
             self.cpu_celsius
                 .map(|celsius| vec![2, celsius, 0, 0])

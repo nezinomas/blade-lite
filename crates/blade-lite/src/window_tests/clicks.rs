@@ -47,6 +47,17 @@ fn a_preset_click_sends_saves_and_shows_it() {
 }
 
 #[test]
+fn a_preset_the_controller_did_not_take_shows_in_the_window() {
+    let f = fixture(Config::default());
+    f.shell.app().machine_mut().controller.inner.modes_stuck = true;
+
+    click(f.shell.window(), Button, "Silent");
+
+    let error = f.shell.window().get_error();
+    assert!(error.contains("does not run the preset sent"), "{error}");
+}
+
+#[test]
 fn a_click_on_the_chosen_preset_sends_nothing() {
     let f = fixture(Config::default());
     let before = sent_count(&f);

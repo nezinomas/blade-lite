@@ -12,7 +12,7 @@ use std::path::PathBuf;
 
 use blade_core::{
     ApplyError, BatteryRate, Config, Controller, Lighting, Preset, Query, apply_performance,
-    charge_limit_on, full_power_charger, logo_on, touchpad_on,
+    charge_limit_on, full_power_charger, logo_on, preset_differs, touchpad_on,
 };
 use platform::{DisplayApi, KeyInjector, Registry};
 use razer_proto::{FirmwareVersion, ModelProfile, NativeMode, RedKey, RedKeys, Rgb, Rpm};
@@ -40,6 +40,19 @@ const DEFAULT_LIGHTING: Lighting = Lighting {
     colour: Rgb::new(0xFF, 0xFF, 0xFF),
     vapor_light: true,
 };
+
+/// What the read-back after a preset send found (ticket 152).
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum PresetCheck {
+    /// No send yet, or the last failed partway.
+    Unknown,
+    /// Every zone reads back as sent.
+    Runs,
+    /// The zones that read back otherwise, as text.
+    Differs(String),
+    /// The read failed, with its error.
+    Unread(String),
+}
 
 /// The parts of the laptop the app talks to.
 pub struct Machine<C, D, R, K> {
@@ -154,6 +167,9 @@ pub struct App<C, D, R, K> {
     /// reading the controller. `None` if none yet, or the last read or set
     /// failed.
     native_mode: Option<NativeMode>,
+    /// What the read-back after the last preset send found (ticket 152).
+    /// A difference is shown and logged; never sent again for it.
+    preset_check: PresetCheck,
 }
 
 impl<C, D, R, K> App<C, D, R, K>
@@ -197,6 +213,7 @@ where
             read_errors: Vec::new(),
             cpu_celsius: None,
             native_mode: None,
+            preset_check: PresetCheck::Unknown,
         }
     }
 
@@ -260,6 +277,56 @@ where
     #[must_use]
     pub fn preset_unsure(&self) -> bool {
         self.preset_unsure
+    }
+
+    /// Sends `config`'s preset, then reads it back (ticket 152).
+    fn send_preset(&mut self, config: &Config) -> Result<(), ApplyError> {
+        let applied = apply_performance(config, self.model, &mut self.machine.controller);
+        self.check_preset_if_sent(config, &applied);
+        applied
+    }
+
+    /// Reads back the preset of `config` if `applied` sent it whole, and
+    /// keeps, logs and shows a zone that differs. After a send that failed
+    /// partway, or a failed read, nothing is known: an old difference is
+    /// dropped. Each change is logged once.
+    fn check_preset_if_sent(&mut self, config: &Config, applied: &Result<(), ApplyError>) {
+        let check = match applied {
+            Ok(()) | Err(ApplyError::AfterPreset(_)) => {
+                match preset_differs(config, self.model, &mut self.machine.controller) {
+                    Ok(None) => PresetCheck::Runs,
+                    Ok(Some(differs)) => PresetCheck::Differs(differs),
+                    Err(error) => PresetCheck::Unread(error.to_string()),
+                }
+            }
+            Err(ApplyError::Device(_)) => PresetCheck::Unknown,
+            // Nothing was sent.
+            Err(_) => return,
+        };
+        if check != self.preset_check {
+            match (&check, &self.preset_check) {
+                (PresetCheck::Differs(differs), _) => report(&format!(
+                    "the controller does not run the preset sent ({differs})"
+                )),
+                (PresetCheck::Unread(error), _) => {
+                    report(&format!("can't read the preset back: {error}"));
+                }
+                (PresetCheck::Runs, PresetCheck::Differs(_)) => {
+                    report("the controller runs the preset sent again");
+                }
+                _ => {}
+            }
+        }
+        self.preset_check = check;
+    }
+
+    /// The zones that read back other than the last preset sent, if any.
+    #[must_use]
+    pub fn preset_mismatch(&self) -> Option<&str> {
+        match &self.preset_check {
+            PresetCheck::Differs(differs) => Some(differs),
+            _ => None,
+        }
     }
 
     /// Notes a start, preset change or switch: one the controller may have
@@ -538,7 +605,7 @@ where
         if !manual || self.config.custom.fan_rpm == Some(top) {
             return Ok(false);
         }
-        let applied = apply_performance(&running, self.model, &mut self.machine.controller);
+        let applied = self.send_preset(&running);
         self.note_preset_send(&applied);
         applied?;
         Ok(true)

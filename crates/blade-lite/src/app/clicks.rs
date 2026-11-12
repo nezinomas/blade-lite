@@ -1,9 +1,9 @@
 //! What each click does.
 
 use blade_core::{
-    ApplyError, Config, Controller, Lighting, Preset, Query, apply_lighting, apply_performance,
-    keyboard_brightness, next_preset, set_charge_limit, set_logo, set_native_mode,
-    set_refresh_rate, set_touchpad, set_vapor_light,
+    ApplyError, Config, Controller, Lighting, Preset, Query, apply_lighting, keyboard_brightness,
+    next_preset, set_charge_limit, set_logo, set_native_mode, set_refresh_rate, set_touchpad,
+    set_vapor_light,
 };
 use platform::{DisplayApi, KeyInjector, PowerEvent, Registry};
 use ui::{DisplayCommand, KeyboardCommand, PerformanceCommand};
@@ -53,7 +53,7 @@ where
             PerformanceCommand::SetChargeLimit(on) => return self.set_charge_limit(on),
         }
         let running = self.running(config);
-        let applied = apply_performance(&running, self.model, &mut self.machine.controller);
+        let applied = self.send_preset(&running);
         // A failed send may have changed part of it.
         self.note_preset_send(&applied);
         // Refused before any send (a saved value out of range): the read
@@ -77,7 +77,7 @@ where
             return;
         }
         let running = self.running(self.config);
-        let applied = apply_performance(&running, self.model, &mut self.machine.controller);
+        let applied = self.send_preset(&running);
         self.note_preset_send(&applied);
         if let Err(error) = applied {
             report(&format!("the preset after a charger read failed: {error}"));

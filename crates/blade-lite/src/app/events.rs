@@ -34,6 +34,7 @@ where
         let applied = apply(&config, self.model, &mut self.machine.controller, red);
         self.key_red = applied.is_ok().then_some(red);
         self.note_preset_send(&applied);
+        self.check_preset_if_sent(&config, &applied);
         self.read_logo();
         Ok(applied?)
     }
@@ -233,7 +234,7 @@ where
         }
         self.resends_left -= 1;
         let config = self.running(self.config);
-        let applied = apply_performance(&config, self.model, &mut self.machine.controller);
+        let applied = self.send_preset(&config);
         // Only the preset run is sent, so `AfterPreset` can't come here.
         match &applied {
             Ok(()) => self.preset_unsure = false,
@@ -256,7 +257,7 @@ where
     fn send_if_changed(&mut self, before: Preset) -> Result<(), AppError> {
         let config = self.running(self.config);
         if config.preset != before || self.preset_unsure {
-            let applied = apply_performance(&config, self.model, &mut self.machine.controller);
+            let applied = self.send_preset(&config);
             self.note_preset_send(&applied);
             applied?;
         }
@@ -302,6 +303,8 @@ where
                 auto_fans.custom.cpu_boost = 0;
                 auto_fans.custom.gpu_boost = 0;
             }
+            // No read-back before the last send: a read that drops the
+            // handle would make the quit's retry send this step again.
             match apply_performance(&auto_fans, self.model, &mut self.machine.controller) {
                 // A saved boost out of range: nothing was sent, so the
                 // preset below still goes.
@@ -315,11 +318,7 @@ where
             Preset::Balanced
         };
         let last = Config { preset, ..running };
-        Ok(apply_performance(
-            &last,
-            self.model,
-            &mut self.machine.controller,
-        )?)
+        Ok(self.send_preset(&last)?)
     }
 
     /// At the app's start on AC, follows AC, so the rate a crash on
