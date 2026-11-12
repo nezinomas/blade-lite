@@ -275,6 +275,9 @@ pub struct Shell<P: Parts = Laptop> {
     razer_warning: RefCell<Option<String>>,
     /// Whether a Razer updater runs: the controller is then held.
     razer_updater: Cell<bool>,
+    /// Whether a Razer updater ended since the last tick, which then sends
+    /// the settings again.
+    updater_ended: Cell<bool>,
     /// When Razer software was last looked for by the poll.
     razer_looked: Cell<Option<Instant>>,
     /// Whether the window was opened for Razer software. Only once per run.
@@ -322,6 +325,7 @@ impl<P: Parts> Shell<P> {
             razer_warning: RefCell::new(None),
             razer_updater: Cell::new(false),
             razer_looked: Cell::new(None),
+            updater_ended: Cell::new(false),
             razer_opened: Cell::new(false),
             dialog_open: Cell::new(false),
             stopped_parts: RefCell::new(Vec::new()),
@@ -490,6 +494,8 @@ impl<P: Parts> Shell<P> {
     /// been pulled in the sleep. The resume fills the windows again, which
     /// puts back a switch the click flipped.
     pub fn user_act(self: &Rc<Self>, change: impl FnOnce(&mut AppOn<P>) -> Result<(), AppError>) {
+        // A Razer updater may have started since the last look.
+        self.look_for_razer();
         self.follow_own_power();
         if self.resuming.get() == 0 {
             self.act(change);

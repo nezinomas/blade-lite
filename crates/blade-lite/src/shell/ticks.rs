@@ -31,6 +31,10 @@ impl<P: Parts> Shell<P> {
     pub(crate) fn tick_at(self: &Rc<Self>, now: Instant, wall: SystemTime) {
         let failures = self.app.borrow().preset_failures();
         self.look_for_razer_now_and_then(now);
+        if self.updater_ended.take() {
+            // The update may have reset the controller.
+            self.act(AppOn::<P>::start);
+        }
         self.follow_own_power();
         if self.resuming.get() == 0 && self.app.borrow().battery_rate_pending() {
             self.retry_battery_rate();
@@ -46,7 +50,7 @@ impl<P: Parts> Shell<P> {
         if self.resuming.get() == 0 && self.schedule.borrow_mut().poll_due(now) {
             self.tick_readings(now);
             self.after_reads();
-        } else if self.guards_allowed() && self.schedule.borrow_mut().heat_due(now, wall) {
+        } else if self.heat_reads_allowed() && self.schedule.borrow_mut().heat_due(now, wall) {
             self.tick_heat(now);
             self.after_reads();
         }
@@ -394,11 +398,6 @@ impl<P: Parts> Shell<P> {
         let mut app = self.app.borrow_mut();
         let header = self.header(&mut app, readings);
         errors.extend_from_slice(app.read_errors());
-        if !self.heat_reads_allowed() && self.guards_allowed() {
-            // Razer software runs: only the temperature, for the fan guard.
-            app.read_cpu_temperature();
-            errors.extend_from_slice(app.read_errors());
-        }
         self.say_read_errors(&errors);
         bind::header(&self.window, &header);
         if let Ok(view) = app.keyboard_view() {

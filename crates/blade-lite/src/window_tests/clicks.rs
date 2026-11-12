@@ -1974,7 +1974,7 @@ fn with_the_flyout_open_a_hot_cpu_shows_the_heat_popup() {
 }
 
 #[test]
-fn the_background_temperature_read_goes_on_while_razer_software_runs() {
+fn no_background_temperature_read_while_razer_software_runs() {
     let f = fixture(Config::default());
     f.shell.programs().set(&["Razer Synapse Service"]);
     f.shell.look_for_razer();
@@ -1982,23 +1982,11 @@ fn the_background_temperature_read_goes_on_while_razer_software_runs() {
 
     f.shell.tick();
 
-    assert_eq!(temperature_reads_since(&f, asked), 1, "for the fan guard");
+    assert_eq!(temperature_reads_since(&f, asked), 0);
 }
 
 #[test]
-fn no_background_temperature_read_while_a_razer_updater_runs() {
-    let f = fixture(Config::default());
-    f.shell.programs().set(&["RazerFirmwareUpdater.exe"]);
-    f.shell.look_for_razer();
-    let asked = asked_count(&f);
-
-    f.shell.tick();
-
-    assert_eq!(asked_count(&f), asked);
-}
-
-#[test]
-fn with_the_window_open_a_tick_reads_only_the_temperature_while_razer_software_runs() {
+fn with_the_window_open_a_tick_reads_no_controller_while_razer_software_runs() {
     let f = fixture(Config::default());
     f.shell.programs().set(&["Razer Synapse Service"]);
     f.shell.look_for_razer();
@@ -2009,13 +1997,12 @@ fn with_the_window_open_a_tick_reads_only_the_temperature_while_razer_software_r
     f.shell
         .tick_at(Instant::now() + Duration::from_secs(60), SystemTime::now());
 
-    assert_eq!(asked_count(&f) - asked, 1);
-    assert_eq!(temperature_reads_since(&f, asked), 1, "for the fan guard");
-    assert_eq!(f.shell.app().cpu_celsius(), Some(50));
+    assert_eq!(asked_count(&f), asked);
+    assert_eq!(f.shell.app().cpu_celsius(), None, "not read, so unknown");
 }
 
 #[test]
-fn with_the_flyout_open_a_tick_reads_only_the_temperature_while_razer_software_runs() {
+fn with_the_flyout_open_a_tick_reads_no_controller_while_razer_software_runs() {
     let f = fixture(Config::default());
     f.shell.programs().set(&["Razer Synapse Service"]);
     f.shell.look_for_razer();
@@ -2025,8 +2012,7 @@ fn with_the_flyout_open_a_tick_reads_only_the_temperature_while_razer_software_r
     f.shell
         .tick_at(Instant::now() + Duration::from_secs(60), SystemTime::now());
 
-    assert_eq!(asked_count(&f) - asked, 1);
-    assert_eq!(temperature_reads_since(&f, asked), 1, "for the fan guard");
+    assert_eq!(asked_count(&f), asked);
 }
 
 #[test]

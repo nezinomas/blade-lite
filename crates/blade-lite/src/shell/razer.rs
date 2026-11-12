@@ -1,6 +1,8 @@
 //! Looks for Razer's own software, such as Synapse or a Razer driver from
-//! Windows Update, which would talk to the controller beside the app. It
-//! only warns: nothing sent changes.
+//! Windows Update, which would talk to the controller beside the app. While
+//! it runs the background reads and the fan guard stop (the user picked
+//! that over a guard that could fight Synapse, 2026-11-12); while a Razer
+//! updater runs nothing at all is sent (ticket 145).
 
 use std::rc::Rc;
 use std::time::{Duration, Instant};
@@ -33,8 +35,10 @@ impl<P: Parts> Shell<P> {
             report(if updater {
                 "a Razer updater runs, so the app sends nothing"
             } else {
-                "no Razer updater runs now"
+                "no Razer updater runs now, so the settings are sent again"
             });
+            // The next tick sends them, as the update may have reset them.
+            self.updater_ended.set(!updater);
         }
         self.app.borrow_mut().hold_controller(updater);
         let warning = razer_warning(&found);
@@ -68,13 +72,6 @@ impl<P: Parts> Shell<P> {
         } else if *self.razer_warning.borrow() != before {
             self.refresh(None);
         }
-    }
-
-    /// Whether the guards may read and send: not while a resume waits, nor
-    /// while a Razer updater runs. Razer's other software does not stop
-    /// them: a manual fan needs the fan guard.
-    pub(super) fn guards_allowed(&self) -> bool {
-        self.resuming.get() == 0 && !self.razer_updater.get()
     }
 
     #[cfg(test)]

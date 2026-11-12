@@ -29,8 +29,8 @@ use std::rc::Rc;
 use std::time::Duration;
 
 use blade_core::{
-    APP_NAME, Config, Log, POLL_INTERVAL, Start, razer_software, razer_warning, start_instance,
-    starts_in_tray,
+    APP_NAME, Config, Log, POLL_INTERVAL, Start, razer_software, razer_updater, razer_warning,
+    start_instance, starts_in_tray,
 };
 use blade_lite::{
     App, Machine, accent_colour, config_or_defaults, icon, open_log, report, report_panics,
@@ -234,6 +234,10 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     app.take_on_battery(on_battery_now());
     // Before the start reads the touchpad, so no switch is missed.
     let touchpad = watch_touchpad();
+    // A Razer updater must never meet the start's sends (ticket 145).
+    app.hold_controller(razer_updater(
+        &razer_software(&WindowsPrograms).unwrap_or_default(),
+    ));
     // Once, before the first send, so the log has it.
     app.check_firmware();
     let firmware_unchecked = app.firmware_warning().is_some();

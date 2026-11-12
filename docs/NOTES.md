@@ -77,6 +77,10 @@ Status lives in `docs/PLAN.md` (open) and `docs/PLAN-done.md` (done) only. Comma
 
 - Slint testing backend (1.18.1, the version must match `slint` exactly): `ElementHandle` finds nothing without debug info in the generated code, so `build.rs` turns it on for debug builds only (`cargo test --release` finds no controls). `set_platform` is per thread, so each test sets its own. With mock time, `mock_single_click` and `mock_drag` work without an event loop. A `Timer` fires only when the test moves the mock time on (`mock_elapsed_time`), which also runs the shell's popup timers.
 
+## Razer software beside the app (ticket 145)
+
+- Razer software (a name starting with `rz`, or holding `razer` or `synapse`) turns off the background reads and the fan guard, so the two programs can't fight over the fans (user pick 2026-11-12). A Razer updater (a found name with `update`, `firmware`, `flash` or `bios`) holds every send and read. These updater words are a guess: no Razer updater has been seen on this laptop. If one is ever seen, note its exact process name here.
+
 ## Working style
 
 - The user starts one stage or ticket with "next", or asks for a batch run. A batch run stops early if anything needs the user.
