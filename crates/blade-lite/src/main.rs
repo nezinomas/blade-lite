@@ -38,7 +38,7 @@ use blade_lite::{
 };
 use platform::{
     SessionEndWatch, WindowsDisplays, WindowsInstance, WindowsKeys, WindowsPrograms,
-    WindowsRegistry, num_lock_on,
+    WindowsRegistry, num_lock_on, serve_sent_messages,
 };
 use razer_device::{Device, HidTransport, Reopening, SystemClock};
 use razer_proto::{BLADE_18, Rgb};
@@ -240,7 +240,8 @@ fn poll(shell: &Rc<Shell>) -> Timer {
 
 /// How long the session end waits for the event loop to quit. Longer than
 /// the quit's own wait for a pause after a wake ([`RESUME_PAUSE`]), with
-/// room for a rate change to end first.
+/// room for a rate change to end first. Past about 5 s Windows may show
+/// the app as blocking the shutdown, where the user can end it at once.
 const SESSION_END_WAIT: Duration = Duration::from_secs(10);
 
 /// Windows ends the session, heard on the watch's own thread: the quit
@@ -249,6 +250,7 @@ fn on_session_end() {
     end_on_loop(
         slint::invoke_from_event_loop,
         end_session_on_loop,
+        serve_sent_messages,
         SESSION_END_WAIT,
     );
 }

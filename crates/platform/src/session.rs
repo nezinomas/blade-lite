@@ -10,14 +10,13 @@ use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::ptr::null_mut;
 use std::sync::OnceLock;
 use std::sync::mpsc;
-use std::thread::JoinHandle;
 
 use windows_sys::Win32::Foundation::{HWND, LPARAM, LRESULT, WPARAM};
 use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     CreateWindowExW, DefWindowProcW, DestroyWindow, DispatchMessageW, GetMessageW, MSG,
-    PostMessageW, PostQuitMessage, RegisterClassW, WM_CLOSE, WM_DESTROY, WM_ENDSESSION, WNDCLASSW,
-    WS_OVERLAPPED,
+    PM_NOREMOVE, PM_QS_SENDMESSAGE, PeekMessageW, PostMessageW, PostQuitMessage, RegisterClassW,
+    WM_CLOSE, WM_DESTROY, WM_ENDSESSION, WNDCLASSW, WS_OVERLAPPED,
 };
 
 use crate::wide;
@@ -25,10 +24,9 @@ use crate::wide;
 /// What runs when the session ends. Set once per run.
 static ON_END: OnceLock<fn()> = OnceLock::new();
 
-/// The hidden window and its thread. Dropping it stops the watch.
+/// The hidden window, on its own thread. Dropping it stops the watch.
 pub struct SessionEndWatch {
     hwnd: HWND,
-    thread: Option<JoinHandle<()>>,
 }
 
 impl SessionEndWatch {
@@ -49,7 +47,7 @@ impl SessionEndWatch {
         }
         let (made, window) = mpsc::channel();
         let (go, told) = mpsc::channel();
-        let thread = std::thread::Builder::new()
+        std::thread::Builder::new()
             .name("session end".to_owned())
             .spawn(move || {
                 let hwnd = match make_window() {
@@ -62,20 +60,17 @@ impl SessionEndWatch {
                 // As a number: a window handle can't cross threads.
                 let _ = made.send(Ok(hwnd as isize));
                 // Only once the callback is set: no message is read before.
+                // The reads end when Close has destroyed the window.
                 if told.recv() == Ok(true) {
                     read_messages();
+                } else {
+                    // SAFETY: this thread's window, never used.
+                    unsafe { DestroyWindow(hwnd) };
                 }
-                // SAFETY: this thread's window; one Close already destroyed
-                // fails harmlessly.
-                unsafe { DestroyWindow(hwnd) };
             })?;
         let hwnd = window
             .recv()
             .map_err(|_| io::Error::other("the session end thread stopped"))??;
-        let watch = Self {
-            hwnd: hwnd as HWND,
-            thread: Some(thread),
-        };
         // Only now: a failed start leaves no callback behind. A start that
         // lost a race for the slot drops its window.
         if ON_END.set(on_end).is_err() {
@@ -83,7 +78,7 @@ impl SessionEndWatch {
             return Err(io::Error::other("the session end is already watched"));
         }
         let _ = go.send(true);
-        Ok(watch)
+        Ok(Self { hwnd: hwnd as HWND })
     }
 }
 
@@ -126,6 +121,24 @@ fn make_window() -> io::Result<HWND> {
     Ok(hwnd)
 }
 
+/// Runs the messages other threads have sent to this thread's windows,
+/// and only those: a thread that waits calls it, so a Windows call that
+/// sends to every window, such as a rate change, does not wait for it.
+pub fn serve_sent_messages() {
+    // SAFETY: all zero is a valid message.
+    let mut message: MSG = unsafe { std::mem::zeroed() };
+    // SAFETY: a message this function owns; nothing is taken off the queue.
+    unsafe {
+        PeekMessageW(
+            &raw mut message,
+            null_mut(),
+            0,
+            0,
+            PM_NOREMOVE | PM_QS_SENDMESSAGE,
+        )
+    };
+}
+
 /// Reads this thread's messages until its window is destroyed. Windows
 /// runs a sent message, such as the session end, inside the read.
 fn read_messages() {
@@ -143,13 +156,11 @@ fn read_messages() {
 impl Drop for SessionEndWatch {
     fn drop(&mut self) {
         // Only its own thread can destroy the window: Close does it there,
-        // and the destroy ends the reads. A thread that has ended fails the
-        // post harmlessly.
-        // SAFETY: the window this watch made, or one already gone.
+        // and the destroy ends the reads. Not waited for: a session end
+        // there may wait for the event loop that has just ended, and the
+        // quit after the loop must not wait for it (ticket 159 review).
+        // SAFETY: the window this watch made.
         unsafe { PostMessageW(self.hwnd, WM_CLOSE, 0, 0) };
-        if let Some(thread) = self.thread.take() {
-            let _ = thread.join();
-        }
     }
 }
 
@@ -178,19 +189,26 @@ unsafe extern "system" fn on_message(
 
 #[cfg(test)]
 mod tests {
-    use std::sync::atomic::{AtomicU32, Ordering};
+    use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+    use std::sync::mpsc;
+    use std::time::{Duration, Instant};
 
     use windows_sys::Win32::Foundation::HWND;
     use windows_sys::Win32::UI::WindowsAndMessaging::{
-        SMTO_NORMAL, SendMessageTimeoutW, WM_ENDSESSION, WM_QUERYENDSESSION,
+        DestroyWindow, SMTO_NORMAL, SendMessageTimeoutW, WM_ENDSESSION, WM_NULL, WM_QUERYENDSESSION,
     };
 
-    use super::SessionEndWatch;
+    use super::{SessionEndWatch, make_window, serve_sent_messages};
 
     static ENDS: AtomicU32 = AtomicU32::new(0);
+    /// Whether a session end waits, as one waits for the event loop.
+    static HOLD: AtomicBool = AtomicBool::new(false);
 
     fn count_end() {
         ENDS.fetch_add(1, Ordering::SeqCst);
+        if HOLD.load(Ordering::SeqCst) {
+            std::thread::sleep(Duration::from_millis(1500));
+        }
     }
 
     /// Sends `message` to `hwnd` as Windows does, and whether it was
@@ -233,5 +251,38 @@ mod tests {
         assert!(asked && ended);
         assert_eq!(ended_early, 0);
         assert_eq!(ENDS.load(Ordering::SeqCst), 1);
+
+        // A session end that waits for an event loop just ended must not
+        // hold the quit after it (ticket 159 review).
+        HOLD.store(true, Ordering::SeqCst);
+        let waiting = std::thread::spawn(move || answered(hwnd, WM_ENDSESSION, 1));
+        std::thread::sleep(Duration::from_millis(200));
+        let began = Instant::now();
+        drop(watch);
+
+        assert!(began.elapsed() < Duration::from_millis(500));
+        assert!(waiting.join().unwrap());
+    }
+
+    #[test]
+    fn a_thread_that_serves_sent_messages_answers_them_while_it_waits() {
+        let (made, window) = mpsc::channel();
+        let (stop, stopped) = mpsc::channel::<()>();
+        let waiter = std::thread::spawn(move || {
+            let hwnd = make_window().unwrap();
+            made.send(hwnd as isize).unwrap();
+            while stopped.recv_timeout(Duration::from_millis(10)).is_err() {
+                serve_sent_messages();
+            }
+            // SAFETY: this thread's window.
+            unsafe { DestroyWindow(hwnd) };
+        });
+        let hwnd = window.recv().unwrap();
+
+        let served = answered(hwnd, WM_NULL, 0);
+
+        stop.send(()).unwrap();
+        waiter.join().unwrap();
+        assert!(served);
     }
 }
