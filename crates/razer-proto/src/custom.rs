@@ -140,8 +140,9 @@ pub struct Custom {
 
 impl Custom {
     /// The commands that set it, in Synapse's order: the mode on each zone,
-    /// the boosts, then the fan targets. A mode write after a fan target
-    /// would reset the target.
+    /// the boosts, then the fan targets. razer-laptop-control says a mode
+    /// write after a fan target resets it; on firmware 1.6 a manual mode
+    /// write kept the old target, and the fans went to it (ticket 144).
     #[must_use]
     pub fn commands(self, model: &ModelProfile) -> Vec<Command> {
         let mut commands = self.mode_commands(model);

@@ -280,7 +280,8 @@ fn custom_is_set_and_read_back_and_the_old_preset_restored() {
     std::thread::sleep(Duration::from_secs(5));
     let real_rpm = read_each(&mut device, GET_FAN_RPM, &FANS);
 
-    // Boosts and fan targets first: a mode write after them resets them.
+    // Boosts and fan targets first, as razer-laptop-control says a mode
+    // write after them resets them (not seen on 1.6, ticket 144).
     let boosts = &before[4..6];
     let targets = &before[6..8];
     for args in boosts {
@@ -344,4 +345,51 @@ fn the_key_reports_open_and_wait_quietly() {
         let key = razer_proto::BLADE_18.power_key.unwrap();
         assert_ne!(key.held(&report), Some(true), "{report:02X?}");
     }
+}
+
+#[test]
+#[ignore = "needs the Blade 18, and runs the fans on manual for 10 s"]
+fn a_custom_mode_write_alone_and_what_the_fans_do() {
+    use razer_proto::{BLADE_18, CpuBoost, Custom, FanMode, GpuBoost, Rpm};
+
+    let mut device = Device::new(open(), SystemClock);
+    let before = custom_state(&mut device);
+
+    // Only the mode writes of a manual Custom (fan byte manual), as a kill
+    // between them and the fan targets would leave it (ticket 144).
+    let custom = Custom {
+        cpu: CpuBoost::new(1, &BLADE_18).unwrap(),
+        gpu: GpuBoost::new(1, &BLADE_18).unwrap(),
+        fan: FanMode::Manual(Rpm::new(3000, &BLADE_18).unwrap()),
+    };
+    let modes: Vec<_> = custom.commands(&BLADE_18)[..BLADE_18.perf_zones.len()].to_vec();
+    assert!(modes.iter().all(|command| command.id == 0x0D02));
+    let set = device.run(&modes);
+    let mut seen = Vec::new();
+    for second in 0..10 {
+        std::thread::sleep(Duration::from_secs(1));
+        let target = read_each(&mut device, GET_FAN, &FANS);
+        let real = read_each(&mut device, GET_FAN_RPM, &FANS);
+        seen.push((second + 1, target, real));
+    }
+    let manual = custom_state(&mut device);
+
+    // Put back as the Custom test does: boosts and fan targets, then modes.
+    for args in &before[4..6] {
+        device.send(SET_BOOST, args).unwrap();
+    }
+    for args in &before[6..8] {
+        device.send(SET_FAN, args).unwrap();
+    }
+    for args in &before[..4] {
+        device.send(0x0D02, args).unwrap();
+    }
+    let after = custom_state(&mut device);
+    eprintln!("before {before:02X?}\nset {set:?}\nstate after the mode writes {manual:02X?}");
+    for (second, target, real) in &seen {
+        eprintln!("{second:>2} s: target {target:02X?}, real {real:02X?}");
+    }
+    eprintln!("after {after:02X?}");
+    set.unwrap();
+    assert_eq!(after, before);
 }
