@@ -7,7 +7,10 @@ It is one app: a tray icon with a flyout, plus a one-page settings window.
 It talks straight to the laptop's controller over USB HID. There are no
 background services, no account and no cloud.
 
-> **Status:** planning. There is no code yet. See [How it is built](#how-it-is-built).
+> **Status:** works on the author's laptop; no release yet.
+> **Use it at your own risk.** It sets the fans and the power limits of an
+> expensive laptop. Read [Known limits](#known-limits) and
+> [If the fans are stuck](#if-the-fans-are-stuck) first.
 
 ## Why
 
@@ -16,10 +19,11 @@ and CPU all the time just to set a few things on the laptop.
 
 This app does only those few things. The targets are:
 
-- About 0% CPU while the window and flyout are closed. Sensors are read only
-  while one of them is open.
+- About 0% CPU while the window and flyout are closed. With no view open the
+  app still reads the CPU temperature and the charger each 10 s (each 2 s
+  while a manual Custom fan runs), for the heat warning and the fan guard.
 - Under 15 MB of RAM with just the tray running, and under 50 MB with the
-  window open.
+  window open. Not measured yet (laptop check 26).
 - Starts at login, needs no admin rights, and works with Synapse and its
   driver removed.
 
@@ -30,32 +34,36 @@ Only one model is supported. Other Razer laptops and devices are out of scope.
 | Field | Value |
 | --- | --- |
 | Model | Razer Blade 18 2025, RZ09-0529 (SKU RZ09-05299ER4) |
-| Controller | USB HID, vendor `1532`, product `02C7`, interfaces MI_00 to MI_03 |
+| Controller | USB HID, vendor `1532`, product `02C7` |
+| Controller firmware | 1.6 and 1.7. Another version shows a warning; the app still sends |
 | Tested BIOS | 2.01 (2025-08-04) |
 | OS | Windows 11 Home 26H2 (build 26300). Mica needs 22H2 or newer |
 
-## Features (v1)
+Everything model-specific is in one model profile
+(`crates/razer-proto/src/profile.rs`), so another model would be a new
+profile. Only the Blade 18 2025 has one.
 
-| Feature | Where in the window |
+## Features
+
+| Feature | Where |
 | --- | --- |
 | Refresh rate: 60 / 120 / 240 Hz (440 Hz in 1920×1200 mode) | Display |
-| Drop to 60 Hz on battery, restore on AC | Display |
-| Native display mode: 3840×2400 at 240 Hz or 1920×1200 at 440 Hz (after restart) | Display |
-| Presets: Silent, Balanced, Performance | Performance |
-| Custom preset: CPU boost, GPU boost, manual fan | Performance |
-| GPU mode: Optimus or dGPU only (MUX switch, after restart) | Performance |
-| Battery charge limit (for example 80%) | Performance |
-| Keyboard lighting on/off | Keyboard and touchpad |
-| Static keyboard colour: swatches and a custom picker | Keyboard and touchpad |
-| Lid logo light on/off | Keyboard and touchpad |
-| Touchpad on/off | Keyboard and touchpad |
-| Live readings: CPU/GPU temperature and load, both fans, battery, power draw | Header card |
+| Switch to 60 Hz on battery, the old rate back on the charger | Display |
+| Native display mode: 3840×2400 at 240 Hz or 1920×1200 at 440 Hz (after a restart) | Display |
+| Presets: Silent, Balanced, Performance; on battery or a weak USB-C charge only Silent and Balanced | Performance |
+| Custom preset: CPU boost, GPU boost, manual fan or auto | Performance |
+| Battery charge limit (80%) and battery health | Performance |
+| Keyboard brightness and a static colour (swatches and a custom colour) | Keyboard and touchpad |
+| Lid logo light, vapor chamber light | Keyboard and touchpad |
+| Touchpad on/off, with the touchpad key lit to match | Keyboard and touchpad |
+| Export, import and reset of the settings | Settings |
+| Live readings: CPU and GPU temperature and load, both fans, battery, power draw | Header card |
+| The power-mode key steps the preset; a popup shows it | Keyboard |
+| Heat warning: a popup when the CPU or GPU stays too hot | Popup |
+| Fan guard: a manual Custom fan goes to full speed when the CPU or GPU gets hot | Background |
 
-Native display mode and GPU mode ship only if they work without the Razer
-driver. The USB capture (stage 1 of the plan) decides this.
-
-**Not planned:** lighting effects, per-key colour, brightness slider, global
-hotkeys, cloud profiles, and other Razer devices.
+**Not planned:** lighting effects, per-key colour, global hotkeys, cloud
+profiles, GPU mode (this model has no switch), and other Razer devices.
 
 ## UI
 
@@ -63,78 +71,90 @@ The look follows Windows 11 Settings, so the app feels like part of Windows.
 
 - **Light theme**, the Windows accent colour, **Mica** backdrop, Fluent
   controls and Segoe UI Variable.
-- **Tray flyout:** a plain list like the Wi-Fi flyout. It has preset, refresh
-  rate, lighting, touchpad, "Reset to Balanced" and "Open window".
-- **Window:** one scrolling page, like Settings > System > Display, in a normal
-  resizable window. No side menu. A header card shows the laptop, the preset,
-  a plugged-in or battery pill and the live readings. Below it are three
-  groups: Display, Performance, and Keyboard and touchpad.
-- Closing the window hides it to the tray. Quit is in the flyout.
+- **Tray flyout:** a plain list like the Wi-Fi flyout: preset, refresh rate,
+  keyboard brightness, touchpad, "Reset to Balanced" and "Open window".
+- **Tray menu:** Open window, Start with Windows, and Quit.
+- **Window:** one scrolling page, like Settings > System > Display. A header
+  card shows the laptop, a plugged-in or battery pill and the live readings.
+  Below it are the groups.
+- Closing the window hides it to the tray. **Quit** in the tray menu ends the
+  app and sends Balanced (Silent stays Silent), with a manual fan set to
+  auto first.
 
-The UI toolkit is [Slint](https://slint.dev) with its Fluent style. Mica comes
-from `DwmSetWindowAttribute(DWMWA_SYSTEMBACKDROP_TYPE)`. egui cannot look like
-Settings, and WebView2 or Tauri would break the memory target.
+The UI toolkit is [Slint](https://slint.dev) with its Fluent style.
+
+## Known limits
+
+- One model only (above), and controller firmware 1.6 and 1.7 only.
+- **Ended in Task Manager** (a kill) the app can send nothing: a manual
+  Custom fan, the fan guard's full speed or Performance keeps running with no
+  app to watch it. A crash during the start is the same (ticket 164). See
+  [If the fans are stuck](#if-the-fans-are-stuck).
+- While Razer's own software runs, the app warns, and the fan guard and the
+  background reads are off. While it sees a Razer updater, it sends nothing.
+  It finds Razer software by name, so it can miss some.
+- Other tools that drive the same controller are not checked beside it:
+  r-helper, razer-ctl, OpenRGB, SignalRGB. HWiNFO and MSI Afterburner are not
+  checked yet either (laptop check 25). Don't run them at the same time.
+- Only one Windows user can run it at a time.
+
+## If the fans are stuck
+
+If the fans stay fast or slow, or Performance stays on battery, see
+[docs/recovery.md](docs/recovery.md).
 
 ## How it is built
 
-Work goes in small stages. Each stage is one sitting and one pull request of
-about 200 changed lines at most.
+Work goes in small stages and tickets, listed in [docs/PLAN.md](docs/PLAN.md).
+Each one is built test first (red, green, refactor), then checked by
+reviewers before it is merged. Laptop facts are in
+[docs/NOTES.md](docs/NOTES.md), and the coding rules in
+[CODING_STANDARDS.md](CODING_STANDARDS.md).
 
-### TDD, red to green
-
-1. **Red:** write one small failing test for the next behaviour, and commit it.
-2. **Green:** write the least code that makes it pass.
-3. **Refactor:** tidy up while all tests stay green.
-
-A stage is done only when `cargo test`, `cargo clippy -- -D warnings` and
-`cargo fmt --check` all pass.
-
-Hardware sits behind small traits (`Transport`, `KeyInjector`, `Registry`,
-`DisplayApi`, `PowerEvents`, `Sensors`, `Backdrop`, `Clock`). Each has a fake,
-so almost every test runs on any Windows machine without a Blade. Expected
-bytes come from a USB capture of Synapse on the real laptop, saved in
-`tests/fixtures`. Tests that need the real laptop are marked `#[ignore]` and
-run by hand, one at a time (alias in `.cargo/config.toml`):
+Hardware sits behind small traits (`Transport`, `Controller`, `DisplayApi`,
+`Registry`, `KeyInjector`, `PowerEvents`, `Sensors` and others). Each has a
+fake, so almost every test runs on any Windows machine without a Blade. The
+window, flyout and popup are drawn off screen over the fakes, clicked by
+script, and compared with saved pictures. Tests that need the real laptop
+are marked `#[ignore]` and run by hand, one at a time (alias in
+`.cargo/config.toml`):
 
 ```bash
 cargo hw
+```
+
+The checks, as in CI:
+
+```bash
+cargo fmt --all --check
+```
+
+```bash
+cargo clippy --workspace --all-targets -- -D warnings
+```
+
+```bash
+cargo test --workspace
 ```
 
 ### Crates
 
 | Crate | Job |
 | --- | --- |
-| `razer-proto` | Builds and parses packets, the checksum and the command table. No I/O |
-| `razer-device` | The `Transport` trait, the HID transport, reads again on Busy (never resends) |
-| `blade-core` | Presets, Custom, config (TOML in `%APPDATA%`), apply, the pause before the re-apply after resume, sensor polling |
-| `platform` | All Windows FFI. The only crate allowed `unsafe` |
-| `ui` | View models (fully unit-tested) and the Slint markup |
-| `blade` (exe) | The tray app. Single instance, starts at login |
-| `blade-dev` (exe) | Developer tool for sending single commands |
-
-### Coding standards
-
-- **YAGNI:** build only the v1 features. No plugins, no "for later" settings.
-- **KISS:** the plainest design that passes the test.
-- **DRY:** every command is one entry in one command table, sent by one
-  generic `send`. No hand-written 90-byte buffers.
-- **Small functions:** about 20 lines, one job each.
-- **SOLID:** each layer has one job, small traits, logic depends on traits.
-- **Invalid states can't be built:** enums and newtypes such as `PerfMode`,
-  `FanMode::{Auto, Manual(Rpm)}`, `Rgb` and `RefreshRate`.
-- **Errors:** one `thiserror` enum per library crate, `anyhow` only in the
-  exes. No `unwrap()` or `expect()` outside tests.
-- **Logging:** `tracing` to a rolling file in `%APPDATA%`. No `println!`.
-- **Tools:** `cargo fmt`, `cargo clippy -- -D warnings` with `clippy::pedantic`,
-  and `#![deny(unsafe_code)]` in every crate except `platform`. CI fails if
-  any of these fail.
-- **Commits:** small and logical, with short messages.
+| `razer-proto` | Builds and parses packets, the checksum, the command table and the model profile. No I/O |
+| `razer-device` | The `Transport` trait, the HID transport, reads again on Busy (never sends again), opens the controller again after its handle dies |
+| `blade-core` | Presets, Custom, config (TOML in `%APPDATA%\blade-lite`), apply, power and charger rules, sensor polling |
+| `platform` | All Windows calls. The only crate allowed `unsafe` |
+| `ui` | View models, the heat warning and the fan guard (unit-tested) |
+| `blade-lite` (exe) | The tray app, its window and flyout. One copy at a time, starts at login |
+| `blade-dev` (exe) | Developer tool for single commands. Not for users |
 
 ## Install
 
-There is no release yet. When there is, it will be a per-user MSI installer
-from the GitHub Releases page. It needs no admin rights, sets up autostart,
-and its uninstaller removes the autostart entry and the config.
+There is no release yet. When there is, it will be an installer from the
+GitHub Releases page. It needs no admin rights and sets up autostart. Whether
+its uninstaller keeps or removes the settings and the log
+(`%APPDATA%\blade-lite`) is still to be decided (ticket 78).
 
 ### Unsigned releases and SmartScreen
 
@@ -153,11 +173,6 @@ be signed. winget comes after the first signed release.
 The app is made to run with Synapse and its Razer Control Device driver
 removed. Step-by-step removal and rollback notes will be added before the
 first release. Make a restore point and keep the Synapse installer first.
-
-## If the fans are stuck
-
-If the fans stay fast or slow, or Performance stays on battery, see
-[docs/recovery.md](docs/recovery.md).
 
 ## Credits
 
@@ -180,20 +195,20 @@ Their notices are in [NOTICE](NOTICE), and their full licence texts are in
 | [razer-laptop-control-no-dkms](https://github.com/Razer-Linux/razer-laptop-control-no-dkms) | Not yet checked | A second source for fan and power commands |
 | [G-Helper](https://github.com/seerge/g-helper) | GPL-3.0 | The product idea: a small tray app that replaces a heavy vendor suite (ASUS) |
 
-### Planned dependencies
+### Dependencies
 
-These crates are planned. Licences will be checked again when each is added.
+The main crates the app uses. `cargo deny` (`deny.toml`) checks the licences
+of every crate in CI.
 
-| Crate | Use | Licence |
-| --- | --- | --- |
-| [slint](https://slint.dev) | UI toolkit | Royalty-free licence for desktop apps, with attribution (or GPL-3.0) |
-| [hidapi](https://crates.io/crates/hidapi) | USB HID transport | MIT |
-| [windows](https://crates.io/crates/windows) | Win32 APIs (display, power, DWM, registry) | MIT or Apache-2.0 |
-| [nvml-wrapper](https://crates.io/crates/nvml-wrapper) | GPU temperature and load | MIT or Apache-2.0 |
-| [serde](https://crates.io/crates/serde) and [toml](https://crates.io/crates/toml) | Config file | MIT or Apache-2.0 |
-| [thiserror](https://crates.io/crates/thiserror) and [anyhow](https://crates.io/crates/anyhow) | Errors | MIT or Apache-2.0 |
-| [tracing](https://crates.io/crates/tracing) | Logging | MIT |
-| [cargo-wix](https://crates.io/crates/cargo-wix) | Builds the MSI (build tool only) | MIT or Apache-2.0 |
+| Crate | Use |
+| --- | --- |
+| [slint](https://slint.dev) | UI toolkit (royalty-free licence for desktop apps, with attribution) |
+| [hidapi](https://crates.io/crates/hidapi) | USB HID transport |
+| [windows](https://crates.io/crates/windows) and [windows-sys](https://crates.io/crates/windows-sys) | Windows APIs (display, power, DWM, registry, devices) |
+| [tray-icon](https://crates.io/crates/tray-icon) | The tray icon and its menu |
+| [nvml-wrapper](https://crates.io/crates/nvml-wrapper) | GPU temperature and load |
+| [serde](https://crates.io/crates/serde) and [toml](https://crates.io/crates/toml) | Config file |
+| [thiserror](https://crates.io/crates/thiserror) | Errors |
 
 ## Licence
 
