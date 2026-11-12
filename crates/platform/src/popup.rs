@@ -99,7 +99,7 @@ mod tests {
     use windows_sys::Win32::Foundation::HWND;
     use windows_sys::Win32::UI::WindowsAndMessaging::{
         CreateWindowExW, DestroyWindow, GW_HWNDNEXT, GWL_EXSTYLE, GetWindow, GetWindowLongPtrW,
-        WS_EX_TOPMOST, WS_POPUP,
+        SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SetWindowPos, WS_EX_TOPMOST, WS_POPUP,
     };
 
     use super::raise_topmost;
@@ -154,6 +154,11 @@ mod tests {
         // As a full-screen game that made itself topmost after the popup.
         let popup = window(WS_EX_TOPMOST);
         let game = window(WS_EX_TOPMOST);
+        // The popup goes just under the game, whatever other topmost
+        // windows did meanwhile.
+        let flags = SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE;
+        // SAFETY: a plain call on live windows this thread made.
+        unsafe { SetWindowPos(popup as HWND, game as HWND, 0, 0, 0, 0, flags) };
         let before = above(popup, game);
 
         let result = raise_topmost(popup);
