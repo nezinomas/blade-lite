@@ -89,7 +89,7 @@ impl<P: Parts> Shell<P> {
                 false
             }
             Reopened::Opened => {
-                self.resuming.set(self.resuming.get().saturating_add(1));
+                self.begin_pause();
                 let shell = Rc::clone(self);
                 Timer::single_shot(RESUME_PAUSE, move || {
                     shell.resuming.set(shell.resuming.get().saturating_sub(1));
@@ -370,7 +370,7 @@ impl<P: Parts> Shell<P> {
             // the sleep is not carried over.
             self.heat_watch.set(HeatWatch::default());
             // The controller needs a moment after the wake.
-            self.resuming.set(self.resuming.get().saturating_add(1));
+            self.begin_pause();
             let shell = Rc::clone(self);
             Timer::single_shot(RESUME_PAUSE, move || {
                 shell.resuming.set(shell.resuming.get().saturating_sub(1));

@@ -16,7 +16,9 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::Receiver;
 use std::time::{Duration, Instant};
 
-use blade_core::{ApplyError, Controller, PollSchedule, Query, Readings, ReadingsSampler};
+use blade_core::{
+    ApplyError, Controller, PollSchedule, Query, RESUME_PAUSE, Readings, ReadingsSampler,
+};
 use blade_lite::{App, AppError, Rect, SaidLately, ShownErrors, report, took_effect};
 use platform::{
     DisplayApi, FileDialog, KeyInjector, PowerEvent, Programs, Registry, WindowsDisplays,
@@ -263,6 +265,9 @@ pub struct Shell<P: Parts = Laptop> {
     /// paints it). A change of power source is dropped: the resume reads
     /// the source when the pause ends (ticket 88).
     resuming: Cell<u32>,
+    /// When the last of those pauses began, so a quit can wait out the
+    /// rest of it.
+    pause_began: Cell<Option<Instant>>,
     /// The app's count of failed preset sends at the start of the last tick.
     /// A poll sends the preset again only while it is unchanged, so never
     /// in the tick of a failure or the one after it.
@@ -317,6 +322,7 @@ impl<P: Parts> Shell<P> {
             popups: Cell::new(0),
             popup_ready: Cell::new(false),
             resuming: Cell::new(0),
+            pause_began: Cell::new(None),
             preset_failures_seen: Cell::new(0),
             power: RefCell::new(None),
             programs: P::Programs::default(),
@@ -370,6 +376,7 @@ impl<P: Parts> Shell<P> {
             return;
         };
         self.quit_sent.set(true);
+        self.wait_out_the_pause();
         // Closed however the sends end, a panic too.
         let sent = std::panic::catch_unwind(AssertUnwindSafe(|| {
             // First: the fans matter more than the rate.
@@ -397,6 +404,33 @@ impl<P: Parts> Shell<P> {
         // After the fans: only the rate, a Windows call that may be slow.
         if let Err(error) = app.on_quit() {
             report(&format!("the panel may stay at 60 Hz: {error}"));
+        }
+    }
+
+    /// Starts a pause after a wake, an open again or an updater: the
+    /// controller may not be ready, so nothing is sent until it ends.
+    pub(super) fn begin_pause(&self) {
+        self.resuming.set(self.resuming.get().saturating_add(1));
+        self.pause_began.set(Some(Instant::now()));
+    }
+
+    /// Waits out the rest of a pause that has not ended (ticket 137): a
+    /// quit sends at once otherwise, and the event loop that would end the
+    /// pause has stopped. At most [`RESUME_PAUSE`], which fits in the time
+    /// Windows gives a session end.
+    fn wait_out_the_pause(&self) {
+        if self.resuming.get() == 0 {
+            return;
+        }
+        let left = self.pause_began.get().map_or(RESUME_PAUSE, |began| {
+            RESUME_PAUSE.saturating_sub(began.elapsed())
+        });
+        if !left.is_zero() {
+            report(&format!(
+                "the quit waits {} ms for the controller after a wake",
+                left.as_millis()
+            ));
+            std::thread::sleep(left);
         }
     }
 
