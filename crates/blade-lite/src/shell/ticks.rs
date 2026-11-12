@@ -12,6 +12,13 @@ use slint::Timer;
 use ui::{DisplayView, Header, HeatWatch};
 
 use super::popup::{POPUP_HOLD, TOUCHPAD};
+
+/// How a read refused by a controller that is closed or held says so
+/// (`razer_device::Reopening`).
+const CONTROLLER_GONE: [&str; 2] = [
+    "the controller is closed",
+    "the controller was opened again",
+];
 use super::{AppOn, Parts, Reopened, Shell};
 use crate::bind;
 
@@ -100,6 +107,7 @@ impl<P: Parts> Shell<P> {
                     // This start covers an updater that just ended.
                     shell.updater_ended.set(false);
                     P::release_controller();
+                    shell.controller_gone.set(false);
                     // A firmware update may be what killed the old handle.
                     shell.app.borrow_mut().check_firmware();
                     // A power event in the pause was dropped: read the
@@ -448,9 +456,23 @@ impl<P: Parts> Shell<P> {
         self.watch_heat(cpu, gpu, now);
     }
 
-    /// Logs the failed reads not logged in the quiet time.
-    pub(super) fn say_read_errors(&self, errors: &[String]) {
-        for error in self.read_errors.borrow_mut().to_say(errors, Instant::now()) {
+    /// Logs the failed reads not logged in the quiet time. While the
+    /// controller is closed or held (it died, or waits after an open again),
+    /// its read failures are said once, until it is opened again: the open
+    /// and its failures are logged on their own (ticket 154).
+    pub(crate) fn say_read_errors(&self, errors: &[String]) {
+        let (gone, rest): (Vec<String>, Vec<String>) = errors
+            .iter()
+            .cloned()
+            .partition(|error| CONTROLLER_GONE.iter().any(|mark| error.contains(mark)));
+        if let Some(first) = gone.first()
+            && !self.controller_gone.replace(true)
+        {
+            report(&format!(
+                "read failed: {first} (more such reads are not logged until it is opened again)"
+            ));
+        }
+        for error in self.read_errors.borrow_mut().to_say(&rest, Instant::now()) {
             report(&format!("read failed: {error}"));
         }
     }

@@ -556,3 +556,30 @@ fn a_firmware_read_that_failed_is_tried_again_each_minute() {
     let error = f.shell.window().get_error();
     assert!(!error.contains("firmware"), "{error}");
 }
+
+#[test]
+fn read_failures_while_the_controller_is_gone_are_said_once() {
+    let f = fixture(Config::default());
+    let gone = |read: &str| {
+        format!(
+            "{read}: the controller call failed: the HID layer failed: the controller is closed"
+        )
+    };
+    let log_lines = || {
+        std::fs::read_to_string(log_path())
+            .unwrap()
+            .lines()
+            .filter(|line| line.contains("the controller is closed"))
+            .count()
+    };
+    let before = log_lines();
+
+    f.shell
+        .say_read_errors(&[gone("CPU temperature"), gone("fans")]);
+    f.shell
+        .say_read_errors(&[gone("charger"), "GPU: driver error".to_owned()]);
+
+    assert_eq!(log_lines() - before, 1);
+    let log = std::fs::read_to_string(log_path()).unwrap();
+    assert!(log.contains("read failed: GPU: driver error"), "{log}");
+}
