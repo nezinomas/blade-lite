@@ -24,6 +24,13 @@ const GONE_KEY: &str = "controller closed or held";
 /// (ticket 173; on the laptop 2 s worked).
 const FAN_TARGETS_AGAIN: Duration = Duration::from_secs(2);
 
+#[cfg(test)]
+thread_local! {
+    /// The `sent again by a poll` lines this test's thread logged: the
+    /// window tests share one log.
+    pub static FULL_SPEED_RESENT_LINES: std::cell::Cell<u32> = const { std::cell::Cell::new(0) };
+}
+
 impl<P: Parts> Shell<P> {
     /// Passes on power events, tries a refused rate again, passes
     /// on Num Lock, then reads the sensors if a view shows them, or only
@@ -207,6 +214,8 @@ impl<P: Parts> Shell<P> {
         let app = self.app.borrow();
         if unsent && !app.boost_unsent() && self.fan_guard.get().on() && app.manual_fan_runs() {
             report("fan guard: Full speed, sent again by a poll");
+            #[cfg(test)]
+            FULL_SPEED_RESENT_LINES.set(FULL_SPEED_RESENT_LINES.get() + 1);
         }
         drop(app);
         if let Err(error) = sent {

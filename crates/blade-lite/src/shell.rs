@@ -29,6 +29,8 @@ use razer_proto::BLADE_18;
 use ui::{FanGuard, HeatWatch, ModeWatch, TouchpadWatch};
 
 use popup::{POPUP_HOLD, POWER_MODE};
+#[cfg(test)]
+pub use ticks::FULL_SPEED_RESENT_LINES;
 
 use crate::{FlyoutWindow, MainWindow, ModePopup, bind};
 

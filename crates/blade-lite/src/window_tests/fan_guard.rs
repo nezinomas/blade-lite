@@ -5,6 +5,9 @@ use std::time::{Duration, Instant, SystemTime};
 
 use blade_core::{Config, Preset};
 use razer_proto::BLADE_18;
+use ui::PerformanceCommand;
+
+use crate::shell::FULL_SPEED_RESENT_LINES;
 
 use super::{FAKE_GPU, FakeGpu, Fixture, fixture, fixture_with_programs, log_path};
 
@@ -117,4 +120,38 @@ fn failed_gpu_reads_say_nothing_while_razer_software_runs() {
         log_lines("fan guard: Full speed held only by failed GPU reads (CPU 64 °C)"),
         0
     );
+}
+
+/// A held rate error can't come behind the guard's send: 60 Hz follows
+/// only the battery, where Custom does not run (the App test covers it).
+#[test]
+fn a_poll_that_takes_the_guard_s_failed_full_speed_says_so_once() {
+    let f = manual_fan();
+    let start = Instant::now();
+    f.shell.app().machine_mut().controller.inner.fails = true;
+    f.shell.watch_heat(Some(96), None, start);
+    f.shell.app().machine_mut().controller.inner.fails = false;
+
+    ticks(&f, start, Duration::from_secs(8), 96);
+
+    assert_eq!(FULL_SPEED_RESENT_LINES.get(), 1);
+}
+
+#[test]
+fn a_poll_that_resends_a_failed_click_says_nothing_of_the_guard() {
+    let f = manual_fan();
+    let start = Instant::now();
+    f.shell.watch_heat(Some(96), None, start);
+    f.shell.app().machine_mut().controller.inner.fails = true;
+    let clicked = f
+        .shell
+        .app()
+        .on_performance(PerformanceCommand::SetFanRpm(Some(2000)));
+    assert!(clicked.is_err());
+    f.shell.app().machine_mut().controller.inner.fails = false;
+
+    ticks(&f, start, Duration::from_secs(8), 96);
+
+    assert!(!f.shell.app().preset_unsure(), "resent");
+    assert_eq!(FULL_SPEED_RESENT_LINES.get(), 0);
 }
