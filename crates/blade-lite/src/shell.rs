@@ -241,6 +241,17 @@ const READ_ERROR_QUIET: Duration = Duration::from_mins(10);
 /// The error a run ends with when a panic (a bug) stopped it.
 pub const PANICKED: &str = "a bug stopped the app (a panic, in the log)";
 
+/// See [`Shell::kept`].
+#[cfg(test)]
+#[derive(Debug)]
+pub struct Kept {
+    pub said_lately: usize,
+    pub stopped_parts: usize,
+    pub sampler_errors: usize,
+    pub app_read_errors: usize,
+    pub pauses: u32,
+}
+
 pub struct Shell<P: Parts = Laptop> {
     window: MainWindow,
     flyout: FlyoutWindow,
@@ -385,6 +396,19 @@ impl<P: Parts> Shell<P> {
     #[cfg(test)]
     pub fn app(&self) -> std::cell::RefMut<'_, AppOn<P>> {
         self.app.borrow_mut()
+    }
+
+    /// The sizes of the lists the shell keeps, and the pauses that wait,
+    /// for the soak test (ticket 147).
+    #[cfg(test)]
+    pub fn kept(&self) -> Kept {
+        Kept {
+            said_lately: self.read_errors.borrow().kept(),
+            stopped_parts: self.stopped_parts.borrow().len(),
+            sampler_errors: self.sampler.borrow().0.errors().len(),
+            app_read_errors: self.app.borrow().read_errors().len(),
+            pauses: self.resuming.get(),
+        }
     }
 
     /// Sends Balanced (Silent stays Silent; see `App::quit_preset`), then

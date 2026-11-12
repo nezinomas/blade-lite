@@ -9,6 +9,7 @@ mod razer;
 mod screens;
 mod settings;
 mod sleep;
+mod soak;
 
 use std::cell::RefCell;
 use std::io;
