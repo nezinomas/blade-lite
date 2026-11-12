@@ -54,7 +54,7 @@ pub use power_key::{
 pub use query::{
     ControllerReadings, Query, chosen_native_mode, read_controller, read_cpu_temperature,
 };
-pub use razer_software::{razer_software, razer_warning};
+pub use razer_software::{razer_software, razer_updater, razer_warning};
 pub use readings::{HEALTH_EVERY, Readings, ReadingsSampler};
 pub use red_keys::paint_red_keys;
 pub use refresh::{DisplayError, RefreshRate, current_rate, refresh_rates, set_refresh_rate};

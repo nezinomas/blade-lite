@@ -1,6 +1,6 @@
 use std::io;
 
-use blade_core::{razer_software, razer_warning};
+use blade_core::{razer_software, razer_updater, razer_warning};
 use platform::Programs;
 
 struct FakePrograms(io::Result<Vec<&'static str>>);
@@ -86,4 +86,32 @@ fn leaves_this_repo_s_own_test_programs_alone() {
         "razer_software-7a8b9c.exe",
     ];
     assert_eq!(found(names), Vec::<String>::new());
+}
+
+#[test]
+fn a_razer_updater_is_told_from_other_razer_software() {
+    let updater = |names: &[&str]| {
+        let names: Vec<String> = names.iter().map(|&name| name.to_owned()).collect();
+        razer_updater(&names)
+    };
+
+    assert!(updater(&[
+        "Razer Synapse Service",
+        "RazerFirmwareUpdater.exe"
+    ]));
+    assert!(updater(&["Razer Update Service"]));
+    assert!(updater(&["RzFwUpdate.exe"]));
+    assert!(!updater(&["Razer Synapse Service", "RzDev_02c7"]));
+    assert!(!updater(&[]));
+}
+
+#[test]
+fn an_updater_warning_says_nothing_is_sent() {
+    let warning = razer_warning(&["RazerFirmwareUpdater.exe".to_owned()]).unwrap();
+
+    assert!(
+        warning.starts_with("A Razer updater runs (RazerFirmwareUpdater.exe)"),
+        "{warning}"
+    );
+    assert!(warning.contains("sends nothing"), "{warning}");
 }

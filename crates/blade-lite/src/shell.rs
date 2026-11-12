@@ -273,6 +273,10 @@ pub struct Shell<P: Parts = Laptop> {
     /// The warning for the Razer software last found, shown above the
     /// groups while it runs.
     razer_warning: RefCell<Option<String>>,
+    /// Whether a Razer updater runs: the controller is then held.
+    razer_updater: Cell<bool>,
+    /// When Razer software was last looked for by the poll.
+    razer_looked: Cell<Option<Instant>>,
     /// Whether the window was opened for Razer software. Only once per run.
     razer_opened: Cell<bool>,
     /// Whether a file dialog is open, so a second one is not opened.
@@ -316,6 +320,8 @@ impl<P: Parts> Shell<P> {
             power: RefCell::new(None),
             programs: P::Programs::default(),
             razer_warning: RefCell::new(None),
+            razer_updater: Cell::new(false),
+            razer_looked: Cell::new(None),
             razer_opened: Cell::new(false),
             dialog_open: Cell::new(false),
             stopped_parts: RefCell::new(Vec::new()),

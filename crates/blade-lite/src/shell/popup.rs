@@ -32,7 +32,7 @@ impl<P: Parts> Shell<P> {
     /// Notes the CPU and GPU temperatures read at `now`, `None` for one not
     /// read, and shows and logs the warnings of the sensors that have stayed
     /// hot, in one popup. Feeds the fan guard too, which may send a fan
-    /// speed, only while `heat_reads_allowed`.
+    /// speed, only while `guards_allowed`.
     pub fn watch_heat(self: &Rc<Self>, cpu: Option<u32>, gpu: Option<u32>, now: Instant) {
         self.guard_fans(cpu, gpu, now);
         let mut watch = self.heat_watch.get();
@@ -55,14 +55,15 @@ impl<P: Parts> Shell<P> {
     /// Feeds the fan guard (ticket 129). When the app's fan boost differs
     /// from the guard and Custom with a manual fan runs, the fans go to the
     /// model's top speed, or back to the saved speed; that is logged and
-    /// shown in the popup. Nothing is sent while Razer software runs or a
-    /// resume waits: the change waits for a later reading. A failed send
+    /// shown in the popup. Nothing is sent while a Razer updater runs or a
+    /// resume waits: the change waits for a later reading. Razer's other
+    /// software does not stop it (ticket 145). A failed send
     /// shows its error.
     fn guard_fans(self: &Rc<Self>, cpu: Option<u32>, gpu: Option<u32>, now: Instant) {
         let mut guard = self.fan_guard.get();
         guard.note(cpu, gpu, now);
         self.fan_guard.set(guard);
-        if !self.heat_reads_allowed() {
+        if !self.guards_allowed() {
             return;
         }
         let sent = self.app.borrow_mut().set_fan_boost(guard.on());

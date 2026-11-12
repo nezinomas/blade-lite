@@ -2,10 +2,17 @@
 //! Windows Update, which would talk to the controller beside the app. It
 //! only warns: nothing sent changes.
 
-use blade_core::{razer_software, razer_warning};
+use std::rc::Rc;
+use std::time::{Duration, Instant};
+
+use blade_core::{razer_software, razer_updater, razer_warning};
 use blade_lite::report;
 
 use super::{Parts, Shell};
+
+/// How often Razer software is looked for, beside the start, each wake
+/// and each open again.
+const RAZER_LOOK_GAP: Duration = Duration::from_secs(60);
 
 impl<P: Parts> Shell<P> {
     /// Looks for Razer software. The next refresh shows the warning while
@@ -21,6 +28,15 @@ impl<P: Parts> Shell<P> {
                 return false;
             }
         };
+        let updater = razer_updater(&found);
+        if self.razer_updater.replace(updater) != updater {
+            report(if updater {
+                "a Razer updater runs, so the app sends nothing"
+            } else {
+                "no Razer updater runs now"
+            });
+        }
+        self.app.borrow_mut().hold_controller(updater);
         let warning = razer_warning(&found);
         let first = warning.is_some() && !self.razer_opened.replace(true);
         let before = self.razer_warning.replace(warning.clone());
@@ -32,6 +48,33 @@ impl<P: Parts> Shell<P> {
             );
         }
         first
+    }
+
+    /// Looks for Razer software each [`RAZER_LOOK_GAP`], as it may start
+    /// or end at any time; the windows are filled again on a change, and
+    /// opened on the first find of the run.
+    pub(super) fn look_for_razer_now_and_then(self: &Rc<Self>, now: Instant) {
+        let Some(last) = self.razer_looked.replace(Some(now)) else {
+            return;
+        };
+        if now.saturating_duration_since(last) < RAZER_LOOK_GAP {
+            self.razer_looked.set(Some(last));
+            return;
+        }
+        let before = self.razer_warning.borrow().clone();
+        let first = self.look_for_razer();
+        if first {
+            self.show_window();
+        } else if *self.razer_warning.borrow() != before {
+            self.refresh(None);
+        }
+    }
+
+    /// Whether the guards may read and send: not while a resume waits, nor
+    /// while a Razer updater runs. Razer's other software does not stop
+    /// them: a manual fan needs the fan guard.
+    pub(super) fn guards_allowed(&self) -> bool {
+        self.resuming.get() == 0 && !self.razer_updater.get()
     }
 
     #[cfg(test)]

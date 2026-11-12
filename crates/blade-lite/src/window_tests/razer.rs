@@ -17,6 +17,7 @@ use crate::Choice;
 use crate::shell::{Reopened, note_open};
 
 const SYNAPSE: &str = "Razer Synapse Service";
+const UPDATER: &str = "RazerFirmwareUpdater.exe";
 
 /// Looks, then fills the windows, as the app does at start.
 fn look(f: &Fixture) -> bool {
@@ -224,7 +225,7 @@ fn an_unlisted_firmware_shows_a_warning_beside_the_razer_one() {
 }
 
 #[test]
-fn the_fan_guard_sends_nothing_while_razer_software_runs() {
+fn the_fan_guard_sends_while_razer_software_runs() {
     let mut config = Config {
         preset: Preset::Custom,
         ..Config::default()
@@ -232,6 +233,55 @@ fn the_fan_guard_sends_nothing_while_razer_software_runs() {
     config.custom.fan_rpm = Some(1600);
     let f = fixture(config);
     f.shell.programs().set(&[SYNAPSE]);
+    look(&f);
+    let before = f.shell.app().machine().controller.inner.sent.len();
+    let start = std::time::Instant::now();
+
+    for second in 0..=ui::FAN_GUARD_HOLD.as_secs() {
+        f.shell
+            .watch_heat(None, Some(90), start + Duration::from_secs(second));
+    }
+
+    assert!(f.shell.app().machine().controller.inner.sent.len() > before);
+}
+
+#[test]
+fn a_click_sends_nothing_while_a_razer_updater_runs() {
+    let f = fixture(Config::default());
+    f.shell.programs().set(&[UPDATER]);
+    look(&f);
+    let before = f.shell.app().machine().controller.inner.sent.len();
+
+    click(f.shell.window(), Button, "Performance");
+
+    assert_eq!(f.shell.app().machine().controller.inner.sent.len(), before);
+    let error = f.shell.window().get_error();
+    assert!(error.contains("updater"), "{error}");
+}
+
+#[test]
+fn razer_software_started_later_is_found_within_a_minute() {
+    let f = fixture(Config::default());
+    f.shell.programs().set(&[SYNAPSE]);
+    let now = std::time::Instant::now();
+
+    f.shell.tick_at(now, std::time::SystemTime::now());
+    f.shell
+        .tick_at(now + Duration::from_secs(61), std::time::SystemTime::now());
+
+    let error = f.shell.window().get_error();
+    assert!(error.contains(SYNAPSE), "{error}");
+}
+
+#[test]
+fn the_fan_guard_sends_nothing_while_a_razer_updater_runs() {
+    let mut config = Config {
+        preset: Preset::Custom,
+        ..Config::default()
+    };
+    config.custom.fan_rpm = Some(1600);
+    let f = fixture(config);
+    f.shell.programs().set(&[UPDATER]);
     look(&f);
     let before = f.shell.app().machine().controller.inner.sent.len();
     let start = std::time::Instant::now();
