@@ -8,12 +8,17 @@ use std::time::{Duration, Instant, SystemTime};
 use blade_core::{GUARD_HEAT_INTERVAL, HEAT_INTERVAL, RESUME_PAUSE, Readings};
 use blade_lite::{AppError, report};
 use platform::{PowerEvent, num_lock_on};
+use razer_device::{CONTROLLER_CLOSED, CONTROLLER_OPENED_AGAIN};
 use slint::Timer;
 use ui::{DisplayView, Header, HeatWatch};
 
 use super::popup::{POPUP_HOLD, TOUCHPAD};
 use super::{AppOn, Parts, Reopened, Shell};
 use crate::bind;
+
+/// The key under which a closed or held controller's read failure counts
+/// in the quiet time.
+const GONE_KEY: &str = "controller closed or held";
 
 impl<P: Parts> Shell<P> {
     /// Passes on power events, tries a refused rate again, passes
@@ -100,6 +105,7 @@ impl<P: Parts> Shell<P> {
                     // This start covers an updater that just ended.
                     shell.updater_ended.set(false);
                     P::release_controller();
+                    shell.controller_gone.set(false);
                     // A firmware update may be what killed the old handle.
                     shell.app.borrow_mut().check_firmware();
                     // A power event in the pause was dropped: read the
@@ -448,9 +454,32 @@ impl<P: Parts> Shell<P> {
         self.watch_heat(cpu, gpu, now);
     }
 
-    /// Logs the failed reads not logged in the quiet time.
-    pub(super) fn say_read_errors(&self, errors: &[String]) {
-        for error in self.read_errors.borrow_mut().to_say(errors, Instant::now()) {
+    /// Logs the failed reads not logged in the quiet time. While the
+    /// controller is closed or held (it died, or waits after an open again),
+    /// its read failures are said once, until it is opened again: the open
+    /// and its failures are logged on their own (ticket 154).
+    pub(crate) fn say_read_errors(&self, errors: &[String]) {
+        let (gone, rest): (Vec<String>, Vec<String>) = errors.iter().cloned().partition(|error| {
+            [CONTROLLER_CLOSED, CONTROLLER_OPENED_AGAIN]
+                .iter()
+                .any(|mark| error.contains(mark))
+        });
+        // Also at most once per quiet time, so a handle that dies at each
+        // open again can't log a line each time.
+        let floor = [GONE_KEY.to_owned()];
+        if let Some(first) = gone.first()
+            && !self.controller_gone.replace(true)
+            && !self
+                .read_errors
+                .borrow_mut()
+                .to_say(&floor, Instant::now())
+                .is_empty()
+        {
+            report(&format!(
+                "read failed: {first} (more such reads are not logged until it is opened again)"
+            ));
+        }
+        for error in self.read_errors.borrow_mut().to_say(&rest, Instant::now()) {
             report(&format!("read failed: {error}"));
         }
     }

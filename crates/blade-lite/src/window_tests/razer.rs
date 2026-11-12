@@ -6,6 +6,7 @@ use std::time::Duration;
 use blade_core::{Config, Preset, RESUME_PAUSE};
 use i_slint_backend_testing::AccessibleRole::Button;
 use platform::PowerEvent;
+use razer_device::CONTROLLER_CLOSED;
 use razer_proto::{BLADE_18, NativeMode, PerfMode};
 use slint::{ComponentHandle, Model};
 
@@ -555,4 +556,38 @@ fn a_firmware_read_that_failed_is_tried_again_each_minute() {
 
     let error = f.shell.window().get_error();
     assert!(!error.contains("firmware"), "{error}");
+}
+
+#[test]
+fn read_failures_while_the_controller_is_gone_are_said_once() {
+    let f = fixture(Config::default());
+    let gone = |read: &str| {
+        format!("{read}: the controller call failed: the HID layer failed: {CONTROLLER_CLOSED}")
+    };
+    let log_lines = || {
+        std::fs::read_to_string(log_path())
+            .unwrap()
+            .lines()
+            .filter(|line| line.contains(CONTROLLER_CLOSED))
+            .count()
+    };
+    let before = log_lines();
+
+    f.shell
+        .say_read_errors(&[gone("CPU temperature"), gone("fans")]);
+    f.shell
+        .say_read_errors(&[gone("charger"), "GPU: driver error".to_owned()]);
+
+    assert_eq!(log_lines() - before, 1);
+    let log = std::fs::read_to_string(log_path()).unwrap();
+    assert!(log.contains("read failed: GPU: driver error"), "{log}");
+    assert!(log.contains("(more such reads are not logged until it is opened again)"));
+
+    // A handle that dies at each open again logs no line each time.
+    for _ in 0..2 {
+        reopen(&f, Reopened::Opened);
+        pause_ends();
+        f.shell.say_read_errors(&[gone("fans")]);
+    }
+    assert_eq!(log_lines() - before, 1);
 }

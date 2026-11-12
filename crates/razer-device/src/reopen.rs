@@ -64,9 +64,9 @@ impl<T: Transport, O: FnMut(bool) -> io::Result<T>> Reopening<T, O> {
     /// The handle, unless it is held. A held one sends and reads nothing.
     fn usable(&mut self) -> io::Result<Option<&mut T>> {
         if self.held.get() {
-            return Err(closed(
-                "the controller was opened again and waits for the app",
-            ));
+            return Err(closed(&format!(
+                "{CONTROLLER_OPENED_AGAIN} and waits for the app"
+            )));
         }
         Ok(self.transport.as_mut())
     }
@@ -96,7 +96,7 @@ impl<T: Transport, O: FnMut(bool) -> io::Result<T>> Reopening<T, O> {
             .opened_at
             .is_some_and(|at| now.duration_since(at) < gap)
         {
-            return closed("the controller is closed, and was tried a moment ago");
+            return closed(&format!("{CONTROLLER_CLOSED}, and was tried a moment ago"));
         }
         self.opened_at = Some(now);
         match (self.open)(self.worked) {
@@ -104,12 +104,20 @@ impl<T: Transport, O: FnMut(bool) -> io::Result<T>> Reopening<T, O> {
                 self.transport = Some(transport);
                 self.worked = false;
                 self.held.set(true);
-                closed("the controller was opened again, so this command was not sent")
+                closed(&format!(
+                    "{CONTROLLER_OPENED_AGAIN}, so this command was not sent"
+                ))
             }
             Err(error) => error,
         }
     }
 }
+
+/// How every refusal of a closed controller starts, so the app can tell it
+/// from other errors (its log says it once).
+pub const CONTROLLER_CLOSED: &str = "the controller is closed";
+/// How every refusal of a new handle that waits starts.
+pub const CONTROLLER_OPENED_AGAIN: &str = "the controller was opened again";
 
 fn closed(text: &str) -> io::Error {
     io::Error::new(io::ErrorKind::NotConnected, text)
@@ -125,9 +133,7 @@ impl<T: Transport, O: FnMut(bool) -> io::Result<T>> Transport for Reopening<T, O
     }
 
     fn read_report(&mut self) -> io::Result<[u8; REPORT_LEN]> {
-        let transport = self
-            .usable()?
-            .ok_or_else(|| closed("the controller is closed"))?;
+        let transport = self.usable()?.ok_or_else(|| closed(CONTROLLER_CLOSED))?;
         let read = transport.read_report();
         self.worked |= read.is_ok();
         self.keep_if_alive(read)

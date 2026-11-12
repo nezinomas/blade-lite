@@ -289,6 +289,9 @@ pub struct Shell<P: Parts = Laptop> {
     dialog_open: Cell<bool>,
     /// The background parts a panic stopped, shown above the groups.
     stopped_parts: RefCell<Vec<&'static str>>,
+    /// Whether a read failure of a closed or held controller was logged
+    /// since it was last opened again.
+    controller_gone: Cell<bool>,
     /// Whether the quit preset went, so it goes once.
     quit_sent: Cell<bool>,
 }
@@ -333,6 +336,7 @@ impl<P: Parts> Shell<P> {
             dialog_open: Cell::new(false),
             stopped_parts: RefCell::new(Vec::new()),
             quit_sent: Cell::new(false),
+            controller_gone: Cell::new(false),
         })
     }
 
