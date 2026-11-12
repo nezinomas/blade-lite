@@ -33,8 +33,8 @@ use blade_core::{
     razer_warning, start_instance, starts_in_tray,
 };
 use blade_lite::{
-    App, Machine, accent_colour, config_or_defaults, icon, open_log, report, report_panics,
-    try_times, try_until_it_works,
+    App, Machine, accent_colour, config_or_defaults, end_on_loop, icon, open_log, report,
+    report_panics, try_times, try_until_it_works,
 };
 use platform::{
     SessionEndWatch, WindowsDisplays, WindowsInstance, WindowsKeys, WindowsPrograms,
@@ -238,8 +238,23 @@ fn poll(shell: &Rc<Shell>) -> Timer {
     poll
 }
 
-/// Windows ends the session: the quit preset goes before it returns.
+/// How long the session end waits for the event loop to quit. Longer than
+/// the quit's own wait for a pause after a wake ([`RESUME_PAUSE`]), with
+/// room for a rate change to end first.
+const SESSION_END_WAIT: Duration = Duration::from_secs(10);
+
+/// Windows ends the session, heard on the watch's own thread: the quit
+/// preset goes on the event loop before this returns (ticket 159).
 fn on_session_end() {
+    end_on_loop(
+        slint::invoke_from_event_loop,
+        end_session_on_loop,
+        SESSION_END_WAIT,
+    );
+}
+
+/// The session end, on the event loop.
+fn end_session_on_loop() {
     if let Some(shell) = SHELL.with(|cell| cell.borrow().clone()) {
         shell.end_session();
     }

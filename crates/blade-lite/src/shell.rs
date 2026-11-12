@@ -419,8 +419,9 @@ impl<P: Parts> Shell<P> {
         if self.quit_sent.get() {
             return;
         }
-        // A session end can come inside a Windows call made while the app
-        // is borrowed: the quit after the loop then sends it.
+        // The session end runs from the event loop (ticket 159), so the
+        // app is free then, unless a Windows call made while it is borrowed
+        // runs the loop's work: the quit after the loop then sends it.
         let Ok(mut app) = self.app.try_borrow_mut() else {
             report(
                 "the app was busy, so the quit preset was not sent now: it goes at the end of the loop, if Windows lets the app run that long",
@@ -534,7 +535,8 @@ impl<P: Parts> Shell<P> {
 
     /// Windows ends the session (shut down, restart, sign out) or an
     /// installer closes the app: quits as Quit does, then ends the event
-    /// loop. Windows may end the process when this returns. Like Quit it
+    /// loop. Run from the event loop, while the thread that heard it waits
+    /// (ticket 159): Windows may end the process once that returns. Like Quit it
     /// first waits out the rest of a pause after a wake (at most 2 s),
     /// taken to fit in the about 5 s Windows gives before it shows the
     /// apps that block it: not checked on the laptop (laptop check 30).
