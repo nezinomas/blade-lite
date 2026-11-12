@@ -66,7 +66,7 @@ impl<P: Parts> Shell<P> {
         if self.resuming.get() > 0 || !self.updater_ended.take() {
             return;
         }
-        self.resuming.set(self.resuming.get().saturating_add(1));
+        self.begin_pause();
         let shell = Rc::clone(self);
         Timer::single_shot(RESUME_PAUSE, move || {
             shell.resuming.set(shell.resuming.get().saturating_sub(1));

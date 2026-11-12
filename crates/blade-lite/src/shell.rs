@@ -16,7 +16,9 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::Receiver;
 use std::time::{Duration, Instant};
 
-use blade_core::{ApplyError, Controller, PollSchedule, Query, Readings, ReadingsSampler};
+use blade_core::{
+    ApplyError, Controller, PollSchedule, Query, RESUME_PAUSE, Readings, ReadingsSampler,
+};
 use blade_lite::{App, AppError, Rect, SaidLately, ShownErrors, report, took_effect};
 use platform::{
     DisplayApi, FileDialog, KeyInjector, PowerEvent, Programs, Registry, WindowsDisplays,
@@ -263,6 +265,9 @@ pub struct Shell<P: Parts = Laptop> {
     /// paints it). A change of power source is dropped: the resume reads
     /// the source when the pause ends (ticket 88).
     resuming: Cell<u32>,
+    /// When the last of those pauses began, so a quit can wait out the
+    /// rest of it.
+    pause_began: Cell<Option<Instant>>,
     /// The app's count of failed preset sends at the start of the last tick.
     /// A poll sends the preset again only while it is unchanged, so never
     /// in the tick of a failure or the one after it.
@@ -317,6 +322,7 @@ impl<P: Parts> Shell<P> {
             popups: Cell::new(0),
             popup_ready: Cell::new(false),
             resuming: Cell::new(0),
+            pause_began: Cell::new(None),
             preset_failures_seen: Cell::new(0),
             power: RefCell::new(None),
             programs: P::Programs::default(),
@@ -370,15 +376,18 @@ impl<P: Parts> Shell<P> {
             return;
         };
         self.quit_sent.set(true);
+        self.note_pending_wake();
+        self.wait_out_the_pause();
         // Closed however the sends end, a panic too.
         let sent = std::panic::catch_unwind(AssertUnwindSafe(|| {
             // First: the fans matter more than the rate.
             let mut sent = app.quit_preset();
             if sent.as_ref().is_err_and(nothing_sent) {
                 // The controller holds a new handle (or just opened one), so
-                // nothing reached it: one more try is safe. It skips the 2 s
-                // pause and the Razer look a reopen gets, as the app ends; a
-                // controller not ready fails the reply check, and is logged.
+                // nothing reached it: one more try is safe. It skips the
+                // Razer look a reopen gets, and the 2 s pause unless one was
+                // already running, as the app ends; a controller not ready
+                // fails the reply check, and is logged.
                 P::release_controller();
                 sent = app.quit_preset();
             }
@@ -397,6 +406,44 @@ impl<P: Parts> Shell<P> {
         // After the fans: only the rate, a Windows call that may be slow.
         if let Err(error) = app.on_quit() {
             report(&format!("the panel may stay at 60 Hz: {error}"));
+        }
+    }
+
+    /// Starts a pause after a wake, an open again or an updater: the
+    /// controller may not be ready, so nothing is sent until it ends.
+    pub(super) fn begin_pause(&self) {
+        self.resuming.set(self.resuming.get().saturating_add(1));
+        self.pause_began.set(Some(Instant::now()));
+    }
+
+    /// A wake that Windows told of but no poll has read yet starts its
+    /// pause now, so the quit waits it out too. The events read here are
+    /// dropped: the app ends.
+    fn note_pending_wake(&self) {
+        let power = self.power.borrow().clone();
+        if power.is_some_and(|power| power.try_iter().any(|event| event == PowerEvent::Resumed)) {
+            self.begin_pause();
+        }
+    }
+
+    /// Waits out the rest of a pause that has not ended (ticket 137): a
+    /// quit sends at once otherwise, and the event loop that would end the
+    /// pause has stopped. At most [`RESUME_PAUSE`] (see `end_session` for
+    /// the time Windows gives). The newest pause ends last, as each lasts
+    /// [`RESUME_PAUSE`], so its start is the one kept.
+    fn wait_out_the_pause(&self) {
+        if self.resuming.get() == 0 {
+            return;
+        }
+        let left = self.pause_began.get().map_or(RESUME_PAUSE, |began| {
+            RESUME_PAUSE.saturating_sub(began.elapsed())
+        });
+        if !left.is_zero() {
+            report(&format!(
+                "the quit waits {} ms for the controller to be ready",
+                left.as_millis()
+            ));
+            std::thread::sleep(left);
         }
     }
 
@@ -424,9 +471,11 @@ impl<P: Parts> Shell<P> {
     }
 
     /// Windows ends the session (shut down, restart, sign out) or an
-    /// installer closes the app: quits as Quit does, at once, as Windows
-    /// may end the process when this returns (no wake pause, no retry
-    /// beyond Quit's own), then ends the event loop.
+    /// installer closes the app: quits as Quit does, then ends the event
+    /// loop. Windows may end the process when this returns. Like Quit it
+    /// first waits out the rest of a pause after a wake (at most 2 s),
+    /// taken to fit in the about 5 s Windows gives before it shows the
+    /// apps that block it: not checked on the laptop (laptop check 30).
     pub fn end_session(&self) {
         report("Windows ends the session, so the app quits");
         if std::panic::catch_unwind(AssertUnwindSafe(|| self.quit())).is_err() {

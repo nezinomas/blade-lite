@@ -300,6 +300,54 @@ fn a_stopped_background_part_shows_in_the_window() {
 }
 
 #[test]
+fn a_quit_right_after_a_wake_waits_out_the_pause_first() {
+    let f = fixture(Config {
+        preset: Preset::Performance,
+        ..Config::default()
+    });
+    let (sender, receiver) = std::sync::mpsc::channel();
+    sender.send(PowerEvent::Resumed).unwrap();
+    f.shell.follow_power(&receiver);
+    let before = sent_count(&f);
+    let start = Instant::now();
+
+    f.shell.quit();
+
+    assert!(start.elapsed() + Duration::from_millis(100) >= blade_core::RESUME_PAUSE);
+    assert_eq!(
+        sent_since(&f, before),
+        PerfMode::Balanced.commands(&BLADE_18).unwrap()
+    );
+}
+
+#[test]
+fn a_quit_waits_for_a_wake_no_poll_has_read_yet() {
+    let f = fixture(Config::default());
+    let (sender, receiver) = std::sync::mpsc::channel();
+    f.shell.listen_for_power(receiver);
+    sender.send(PowerEvent::Resumed).unwrap();
+    let start = Instant::now();
+
+    f.shell.quit();
+
+    assert!(start.elapsed() + Duration::from_millis(100) >= blade_core::RESUME_PAUSE);
+}
+
+#[test]
+fn a_quit_after_the_pause_ended_does_not_wait() {
+    let f = fixture(Config::default());
+    let (sender, receiver) = std::sync::mpsc::channel();
+    sender.send(PowerEvent::Resumed).unwrap();
+    f.shell.follow_power(&receiver);
+    i_slint_backend_testing::mock_elapsed_time(blade_core::RESUME_PAUSE + Duration::from_millis(1));
+    let start = Instant::now();
+
+    f.shell.quit();
+
+    assert!(start.elapsed() < Duration::from_secs(1));
+}
+
+#[test]
 fn quitting_from_silent_sends_silent() {
     let f = fixture(Config {
         preset: Preset::Silent,
