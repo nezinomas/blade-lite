@@ -207,7 +207,7 @@ mod tests {
     fn count_end() {
         ENDS.fetch_add(1, Ordering::SeqCst);
         if HOLD.load(Ordering::SeqCst) {
-            std::thread::sleep(Duration::from_millis(1500));
+            std::thread::sleep(Duration::from_millis(800));
         }
     }
 
