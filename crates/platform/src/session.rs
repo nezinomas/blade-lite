@@ -38,7 +38,7 @@ impl SessionEndWatch {
     /// The Windows error if the window can't be made, or an error if a
     /// watch was already started in this run (one per run).
     pub fn start(on_end: fn()) -> io::Result<Self> {
-        if ON_END.set(on_end).is_err() {
+        if ON_END.get().is_some() {
             return Err(io::Error::other("the session end is already watched"));
         }
         let class = wide("BladeLiteSessionEnd");
@@ -75,6 +75,9 @@ impl SessionEndWatch {
         if hwnd.is_null() {
             return Err(io::Error::last_os_error());
         }
+        // Only now: a failed start leaves no callback behind. Each
+        // message comes on this thread, after this returns.
+        let _ = ON_END.set(on_end);
         Ok(Self { hwnd })
     }
 }

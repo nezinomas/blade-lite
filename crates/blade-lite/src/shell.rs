@@ -351,10 +351,16 @@ impl<P: Parts> Shell<P> {
     /// goes to the log, as no window is left to show it.
     pub fn quit(&self) {
         // Once: a session end may have sent it already.
-        if self.quit_sent.replace(true) {
+        if self.quit_sent.get() {
             return;
         }
-        let mut app = self.app.borrow_mut();
+        // A session end can come inside a Windows call made while the app
+        // is borrowed: the quit after the loop then sends it.
+        let Ok(mut app) = self.app.try_borrow_mut() else {
+            report("the app was busy at the session end, so the quit preset waits");
+            return;
+        };
+        self.quit_sent.set(true);
         // First: the fans matter more than the rate.
         let mut sent = app.quit_preset();
         if sent.as_ref().is_err_and(nothing_sent) {
@@ -370,6 +376,10 @@ impl<P: Parts> Shell<P> {
                 "Balanced was not sent at quit, so a manual fan or Performance may keep running: {error}"
             ));
         }
+        // Nothing more may reach the controller: an event still queued, or
+        // the call this one came inside, would undo the quit preset.
+        app.close_controller();
+        // After the fans: only the rate, a Windows call that may be slow.
         if let Err(error) = app.on_quit() {
             report(&format!("the panel may stay at 60 Hz: {error}"));
         }
@@ -404,7 +414,9 @@ impl<P: Parts> Shell<P> {
     /// beyond Quit's own), then ends the event loop.
     pub fn end_session(&self) {
         report("Windows ends the session, so the app quits");
-        self.quit();
+        if std::panic::catch_unwind(AssertUnwindSafe(|| self.quit())).is_err() {
+            report("the quit at the session end panicked");
+        }
         // An error: the loop has already ended.
         let _ = slint::quit_event_loop();
     }

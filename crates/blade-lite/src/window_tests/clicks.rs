@@ -233,6 +233,38 @@ fn a_session_end_sends_the_quit_preset_once() {
 }
 
 #[test]
+fn nothing_is_sent_after_the_quit_preset() {
+    let f = fixture(Config::default());
+    f.shell.end_session();
+    let before = sent_count(&f);
+
+    click(f.shell.window(), Button, "Performance");
+    f.shell.act(|app| app.on_power(PowerEvent::Resumed));
+
+    assert_eq!(sent_since(&f, before), []);
+}
+
+#[test]
+fn a_session_end_while_the_app_is_busy_leaves_the_quit_preset_to_the_quit() {
+    let f = fixture(Config {
+        preset: Preset::Performance,
+        ..Config::default()
+    });
+    let before = sent_count(&f);
+
+    {
+        let _busy = f.shell.app();
+        f.shell.end_session();
+    }
+    f.shell.quit();
+
+    assert_eq!(
+        sent_since(&f, before),
+        PerfMode::Balanced.commands(&BLADE_18).unwrap()
+    );
+}
+
+#[test]
 fn a_stopped_background_part_shows_in_the_window() {
     let f = fixture(Config::default());
     let before = sent_count(&f);
