@@ -554,6 +554,7 @@ name = "blade-core"
 version = "0.1.0"
 dependencies = [
  "platform",
+ "proptest",
  "razer-device",
  "razer-proto",
  "serde",
@@ -4253,6 +4254,7 @@ version = "0.1.0"
 dependencies = [
  "hidapi",
  "platform",
+ "proptest",
  "razer-proto",
 ]
 

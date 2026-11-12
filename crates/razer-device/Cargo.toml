@@ -12,6 +12,7 @@ hidapi = { version = "2.6", default-features = false, features = ["windows-nativ
 razer-proto = { path = "../razer-proto" }
 
 [dev-dependencies]
+proptest = "1.11.0"
 platform = { path = "../platform" }
 
 [lints]
