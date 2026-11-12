@@ -153,13 +153,19 @@ pub fn follow_the_power_key() {
     spawn_part("power-mode key", move || {
         // Each problem is said once, not each time it is tried again.
         let mut said = ShownErrors::default();
+        // The key state is kept over a quiet-spell reopen, so a first press
+        // after it counts (ticket 158); new after a failure, as the gap is
+        // unknown.
+        let mut presses = PowerKeyPresses::new(key);
         loop {
             let (problem, pause) = match HidKeyReports::open(&BLADE_18) {
                 Ok(mut reports) => {
-                    let presses = PowerKeyPresses::new(key);
                     let started = Instant::now();
-                    let end = step_on_presses(&mut reports, &mut WindowsFnKeys, presses, on_key);
-                    let pause = end.pause_before_open(started.elapsed());
+                    let end =
+                        step_on_presses(&mut reports, &mut WindowsFnKeys, &mut presses, on_key);
+                    let ran = started.elapsed();
+                    presses = end.next_presses(ran, &presses);
+                    let pause = end.pause_before_open(ran);
                     let problem = match end {
                         ReaderEnd::Quit => return,
                         ReaderEnd::Reopen => String::new(),
@@ -167,10 +173,13 @@ pub fn follow_the_power_key() {
                     };
                     (problem, pause)
                 }
-                Err(error) => (
-                    format!("no power-mode key for now: {error}"),
-                    KEY_REOPEN_PAUSE,
-                ),
+                Err(error) => {
+                    presses = presses.fresh();
+                    (
+                        format!("no power-mode key for now: {error}"),
+                        KEY_REOPEN_PAUSE,
+                    )
+                }
             };
             if let Some(text) = said.new_text(&problem) {
                 report(text);

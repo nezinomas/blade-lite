@@ -104,11 +104,36 @@ impl ReaderEnd {
     /// in a long run gets one open at once; the next, short run pauses.
     #[must_use]
     pub fn pause_before_open(&self, ran: Duration) -> Duration {
-        let full_spell = KEY_READ_WAIT * KEY_IDLE_READS;
-        if *self == Self::Reopen && ran >= full_spell / 2 {
+        if self.keeps_key_state(ran) {
             Duration::ZERO
         } else {
             KEY_REOPEN_PAUSE
+        }
+    }
+
+    /// Whether this was a real quiet spell, after a reader that ran for
+    /// `ran`, so the next open keeps the key as last seen and a first
+    /// press after it counts (ticket 158; see
+    /// [`blade_core::PowerKeyPresses::after_quiet_spell`]). Not after a
+    /// failure, or a run too short for its quiet reads to have waited (a
+    /// broken handle): either may hide a gap, such as a sleep, so the
+    /// state starts unknown again. A full spell may hide a sleep too; then
+    /// a key pressed down in the gap counts once: a real press, still held
+    /// to the pause between steps.
+    #[must_use]
+    pub fn keeps_key_state(&self, ran: Duration) -> bool {
+        let full_spell = KEY_READ_WAIT * KEY_IDLE_READS;
+        *self == Self::Reopen && ran >= full_spell / 2
+    }
+
+    /// The key state for the next open, after a reader that ran for `ran`
+    /// with `presses`: kept after a real quiet spell, else new.
+    #[must_use]
+    pub fn next_presses(&self, ran: Duration, presses: &PowerKeyPresses) -> PowerKeyPresses {
+        if self.keeps_key_state(ran) {
+            presses.after_quiet_spell()
+        } else {
+            presses.fresh()
         }
     }
 }
@@ -116,11 +141,12 @@ impl ReaderEnd {
 /// Reads reports, and Enter and the mic keys while Fn is held, and calls
 /// `on_key` for each press, every [`blade_core::BRIGHTNESS_READ_GAP`] while Fn is held,
 /// and each time Fn comes up. `on_key` returns false once the
-/// app is quitting.
+/// app is quitting. `presses` keeps the key state for the next run (see
+/// [`ReaderEnd::keeps_key_state`]).
 pub fn step_on_presses(
     source: &mut impl KeyReportSource,
     keys: &mut impl FnKeys,
-    mut presses: PowerKeyPresses,
+    presses: &mut PowerKeyPresses,
     mut on_key: impl FnMut(KeyEvent) -> bool,
 ) -> ReaderEnd {
     let mut quiet = 0;
