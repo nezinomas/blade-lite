@@ -51,7 +51,7 @@ pub fn watch_the_loop() {
         let mut dog = Watchdog::new(Instant::now());
         loop {
             std::thread::sleep(LOOK_GAP);
-            let beat = BEAT.lock().map_or(None, |beat| *beat);
+            let beat = BEAT.lock().ok().and_then(|beat| *beat);
             if let Some(text) = dog.look(beat, Instant::now()) {
                 report(&text);
             }

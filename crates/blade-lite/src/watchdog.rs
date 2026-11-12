@@ -37,7 +37,8 @@ impl Watchdog {
     /// Looks at the loop's last `beat` (`None` before the first). A line to
     /// log when the loop stalls, and one when it beats again.
     pub fn look(&mut self, beat: Option<Instant>, now: Instant) -> Option<String> {
-        if now.saturating_duration_since(self.last_look) >= SLEPT {
+        // A stall stays until a beat ends it, sleep or not.
+        if now.saturating_duration_since(self.last_look) >= SLEPT && !self.stalled {
             self.awake_since = now;
         }
         self.last_look = now;
@@ -133,5 +134,33 @@ mod tests {
         let said = looks(&mut dog, start, beat, 3605, 3625);
 
         assert!(said.is_empty(), "{said:?}");
+    }
+
+    #[test]
+    fn a_loop_that_stays_still_after_a_sleep_is_said_30_s_after_the_wake() {
+        let start = Instant::now();
+        let mut dog = Watchdog::new(start);
+        let beat = Some(start + SECOND * 5);
+        assert_eq!(looks(&mut dog, start, beat, 5, 5), Vec::<String>::new());
+
+        let said = looks(&mut dog, start, beat, 3605, 3640);
+
+        assert_eq!(said.len(), 1, "{said:?}");
+        assert!(
+            said[0].starts_with("the app has not run its checks for 30 s"),
+            "{said:?}"
+        );
+    }
+
+    #[test]
+    fn a_sleep_in_a_stall_does_not_end_it() {
+        let start = Instant::now();
+        let mut dog = Watchdog::new(start);
+        let beat = Some(start);
+        assert_eq!(looks(&mut dog, start, beat, 5, 30).len(), 1);
+
+        let said = looks(&mut dog, start, beat, 3605, 3700);
+
+        assert_eq!(said, Vec::<String>::new());
     }
 }
