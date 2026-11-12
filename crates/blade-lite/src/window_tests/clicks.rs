@@ -172,6 +172,36 @@ fn a_run_that_ends_sends_the_quit_preset() {
 }
 
 #[test]
+fn a_panic_in_the_run_sends_the_quit_preset_and_ends_with_an_error() {
+    let f = fixture(Config {
+        preset: Preset::Performance,
+        ..Config::default()
+    });
+    let before = sent_count(&f);
+
+    let ended = f.shell.serve(|| -> Result<(), &str> { panic!("a bug") });
+
+    assert_eq!(ended, Err(crate::shell::PANICKED));
+    assert_eq!(
+        sent_since(&f, before),
+        PerfMode::Balanced.commands(&BLADE_18).unwrap()
+    );
+}
+
+#[test]
+fn a_stopped_background_part_shows_in_the_window() {
+    let f = fixture(Config::default());
+    let before = sent_count(&f);
+
+    f.shell.part_stopped("power-mode key");
+
+    let shown = f.shell.window().get_error().to_string();
+    assert!(shown.contains("power-mode key"), "{shown}");
+    assert!(f.shell.window().window().is_visible());
+    assert_eq!(sent_since(&f, before), []);
+}
+
+#[test]
 fn quitting_from_silent_sends_silent() {
     let f = fixture(Config {
         preset: Preset::Silent,

@@ -1,6 +1,7 @@
 //! Threads that wait for the world outside the app: a second start, the
 //! touchpad, the power-mode key and the power source.
 
+use std::panic::AssertUnwindSafe;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver};
 use std::time::{Duration, Instant};
@@ -15,9 +16,25 @@ use razer_proto::BLADE_18;
 
 use crate::SHELL;
 
+/// Runs a background part on its own thread. A panic in it (a bug) ends
+/// only that part: the panic hook logs it, and the window says so.
+fn spawn_part(part: &'static str, body: impl FnOnce() + Send + 'static) {
+    std::thread::spawn(move || {
+        if std::panic::catch_unwind(AssertUnwindSafe(body)).is_ok() {
+            return;
+        }
+        // An error: the event loop has ended, so the app is quitting.
+        let _ = slint::invoke_from_event_loop(move || {
+            if let Some(shell) = SHELL.with(|cell| cell.borrow().clone()) {
+                shell.part_stopped(part);
+            }
+        });
+    });
+}
+
 /// Opens the window each time a second copy asks, from a thread that waits.
 pub fn open_window_on_wake(listener: WakeListener) {
-    std::thread::spawn(move || {
+    spawn_part("second start", move || {
         loop {
             match listener.wait(Duration::MAX) {
                 Ok(true) => {}
@@ -61,7 +78,7 @@ pub fn watch_touchpad() -> Option<RegistryWatch> {
 /// Paints the touchpad key each time the touchpad state changes, however
 /// it was switched, from a thread that waits.
 pub fn follow_the_touchpad(watch: RegistryWatch) {
-    std::thread::spawn(move || {
+    spawn_part("touchpad key", move || {
         loop {
             match wait_for_quiet_change(&watch) {
                 Ok(true) => {}
@@ -104,7 +121,7 @@ pub fn follow_the_power_key() {
     let Some(key) = BLADE_18.power_key else {
         return;
     };
-    std::thread::spawn(move || {
+    spawn_part("power-mode key", move || {
         // Each problem is said once, not each time it is tried again.
         let mut said = ShownErrors::default();
         loop {
@@ -222,7 +239,7 @@ pub fn power_events() -> Receiver<PowerEvent> {
     let (sender, receiver) = mpsc::channel();
     match WindowsPowerEvents::register() {
         Ok(mut events) => {
-            std::thread::spawn(move || {
+            spawn_part("power events", move || {
                 while let Some(event) = events.next_event() {
                     if sender.send(event).is_err() {
                         break;
