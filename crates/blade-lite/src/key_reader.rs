@@ -111,16 +111,28 @@ impl ReaderEnd {
             KEY_REOPEN_PAUSE
         }
     }
+
+    /// Whether the next open keeps the key state of this run. Only a quiet
+    /// spell does: no report came, so the keys are as last seen, and a
+    /// first press after it counts. A failure may hide a gap, such as a
+    /// sleep, so the state starts unknown again. Any Fn state kept is older
+    /// than the spell, so past [`blade_core::FN_HOLD_LIMIT`] and
+    /// [`blade_core::BRIGHTNESS_HOLD_LIMIT`].
+    #[must_use]
+    pub fn keeps_key_state(&self) -> bool {
+        *self == Self::Reopen
+    }
 }
 
 /// Reads reports, and Enter and the mic keys while Fn is held, and calls
 /// `on_key` for each press, every [`blade_core::BRIGHTNESS_READ_GAP`] while Fn is held,
 /// and each time Fn comes up. `on_key` returns false once the
-/// app is quitting.
+/// app is quitting. `presses` keeps the key state for the next run (see
+/// [`ReaderEnd::keeps_key_state`]).
 pub fn step_on_presses(
     source: &mut impl KeyReportSource,
     keys: &mut impl FnKeys,
-    mut presses: PowerKeyPresses,
+    presses: &mut PowerKeyPresses,
     mut on_key: impl FnMut(KeyEvent) -> bool,
 ) -> ReaderEnd {
     let mut quiet = 0;
