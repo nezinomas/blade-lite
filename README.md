@@ -154,6 +154,11 @@ The app is made to run with Synapse and its Razer Control Device driver
 removed. Step-by-step removal and rollback notes will be added before the
 first release. Make a restore point and keep the Synapse installer first.
 
+## If the fans are stuck
+
+If the fans stay fast or slow, or Performance stays on battery, see
+[docs/recovery.md](docs/recovery.md).
+
 ## Credits
 
 This app ports code and protocol facts from other open-source projects.

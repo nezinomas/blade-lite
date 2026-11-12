@@ -86,6 +86,10 @@ fn main() -> ExitCode {
 /// The window title of the start's message boxes.
 const START_BOX_TITLE: &str = "Blade Lite";
 
+/// Where to read what to do when the fans or the power mode are stuck.
+const RECOVERY: &str =
+    "Fans or power mode stuck? See docs/recovery.md at https://github.com/nezinomas/blade-lite";
+
 /// Shows a failed start in a message box with the log's path: a release
 /// build has no console, and the app ends with no window or tray icon.
 fn show_start_error(error: &str) {
@@ -95,7 +99,7 @@ fn show_start_error(error: &str) {
     );
     platform::show_error(
         START_BOX_TITLE,
-        &format!("Blade Lite stopped:\n\n{error}\n\nLog: {log}"),
+        &format!("Blade Lite stopped:\n\n{error}\n\nLog: {log}\n\n{RECOVERY}"),
     );
 }
 
