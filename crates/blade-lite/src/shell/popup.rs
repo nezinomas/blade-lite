@@ -63,7 +63,6 @@ impl<P: Parts> Shell<P> {
         let mut guard = self.fan_guard.get();
         guard.note(cpu, gpu, now);
         self.fan_guard.set(guard);
-        self.say_gpu_fault(guard.held_by_gpu_fault(), cpu, gpu);
         if !self.heat_reads_allowed() {
             return;
         }
@@ -85,13 +84,18 @@ impl<P: Parts> Shell<P> {
             }
             Err(error) => self.act(|_| Err(error)),
         }
+        self.say_gpu_fault(guard.held_by_gpu_fault(), cpu, gpu);
     }
 
     /// Logs once when the guard starts to hold a manual fan at full speed
     /// only for failed GPU reads, and once when that ends (ticket 163):
     /// else only a throttled read failure says why the fans stay loud.
     fn say_gpu_fault(&self, held: bool, cpu: Option<u32>, gpu: Option<u32>) {
-        let held = held && self.app.borrow().manual_fan_runs();
+        let app = self.app.borrow();
+        // Not while its full speed waits for a resend: the fans may still
+        // run at the saved speed.
+        let held = held && app.manual_fan_runs() && !app.boost_unsent();
+        drop(app);
         if held == self.gpu_fault_said.replace(held) {
             return;
         }
@@ -102,7 +106,7 @@ impl<P: Parts> Shell<P> {
             ));
         } else {
             report(&format!(
-                "fan guard: no longer held only by failed GPU reads (CPU {}, GPU {})",
+                "fan guard: failed GPU reads no longer hold a manual fan at full speed (CPU {}, GPU {})",
                 shown(cpu),
                 shown(gpu)
             ));

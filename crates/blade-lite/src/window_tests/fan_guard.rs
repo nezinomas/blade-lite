@@ -6,7 +6,7 @@ use std::time::{Duration, Instant, SystemTime};
 use blade_core::{Config, Preset};
 use razer_proto::BLADE_18;
 
-use super::{FAKE_GPU, FakeGpu, Fixture, fixture, log_path};
+use super::{FAKE_GPU, FakeGpu, Fixture, fixture, fixture_with_programs, log_path};
 
 const SET_FAN_TARGET: u16 = 0x0D01;
 
@@ -85,7 +85,7 @@ fn failed_gpu_reads_hold_a_manual_fan_at_full_speed_and_say_so() {
     let before = sent_count(&f);
     // A CPU heat no other test uses, so these lines are this test's.
     let held = "fan guard: Full speed held only by failed GPU reads (CPU 63 °C)";
-    let ended = "fan guard: no longer held only by failed GPU reads (CPU 63 °C, GPU 50 °C)";
+    let ended = "fan guard: failed GPU reads no longer hold a manual fan at full speed (CPU 63 °C, GPU 50 °C)";
 
     let now = ticks(&f, now, ui::FAN_GUARD_COOL_HOLD * 3, 63);
 
@@ -98,4 +98,23 @@ fn failed_gpu_reads_hold_a_manual_fan_at_full_speed_and_say_so() {
     assert_eq!(log_lines(ended), 1);
     assert_eq!(log_lines(held), 1);
     assert_eq!(fan_speeds_since(&f, before), [1600; 4]);
+}
+
+#[test]
+fn failed_gpu_reads_say_nothing_while_razer_software_runs() {
+    let mut config = Config {
+        preset: Preset::Custom,
+        ..Config::default()
+    };
+    config.custom.fan_rpm = Some(1600);
+    let f = fixture_with_programs(config, &["Razer Synapse Service"]);
+    FAKE_GPU.set(FakeGpu::Fails);
+    let now = ticks(&f, Instant::now(), Duration::from_secs(3), 96);
+
+    ticks(&f, now, ui::FAN_GUARD_COOL_HOLD * 3, 64);
+
+    assert_eq!(
+        log_lines("fan guard: Full speed held only by failed GPU reads (CPU 64 °C)"),
+        0
+    );
 }
