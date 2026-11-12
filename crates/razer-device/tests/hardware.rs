@@ -655,3 +655,73 @@ fn the_users_custom_with_and_without_the_app_reads() {
     quiet.unwrap();
     polled.unwrap();
 }
+
+#[test]
+#[ignore = "needs the Blade 18, and runs the fans on manual for about 3 min"]
+fn which_boost_holds_a_manual_fan_back() {
+    use razer_proto::{BLADE_18, CpuBoost, Custom, FanMode, GpuBoost, Rpm};
+
+    let mut device = Device::new(open(), SystemClock);
+    let before = custom_state(&mut device);
+    // CPU boost, GPU boost, fan RPM (ticket 173: 3 and 3 held 3600 at 2900).
+    let cases = [(3, 1, 3600), (1, 3, 3600), (2, 2, 3600), (3, 3, 4500)];
+
+    // From here on every step keeps its result, and the state is put back
+    // before any assert.
+    let mut seen = Vec::new();
+    for (cpu, gpu, rpm) in cases {
+        let custom = Custom {
+            cpu: CpuBoost::new(cpu, &BLADE_18).unwrap(),
+            gpu: GpuBoost::new(gpu, &BLADE_18).unwrap(),
+            fan: FanMode::Manual(Rpm::new(rpm, &BLADE_18).unwrap()),
+        }
+        .commands(&BLADE_18);
+        let watched = device
+            .run(&custom)
+            .map_err(|error| error.to_string())
+            .and_then(|()| watch_fans_for(&mut device, 40, false));
+        let failed = watched.is_err();
+        seen.push(((cpu, gpu, rpm), watched));
+        if failed {
+            break;
+        }
+    }
+
+    // Put back as the Custom test does: boosts and fan targets, then modes.
+    let put_back: Vec<_> = before[4..6]
+        .iter()
+        .map(|args| (SET_BOOST, args))
+        .chain(before[6..8].iter().map(|args| (SET_FAN, args)))
+        .chain(before[..4].iter().map(|args| (0x0D02, args)))
+        .map(|(id, args)| {
+            device
+                .send(id, args)
+                .map(|_| ())
+                .map_err(|error| error.to_string())
+        })
+        .collect();
+    let after = custom_state(&mut device);
+
+    eprintln!("before {before:02X?}");
+    for (case, watched) in &seen {
+        match watched {
+            Ok(reads) => {
+                for (step, (target, real)) in reads.iter().enumerate() {
+                    eprintln!(
+                        "cpu, gpu, rpm {case:?} {:>2} s: target {target:02X?}, real {real:02X?}",
+                        (step + 1) * 5
+                    );
+                }
+            }
+            Err(error) => eprintln!("cpu, gpu, rpm {case:?}: {error}"),
+        }
+    }
+    eprintln!("put back {put_back:?}\nafter {after:02X?}");
+    // The lasting state first, so its error is never hidden.
+    assert!(put_back.iter().all(Result::is_ok), "check the fans by hand");
+    assert_eq!(after, before);
+    assert_eq!(seen.len(), cases.len());
+    for (_, watched) in seen {
+        watched.unwrap();
+    }
+}
