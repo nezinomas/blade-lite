@@ -3,11 +3,14 @@
 
 use std::io;
 
-use windows_sys::Win32::Foundation::{POINT, RECT};
+use windows_sys::Win32::Foundation::{HWND, POINT, RECT};
 use windows_sys::Win32::Graphics::Gdi::{
     GetMonitorInfoW, MONITOR_DEFAULTTONEAREST, MONITORINFO, MonitorFromPoint,
 };
-use windows_sys::Win32::UI::WindowsAndMessaging::{SPI_GETWORKAREA, SystemParametersInfoW};
+use windows_sys::Win32::UI::WindowsAndMessaging::{
+    HWND_TOPMOST, SPI_GETWORKAREA, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SetWindowPos,
+    SystemParametersInfoW,
+};
 
 const NO_RECT: RECT = RECT {
     left: 0,
@@ -61,6 +64,24 @@ pub fn work_area_at((x, y): (i32, i32)) -> io::Result<(i32, i32, i32, i32)> {
     Ok(sides(info.rcWork))
 }
 
+/// Puts a window at the top of the topmost windows, without the focus.
+/// Topmost alone is not enough: a full-screen game that made itself
+/// topmost later stays above it (ticket 155).
+///
+/// # Errors
+///
+/// The Windows error if the call fails, such as for a handle that is not a
+/// live window.
+pub fn raise_topmost(hwnd: isize) -> io::Result<()> {
+    let flags = SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE;
+    // SAFETY: a plain call on a handle; a bad handle only makes it fail.
+    let done = unsafe { SetWindowPos(hwnd as HWND, HWND_TOPMOST, 0, 0, 0, 0, flags) };
+    if done == 0 {
+        return Err(io::Error::last_os_error());
+    }
+    Ok(())
+}
+
 /// A Windows rect as `(x, y, width, height)`.
 const fn sides(area: RECT) -> (i32, i32, i32, i32) {
     (
@@ -69,4 +90,97 @@ const fn sides(area: RECT) -> (i32, i32, i32, i32) {
         area.right - area.left,
         area.bottom - area.top,
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use std::ptr::null_mut;
+
+    use windows_sys::Win32::Foundation::HWND;
+    use windows_sys::Win32::UI::WindowsAndMessaging::{
+        CreateWindowExW, DestroyWindow, GW_HWNDNEXT, GWL_EXSTYLE, GetWindow, GetWindowLongPtrW,
+        WS_EX_TOPMOST, WS_POPUP,
+    };
+
+    use super::raise_topmost;
+    use crate::wide;
+
+    /// A hidden popup, topmost or not.
+    fn window(ex_style: u32) -> isize {
+        let class = wide("STATIC");
+        // SAFETY: the class name outlives the call; every other pointer is
+        // null, which the call allows.
+        let hwnd = unsafe {
+            CreateWindowExW(
+                ex_style,
+                class.as_ptr(),
+                null_mut(),
+                WS_POPUP,
+                0,
+                0,
+                100,
+                100,
+                null_mut(),
+                null_mut(),
+                null_mut(),
+                null_mut(),
+            )
+        };
+        assert!(!hwnd.is_null(), "no test window");
+        hwnd as isize
+    }
+
+    /// Whether `upper` is above `lower` in the z-order.
+    fn above(upper: isize, lower: isize) -> bool {
+        let mut next = upper as HWND;
+        while !next.is_null() {
+            // SAFETY: a plain call on a live window; the walk ends at the
+            // bottom with null.
+            next = unsafe { GetWindow(next, GW_HWNDNEXT) };
+            if next as isize == lower {
+                return true;
+            }
+        }
+        false
+    }
+
+    fn destroy(hwnd: isize) {
+        // SAFETY: a window this test made, on its own thread.
+        unsafe { DestroyWindow(hwnd as _) };
+    }
+
+    #[test]
+    fn a_topmost_window_goes_above_a_later_topmost_one() {
+        // As a full-screen game that made itself topmost after the popup.
+        let popup = window(WS_EX_TOPMOST);
+        let game = window(WS_EX_TOPMOST);
+        let before = above(popup, game);
+
+        let result = raise_topmost(popup);
+
+        let after = above(popup, game);
+        destroy(game);
+        destroy(popup);
+        result.unwrap();
+        assert!(!before, "the test starts with the popup under the game");
+        assert!(after);
+    }
+
+    #[test]
+    fn a_plain_window_becomes_topmost() {
+        let popup = window(0);
+
+        let result = raise_topmost(popup);
+
+        // SAFETY: a live window this thread made.
+        let ex_style = unsafe { GetWindowLongPtrW(popup as _, GWL_EXSTYLE) };
+        destroy(popup);
+        result.unwrap();
+        assert_ne!(ex_style & WS_EX_TOPMOST as isize, 0);
+    }
+
+    #[test]
+    fn a_handle_that_is_no_window_is_an_error() {
+        assert!(raise_topmost(0).is_err());
+    }
 }
