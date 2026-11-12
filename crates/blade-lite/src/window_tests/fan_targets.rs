@@ -261,3 +261,19 @@ fn a_failed_fan_target_send_is_shown_and_not_tried_again() {
     let tried = f.shell.app().machine().controller.inner.runs - runs;
     assert_eq!(tried, 1, "one try, no retry");
 }
+
+#[test]
+fn fan_targets_due_when_an_updater_holds_the_controller_are_dropped() {
+    let f = fixture(manual_fan_saved(Preset::Balanced));
+    click(f.shell.window(), Button, "Custom");
+    f.shell.programs().set(&["RazerFirmwareUpdater.exe"]);
+    f.shell.look_for_razer();
+    let t0 = Instant::now();
+
+    tick(&f, t0);
+    assert_eq!(f.shell.app().fan_targets_due(), None);
+    let runs = f.shell.app().machine().controller.inner.runs;
+    tick(&f, t0 + Duration::from_secs(2));
+
+    assert_eq!(f.shell.app().machine().controller.inner.runs, runs);
+}

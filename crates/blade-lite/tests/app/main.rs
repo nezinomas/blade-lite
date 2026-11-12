@@ -5,6 +5,7 @@ mod brightness_keys;
 mod display;
 mod fakes;
 mod fan_guard;
+mod fan_targets;
 mod firmware;
 mod header;
 mod keyboard;
