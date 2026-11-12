@@ -376,6 +376,7 @@ impl<P: Parts> Shell<P> {
             return;
         };
         self.quit_sent.set(true);
+        self.note_pending_wake();
         self.wait_out_the_pause();
         // Closed however the sends end, a panic too.
         let sent = std::panic::catch_unwind(AssertUnwindSafe(|| {
@@ -383,9 +384,10 @@ impl<P: Parts> Shell<P> {
             let mut sent = app.quit_preset();
             if sent.as_ref().is_err_and(nothing_sent) {
                 // The controller holds a new handle (or just opened one), so
-                // nothing reached it: one more try is safe. It skips the 2 s
-                // pause and the Razer look a reopen gets, as the app ends; a
-                // controller not ready fails the reply check, and is logged.
+                // nothing reached it: one more try is safe. It skips the
+                // Razer look a reopen gets, and the 2 s pause unless one was
+                // already running, as the app ends; a controller not ready
+                // fails the reply check, and is logged.
                 P::release_controller();
                 sent = app.quit_preset();
             }
@@ -414,10 +416,21 @@ impl<P: Parts> Shell<P> {
         self.pause_began.set(Some(Instant::now()));
     }
 
+    /// A wake that Windows told of but no poll has read yet starts its
+    /// pause now, so the quit waits it out too. The events read here are
+    /// dropped: the app ends.
+    fn note_pending_wake(&self) {
+        let power = self.power.borrow().clone();
+        if power.is_some_and(|power| power.try_iter().any(|event| event == PowerEvent::Resumed)) {
+            self.begin_pause();
+        }
+    }
+
     /// Waits out the rest of a pause that has not ended (ticket 137): a
     /// quit sends at once otherwise, and the event loop that would end the
-    /// pause has stopped. At most [`RESUME_PAUSE`], which fits in the time
-    /// Windows gives a session end.
+    /// pause has stopped. At most [`RESUME_PAUSE`] (see `end_session` for
+    /// the time Windows gives). The newest pause ends last, as each lasts
+    /// [`RESUME_PAUSE`], so its start is the one kept.
     fn wait_out_the_pause(&self) {
         if self.resuming.get() == 0 {
             return;
@@ -427,7 +440,7 @@ impl<P: Parts> Shell<P> {
         });
         if !left.is_zero() {
             report(&format!(
-                "the quit waits {} ms for the controller after a wake",
+                "the quit waits {} ms for the controller to be ready",
                 left.as_millis()
             ));
             std::thread::sleep(left);
@@ -458,9 +471,11 @@ impl<P: Parts> Shell<P> {
     }
 
     /// Windows ends the session (shut down, restart, sign out) or an
-    /// installer closes the app: quits as Quit does, at once, as Windows
-    /// may end the process when this returns (no wake pause, no retry
-    /// beyond Quit's own), then ends the event loop.
+    /// installer closes the app: quits as Quit does, then ends the event
+    /// loop. Windows may end the process when this returns. Like Quit it
+    /// first waits out the rest of a pause after a wake (at most 2 s),
+    /// taken to fit in the about 5 s Windows gives before it shows the
+    /// apps that block it: not checked on the laptop (laptop check 30).
     pub fn end_session(&self) {
         report("Windows ends the session, so the app quits");
         if std::panic::catch_unwind(AssertUnwindSafe(|| self.quit())).is_err() {
