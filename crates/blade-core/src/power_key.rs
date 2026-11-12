@@ -102,16 +102,14 @@ impl PowerKeyPresses {
     }
 
     /// The state to go on with after the reports were opened again over a
-    /// quiet spell. The key as last seen stays, so a key last seen held
-    /// does not step again, and so do the step and mic times, so the pause
-    /// still holds. Fn, Enter and the mic keys start unknown: a release
-    /// may have been lost in the gap.
+    /// quiet spell. The key as last seen stays, so a key stuck down does
+    /// not step again after each quiet spell. Fn, Enter and the mic keys
+    /// start unknown: a release may have been lost in the gap. The step
+    /// times go: a quiet spell is far longer than [`POWER_KEY_PAUSE`].
     #[must_use]
     pub fn after_quiet_spell(&self) -> Self {
         Self {
             held: self.held,
-            last_step: self.last_step,
-            last_mic: self.last_mic,
             ..self.fresh()
         }
     }

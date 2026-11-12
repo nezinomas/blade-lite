@@ -40,8 +40,9 @@ fn a_first_fn_and_numpad_enter_steps_once() {
     let mut presses = PowerKeyPresses::new(BLADE_18.power_key.unwrap());
     let now = Instant::now();
 
-    assert!(presses.on_report(&report(&KEY_DOWN), now));
+    assert!(presses.on_report(&report(&[0x04, 0x0A, 0xD3]), now));
     // Windows may get the Enter too: Enter starts unknown, so no second step.
+    assert!(presses.watching_enter(now));
     assert!(!presses.on_enter(true, now + POWER_KEY_PAUSE));
 }
 
@@ -388,18 +389,22 @@ fn after_a_quiet_spell_the_key_state_stays_and_the_fn_state_goes() {
     // Fn's release may have been lost in the gap.
     assert!(!presses.watching_enter(now));
     assert!(!presses.brightness_due(now + BRIGHTNESS_READ_GAP));
-    // The key was last seen up, so the first press counts (ticket 158).
+    // The key was last seen up, so the first press counts.
     assert!(presses.on_report(&report(&[0x04, 0xD3]), now));
 }
 
 #[test]
-fn after_a_quiet_spell_the_pause_still_holds() {
+fn after_a_quiet_spell_a_key_last_seen_held_does_not_step_again() {
+    // A key stuck down steps once, not after each quiet spell.
     let now = Instant::now();
+    let later = now + POWER_KEY_PAUSE;
     let mut presses = presses();
-    assert!(presses.on_report(&report(&KEY_DOWN), now));
-    assert!(!presses.on_report(&report(&ALL_UP), now));
+    assert!(presses.on_report(&report(&[0x04, 0xD3]), now));
 
-    let mut presses = presses.after_quiet_spell();
-
-    assert!(!presses.on_report(&report(&KEY_DOWN), now + POWER_KEY_PAUSE / 2));
+    assert!(
+        !presses
+            .after_quiet_spell()
+            .on_report(&report(&KEY_DOWN), later)
+    );
+    assert!(presses.fresh().on_report(&report(&KEY_DOWN), later));
 }

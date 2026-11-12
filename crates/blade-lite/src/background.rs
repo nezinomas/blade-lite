@@ -153,9 +153,9 @@ pub fn follow_the_power_key() {
     spawn_part("power-mode key", move || {
         // Each problem is said once, not each time it is tried again.
         let mut said = ShownErrors::default();
-        // The key state is kept over a quiet-spell reopen, so a first press
-        // after it counts (ticket 158); new after a failure, as the gap is
-        // unknown.
+        // The key state is kept over a quiet-spell reopen, so a key stuck
+        // down does not step again; new after a failure, as the gap is
+        // unknown. A first report listing the key counts (ticket 174).
         let mut presses = PowerKeyPresses::new(key);
         loop {
             let (problem, pause) = match HidKeyReports::open(&BLADE_18) {

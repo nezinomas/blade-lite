@@ -456,8 +456,13 @@ fn only_a_full_quiet_spell_keeps_the_key_state() {
 /// Presses after a run that saw the key up and ended as `end` after `ran`,
 /// then given `04 D3` (numpad Enter, Num Lock off) as the first report.
 fn power_key_calls_after(end: &ReaderEnd, ran: Duration) -> usize {
+    power_key_calls_after_seeing(&[0x04], end, ran)
+}
+
+/// As [`power_key_calls_after`], with `last` the run's last report.
+fn power_key_calls_after_seeing(last: &[u8], end: &ReaderEnd, ran: Duration) -> usize {
     let mut before = presses();
-    let mut quiet_run = source(vec![Some(report(&[0x04]))]);
+    let mut quiet_run = source(vec![Some(report(last))]);
     step_on_presses(
         &mut quiet_run,
         &mut FakeEnter::default(),
@@ -489,6 +494,16 @@ fn the_first_press_after_any_reopen_counts() {
         power_key_calls_after(&ReaderEnd::Failed("gone".into()), spell),
         1
     );
+}
+
+#[test]
+fn a_key_stuck_down_does_not_step_again_after_a_quiet_spell() {
+    let spell = KEY_READ_WAIT * KEY_IDLE_READS;
+    let held = [0x04, 0xD3];
+    let reopen = power_key_calls_after_seeing(&held, &ReaderEnd::Reopen, spell);
+    assert_eq!(reopen, 0);
+    let failed = power_key_calls_after_seeing(&held, &ReaderEnd::Failed("gone".into()), spell);
+    assert_eq!(failed, 1);
 }
 
 #[test]
