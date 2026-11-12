@@ -51,3 +51,32 @@ fn the_firmware_is_read_with_its_own_query() {
     // A read only: nothing is sent.
     assert_eq!(app.machine().controller.inner.sent, []);
 }
+
+#[test]
+fn each_read_sets_the_warning_anew_and_a_failing_read_is_logged_once() {
+    let (mut app, _dir, _) = crate::app_with(Config::default());
+    let mut warnings = Vec::new();
+    for reply in [None, None, Some(vec![1, 9]), Some(vec![1, 6])] {
+        app.machine_mut().controller.inner.firmware = reply;
+        app.check_firmware();
+        warnings.push(
+            app.firmware_warning()
+                .map(|w| w.contains("could not be read")),
+        );
+    }
+
+    assert_eq!(warnings, [Some(true), Some(true), Some(false), None]);
+    assert!(!app.firmware_unread());
+}
+
+#[test]
+fn a_held_controller_keeps_the_last_firmware_result() {
+    let (mut app, _dir, _) = crate::app_with(Config::default());
+    app.machine_mut().controller.inner.firmware = Some(vec![1, 6]);
+    app.check_firmware();
+    app.hold_controller(true);
+
+    app.check_firmware();
+
+    assert_eq!(app.firmware_warning(), None);
+}

@@ -525,3 +525,34 @@ fn the_warning_is_logged_when_it_comes_and_goes() {
     // Other tests may log it too, at the same time.
     assert!(lines("Razer software no longer runs") > gone_before);
 }
+
+#[test]
+fn the_firmware_is_read_again_after_the_controller_is_opened_again() {
+    let f = fixture(Config::default());
+    f.shell.app().machine_mut().controller.inner.firmware = Some(vec![1, 9]);
+
+    reopen(&f, Reopened::Opened);
+    pause_ends();
+
+    let error = f.shell.window().get_error();
+    assert!(error.contains("firmware is 1.9"), "{error}");
+}
+
+#[test]
+fn a_firmware_read_that_failed_is_tried_again_each_minute() {
+    let f = fixture(Config::default());
+    let good = f.shell.app().machine().controller.inner.firmware.clone();
+    f.shell.app().machine_mut().controller.inner.firmware = None;
+    f.shell.app().check_firmware();
+    f.shell.refresh(None);
+    assert!(f.shell.window().get_error().contains("could not be read"));
+    f.shell.app().machine_mut().controller.inner.firmware = good;
+    let now = std::time::Instant::now();
+
+    f.shell.tick_at(now, std::time::SystemTime::now());
+    f.shell
+        .tick_at(now + Duration::from_secs(61), std::time::SystemTime::now());
+
+    let error = f.shell.window().get_error();
+    assert!(!error.contains("firmware"), "{error}");
+}

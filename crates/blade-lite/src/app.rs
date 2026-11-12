@@ -22,6 +22,9 @@ pub use gate::Gated;
 
 use crate::report;
 
+/// How the firmware warning says the version could not be read.
+const UNREAD: &str = "could not be read";
+
 /// A firmware version as people write it, such as 1.6.
 fn firmware_text(version: FirmwareVersion) -> String {
     format!("{}.{}", version.major, version.minor)
@@ -362,9 +365,16 @@ where
     /// Reads the controller's firmware version and logs it. A version the
     /// model profile does not list, or one that can't be read, gets a
     /// warning, shown in the window; the app still sends (user pick,
-    /// ticket 135). Called once, at start.
+    /// ticket 135). Called at start, after the controller is opened again or
+    /// a Razer updater ends (the firmware may have changed), and each
+    /// minute while the last read failed (ticket 138). A read that keeps
+    /// failing is logged once.
     pub fn check_firmware(&mut self) {
-        self.firmware_warning = None;
+        // A held controller refuses the read: the read after the updater
+        // tells, so the last result stays.
+        if self.controller_held() {
+            return;
+        }
         let version = match self.machine.controller.query(&FirmwareVersion::query()) {
             Ok(args) => {
                 FirmwareVersion::from_reply(&args).ok_or_else(|| "reply not understood".to_owned())
@@ -374,26 +384,44 @@ where
         let found = match version {
             Ok(version) if self.model.firmware.contains(&version) => {
                 report(&format!("controller firmware {}", firmware_text(version)));
-                return;
+                None
             }
-            Ok(version) => format!("is {}", firmware_text(version)),
+            Ok(version) => Some(format!("is {}", firmware_text(version))),
             Err(error) => {
-                report(&format!("can't read the controller firmware: {error}"));
-                "could not be read".to_owned()
+                if !self.firmware_unread() {
+                    report(&format!("can't read the controller firmware: {error}"));
+                }
+                Some(UNREAD.to_owned())
             }
         };
+        let warning = found.map(|found| self.firmware_warning_text(&found));
+        if warning.is_some() && warning != self.firmware_warning {
+            report(warning.as_deref().unwrap_or_default());
+        }
+        self.firmware_warning = warning;
+    }
+
+    /// The warning for a firmware that is `found` (such as "is 1.9") when
+    /// the model profile does not list it.
+    fn firmware_warning_text(&self, found: &str) -> String {
         let checked: Vec<String> = self
             .model
             .firmware
             .iter()
             .map(|&v| firmware_text(v))
             .collect();
-        let warning = format!(
+        format!(
             "The controller firmware {found}, and Blade Lite is checked only on {}. Settings are still sent.",
             checked.join(" and ")
-        );
-        report(&warning);
-        self.firmware_warning = Some(warning);
+        )
+    }
+
+    /// Whether the last firmware read failed.
+    #[must_use]
+    pub fn firmware_unread(&self) -> bool {
+        self.firmware_warning
+            .as_deref()
+            .is_some_and(|warning| warning.contains(UNREAD))
     }
 
     /// The warning for a firmware the model profile does not list, if any.

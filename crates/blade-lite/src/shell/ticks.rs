@@ -30,9 +30,12 @@ impl<P: Parts> Shell<P> {
     /// window tests give their own times.
     pub(crate) fn tick_at(self: &Rc<Self>, now: Instant, wall: SystemTime) {
         let failures = self.app.borrow().preset_failures();
-        self.look_for_razer_now_and_then(now);
+        let looked = self.look_for_razer_now_and_then(now);
         self.follow_own_power();
         self.start_after_updater();
+        if looked {
+            self.read_firmware_if_unread();
+        }
         if self.resuming.get() == 0 && self.app.borrow().battery_rate_pending() {
             self.retry_battery_rate();
         }
@@ -97,6 +100,8 @@ impl<P: Parts> Shell<P> {
                     // This start covers an updater that just ended.
                     shell.updater_ended.set(false);
                     P::release_controller();
+                    // A firmware update may be what killed the old handle.
+                    shell.app.borrow_mut().check_firmware();
                     // A power event in the pause was dropped: read the
                     // source, so a pulled charger sends the battery preset
                     // and rate before the settings go again.

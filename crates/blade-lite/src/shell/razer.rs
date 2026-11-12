@@ -78,16 +78,33 @@ impl<P: Parts> Shell<P> {
         });
     }
 
+    /// Reads the firmware again if the last read failed (such as a
+    /// controller still coming up at login), unless reads wait (a pause, or
+    /// Razer software runs); the windows show the new warning. Called after
+    /// the look and the power events, so their state is fresh.
+    pub(super) fn read_firmware_if_unread(&self) {
+        if !self.app.borrow().firmware_unread() || !self.heat_reads_allowed() {
+            return;
+        }
+        self.app.borrow_mut().check_firmware();
+        if !self.app.borrow().firmware_unread() {
+            self.refresh(None);
+        }
+    }
+
     /// Looks for Razer software each [`RAZER_LOOK_GAP`], as it may start
     /// or end at any time; the windows are filled again on a change, and
-    /// opened on the first find of the run.
-    pub(super) fn look_for_razer_now_and_then(self: &Rc<Self>, now: Instant) {
+    /// opened on the first find of the run. A firmware read that failed is
+    /// tried again then too (by the tick).
+    /// Returns whether it looked, so the tick tries a failed firmware read
+    /// again after it has followed the power events.
+    pub(super) fn look_for_razer_now_and_then(self: &Rc<Self>, now: Instant) -> bool {
         let Some(last) = self.razer_looked.replace(Some(now)) else {
-            return;
+            return false;
         };
         if now.saturating_duration_since(last) < RAZER_LOOK_GAP {
             self.razer_looked.set(Some(last));
-            return;
+            return false;
         }
         let before = self.razer_warning.borrow().clone();
         let first = self.look_for_razer();
@@ -96,6 +113,7 @@ impl<P: Parts> Shell<P> {
         } else if *self.razer_warning.borrow() != before {
             self.refresh(None);
         }
+        true
     }
 
     #[cfg(test)]

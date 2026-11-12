@@ -175,6 +175,8 @@ pub fn fixture_with_programs(config: Config, programs: &[&str]) -> Fixture {
     let controller = &mut app.machine_mut().controller.inner;
     controller.logo_reply = Some(vec![0, 4, 1]);
     controller.charge = Some(0x50);
+    // A checked firmware, as the laptop has: a reopen reads it again.
+    controller.firmware = Some(vec![1, 6]);
     let started = app.start();
     let window = MainWindow::new().expect("the window");
     let flyout = FlyoutWindow::new().expect("the flyout");
