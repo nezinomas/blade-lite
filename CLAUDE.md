@@ -9,6 +9,7 @@ Building a stage or ticket: follow the `stage` skill (`.claude/skills/stage/SKIL
 
 ## Hardware safety (wins over every other rule here)
 - This app drives an expensive laptop. Add every guard that fits: validate all input, clamp values to safe ranges, refuse unknown states, and fail safe (do nothing rather than guess).
+- Never start the app to test a script or tool that starts it: a start sends the saved preset to the laptop. Test only the script's guards; the user starts the app for the laptop check.
 - Every stage and ticket is reviewed by subagents before merge (`stage` skill, step 7). The author never reviews their own stage.
 
 ## Review tiers

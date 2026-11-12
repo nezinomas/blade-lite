@@ -2,8 +2,8 @@
 # Same checks as CI, so a branch is checked before it reaches master.
 set -e
 
-# A stage or ticket merge (feature/, fix/, spike/) must tick docs/PLAN.md.
-# Other merges (docs/, chore/) are not checked.
+# A stage or ticket merge (feature/, fix/, spike/, test/, refactor/) must
+# change docs/PLAN.md. Other merges (docs/, chore/) are not checked.
 # The checks build this folder, so it must be the commit that is pushed,
 # with nothing else in it: changes here can be another thread's unfinished
 # work (ticket 75). A branch delete builds nothing and is not checked.
@@ -17,9 +17,18 @@ while read -r local_ref local_sha remote_ref remote_sha; do
     echo "pre-push: check out the branch you push, in this folder." >&2
     exit 1
   fi
+  # Two threads once both filed ticket 123: numbers count across both files.
+  # A missing file stops the push here (set -e), not later with no check.
+  plans=$(git show "$local_sha:docs/PLAN.md" "$local_sha:docs/PLAN-done.md")
+  dup=$(printf '%s\n' "$plans" | tr -d '\r' | sed -nE 's/^- \[[ x]\] ([0-9]+)( .*)?$/\1/p' | sort -n | uniq -d | tr '\n' ' ')
+  if [ -n "$dup" ]; then
+    echo "pre-push: ticket numbers used twice in docs/PLAN.md and docs/PLAN-done.md: $dup" >&2
+    echo "pre-push: give the newer ticket the next free number." >&2
+    exit 1
+  fi
   if [ "$remote_sha" = "$zero" ]; then range="$local_sha --not --remotes"; else range="$remote_sha..$local_sha"; fi
   for merge in $(git rev-list --merges $range); do
-    git log -1 --format=%s "$merge" | grep -qE "^Merge branch '(feature|fix|spike)/" || continue
+    git log -1 --format=%s "$merge" | grep -qE "^Merge (branch ')?(feature|fix|spike|test|refactor)/" || continue
     if ! git diff --name-only "$merge^1" "$merge" | grep -qx 'docs/PLAN.md'; then
       echo "pre-push: $(git log -1 --format='%h %s' "$merge") does not change docs/PLAN.md." >&2
       echo "pre-push: tick the stage or ticket in docs/PLAN.md in its branch." >&2
