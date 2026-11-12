@@ -41,6 +41,16 @@ const DEFAULT_LIGHTING: Lighting = Lighting {
     vapor_light: true,
 };
 
+/// Whether the fan guard's own full-speed send reached the controller
+/// (ticket 163).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum FullSpeed {
+    /// Sent, or nothing is left to send.
+    Sent,
+    /// Its send failed and no send has taken the full speed since.
+    Unsent,
+}
+
 /// What the read-back after a preset send found (ticket 152).
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum PresetCheck {
@@ -146,9 +156,7 @@ pub struct App<C, D, R, K> {
     /// While the fan guard is on, the speed a manual Custom fan runs at:
     /// the model's top speed.
     fan_boost: Option<u16>,
-    /// Whether the fan guard's own full-speed send failed and no send has
-    /// taken the full speed since (ticket 163).
-    boost_unsent: bool,
+    full_speed: FullSpeed,
     /// Whether the power source was known at the last read. An unknown one
     /// runs the battery presets, but leaves the rate alone at a wake.
     source_known: bool,
@@ -215,7 +223,7 @@ where
             held_rate_error: None,
             firmware_warning: None,
             fan_boost: None,
-            boost_unsent: false,
+            full_speed: FullSpeed::Sent,
             source_known: true,
             logo_on: None,
             charge_limit_on: None,
@@ -407,7 +415,7 @@ where
             Ok(()) | Err(ApplyError::AfterPreset(_)) => {
                 self.preset_unsure = false;
                 self.held_rate_error = None;
-                self.boost_unsent = false;
+                self.full_speed = FullSpeed::Sent;
             }
             Err(ApplyError::Device(_)) => self.preset_send_cut(),
             Err(_) => {}
@@ -464,7 +472,7 @@ where
     /// taken the full speed since: a resend that works then sends it.
     #[must_use]
     pub fn boost_unsent(&self) -> bool {
-        self.boost_unsent
+        self.full_speed == FullSpeed::Unsent
     }
 
     /// How many preset sends failed so far, resends too.
@@ -676,7 +684,7 @@ where
             return Ok(false);
         }
         self.fan_boost = boost;
-        self.boost_unsent = false;
+        self.full_speed = FullSpeed::Sent;
         let running = self.running(self.config);
         // Already at the top speed: nothing changes on the laptop.
         if !manual || self.config.custom.fan_rpm == Some(top) {
@@ -684,7 +692,9 @@ where
         }
         let applied = self.send_preset(&running);
         self.note_preset_send(&applied);
-        self.boost_unsent = on && matches!(applied, Err(ApplyError::Device(_)));
+        if on && matches!(applied, Err(ApplyError::Device(_))) {
+            self.full_speed = FullSpeed::Unsent;
+        }
         applied?;
         Ok(true)
     }

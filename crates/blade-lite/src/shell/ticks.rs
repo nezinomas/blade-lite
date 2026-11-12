@@ -194,21 +194,23 @@ impl<P: Parts> Shell<P> {
     /// A resend that works is quiet, so the error of the failed send stays
     /// shown (it may not be the preset's), unless a rate error was held
     /// behind that send: it is shown then, with the windows filled again.
-    /// A failed one is shown.
+    /// A failed one is shown. If the guard's own full-speed send failed,
+    /// its log line said nothing went: a resend that takes it says so,
+    /// even one that shows a held rate error (ticket 163).
     fn resend_preset(self: &Rc<Self>) {
         let quiet = self.app.borrow().preset_failures() == self.preset_failures_seen.get();
         if !quiet || !self.heat_reads_allowed() {
             return;
         }
+        let unsent = self.app.borrow().boost_unsent();
         let sent = self.app.borrow_mut().resend_preset();
-        match sent {
-            Err(error) => self.act(|_| Err(error)),
-            // The guard's own send failed, so its log line said nothing
-            // went: say this one did.
-            Ok(true) if self.fan_guard.get().on() && self.app.borrow().manual_fan_runs() => {
-                report("fan guard: Full speed, sent again by a poll");
-            }
-            Ok(_) => {}
+        let app = self.app.borrow();
+        if unsent && !app.boost_unsent() && self.fan_guard.get().on() && app.manual_fan_runs() {
+            report("fan guard: Full speed, sent again by a poll");
+        }
+        drop(app);
+        if let Err(error) = sent {
+            self.act(|_| Err(error));
         }
     }
 

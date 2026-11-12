@@ -63,6 +63,7 @@ impl<P: Parts> Shell<P> {
         let mut guard = self.fan_guard.get();
         guard.note(cpu, gpu, now);
         self.fan_guard.set(guard);
+        self.say_gpu_fault(guard.held_by_gpu_fault(), cpu, gpu);
         if !self.heat_reads_allowed() {
             return;
         }
@@ -75,9 +76,6 @@ impl<P: Parts> Shell<P> {
                 } else {
                     "Back to the set speed"
                 };
-                let shown = |celsius: Option<u32>| {
-                    celsius.map_or("unread".to_owned(), |c| format!("{c} °C"))
-                };
                 report(&format!(
                     "fan guard: {text} (CPU {}, GPU {})",
                     shown(cpu),
@@ -86,6 +84,28 @@ impl<P: Parts> Shell<P> {
                 self.pop_up(FANS, text, HEAT_POPUP_HOLD);
             }
             Err(error) => self.act(|_| Err(error)),
+        }
+    }
+
+    /// Logs once when the guard starts to hold a manual fan at full speed
+    /// only for failed GPU reads, and once when that ends (ticket 163):
+    /// else only a throttled read failure says why the fans stay loud.
+    fn say_gpu_fault(&self, held: bool, cpu: Option<u32>, gpu: Option<u32>) {
+        let held = held && self.app.borrow().manual_fan_runs();
+        if held == self.gpu_fault_said.replace(held) {
+            return;
+        }
+        if held {
+            report(&format!(
+                "fan guard: Full speed held only by failed GPU reads (CPU {})",
+                shown(cpu)
+            ));
+        } else {
+            report(&format!(
+                "fan guard: no longer held only by failed GPU reads (CPU {}, GPU {})",
+                shown(cpu),
+                shown(gpu)
+            ));
         }
     }
 
@@ -193,4 +213,9 @@ impl<P: Parts> Shell<P> {
             .window()
             .set_position(PhysicalPosition::new(x, y));
     }
+}
+
+/// A reading for the log: `61 °C`, or `unread`.
+fn shown(celsius: Option<u32>) -> String {
+    celsius.map_or("unread".to_owned(), |c| format!("{c} °C"))
 }

@@ -200,8 +200,17 @@ fn it_says_when_only_failed_gpu_reads_hold_it_on() {
     guard.gpu_failed(true);
     let (now, _) = feed(&mut guard, Instant::now(), HOT_TIME, Some(96), None);
     assert!(!guard.held_by_gpu_fault(), "the CPU is hot");
-    let (now, _) = feed(&mut guard, now, FAN_GUARD_COOL_HOLD - SECOND, Some(60), None);
-    assert!(!guard.held_by_gpu_fault(), "the CPU has not cooled long enough");
+    let (now, _) = feed(
+        &mut guard,
+        now,
+        FAN_GUARD_COOL_HOLD.saturating_sub(SECOND),
+        Some(60),
+        None,
+    );
+    assert!(
+        !guard.held_by_gpu_fault(),
+        "the CPU has not cooled long enough"
+    );
 
     let (now, _) = feed(&mut guard, now, 2 * SECOND, Some(60), None);
     assert!(guard.on());

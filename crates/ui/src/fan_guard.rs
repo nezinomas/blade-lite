@@ -87,18 +87,15 @@ impl FanGuard {
         self.held_by_gpu_fault = false;
         let next = if self.on {
             let cpu_cool = self.cpu.settled(now) == Some(true);
-            let gpu_cool = match self.gpu.settled(now) {
-                Some(cool) => cool,
-                // Not read lately: a GPU asleep cools, but only once no read
-                // has failed for the cool hold, as one that fails may be hot.
-                None => {
-                    let cool = self
-                        .gpu_failed_at
-                        .is_none_or(|at| now.saturating_duration_since(at) >= FAN_GUARD_COOL_HOLD);
-                    self.held_by_gpu_fault = cpu_cool && !cool;
-                    cool
-                }
-            };
+            let gpu_settled = self.gpu.settled(now);
+            // Not read lately: a GPU asleep cools, but only once no read has
+            // failed for the cool hold, as one that fails may be hot.
+            let gpu_fault = gpu_settled.is_none()
+                && self
+                    .gpu_failed_at
+                    .is_some_and(|at| now.saturating_duration_since(at) < FAN_GUARD_COOL_HOLD);
+            let gpu_cool = gpu_settled.unwrap_or(!gpu_fault);
+            self.held_by_gpu_fault = cpu_cool && gpu_fault;
             !(cpu_cool && gpu_cool)
         } else {
             self.cpu.hot_now(now) || self.gpu.hot_now(now)
