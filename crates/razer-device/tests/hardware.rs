@@ -484,10 +484,10 @@ fn refuse_targets_outside_the_range(before: &[Vec<u8>]) {
 }
 
 /// Puts back what [`custom_state`] read, as the Custom test does: boosts and
-/// fan targets, then modes. The targets go while the fans are still manual
-/// and the modes (fan byte as read) last, so a target is never written
-/// without the manual flag; a reset of it by the mode write shows in the
-/// caller's after-state check. Every send is tried, so a failed one does not
+/// fan targets, then modes. The targets go with the fans as the test left
+/// them (manual, unless it ended after a quit preset; a target is
+/// range-checked either way) and the modes (fan byte as read) last; a reset
+/// of a target by the mode write shows in the caller's after-state check. Every send is tried, so a failed one does not
 /// keep the fans manual.
 fn put_back_custom<C: Clock>(
     device: &mut Device<HidTransport, C>,
@@ -828,17 +828,9 @@ fn watch_under_load<C: Clock>(
     seconds: u64,
     seen: &mut Vec<LoadRead>,
 ) -> Result<(), String> {
-    use razer_proto::Celsius;
-
     for second in 1..=seconds {
         std::thread::sleep(Duration::from_secs(1));
-        let query = Celsius::query();
-        let reply = device
-            .send(query.id, &query.args)
-            .map_err(|error| error.to_string())?;
-        let cpu = Celsius::cpu_from_reply(reply.args())
-            .ok_or("the CPU temperature can't be read: stopped")?
-            .0;
+        let cpu = read_cpu(device)?;
         if cpu >= LOAD_STOP_CELSIUS {
             return Err(format!("CPU at {cpu} °C: stopped"));
         }
@@ -882,19 +874,40 @@ fn load_test_asked_on_ac() -> bool {
 
 /// After the load: keeps the fans as they are until the CPU is under
 /// [`COOL_CELSIUS`] (or 60 s), as the state put back may be a slow manual
-/// fan.
+/// fan. Hot is no reason to stop here; only a failed read is.
 fn cool_down<C: Clock>(device: &mut Device<HidTransport, C>) -> Vec<LoadRead> {
     let mut cooling = Vec::new();
-    for _ in 0..12 {
-        if watch_under_load(device, 5, &mut cooling).is_err()
-            || cooling
-                .last()
-                .is_some_and(|(_, _, cpu)| *cpu < COOL_CELSIUS)
-        {
+    for second in 1..=60 {
+        std::thread::sleep(Duration::from_secs(1));
+        let Ok(cpu) = read_cpu(device) else {
+            break;
+        };
+        if second % 5 == 0 || cpu < COOL_CELSIUS {
+            let reads = try_read_each(device, GET_FAN, &FANS)
+                .and_then(|target| Ok((target, try_read_each(device, GET_FAN_RPM, &FANS)?)));
+            let Ok((target, real)) = reads else {
+                break;
+            };
+            cooling.push((target, real, cpu));
+        }
+        if cpu < COOL_CELSIUS {
             break;
         }
     }
     cooling
+}
+
+/// The CPU temperature now, in °C.
+fn read_cpu<C: Clock>(device: &mut Device<HidTransport, C>) -> Result<u8, String> {
+    use razer_proto::Celsius;
+
+    let query = Celsius::query();
+    let reply = device
+        .send(query.id, &query.args)
+        .map_err(|error| error.to_string())?;
+    Ok(Celsius::cpu_from_reply(reply.args())
+        .ok_or("the CPU temperature can't be read: stopped")?
+        .0)
 }
 
 /// Busy threads that stop, and are waited for, when this is dropped, also
@@ -935,7 +948,7 @@ impl Drop for Load {
 }
 
 #[test]
-#[ignore = "needs the Blade 18 on AC and BLADE_LOAD_TEST=1; loads half the CPU cores for about 4 min"]
+#[ignore = "needs the Blade 18 on AC and BLADE_LOAD_TEST=1; loads half the CPU cores for about 5 min"]
 fn the_sleep_and_wake_sends_under_load() {
     use razer_proto::{BLADE_18, CpuBoost, Custom, FanMode, GpuBoost, PerfMode, Rpm};
 
@@ -977,7 +990,7 @@ fn the_sleep_and_wake_sends_under_load() {
                 .run(&full.fan_target_commands(&BLADE_18))
                 .map_err(|error| error.to_string())
         })
-        .and_then(|()| watch_under_load(&mut device, 60, &mut warm_up))
+        .and_then(|()| watch_under_load(&mut device, 90, &mut warm_up))
         .and_then(|()| {
             if fans_near(&warm_up, top) {
                 Ok(())
