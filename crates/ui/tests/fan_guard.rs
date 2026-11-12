@@ -118,14 +118,37 @@ fn a_cpu_swinging_around_the_limit_turns_it_on_once() {
 }
 
 #[test]
-fn a_hot_gpu_that_is_no_longer_read_keeps_it_on() {
+fn a_gpu_that_went_to_sleep_hot_lets_it_go_off_once_the_cpu_cools() {
     let mut guard = FanGuard::default();
     let (now, _) = feed(&mut guard, Instant::now(), HOT_TIME, Some(60), Some(90));
-    let (now, changes) = feed(&mut guard, now, FAN_GUARD_COOL_HOLD * 2, Some(60), None);
+    // Asleep: not read, and no read failed.
+    let (_, changes) = feed(
+        &mut guard,
+        now,
+        FAN_GUARD_COOL_HOLD + SECOND,
+        Some(60),
+        None,
+    );
+    assert_eq!(changes, [false]);
+}
+
+#[test]
+fn a_gpu_whose_reads_fail_keeps_it_on_until_read_cool() {
+    let mut guard = FanGuard::default();
+    let (now, _) = feed(&mut guard, Instant::now(), HOT_TIME, Some(60), Some(90));
+    guard.gpu_failed(true);
+    let (now, changes) = feed(&mut guard, now, Duration::from_secs(600), Some(60), None);
     assert!(changes.is_empty(), "{changes:?}");
     assert!(guard.on());
-    // After 5 min unread it went to sleep and cooled: off.
-    let (_, changes) = feed(&mut guard, now, Duration::from_secs(300), Some(60), None);
+
+    guard.gpu_failed(false);
+    let (_, changes) = feed(
+        &mut guard,
+        now,
+        FAN_GUARD_COOL_HOLD + SECOND,
+        Some(60),
+        Some(60),
+    );
     assert_eq!(changes, [false]);
 }
 
@@ -134,4 +157,39 @@ fn a_reading_past_any_real_heat_is_not_believed() {
     let mut guard = FanGuard::default();
     let (_, changes) = feed(&mut guard, Instant::now(), HOT_TIME * 2, Some(200), None);
     assert!(changes.is_empty(), "{changes:?}");
+}
+
+#[test]
+fn a_gpu_that_fails_then_sleeps_keeps_it_on_for_the_cool_hold() {
+    let mut guard = FanGuard::default();
+    let (now, _) = feed(&mut guard, Instant::now(), HOT_TIME, Some(60), Some(90));
+    guard.gpu_failed(true);
+    let (now, _) = feed(&mut guard, now, Duration::from_secs(120), Some(60), None);
+    // One tick says asleep: not yet cool.
+    guard.gpu_failed(false);
+    let (now, changes) = feed(
+        &mut guard,
+        now,
+        FAN_GUARD_COOL_HOLD.saturating_sub(5 * SECOND),
+        Some(60),
+        None,
+    );
+    assert!(changes.is_empty(), "{changes:?}");
+    let (_, changes) = feed(&mut guard, now, 10 * SECOND, Some(60), None);
+    assert_eq!(changes, [false]);
+}
+
+#[test]
+fn a_gpu_reading_past_any_real_heat_counts_as_a_failed_read() {
+    let mut guard = FanGuard::default();
+    let (now, _) = feed(&mut guard, Instant::now(), HOT_TIME, Some(96), Some(60));
+    let (_, changes) = feed(
+        &mut guard,
+        now,
+        Duration::from_secs(300),
+        Some(60),
+        Some(255),
+    );
+    assert!(changes.is_empty(), "{changes:?}");
+    assert!(guard.on());
 }

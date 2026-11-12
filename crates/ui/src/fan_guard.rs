@@ -12,10 +12,6 @@ use crate::popup::{HEAT_GAP, HEAT_MAX, Sensor};
 pub const FAN_GUARD_COOL_HOLD: Duration = Duration::from_secs(60);
 /// A sensor is cool this far under its guard limit.
 const COOL_MARGIN: u32 = 10;
-/// A GPU not read for this long counts as cool: it went to sleep after a
-/// load (the app reads it only while it is awake), and a sleeping GPU
-/// cools down.
-const GPU_STALE: Duration = Duration::from_secs(300);
 
 impl Sensor {
     /// A reading at or above this, in °C, is hot for the guard (user pick,
@@ -36,6 +32,12 @@ pub struct FanGuard {
     on: bool,
     cpu: Track,
     gpu: Track,
+    /// Whether the last GPU read failed (ticket 139): unlike a GPU asleep,
+    /// it may be hot.
+    gpu_failing: bool,
+    /// The last failed GPU read, or one past any real heat. A GPU not read
+    /// lately counts as cool only [`FAN_GUARD_COOL_HOLD`] after it.
+    gpu_failed_at: Option<Instant>,
 }
 
 /// One sensor's recent readings.
@@ -54,28 +56,33 @@ impl FanGuard {
         self.on
     }
 
+    /// Notes whether the last GPU read failed, before [`note`](Self::note)
+    /// takes its `None`.
+    pub fn gpu_failed(&mut self, failed: bool) {
+        self.gpu_failing = failed;
+    }
+
     /// Takes one reading of each sensor at `now` (`None`: not read). Returns
     /// the new state when it changes: on at the first recent reading of a
     /// sensor at its guard limit (user pick 2026-11-12: no wait), off once
     /// every sensor read lately has been cool for [`FAN_GUARD_COOL_HOLD`]. The CPU must be among
     /// them: with no CPU reading the guard stays on. A GPU not read lately
-    /// holds it on only if its last reading was not cool, for up to 5 min.
+    /// holds it on only while its reads fail (see [`gpu_failed`](Self::gpu_failed)).
     pub fn note(&mut self, cpu: Option<u32>, gpu: Option<u32>, now: Instant) -> Option<bool> {
+        if self.gpu_failing || gpu.is_some_and(|celsius| celsius > HEAT_MAX) {
+            self.gpu_failed_at = Some(now);
+        }
         self.cpu.note(cpu, Sensor::Cpu.guard_limit(), now);
         self.gpu.note(gpu, Sensor::Gpu.guard_limit(), now);
         let next = if self.on {
             let cpu_cool = self.cpu.settled(now) == Some(true);
             let gpu_cool = match self.gpu.settled(now) {
                 Some(cool) => cool,
-                // Asleep, or its read fails: cool if it was last read cool,
-                // never read, or not read for a long time.
-                None => {
-                    self.gpu.cool_since.is_some()
-                        || self
-                            .gpu
-                            .last_reading
-                            .is_none_or(|last| now.saturating_duration_since(last) >= GPU_STALE)
-                }
+                // Not read lately: a GPU asleep cools, but only once no read
+                // has failed for the cool hold, as one that fails may be hot.
+                None => self
+                    .gpu_failed_at
+                    .is_none_or(|at| now.saturating_duration_since(at) >= FAN_GUARD_COOL_HOLD),
             };
             !(cpu_cool && gpu_cool)
         } else {

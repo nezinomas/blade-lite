@@ -133,9 +133,22 @@ impl<P: Parts> Shell<P> {
             return;
         }
         let sent = self.app.borrow_mut().resend_preset();
-        if let Err(error) = sent {
-            self.act(|_| Err(error));
+        match sent {
+            Err(error) => self.act(|_| Err(error)),
+            // The guard's own send failed, so its log line said nothing
+            // went: say this one did.
+            Ok(true) if self.fan_guard.get().on() && self.app.borrow().manual_fan_runs() => {
+                report("fan guard: Full speed, sent again by a poll");
+            }
+            Ok(_) => {}
         }
+    }
+
+    /// Tells the fan guard whether the last GPU read failed (ticket 139).
+    fn note_gpu_failed(&self, failed: bool) {
+        let mut guard = self.fan_guard.get();
+        guard.gpu_failed(failed);
+        self.fan_guard.set(guard);
     }
 
     /// Sends the preset that runs if a weak charge came or went, such as a
@@ -211,7 +224,9 @@ impl<P: Parts> Shell<P> {
     fn tick_heat(self: &Rc<Self>, now: Instant) {
         let (gpu, mut errors) = {
             let (sampler, sensors) = &mut *self.sampler.borrow_mut();
-            (sampler.gpu_celsius(sensors), sampler.errors().to_vec())
+            let gpu = sampler.gpu_celsius(sensors);
+            self.note_gpu_failed(sampler.gpu_failed());
+            (gpu, sampler.errors().to_vec())
         };
         let cpu = {
             let mut app = self.app.borrow_mut();
@@ -413,7 +428,9 @@ impl<P: Parts> Shell<P> {
     fn tick_readings(self: &Rc<Self>, now: Instant) {
         let (readings, mut errors) = {
             let (sampler, sensors) = &mut *self.sampler.borrow_mut();
-            (sampler.sample(sensors), sampler.errors().to_vec())
+            let readings = sampler.sample(sensors);
+            self.note_gpu_failed(sampler.gpu_failed());
+            (readings, sampler.errors().to_vec())
         };
         self.readings.set(readings);
         let mut app = self.app.borrow_mut();
