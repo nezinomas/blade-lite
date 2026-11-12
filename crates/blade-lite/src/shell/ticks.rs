@@ -143,19 +143,28 @@ impl<P: Parts> Shell<P> {
                 false
             }
             Reopened::Opened => {
-                let wakes = self.begin_pause();
+                let pause = self.begin_pause();
                 let shell = Rc::clone(self);
                 Timer::single_shot(RESUME_PAUSE, move || {
                     shell.resuming.set(shell.resuming.get().saturating_sub(1));
-                    // A sleep since: nothing reaches the controller, and the
-                    // wake does all this after its pause.
-                    if shell.slept_since(wakes) {
+                    // A sleep or a newer pause since: nothing reaches the
+                    // controller, and the last pause does all this.
+                    if shell.superseded(pause) {
                         shell.redo_at_wake.set(true);
                         return;
                     }
+                    // Begun in a wake's pause: the wake's end, with this one's
+                    // release and firmware read (ticket 162).
+                    if shell.wake_due.get() {
+                        shell.redo_at_wake.set(true);
+                        shell.end_wake_pause();
+                        return;
+                    }
                     let first = shell.look_for_razer();
-                    // This start covers an updater that just ended.
+                    // This start covers an updater that just ended, and an
+                    // older pause that left its work to this one.
                     shell.updater_ended.set(false);
+                    shell.redo_at_wake.set(false);
                     P::release_controller();
                     shell.controller_gone.set(false);
                     // A firmware update may be what killed the old handle.
@@ -464,44 +473,49 @@ impl<P: Parts> Shell<P> {
             if self.asleep.replace(false) {
                 self.resuming.set(self.resuming.get().saturating_sub(1));
             }
-            // Older pauses that end now leave their sends to this one.
-            self.wakes.set(self.wakes.get().wrapping_add(1));
+            // The last pause sends the wake's settings.
+            self.wake_due.set(true);
             // The time asleep may not count in `Instant`, so a spell before
             // the sleep is not carried over.
             self.heat_watch.set(HeatWatch::default());
             // The controller needs a moment after the wake.
-            let wakes = self.begin_pause();
+            let pause = self.begin_pause();
             let shell = Rc::clone(self);
             Timer::single_shot(RESUME_PAUSE, move || {
                 shell.resuming.set(shell.resuming.get().saturating_sub(1));
-                // A sleep or a newer wake since: that wake sends them.
-                if shell.slept_since(wakes) {
-                    return;
-                }
-                {
-                    let mut app = shell.app.borrow_mut();
-                    app.set_num_lock(num_lock_on());
-                    // The charger may have been pulled in the sleep, and the
-                    // power event may come after this resume.
-                    app.take_on_battery(P::on_battery());
-                }
-                let first = shell.look_for_razer();
-                // This send covers an updater that just ended.
-                shell.updater_ended.set(false);
-                // An open again or an updater whose pause ended in the
-                // sleep: what it left for the wake.
-                if shell.redo_at_wake.take() {
-                    P::release_controller();
-                    shell.controller_gone.set(false);
-                    shell.app.borrow_mut().check_firmware();
-                }
-                shell.act(|app| app.on_power(PowerEvent::Resumed));
-                if first {
-                    shell.show_window();
+                // A sleep or a newer pause since: the last pause sends them.
+                if !shell.superseded(pause) {
+                    shell.end_wake_pause();
                 }
             });
         } else {
             self.act(|app| app.on_power(event));
+        }
+    }
+
+    /// The end of the last pause after a wake: sends the saved settings.
+    fn end_wake_pause(self: &Rc<Self>) {
+        self.wake_due.set(false);
+        {
+            let mut app = self.app.borrow_mut();
+            app.set_num_lock(num_lock_on());
+            // The charger may have been pulled in the sleep, and the
+            // power event may come after this resume.
+            app.take_on_battery(P::on_battery());
+        }
+        let first = self.look_for_razer();
+        // This send covers an updater that just ended.
+        self.updater_ended.set(false);
+        // An open again or an updater whose pause ended in the sleep or
+        // a newer pause: what it left for the wake.
+        if self.redo_at_wake.take() {
+            P::release_controller();
+            self.controller_gone.set(false);
+            self.app.borrow_mut().check_firmware();
+        }
+        self.act(|app| app.on_power(PowerEvent::Resumed));
+        if first {
+            self.show_window();
         }
     }
 
