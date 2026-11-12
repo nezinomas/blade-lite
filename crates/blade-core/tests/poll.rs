@@ -165,7 +165,7 @@ fn heat_reads(
     let end = clock.now + duration;
     let mut reads = Vec::new();
     while clock.now < end {
-        if schedule.heat_due(clock.now, clock.wall()) {
+        if schedule.heat_due(clock.now, clock.wall(), HEAT_INTERVAL) {
             reads.push(clock.now - clock.start);
         }
         clock.now += TICK;
@@ -222,11 +222,11 @@ fn a_heat_read_long_overdue_waits_one_more_interval() {
     // awake yet, and the wake may not be known yet.
     let mut clock = FakeClock::new();
     let mut schedule = PollSchedule::default();
-    assert!(schedule.heat_due(clock.now, clock.wall()));
+    assert!(schedule.heat_due(clock.now, clock.wall(), HEAT_INTERVAL));
 
     clock.now += Duration::from_secs(60);
 
-    assert!(!schedule.heat_due(clock.now, clock.wall()));
+    assert!(!schedule.heat_due(clock.now, clock.wall(), HEAT_INTERVAL));
     assert_eq!(
         heat_reads(&mut clock, &mut schedule, Duration::from_secs(11)),
         secs(&[70])
@@ -237,23 +237,23 @@ fn a_heat_read_long_overdue_waits_one_more_interval() {
 fn a_heat_read_a_little_late_still_runs() {
     let mut clock = FakeClock::new();
     let mut schedule = PollSchedule::default();
-    assert!(schedule.heat_due(clock.now, clock.wall()));
+    assert!(schedule.heat_due(clock.now, clock.wall(), HEAT_INTERVAL));
 
     clock.now += HEAT_INTERVAL * 2;
 
-    assert!(schedule.heat_due(clock.now, clock.wall()));
+    assert!(schedule.heat_due(clock.now, clock.wall(), HEAT_INTERVAL));
 }
 
 #[test]
 fn a_heat_read_after_a_sleep_instant_did_not_count_waits_one_more_interval() {
     let mut clock = FakeClock::new();
     let mut schedule = PollSchedule::default();
-    assert!(schedule.heat_due(clock.now, clock.wall()));
+    assert!(schedule.heat_due(clock.now, clock.wall(), HEAT_INTERVAL));
 
     clock.now += HEAT_INTERVAL;
     clock.wall_ahead = Duration::from_secs(600);
 
-    assert!(!schedule.heat_due(clock.now, clock.wall()));
+    assert!(!schedule.heat_due(clock.now, clock.wall(), HEAT_INTERVAL));
     assert_eq!(
         heat_reads(&mut clock, &mut schedule, Duration::from_secs(11)),
         secs(&[20])
@@ -265,10 +265,10 @@ fn a_wall_clock_set_back_does_not_stop_heat_reads() {
     let mut clock = FakeClock::new();
     let mut schedule = PollSchedule::default();
     clock.wall_ahead = Duration::from_secs(600);
-    assert!(schedule.heat_due(clock.now, clock.wall()));
+    assert!(schedule.heat_due(clock.now, clock.wall(), HEAT_INTERVAL));
 
     clock.now += HEAT_INTERVAL;
     clock.wall_ahead = Duration::ZERO;
 
-    assert!(schedule.heat_due(clock.now, clock.wall()));
+    assert!(schedule.heat_due(clock.now, clock.wall(), HEAT_INTERVAL));
 }

@@ -3,9 +3,9 @@
 
 use std::rc::Rc;
 use std::sync::mpsc::{Receiver, TryRecvError};
-use std::time::{Instant, SystemTime};
+use std::time::{Duration, Instant, SystemTime};
 
-use blade_core::{RESUME_PAUSE, Readings};
+use blade_core::{GUARD_HEAT_INTERVAL, HEAT_INTERVAL, RESUME_PAUSE, Readings};
 use blade_lite::{AppError, report};
 use platform::{PowerEvent, num_lock_on};
 use slint::Timer;
@@ -47,7 +47,12 @@ impl<P: Parts> Shell<P> {
         if self.resuming.get() == 0 && self.schedule.borrow_mut().poll_due(now) {
             self.tick_readings(now);
             self.after_reads();
-        } else if self.heat_reads_allowed() && self.schedule.borrow_mut().heat_due(now, wall) {
+        } else if self.heat_reads_allowed()
+            && self
+                .schedule
+                .borrow_mut()
+                .heat_due(now, wall, self.heat_interval())
+        {
             self.tick_heat(now);
             self.after_reads();
         }
@@ -185,6 +190,16 @@ impl<P: Parts> Shell<P> {
     /// runs (it may talk to the controller at the same time).
     pub(super) fn heat_reads_allowed(&self) -> bool {
         self.resuming.get() == 0 && self.razer_warning.borrow().is_none()
+    }
+
+    /// How often the temperatures are read with no view open: often while
+    /// a manual Custom fan runs, as only the fan guard can then speed it up.
+    fn heat_interval(&self) -> Duration {
+        if self.app.borrow().manual_fan_runs() {
+            GUARD_HEAT_INTERVAL
+        } else {
+            HEAT_INTERVAL
+        }
     }
 
     /// Reads only the temperatures, for the heat warning.

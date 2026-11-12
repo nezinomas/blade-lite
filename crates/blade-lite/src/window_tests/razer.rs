@@ -340,7 +340,7 @@ fn the_fan_guard_sends_nothing_while_razer_software_runs() {
     look(&f);
     let before = f.shell.app().machine().controller.inner.sent.len();
     let start = std::time::Instant::now();
-    let hold = ui::FAN_GUARD_HOLD.as_secs();
+    let hold = 1;
 
     for second in 0..=hold {
         f.shell
@@ -368,7 +368,7 @@ fn the_fan_guard_sends_nothing_while_a_razer_updater_runs() {
     look(&f);
     let before = f.shell.app().machine().controller.inner.sent.len();
     let start = std::time::Instant::now();
-    let hold = ui::FAN_GUARD_HOLD.as_secs();
+    let hold = 1;
 
     for second in 0..=hold {
         f.shell

@@ -8,6 +8,10 @@ pub const POLL_INTERVAL: Duration = Duration::from_secs(1);
 /// The time between two temperature reads while no view is visible.
 pub const HEAT_INTERVAL: Duration = Duration::from_secs(10);
 
+/// How often the temperatures are read while a manual Custom fan runs, so
+/// the fan guard acts within seconds (ticket 161). Reads only.
+pub const GUARD_HEAT_INTERVAL: Duration = Duration::from_secs(2);
+
 /// A view that shows readings.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum View {
@@ -55,28 +59,28 @@ impl PollSchedule {
 
     /// Whether to read only the temperatures now: never while a view polls,
     /// since each poll reads them. A read due moves the next one
-    /// [`HEAT_INTERVAL`] on. A read more than one interval late by `now` or
+    /// `interval` on ([`HEAT_INTERVAL`] or [`GUARD_HEAT_INTERVAL`]). A read more than one interval late by `now` or
     /// by the wall clock `wall` is skipped, and the next waits one interval:
     /// the laptop slept or the event loop stood still, so the controller may
     /// not be awake and the wake not known. The wall clock counts a sleep
     /// that `Instant` may not; a wall clock set back skips nothing.
-    pub fn heat_due(&mut self, now: Instant, wall: SystemTime) -> bool {
+    pub fn heat_due(&mut self, now: Instant, wall: SystemTime, interval: Duration) -> bool {
         if self.next.is_some() {
             self.next_heat = None;
             return false;
         }
         let Some((next, last_wall)) = self.next_heat else {
-            self.next_heat = Some((now + HEAT_INTERVAL, wall));
+            self.next_heat = Some((now + interval, wall));
             return true;
         };
         if now < next {
             return false;
         }
-        self.next_heat = Some((now + HEAT_INTERVAL, wall));
-        let late = now > next + HEAT_INTERVAL;
+        self.next_heat = Some((now + interval, wall));
+        let late = now > next + interval;
         let slept = wall
             .duration_since(last_wall)
-            .is_ok_and(|passed| passed > HEAT_INTERVAL * 2);
+            .is_ok_and(|passed| passed > interval * 2);
         !late && !slept
     }
 

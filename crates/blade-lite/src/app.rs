@@ -281,6 +281,14 @@ where
         self.machine.controller.close();
     }
 
+    /// Whether Custom with a manual fan runs (or should run), so the fan
+    /// guard is the only thing that can speed the fans up.
+    #[must_use]
+    pub fn manual_fan_runs(&self) -> bool {
+        let running = self.running(self.config);
+        running.preset == Preset::Custom && running.custom.fan_rpm.is_some()
+    }
+
     /// Holds every send and read while a Razer updater runs, or lets them
     /// go again.
     pub fn hold_controller(&mut self, held: bool) {
