@@ -840,7 +840,7 @@ fn watch_under_load<C: Clock>(
 }
 
 #[test]
-#[ignore = "needs the Blade 18; loads every CPU core with the fans at full speed for about 2.5 min"]
+#[ignore = "needs the Blade 18; loads half the CPU cores with the fans at full speed for about 3 min"]
 fn the_sleep_and_wake_sends_under_load() {
     use std::sync::Arc;
     use std::sync::atomic::{AtomicBool, Ordering};
@@ -854,9 +854,12 @@ fn the_sleep_and_wake_sends_under_load() {
     // full speed, the quit preset the app sends at a sleep notice, and the
     // full speed again at the wake with its fan targets once more (tickets
     // 169, 172, 173). The fans are never manual below full speed under load.
+    // Every core at CPU boost 3 passed 95 °C in 10 s while the fans still
+    // climbed (2026-11-12): so boost 1, half the cores, and the
+    // fans at full speed before the load.
     let custom = |fan| Custom {
-        cpu: CpuBoost::new(3, &BLADE_18).unwrap(),
-        gpu: GpuBoost::new(3, &BLADE_18).unwrap(),
+        cpu: CpuBoost::new(1, &BLADE_18).unwrap(),
+        gpu: GpuBoost::new(1, &BLADE_18).unwrap(),
         fan,
     };
     let full = custom(FanMode::Manual(
@@ -865,10 +868,17 @@ fn the_sleep_and_wake_sends_under_load() {
     let mut sleep = custom(FanMode::Auto).commands(&BLADE_18);
     sleep.extend(PerfMode::Balanced.commands(&BLADE_18).unwrap());
 
-    // Game-like heat: every core busy until stopped.
+    // The fans at full speed first, with no load.
+    let mut warm_up = Vec::new();
+    let warmed = device
+        .run(&full.commands(&BLADE_18))
+        .map_err(|error| error.to_string())
+        .and_then(|()| watch_under_load(&mut device, 40, &mut warm_up));
+
+    // Heat: half the cores busy until stopped.
     let stop = Arc::new(AtomicBool::new(false));
-    let cores = std::thread::available_parallelism().map_or(4, std::num::NonZeroUsize::get);
-    let load: Vec<_> = (0..cores)
+    let cores = std::thread::available_parallelism().map_or(4, std::num::NonZeroUsize::get) / 2;
+    let load: Vec<_> = (0..cores.max(1))
         .map(|_| {
             let stop = Arc::clone(&stop);
             std::thread::spawn(move || {
@@ -884,7 +894,7 @@ fn the_sleep_and_wake_sends_under_load() {
 
     // From here on every step keeps its result; the load stops and the
     // state is put back before any assert.
-    let mut phases: Vec<(&str, Vec<LoadRead>)> = Vec::new();
+    let mut phases: Vec<(&str, Vec<LoadRead>)> = vec![("warm-up, no load", warm_up)];
     let mut run = |name,
                    commands: &[razer_proto::Command],
                    seconds,
@@ -897,7 +907,15 @@ fn the_sleep_and_wake_sends_under_load() {
         phases.push((name, seen));
         result
     };
-    let result = run("full speed", &full.commands(&BLADE_18), 60, &mut device)
+    let result = warmed
+        .and_then(|()| {
+            run(
+                "full speed, loaded",
+                &full.commands(&BLADE_18),
+                60,
+                &mut device,
+            )
+        })
         .and_then(|()| run("sleep's quit preset", &sleep, 30, &mut device))
         .and_then(|()| {
             run(
