@@ -32,7 +32,8 @@ pub struct BatteryRate {
 
 impl BatteryRate {
     /// Sets the rate for a change of power source. A wake goes to
-    /// [`Self::on_resume`], so `Resumed` changes nothing here, nor does any
+    /// [`Self::on_resume`], so `Resumed` changes nothing here, nor does a
+    /// sleep (`Suspending`, the rate stays as it is), nor does any
     /// event while the option is off (but AC still puts a rate back). The
     /// first source since the start that is AC goes to
     /// [`Self::first_on_ac`]. A failed 60 Hz on battery, or a failed
@@ -89,7 +90,7 @@ impl BatteryRate {
                 }
                 self.put_back(api)
             }
-            PowerEvent::Resumed => Ok(()),
+            PowerEvent::Resumed | PowerEvent::Suspending => Ok(()),
         }
     }
 

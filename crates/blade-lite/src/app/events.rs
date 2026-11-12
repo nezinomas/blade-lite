@@ -115,14 +115,24 @@ where
     /// resume, with 60 Hz again on battery if Windows put the rate back.
     /// On battery only Silent or Balanced runs; the saved preset comes
     /// back on AC. The caller waits [`blade_core::RESUME_PAUSE`]
-    /// before passing on a resume.
+    /// before passing on a resume. A sleep sends the quit preset (see
+    /// [`Self::quit_preset`]; ticket 169), as the controller stays powered
+    /// on Modern Standby and would run a manual fan on in the sleep; the
+    /// saved settings are kept, so the wake sends them again. The rate
+    /// stays.
     ///
     /// # Errors
     ///
     /// See [`AppError`].
     pub fn on_power(&mut self, event: PowerEvent) -> Result<(), AppError> {
+        // The rate is not touched, so its held error stays.
+        if event == PowerEvent::Suspending {
+            return self.quit_preset();
+        }
         self.held_rate_error = None;
         match event {
+            // Sent above.
+            PowerEvent::Suspending => Ok(()),
             PowerEvent::Resumed => {
                 // The rate follows even if the start fails.
                 let started = self.start();

@@ -97,10 +97,16 @@ impl<P: Parts> Shell<P> {
                 false
             }
             Reopened::Opened => {
-                self.begin_pause();
+                let wakes = self.begin_pause();
                 let shell = Rc::clone(self);
                 Timer::single_shot(RESUME_PAUSE, move || {
                     shell.resuming.set(shell.resuming.get().saturating_sub(1));
+                    // A sleep since: nothing reaches the controller, and the
+                    // wake does all this after its pause.
+                    if shell.slept_since(wakes) {
+                        shell.redo_at_wake.set(true);
+                        return;
+                    }
                     let first = shell.look_for_razer();
                     // This start covers an updater that just ended.
                     shell.updater_ended.set(false);
@@ -353,15 +359,26 @@ impl<P: Parts> Shell<P> {
     }
 
     /// Acts on the power events that came since the last look. Returns
-    /// whether more can come.
+    /// whether more can come. A sleep with a wake behind it is over: the
+    /// app was frozen before it read it, so it sends nothing, as the
+    /// controller may not be ready yet; the wake sends after its pause.
     pub fn follow_power(self: &Rc<Self>, power: &Receiver<PowerEvent>) -> bool {
-        loop {
+        let mut events = Vec::new();
+        let more = loop {
             match power.try_recv() {
-                Ok(event) => self.power_event(event),
-                Err(TryRecvError::Empty) => return true,
-                Err(TryRecvError::Disconnected) => return false,
+                Ok(event) => events.push(event),
+                Err(TryRecvError::Empty) => break true,
+                Err(TryRecvError::Disconnected) => break false,
             }
+        };
+        for (at, &event) in events.iter().enumerate() {
+            if event == PowerEvent::Suspending && events[at..].contains(&PowerEvent::Resumed) {
+                report("the sleep was read only after the wake, so nothing was sent for it");
+                continue;
+            }
+            self.power_event(event);
         }
+        more
     }
 
     /// Passes on a change of the power source read now as its event, for
@@ -387,19 +404,34 @@ impl<P: Parts> Shell<P> {
     /// is dropped and sends nothing: the resume reads the source when its pause ends,
     /// and sends then.
     fn power_event(self: &Rc<Self>, event: PowerEvent) {
+        if event == PowerEvent::Suspending {
+            self.suspend();
+            return;
+        }
         self.forget_charging();
         if event != PowerEvent::Resumed && self.resuming.get() > 0 {
             return;
         }
         if event == PowerEvent::Resumed {
+            report("Windows says the laptop woke, so the settings go again after the pause");
+            // The sleep's pause ends: the wake's own begins.
+            if self.asleep.replace(false) {
+                self.resuming.set(self.resuming.get().saturating_sub(1));
+            }
+            // Older pauses that end now leave their sends to this one.
+            self.wakes.set(self.wakes.get().wrapping_add(1));
             // The time asleep may not count in `Instant`, so a spell before
             // the sleep is not carried over.
             self.heat_watch.set(HeatWatch::default());
             // The controller needs a moment after the wake.
-            self.begin_pause();
+            let wakes = self.begin_pause();
             let shell = Rc::clone(self);
             Timer::single_shot(RESUME_PAUSE, move || {
                 shell.resuming.set(shell.resuming.get().saturating_sub(1));
+                // A sleep or a newer wake since: that wake sends them.
+                if shell.slept_since(wakes) {
+                    return;
+                }
                 {
                     let mut app = shell.app.borrow_mut();
                     app.set_num_lock(num_lock_on());
@@ -410,6 +442,13 @@ impl<P: Parts> Shell<P> {
                 let first = shell.look_for_razer();
                 // This send covers an updater that just ended.
                 shell.updater_ended.set(false);
+                // An open again or an updater whose pause ended in the
+                // sleep: what it left for the wake.
+                if shell.redo_at_wake.take() {
+                    P::release_controller();
+                    shell.controller_gone.set(false);
+                    shell.app.borrow_mut().check_firmware();
+                }
                 shell.act(|app| app.on_power(PowerEvent::Resumed));
                 if first {
                     shell.show_window();
@@ -417,6 +456,63 @@ impl<P: Parts> Shell<P> {
             });
         } else {
             self.act(|app| app.on_power(event));
+        }
+    }
+
+    /// Windows says the laptop goes to sleep or hibernates (ticket 169).
+    /// On Modern Standby the controller stays powered, so a manual fan or
+    /// Performance would run on in the sleep: the quit preset goes at once,
+    /// once per sleep, never after the quit. Then nothing is sent until the
+    /// wake, which sends the saved settings after its pause.
+    ///
+    /// Nothing is sent in a pause (after a wake, an open again or an
+    /// updater), as no send goes then: the controller may not be ready, and
+    /// after an open again its new handle is held (ticket 132). A manual
+    /// fan may then run on in the sleep: after a wake, only if the sleep
+    /// before it was not sent; after an open again or an updater, if it was
+    /// running. Nor for a notice Windows no longer waits for: the app may
+    /// have been frozen and thawed since, so the controller may have just
+    /// woken. Both are rare (a sleep within 2 s of such an event, or an
+    /// event loop busy for over 1 s), and logged. No retry: Windows freezes
+    /// the app a few seconds later.
+    fn suspend(&self) {
+        if self.asleep.get() || self.quit_sent.get() {
+            return;
+        }
+        if self.resuming.get() > 0 {
+            report(
+                "the laptop goes to sleep in the pause after a wake, an open again or an updater, so the quit preset was not sent: a manual fan or Performance may keep running in the sleep",
+            );
+        } else if !P::sleep_notice_waits() {
+            report(
+                "the sleep notice was read after Windows stopped waiting for it (the app was busy), so the quit preset was not sent: a manual fan or Performance may have kept running in the sleep",
+            );
+        } else {
+            self.send_sleep_preset();
+        }
+        self.asleep.set(true);
+        self.resuming.set(self.resuming.get().saturating_add(1));
+    }
+
+    /// Sends the quit preset for a sleep, and logs how it went. The windows
+    /// are not filled again and no popup shows: the screen is off, and the
+    /// wake fills them.
+    fn send_sleep_preset(&self) {
+        let Ok(mut app) = self.app.try_borrow_mut() else {
+            report(
+                "the app was busy, so the quit preset was not sent before the sleep: a manual fan or Performance may keep running in it",
+            );
+            return;
+        };
+        let began = Instant::now();
+        match app.on_power(PowerEvent::Suspending) {
+            Ok(()) => report(&format!(
+                "the laptop goes to sleep, so the quit preset was sent ({} ms); the settings go again at the wake",
+                began.elapsed().as_millis()
+            )),
+            Err(error) => report(&format!(
+                "the quit preset was not sent before the sleep, so a manual fan or Performance may keep running in it: {error}"
+            )),
         }
     }
 

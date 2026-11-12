@@ -7,6 +7,7 @@ mod clicks;
 mod razer;
 mod screens;
 mod settings;
+mod sleep;
 
 use std::cell::RefCell;
 use std::io;
@@ -74,6 +75,10 @@ impl Parts for Fakes {
     fn release_controller() {
         FAKE_RELEASED.set(true);
     }
+
+    fn sleep_notice_waits() -> bool {
+        !FAKE_SLEEP_NOTICE_LATE.get()
+    }
 }
 
 thread_local! {
@@ -94,6 +99,9 @@ thread_local! {
     pub static FAKE_REOPENED: std::cell::Cell<Reopened> = const { std::cell::Cell::new(Reopened::No) };
     /// Whether the shell let the controller send on a new handle.
     pub static FAKE_RELEASED: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    /// Whether Windows stopped waiting for the last sleep notice before the
+    /// app read it: it waits unless a test sets it.
+    pub static FAKE_SLEEP_NOTICE_LATE: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
     /// The file dialogs shown.
     pub static FAKE_DIALOGS: RefCell<Vec<FileDialog>> = const { RefCell::new(Vec::new()) };
 }
@@ -171,6 +179,7 @@ pub fn fixture_with_programs(config: Config, programs: &[&str]) -> Fixture {
     FAKE_MIC.set(None);
     FAKE_HOLD.set(false);
     FAKE_HELD.take();
+    FAKE_SLEEP_NOTICE_LATE.set(false);
     let (mut app, dir, _) = app_on(&BLADE_18, config);
     let controller = &mut app.machine_mut().controller.inner;
     controller.logo_reply = Some(vec![0, 4, 1]);

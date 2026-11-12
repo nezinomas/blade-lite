@@ -66,10 +66,16 @@ impl<P: Parts> Shell<P> {
         if self.resuming.get() > 0 || !self.updater_ended.take() {
             return;
         }
-        self.begin_pause();
+        let wakes = self.begin_pause();
         let shell = Rc::clone(self);
         Timer::single_shot(RESUME_PAUSE, move || {
             shell.resuming.set(shell.resuming.get().saturating_sub(1));
+            // A sleep or a wake since: nothing reaches the controller, and
+            // the wake reads the firmware and sends after its pause.
+            if shell.slept_since(wakes) {
+                shell.redo_at_wake.set(true);
+                return;
+            }
             shell.app.borrow_mut().check_firmware();
             // A power event in the pause was dropped.
             shell.follow_source();

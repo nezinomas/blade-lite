@@ -2,9 +2,9 @@
 //! touchpad, the power-mode key and the power source.
 
 use std::panic::AssertUnwindSafe;
-use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver};
+use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 use blade_core::{PowerKeyPresses, TOUCHPAD_KEY};
@@ -12,7 +12,9 @@ use blade_lite::{
     KEY_REOPEN_PAUSE, KeyEvent, LOOK_GAP, ReaderEnd, ShownErrors, Watchdog, WindowsFnKeys, report,
     step_on_presses,
 };
-use platform::{PowerEvent, PowerEvents, RegistryWatch, WakeListener, WindowsPowerEvents};
+use platform::{
+    PowerEvent, PowerEvents, RegistryWatch, SuspendHandled, WakeListener, WindowsPowerEvents,
+};
 use razer_device::HidKeyReports;
 use razer_proto::BLADE_18;
 
@@ -261,15 +263,29 @@ fn newly_unknown(unknown: &AtomicBool, read: Option<bool>) -> bool {
 static SOURCE_UNKNOWN: AtomicBool = AtomicBool::new(false);
 
 /// Power events, read on their own thread. No events come if Windows
-/// refuses to send them.
+/// refuses to send them. A sleep is acted on at once, not at the next
+/// poll, as Windows freezes the app a few seconds after it tells of it;
+/// Windows is told when the send is done (ticket 169).
 pub fn power_events() -> Receiver<PowerEvent> {
     let (sender, receiver) = mpsc::channel();
     match WindowsPowerEvents::register() {
         Ok(mut events) => {
+            let handled = events.suspend_handled();
+            // Only one registration per run: a second keeps the first.
+            let _ = SLEEP_NOTICE.set(handled.clone());
             spawn_part("power events", move || {
                 while let Some(event) = events.next_event() {
                     if sender.send(event).is_err() {
+                        // Nobody reads them: Windows need not wait.
+                        handled.done(handled.number());
                         break;
+                    }
+                    if event == PowerEvent::Suspending {
+                        // The newest notice: a newer one than this event only
+                        // if this one's wait has already ended, so its answer
+                        // may end the newer wait early (not seen; the send
+                        // still goes, as the newer one waits).
+                        follow_the_sleep_now(&handled, handled.number());
                     }
                 }
             });
@@ -277,6 +293,37 @@ pub fn power_events() -> Receiver<PowerEvent> {
         Err(error) => report(&format!("no power events: {error}")),
     }
     receiver
+}
+
+/// The sleep notices' answer, for [`sleep_notice_waits`].
+static SLEEP_NOTICE: OnceLock<SuspendHandled> = OnceLock::new();
+
+/// Whether Windows still waits for the app to act on its last sleep
+/// notice; true if no notices can come (nothing to act on then).
+pub fn sleep_notice_waits() -> bool {
+    SLEEP_NOTICE.get().is_none_or(SuspendHandled::waiting)
+}
+
+/// Has the event loop follow the power events now, then tells Windows the
+/// sleep notice `number` was acted on, even if that panicked (a bug) or the
+/// loop has ended. Windows waits at most 1 s for it in any case
+/// (`SUSPEND_WAIT`).
+fn follow_the_sleep_now(handled: &SuspendHandled, number: u64) {
+    let answer = handled.clone();
+    let posted = slint::invoke_from_event_loop(move || {
+        let followed = std::panic::catch_unwind(AssertUnwindSafe(|| {
+            if let Some(shell) = SHELL.with(|cell| cell.borrow().clone()) {
+                shell.follow_own_power();
+            }
+        }));
+        answer.done(number);
+        if let Err(panic) = followed {
+            std::panic::resume_unwind(panic);
+        }
+    });
+    if posted.is_err() {
+        handled.done(number);
+    }
 }
 
 #[cfg(test)]
