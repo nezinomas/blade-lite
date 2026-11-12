@@ -361,13 +361,13 @@ impl<P: Parts> Shell<P> {
         }
     }
 
-    /// Passes `result` on; an error first quits as Quit does, as the app
-    /// then ends with the start's settings sent and nothing to watch them.
-    pub fn quit_on_error<T, E>(&self, result: Result<T, E>) -> Result<T, E> {
-        if result.is_err() {
-            self.quit();
-        }
-        result
+    /// Runs `serve`, the app's run after the start, then quits as Quit
+    /// does, however it ended: an error too ends the app with the start's
+    /// settings sent and nothing to watch them. Only after the start.
+    pub fn serve<T, E>(&self, serve: impl FnOnce() -> Result<T, E>) -> Result<T, E> {
+        let served = serve();
+        self.quit();
+        served
     }
 
     /// Reads the keyboard brightness while Fn is held or as it comes up,

@@ -145,7 +145,7 @@ fn a_run_error_after_the_start_sends_the_quit_preset() {
     });
     let before = sent_count(&f);
 
-    let ended = f.shell.quit_on_error(Err::<(), _>("no tray"));
+    let ended = f.shell.serve(|| Err::<(), _>("no tray"));
 
     assert_eq!(ended, Err("no tray"));
     assert_eq!(
@@ -155,17 +155,20 @@ fn a_run_error_after_the_start_sends_the_quit_preset() {
 }
 
 #[test]
-fn a_run_that_goes_on_sends_no_quit_preset() {
+fn a_run_that_ends_sends_the_quit_preset() {
     let f = fixture(Config {
         preset: Preset::Performance,
         ..Config::default()
     });
     let before = sent_count(&f);
 
-    let ended = f.shell.quit_on_error(Ok::<_, &str>(7));
+    let ended = f.shell.serve(|| Ok::<_, &str>(7));
 
     assert_eq!(ended, Ok(7));
-    assert_eq!(sent_since(&f, before), []);
+    assert_eq!(
+        sent_since(&f, before),
+        PerfMode::Balanced.commands(&BLADE_18).unwrap()
+    );
 }
 
 #[test]
