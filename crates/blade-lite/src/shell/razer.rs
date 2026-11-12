@@ -74,7 +74,10 @@ impl<P: Parts> Shell<P> {
             // A power event in the pause was dropped.
             shell.follow_source();
             shell.app.borrow_mut().take_on_battery(P::on_battery());
-            shell.act(AppOn::<P>::start);
+            // A sleep since: its wake sends them.
+            if !shell.asleep.get() {
+                shell.act(AppOn::<P>::start);
+            }
         });
     }
 

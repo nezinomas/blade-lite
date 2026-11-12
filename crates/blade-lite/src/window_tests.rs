@@ -7,6 +7,7 @@ mod clicks;
 mod razer;
 mod screens;
 mod settings;
+mod sleep;
 
 use std::cell::RefCell;
 use std::io;

@@ -294,6 +294,10 @@ pub struct Shell<P: Parts = Laptop> {
     controller_gone: Cell<bool>,
     /// Whether the quit preset went, so it goes once.
     quit_sent: Cell<bool>,
+    /// Whether Windows told of a sleep and no wake came since (ticket 169).
+    /// It counts as one more pause in `resuming`, so nothing is sent until
+    /// the wake, which ends it.
+    asleep: Cell<bool>,
 }
 
 impl<P: Parts> Shell<P> {
@@ -336,6 +340,7 @@ impl<P: Parts> Shell<P> {
             dialog_open: Cell::new(false),
             stopped_parts: RefCell::new(Vec::new()),
             quit_sent: Cell::new(false),
+            asleep: Cell::new(false),
             controller_gone: Cell::new(false),
         })
     }

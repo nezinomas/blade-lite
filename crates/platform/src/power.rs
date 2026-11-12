@@ -398,7 +398,11 @@ mod tests {
 
         // 0 is AC, 1 is the battery, 2 is a short-term source such as a UPS.
         for value in [1, 0, 2] {
-            call(&listener, PBT_POWERSETTINGCHANGE, Some(&power_source(value)));
+            call(
+                &listener,
+                PBT_POWERSETTINGCHANGE,
+                Some(&power_source(value)),
+            );
         }
 
         assert_eq!(
