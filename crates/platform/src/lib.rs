@@ -34,7 +34,7 @@ pub use power::{SuspendHandled, WindowsPowerEvents, on_battery, shutting_down};
 pub use programs::WindowsPrograms;
 pub use registry::WindowsRegistry;
 pub use sensors::WindowsSensors;
-pub use session::SessionEndWatch;
+pub use session::{SessionEndWatch, serve_sent_messages};
 pub use watch::RegistryWatch;
 
 /// Something Windows tells us about power.

@@ -58,8 +58,10 @@ Blade Lite sends nothing while it sees a Razer updater, but it can miss one.
 - **Quit** (tray menu): sends Balanced, or Silent if Silent runs. If Custom
   runs with a manual fan, it first sets the fans to auto.
 - **A shutdown, restart or sign-out**: tries to send the same as Quit
-  first. Not checked on the laptop yet (laptop check 23). Rarely it sends
-  nothing (ticket 159).
+  first. Checked on the laptop on AC (checks 23 and 38); on battery with
+  the panel at 60 Hz not yet (check 38). It waits at most 10 s
+  for the app to be free, such as after a rate switch (ticket 159); if the
+  app stays busy longer, it may send nothing.
 - **Most bugs inside the app**: it sends the same as Quit, then shows a
   message box. A crash during the start, or a hard crash, sends nothing,
   as a kill does.
