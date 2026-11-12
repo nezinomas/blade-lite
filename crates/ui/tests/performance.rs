@@ -177,6 +177,19 @@ fn each_fan_stop_has_its_text_auto_then_the_rpm() {
 }
 
 #[test]
+fn each_fan_stop_shows_the_speed_it_sends() {
+    let view = custom();
+    let fan = slider(&view, "Fan");
+
+    for (position, text) in fan.texts.iter().enumerate().skip(1) {
+        let Some(PerformanceCommand::SetFanRpm(Some(rpm))) = view.move_slider(2, position) else {
+            panic!("stop {position} sends no speed");
+        };
+        assert_eq!(*text, format!("{rpm} rpm"));
+    }
+}
+
+#[test]
 fn moving_a_boost_slider_sets_that_boost() {
     let view = custom();
 

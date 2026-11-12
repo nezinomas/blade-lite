@@ -224,8 +224,9 @@ fn fan_slider(model: &ModelProfile, rpm: Option<u16>) -> Slider {
             rpm_text(rpm),
         ),
     };
-    let texts = std::iter::once(AUTO.to_owned())
-        .chain((0..speeds).map(|step| rpm_text(range.min + step * RPM_STEP)))
+    // From `fan_rpm`, so each stop shows the speed it sends.
+    let texts = (0..=usize::from(speeds))
+        .map(|position| fan_rpm(position, range.min).map_or_else(|| AUTO.to_owned(), rpm_text))
         .collect();
     Slider {
         kind: SliderKind::Fan,
