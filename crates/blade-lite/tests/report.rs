@@ -75,6 +75,21 @@ fn a_read_error_is_said_once_in_a_while() {
     );
 }
 
+/// The shell's soak test (ticket 147) runs on mock time, but the shell
+/// says read errors at the real time, so it can't see the old ones go.
+#[test]
+fn errors_older_than_the_quiet_time_are_forgotten() {
+    let start = Instant::now();
+    let quiet = Duration::from_secs(600);
+    let mut said = SaidLately::new(quiet);
+    let many: Vec<String> = (0..100).map(|n| format!("read {n}: busy")).collect();
+    said.to_say(&many, start);
+
+    said.to_say(&lines(&["battery: denied"]), start + quiet);
+
+    assert_eq!(said.kept(), 1);
+}
+
 /// A log line for a `DeviceError`, as the app writes it.
 fn device_line(error: &DeviceError) -> String {
     format!("fan 1: {error}")
