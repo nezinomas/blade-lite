@@ -464,3 +464,90 @@ fn a_custom_mode_write_alone_and_what_the_fans_do() {
     let (_, _, last) = &seen[9];
     assert!(last.iter().all(|args| args[2] > 0), "{last:02X?}");
 }
+
+/// The fan targets and the real speeds, one reply's args per fan.
+type FanReads = (Vec<Vec<u8>>, Vec<Vec<u8>>);
+
+/// Reads the fan targets and real speeds each 5 s for 30 s, or until a
+/// read fails.
+fn watch_fans<C: Clock>(device: &mut Device<HidTransport, C>) -> Result<Vec<FanReads>, String> {
+    let mut seen = Vec::new();
+    for _ in 0..6 {
+        std::thread::sleep(Duration::from_secs(5));
+        let target = try_read_each(device, GET_FAN, &FANS)?;
+        let real = try_read_each(device, GET_FAN_RPM, &FANS)?;
+        seen.push((target, real));
+    }
+    Ok(seen)
+}
+
+#[test]
+#[ignore = "needs the Blade 18, and runs the fans on manual for about 70 s"]
+fn custom_from_balanced_and_again_and_what_the_fans_do() {
+    use razer_proto::{BLADE_18, CpuBoost, Custom, FanMode, GpuBoost, PerfMode, Rpm};
+
+    let mut device = Device::new(open(), SystemClock);
+    let before = custom_state(&mut device);
+    // A full Custom with a manual fan, as the app sends it on a click from
+    // Balanced and again on a slider release (ticket 173: about 2900 RPM
+    // after the click, more after a slider move).
+    let custom = Custom {
+        cpu: CpuBoost::new(1, &BLADE_18).unwrap(),
+        gpu: GpuBoost::new(1, &BLADE_18).unwrap(),
+        fan: FanMode::Manual(Rpm::new(3600, &BLADE_18).unwrap()),
+    }
+    .commands(&BLADE_18);
+    let balanced = PerfMode::Balanced.commands(&BLADE_18).unwrap();
+
+    // From here on every step keeps its result, and the state is put back
+    // before any assert.
+    let from_balanced = device.run(&balanced).and_then(|()| {
+        std::thread::sleep(Duration::from_secs(5));
+        device.run(&custom)
+    });
+    let first = from_balanced
+        .as_ref()
+        .map_err(ToString::to_string)
+        .and_then(|()| watch_fans(&mut device));
+    let again = first
+        .as_ref()
+        .map_err(Clone::clone)
+        .and_then(|_| device.run(&custom).map_err(|error| error.to_string()))
+        .and_then(|()| watch_fans(&mut device));
+
+    // Put back as the Custom test does: boosts and fan targets, then modes.
+    let put_back: Vec<_> = before[4..6]
+        .iter()
+        .map(|args| (SET_BOOST, args))
+        .chain(before[6..8].iter().map(|args| (SET_FAN, args)))
+        .chain(before[..4].iter().map(|args| (0x0D02, args)))
+        .map(|(id, args)| {
+            device
+                .send(id, args)
+                .map(|_| ())
+                .map_err(|error| error.to_string())
+        })
+        .collect();
+    let after = custom_state(&mut device);
+
+    eprintln!("before {before:02X?}");
+    for (name, seen) in [("from Balanced", &first), ("sent again", &again)] {
+        match seen {
+            Ok(seen) => {
+                for (step, (target, real)) in seen.iter().enumerate() {
+                    eprintln!(
+                        "{name} {:>2} s: target {target:02X?}, real {real:02X?}",
+                        (step + 1) * 5
+                    );
+                }
+            }
+            Err(error) => eprintln!("{name}: {error}"),
+        }
+    }
+    eprintln!("put back {put_back:?}\nafter {after:02X?}");
+    // The lasting state first, so its error is never hidden.
+    assert!(put_back.iter().all(Result::is_ok), "check the fans by hand");
+    assert_eq!(after, before);
+    first.unwrap();
+    again.unwrap();
+}
