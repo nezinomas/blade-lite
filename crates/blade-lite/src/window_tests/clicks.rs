@@ -2485,6 +2485,18 @@ fn the_cpu_boost_text_follows_the_slider_while_it_is_dragged() {
 }
 
 #[test]
+fn the_gpu_boost_text_follows_the_slider_while_it_is_dragged() {
+    let fan = razer_proto::FanMode::Manual(razer_proto::Rpm::new(1600, &BLADE_18).unwrap());
+    let sent = razer_proto::Custom {
+        cpu: razer_proto::CpuBoost::new(1, &BLADE_18).unwrap(),
+        gpu: razer_proto::GpuBoost::new(0, &BLADE_18).unwrap(),
+        fan,
+    }
+    .commands(&BLADE_18);
+    custom_drag_shows_the_text("GPU boost", 1, 2.0 / 3.0, "2", "0", &sent);
+}
+
+#[test]
 fn the_fan_text_follows_the_slider_while_it_is_dragged() {
     let sent = custom_commands(1, razer_proto::FanMode::Auto);
     custom_drag_shows_the_text("Fan", 2, 0.5, "3000 rpm", "Auto", &sent);
