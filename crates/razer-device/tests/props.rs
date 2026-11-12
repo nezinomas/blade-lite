@@ -8,7 +8,7 @@ use std::time::Duration;
 
 use proptest::prelude::*;
 use razer_device::{Clock, Device, MAX_BUSY_READS, Transport};
-use razer_proto::{CHECKSUM_INDEX, REPORT_LEN, checksum};
+use razer_proto::{CHECKSUM_INDEX, REPORT_LEN, Status, checksum};
 
 /// One reply the fake hands out.
 #[derive(Debug, Clone)]
@@ -21,14 +21,23 @@ enum Reply {
     Echo(u8),
     /// A well-formed reply with this transaction ID and status byte.
     Other(u8, u8),
+    /// A well-formed reply to another command, with this status byte.
+    OtherCommand(u8, u8),
+    /// Any bytes with a good checksum.
+    SignedNoise(Vec<u8>),
 }
 
 fn reply() -> impl Strategy<Value = Reply> {
+    let noise = || prop::collection::vec(any::<u8>(), REPORT_LEN);
     prop_oneof![
-        Just(Reply::Fails),
-        prop::collection::vec(any::<u8>(), REPORT_LEN).prop_map(Reply::Noise),
-        prop::sample::select(vec![0x01_u8, 0x02, 0x03, 0x05, 0x00, 0x42]).prop_map(Reply::Echo),
-        (any::<u8>(), any::<u8>()).prop_map(|(id, status)| Reply::Other(id, status)),
+        1 => Just(Reply::Fails),
+        1 => noise().prop_map(Reply::Noise),
+        1 => noise().prop_map(Reply::SignedNoise),
+        // Busy often, so runs of it reach the read limit.
+        6 => Just(Reply::Echo(0x01)),
+        2 => prop::sample::select(vec![0x02_u8, 0x03, 0x04, 0x05, 0x00, 0x42]).prop_map(Reply::Echo),
+        1 => (any::<u8>(), any::<u8>()).prop_map(|(id, status)| Reply::Other(id, status)),
+        1 => (any::<u8>(), any::<u8>()).prop_map(|(id, status)| Reply::OtherCommand(id, status)),
     ]
 }
 
@@ -66,6 +75,15 @@ impl Transport for Fake {
                 bytes[1] = id;
                 Ok(signed(bytes, status))
             }
+            Reply::OtherCommand(id, status) => {
+                let mut bytes = self.last_request;
+                bytes[7] = id;
+                Ok(signed(bytes, status))
+            }
+            Reply::SignedNoise(bytes) => {
+                let bytes: [u8; REPORT_LEN] = bytes.try_into().unwrap_or([0; REPORT_LEN]);
+                Ok(signed(bytes, bytes[0]))
+            }
         }
     }
 }
@@ -79,7 +97,7 @@ impl Clock for NoWait {
 proptest! {
     #[test]
     fn any_replies_send_the_command_once_and_read_a_bounded_number_of_times(
-        replies in prop::collection::vec(reply(), 0..12),
+        replies in prop::collection::vec(reply(), 0..14),
         first_id in any::<u8>(),
     ) {
         let (sends, reads) = (Rc::new(Cell::new(0)), Rc::new(Cell::new(0)));
@@ -91,9 +109,16 @@ proptest! {
         };
         let mut device = Device::with_first_id(fake, NoWait, first_id);
 
-        let _ = device.send(0x0D82, &[1, 1, 0, 0]);
+        // Any command does; this is the preset query.
+        let sent = device.send(0x0D82, &[1, 1, 0, 0]);
 
         prop_assert_eq!(sends.get(), 1);
+        // A reply taken is a Success reply to this very request.
+        if let Ok(report) = sent {
+            prop_assert_eq!(report.transaction_id(), first_id % 32);
+            prop_assert_eq!(report.command(), 0x0D82);
+            prop_assert_eq!(report.status(), Status::Success);
+        }
         prop_assert!(reads.get() <= MAX_BUSY_READS + 1, "{} reads", reads.get());
     }
 }
