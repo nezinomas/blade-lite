@@ -551,3 +551,107 @@ fn custom_from_balanced_and_again_and_what_the_fans_do() {
     first.unwrap();
     again.unwrap();
 }
+
+/// Watches the fans for `seconds`, reading the targets and real speeds
+/// each 5 s. With `app_reads`, it also reads each second what the app's
+/// open window reads: the temperatures, each fan's speed and the charger.
+fn watch_fans_for<C: Clock>(
+    device: &mut Device<HidTransport, C>,
+    seconds: u64,
+    app_reads: bool,
+) -> Result<Vec<FanReads>, String> {
+    use razer_proto::{BLADE_18, Celsius, Charger, FanRpm};
+
+    let mut polls = vec![Celsius::query()];
+    polls.extend(FanRpm::queries(&BLADE_18));
+    polls.push(Charger::query());
+    let mut seen = Vec::new();
+    for second in 1..=seconds {
+        std::thread::sleep(Duration::from_secs(1));
+        if app_reads {
+            for query in &polls {
+                device
+                    .send(query.id, &query.args)
+                    .map_err(|error| error.to_string())?;
+            }
+        }
+        if second % 5 == 0 {
+            let target = try_read_each(device, GET_FAN, &FANS)?;
+            let real = try_read_each(device, GET_FAN_RPM, &FANS)?;
+            seen.push((target, real));
+        }
+    }
+    Ok(seen)
+}
+
+#[test]
+#[ignore = "needs the Blade 18, and runs the fans on manual for about 2.5 min"]
+fn the_users_custom_with_and_without_the_app_reads() {
+    use razer_proto::{BLADE_18, CpuBoost, Custom, FanMode, GpuBoost, PerfMode, Rpm};
+
+    let mut device = Device::new(open(), SystemClock);
+    let before = custom_state(&mut device);
+    // The user's saved Custom (ticket 173): both boosts at the top, 3600 RPM,
+    // sent from Performance as the app's click from it does.
+    let custom = Custom {
+        cpu: CpuBoost::new(3, &BLADE_18).unwrap(),
+        gpu: GpuBoost::new(3, &BLADE_18).unwrap(),
+        fan: FanMode::Manual(Rpm::new(3600, &BLADE_18).unwrap()),
+    }
+    .commands(&BLADE_18);
+    let performance = PerfMode::Performance.commands(&BLADE_18).unwrap();
+    let from_performance = |device: &mut Device<HidTransport, SystemClock>, app_reads| {
+        device
+            .run(&performance)
+            .and_then(|()| {
+                std::thread::sleep(Duration::from_secs(10));
+                device.run(&custom)
+            })
+            .map_err(|error| error.to_string())
+            .and_then(|()| watch_fans_for(device, 60, app_reads))
+    };
+
+    // From here on every step keeps its result, and the state is put back
+    // before any assert.
+    let quiet = from_performance(&mut device, false);
+    let polled = quiet
+        .as_ref()
+        .map_err(Clone::clone)
+        .and_then(|_| from_performance(&mut device, true));
+
+    // Put back as the Custom test does: boosts and fan targets, then modes.
+    let put_back: Vec<_> = before[4..6]
+        .iter()
+        .map(|args| (SET_BOOST, args))
+        .chain(before[6..8].iter().map(|args| (SET_FAN, args)))
+        .chain(before[..4].iter().map(|args| (0x0D02, args)))
+        .map(|(id, args)| {
+            device
+                .send(id, args)
+                .map(|_| ())
+                .map_err(|error| error.to_string())
+        })
+        .collect();
+    let after = custom_state(&mut device);
+
+    eprintln!("before {before:02X?}");
+    for (name, seen) in [("no app reads", &quiet), ("app reads", &polled)] {
+        match seen {
+            Ok(seen) => {
+                for (step, (target, real)) in seen.iter().enumerate() {
+                    eprintln!(
+                        "{name} {:>2} s: target {target:02X?}, real {real:02X?}",
+                        (step + 1) * 5
+                    );
+                }
+            }
+            Err(error) => eprintln!("{name}: {error}"),
+        }
+    }
+    eprintln!("put back {put_back:?}\nafter {after:02X?}");
+    // The lasting state first, so its error is never hidden.
+    assert!(put_back.iter().all(Result::is_ok), "check the fans by hand");
+    assert_eq!(after, before);
+    quiet.unwrap();
+    polled.unwrap();
+}
