@@ -260,7 +260,7 @@ fn the_power_key_reads_the_charger_first() {
 }
 
 #[test]
-fn a_click_refused_before_any_send_after_a_full_charger_read_sends_what_runs() {
+fn a_click_refused_before_any_send_after_two_full_charger_reads_sends_what_runs() {
     let mut config = Config {
         preset: Preset::Performance,
         ..Config::default()
@@ -271,8 +271,9 @@ fn a_click_refused_before_any_send_after_a_full_charger_read_sends_what_runs() {
     app.machine_mut().controller.inner.charger = FakeCharger::UsbC;
     app.start().unwrap();
     app.machine_mut().controller.inner.sent.clear();
-    // Swapped to the full charger since the last poll.
+    // Swapped to the full charger: one poll read it, the click reads it again.
     app.machine_mut().controller.inner.charger = FakeCharger::Razer;
+    app.follow_charger().unwrap();
 
     let result = app.on_performance(PerformanceCommand::SetPreset(Preset::Custom));
 
@@ -282,4 +283,35 @@ fn a_click_refused_before_any_send_after_a_full_charger_read_sends_what_runs() {
         PerfMode::Performance.commands(&BLADE_18).unwrap()
     );
     assert_eq!(app.running_preset(), Preset::Performance);
+}
+
+#[test]
+fn one_full_read_at_a_click_does_not_end_a_weak_charge() {
+    let (mut app, _dir, _) = crate::app();
+    app.machine_mut().controller.inner.charger = FakeCharger::UsbC;
+    app.start().unwrap();
+    app.machine_mut().controller.inner.sent.clear();
+    // A reply that flickers to full in a swap, as a poll would not trust.
+    app.machine_mut().controller.inner.charger = FakeCharger::Razer;
+
+    let first = app.on_performance(PerformanceCommand::SetPreset(Preset::Performance));
+    assert!(first.is_err());
+    assert_eq!(sent(&app), []);
+
+    // The second full read in a row is the full charger.
+    let second = app.on_performance(PerformanceCommand::SetPreset(Preset::Performance));
+    assert!(second.is_ok(), "{second:?}");
+    assert!(ran(&app, PerfMode::Performance));
+}
+
+#[test]
+fn one_full_read_at_a_power_key_press_does_not_end_a_weak_charge() {
+    let (mut app, _dir, _) = crate::app();
+    app.machine_mut().controller.inner.charger = FakeCharger::UsbC;
+    app.start().unwrap();
+    app.machine_mut().controller.inner.charger = FakeCharger::Razer;
+    // Balanced runs: the key steps to Silent's next, Balanced, never past it.
+    app.on_power_key().unwrap();
+
+    assert_ne!(app.running_preset(), Preset::Performance);
 }

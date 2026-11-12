@@ -38,7 +38,7 @@ where
                     // poll may be 10 s old.
                     let before = self.running_preset();
                     read_from = Some(before);
-                    self.read_charger();
+                    self.read_charger_at_click();
                     if self.battery_presets() {
                         self.send_if_read_changed(before);
                         return Err(AppError::NotOnBattery(preset));
@@ -97,7 +97,7 @@ where
         }
         // The step depends on the charger, which the last poll may have
         // read 10 s ago.
-        self.read_charger();
+        self.read_charger_at_click();
         let running = self.running_preset();
         match next_preset(running, self.model, self.battery_presets()) {
             Some(next) if next != running => {
