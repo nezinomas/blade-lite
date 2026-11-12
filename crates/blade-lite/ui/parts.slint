@@ -19,6 +19,8 @@ export struct SliderRow {
     stops: int,
     position: int,
     text: string,
+    // The value at each stop, as text, for the text to follow a drag.
+    texts: [string],
 }
 
 export struct SwatchItem {
