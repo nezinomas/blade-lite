@@ -161,6 +161,12 @@ impl SaidLately {
         }
         new
     }
+
+    /// How many errors it keeps now, for the soak test (ticket 147).
+    #[must_use]
+    pub fn kept(&self) -> usize {
+        self.said.len()
+    }
 }
 
 /// The error without its details in braces or brackets, such as a
