@@ -248,7 +248,10 @@ where
         let applied = self.send_preset(&config);
         // Only the preset run is sent, so `AfterPreset` can't come here.
         match &applied {
-            Ok(()) => self.preset_unsure = false,
+            Ok(()) => {
+                self.preset_unsure = false;
+                self.boost_unsent = false;
+            }
             Err(ApplyError::Device(_)) => self.preset_send_failed(),
             Err(_) => {}
         }
