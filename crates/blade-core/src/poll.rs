@@ -9,7 +9,8 @@ pub const POLL_INTERVAL: Duration = Duration::from_secs(1);
 pub const HEAT_INTERVAL: Duration = Duration::from_secs(10);
 
 /// How often the temperatures are read while a manual Custom fan runs, so
-/// the fan guard acts within seconds (ticket 161). Reads only.
+/// the fan guard acts within seconds (ticket 161). Each read also reads
+/// the charger and may send the preset again, as a view's poll does.
 pub const GUARD_HEAT_INTERVAL: Duration = Duration::from_secs(2);
 
 /// A view that shows readings.
@@ -26,9 +27,19 @@ pub struct PollSchedule {
     flyout: bool,
     /// `None` while no view is visible.
     next: Option<Instant>,
-    /// The next temperature read while no view is visible, and the wall
-    /// clock at the last one. `None` when one is due at once.
-    next_heat: Option<(Instant, SystemTime)>,
+    /// The last temperature read (or skip) while no view is visible.
+    /// `None` when one is due at once.
+    last_heat: Option<LastHeat>,
+}
+
+/// A temperature read, or one skipped as too late.
+#[derive(Debug, Clone, Copy)]
+struct LastHeat {
+    at: Instant,
+    /// The wall clock then, which counts a sleep.
+    wall: SystemTime,
+    /// Whether it was skipped: the next then waits [`HEAT_INTERVAL`].
+    skipped: bool,
 }
 
 impl PollSchedule {
@@ -57,31 +68,48 @@ impl PollSchedule {
         due
     }
 
-    /// Whether to read only the temperatures now: never while a view polls,
-    /// since each poll reads them. A read due moves the next one
-    /// `interval` on ([`HEAT_INTERVAL`] or [`GUARD_HEAT_INTERVAL`]). A read more than one interval late by `now` or
-    /// by the wall clock `wall` is skipped, and the next waits one interval:
+    /// Whether to read only the temperatures now: never while a view
+    /// polls, since each poll reads them. A read is due `interval`
+    /// ([`HEAT_INTERVAL`] or [`GUARD_HEAT_INTERVAL`]) after the last one,
+    /// so a switch to the short one reads within it. A read more than
+    /// [`HEAT_INTERVAL`] late by `now` or by the wall clock `wall` is
+    /// skipped, and the next waits [`HEAT_INTERVAL`] whatever `interval` is:
     /// the laptop slept or the event loop stood still, so the controller may
-    /// not be awake and the wake not known. The wall clock counts a sleep
+    /// not be awake and the wake not known yet. The wall clock counts a sleep
     /// that `Instant` may not; a wall clock set back skips nothing.
     pub fn heat_due(&mut self, now: Instant, wall: SystemTime, interval: Duration) -> bool {
         if self.next.is_some() {
-            self.next_heat = None;
+            self.last_heat = None;
             return false;
         }
-        let Some((next, last_wall)) = self.next_heat else {
-            self.next_heat = Some((now + interval, wall));
+        let Some(last) = self.last_heat else {
+            self.last_heat = Some(LastHeat {
+                at: now,
+                wall,
+                skipped: false,
+            });
             return true;
         };
+        let gap = if last.skipped {
+            HEAT_INTERVAL
+        } else {
+            interval
+        };
+        let next = last.at + gap;
         if now < next {
             return false;
         }
-        self.next_heat = Some((now + interval, wall));
-        let late = now > next + interval;
+        let late = now > next + HEAT_INTERVAL;
         let slept = wall
-            .duration_since(last_wall)
-            .is_ok_and(|passed| passed > interval * 2);
-        !late && !slept
+            .duration_since(last.wall)
+            .is_ok_and(|passed| passed > gap + HEAT_INTERVAL);
+        let skipped = late || slept;
+        self.last_heat = Some(LastHeat {
+            at: now,
+            wall,
+            skipped,
+        });
+        !skipped
     }
 
     /// When the next poll is due, or `None` while polling is stopped.

@@ -478,8 +478,7 @@ where
     pub fn set_fan_boost(&mut self, on: bool) -> Result<bool, AppError> {
         let top = self.model.custom.fan_rpm.max;
         let boost = on.then_some(top);
-        let running = self.running(self.config);
-        let manual = running.preset == Preset::Custom && running.custom.fan_rpm.is_some();
+        let manual = self.manual_fan_runs();
         if self.fan_boost == boost {
             // A failed full-speed send whose resends ran out is tried
             // again while the guard stays on (the polls send it).

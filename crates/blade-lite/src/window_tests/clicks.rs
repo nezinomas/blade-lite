@@ -1820,12 +1820,12 @@ fn a_hot_cpu_puts_a_manual_fan_at_full_speed_and_back_when_cool() {
     };
 
     let hot_end = 1;
-    for second in 0..=hot_end {
-        f.shell
-            .watch_heat(Some(96), None, start + Duration::from_secs(second));
-    }
+    f.shell.watch_heat(Some(96), None, start);
+    assert_eq!(fan_speeds(&f, before), [top, top], "the first reading");
+    f.shell
+        .watch_heat(Some(96), None, start + Duration::from_secs(hot_end));
 
-    assert_eq!(fan_speeds(&f, before), [top, top]);
+    assert_eq!(fan_speeds(&f, before), [top, top], "sent once");
     assert_eq!(f.shell.popup().get_caption(), "Fans");
     assert_eq!(f.shell.popup().get_mode(), "Full speed");
     let log = std::fs::read_to_string(log_path()).unwrap();

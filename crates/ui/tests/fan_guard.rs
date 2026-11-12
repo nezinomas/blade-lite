@@ -27,7 +27,7 @@ fn feed(
 }
 
 #[test]
-fn a_hot_cpu_for_the_hold_turns_the_guard_on_once() {
+fn a_cpu_that_stays_hot_turns_the_guard_on_once() {
     let mut guard = FanGuard::default();
     let (_, changes) = feed(&mut guard, Instant::now(), HOT_TIME * 2, Some(95), Some(60));
     assert_eq!(changes, [true]);
@@ -105,7 +105,7 @@ fn an_asleep_gpu_does_not_keep_it_on_but_an_unread_cpu_does() {
 }
 
 #[test]
-fn a_cpu_swinging_around_the_limit_still_turns_it_on() {
+fn a_cpu_swinging_around_the_limit_turns_it_on_once() {
     let mut guard = FanGuard::default();
     let mut now = Instant::now();
     let mut changes = Vec::new();

@@ -340,9 +340,9 @@ fn the_fan_guard_sends_nothing_while_razer_software_runs() {
     look(&f);
     let before = f.shell.app().machine().controller.inner.sent.len();
     let start = std::time::Instant::now();
-    let hold = 1;
+    let hot_end = 1;
 
-    for second in 0..=hold {
+    for second in 0..=hot_end {
         f.shell
             .watch_heat(None, Some(90), start + Duration::from_secs(second));
     }
@@ -352,7 +352,7 @@ fn the_fan_guard_sends_nothing_while_razer_software_runs() {
     f.shell.programs().set(&[]);
     look(&f);
     f.shell
-        .watch_heat(None, Some(90), start + Duration::from_secs(hold + 1));
+        .watch_heat(None, Some(90), start + Duration::from_secs(hot_end + 1));
     assert!(f.shell.app().machine().controller.inner.sent.len() > before);
 }
 
@@ -368,9 +368,9 @@ fn the_fan_guard_sends_nothing_while_a_razer_updater_runs() {
     look(&f);
     let before = f.shell.app().machine().controller.inner.sent.len();
     let start = std::time::Instant::now();
-    let hold = 1;
+    let hot_end = 1;
 
-    for second in 0..=hold {
+    for second in 0..=hot_end {
         f.shell
             .watch_heat(None, Some(90), start + Duration::from_secs(second));
     }
@@ -380,7 +380,7 @@ fn the_fan_guard_sends_nothing_while_a_razer_updater_runs() {
     f.shell.programs().set(&[]);
     look(&f);
     f.shell
-        .watch_heat(None, Some(90), start + Duration::from_secs(hold + 1));
+        .watch_heat(None, Some(90), start + Duration::from_secs(hot_end + 1));
     assert!(f.shell.app().machine().controller.inner.sent.len() > before);
 }
 

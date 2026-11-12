@@ -2,7 +2,7 @@
 
 use std::time::{Duration, Instant, SystemTime};
 
-use blade_core::{HEAT_INTERVAL, POLL_INTERVAL, PollSchedule, View};
+use blade_core::{GUARD_HEAT_INTERVAL, HEAT_INTERVAL, POLL_INTERVAL, PollSchedule, View};
 
 /// A clock that moves only when told to, in steps of 100 ms.
 struct FakeClock {
@@ -271,4 +271,32 @@ fn a_wall_clock_set_back_does_not_stop_heat_reads() {
     clock.wall_ahead = Duration::ZERO;
 
     assert!(schedule.heat_due(clock.now, clock.wall(), HEAT_INTERVAL));
+}
+
+#[test]
+fn a_switch_to_the_guard_interval_reads_within_it() {
+    let mut clock = FakeClock::new();
+    let mut schedule = PollSchedule::default();
+    assert!(schedule.heat_due(clock.now, clock.wall(), HEAT_INTERVAL));
+    clock.now += Duration::from_secs(5);
+
+    // A manual fan starts: the read 2 s after the last one is due now.
+    assert!(schedule.heat_due(clock.now, clock.wall(), GUARD_HEAT_INTERVAL));
+    clock.now += GUARD_HEAT_INTERVAL;
+    assert!(schedule.heat_due(clock.now, clock.wall(), GUARD_HEAT_INTERVAL));
+}
+
+#[test]
+fn a_skipped_guard_read_still_waits_the_long_interval() {
+    // After a sleep the wake event gets the same time as before to come.
+    let mut clock = FakeClock::new();
+    let mut schedule = PollSchedule::default();
+    assert!(schedule.heat_due(clock.now, clock.wall(), GUARD_HEAT_INTERVAL));
+    clock.now += Duration::from_secs(60);
+    assert!(!schedule.heat_due(clock.now, clock.wall(), GUARD_HEAT_INTERVAL));
+
+    clock.now += GUARD_HEAT_INTERVAL;
+    assert!(!schedule.heat_due(clock.now, clock.wall(), GUARD_HEAT_INTERVAL));
+    clock.now += HEAT_INTERVAL.saturating_sub(GUARD_HEAT_INTERVAL);
+    assert!(schedule.heat_due(clock.now, clock.wall(), GUARD_HEAT_INTERVAL));
 }
