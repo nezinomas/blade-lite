@@ -322,3 +322,24 @@ fn a_sleep_while_the_app_is_busy_sends_nothing_and_says_so() {
     assert_eq!(sent_since(&f, before), []);
     assert!(log().contains("the app was busy, so the quit preset was not sent before the sleep"));
 }
+
+#[test]
+fn a_sleep_and_a_wake_inside_a_wake_pause_leave_the_send_to_the_last_pause() {
+    let f = fixture(manual_fan());
+    power(&f, &[PowerEvent::Suspending]);
+    let before = sent_count(&f);
+    let asked = asked_count(&f);
+    let step = |millis| i_slint_backend_testing::mock_elapsed_time(Duration::from_millis(millis));
+
+    power(&f, &[PowerEvent::Resumed]);
+    step(1000);
+    power(&f, &[PowerEvent::Suspending]);
+    power(&f, &[PowerEvent::Resumed]);
+    // The first wake's pause ends now, inside the second's.
+    step(1500);
+
+    assert_eq!(sent_since(&f, before), []);
+    assert_eq!(asked_count(&f), asked);
+    step(600);
+    assert!(sets_a_manual_fan(&sent_since(&f, before)));
+}

@@ -97,13 +97,13 @@ impl<P: Parts> Shell<P> {
                 false
             }
             Reopened::Opened => {
-                self.begin_pause();
+                let wakes = self.begin_pause();
                 let shell = Rc::clone(self);
                 Timer::single_shot(RESUME_PAUSE, move || {
                     shell.resuming.set(shell.resuming.get().saturating_sub(1));
                     // A sleep since: nothing reaches the controller, and the
                     // wake does all this after its pause.
-                    if shell.asleep.get() {
+                    if shell.slept_since(wakes) {
                         shell.redo_at_wake.set(true);
                         return;
                     }
@@ -418,16 +418,18 @@ impl<P: Parts> Shell<P> {
             if self.asleep.replace(false) {
                 self.resuming.set(self.resuming.get().saturating_sub(1));
             }
+            // Older pauses that end now leave their sends to this one.
+            self.wakes.set(self.wakes.get().wrapping_add(1));
             // The time asleep may not count in `Instant`, so a spell before
             // the sleep is not carried over.
             self.heat_watch.set(HeatWatch::default());
             // The controller needs a moment after the wake.
-            self.begin_pause();
+            let wakes = self.begin_pause();
             let shell = Rc::clone(self);
             Timer::single_shot(RESUME_PAUSE, move || {
                 shell.resuming.set(shell.resuming.get().saturating_sub(1));
-                // A sleep since: its wake sends them.
-                if shell.asleep.get() {
+                // A sleep or a newer wake since: that wake sends them.
+                if shell.slept_since(wakes) {
                     return;
                 }
                 {

@@ -102,28 +102,30 @@ impl SuspendHandled {
         }
     }
 
-    /// Starts a new notice, before it is passed on.
-    fn arm(&self) {
+    /// Starts a new notice, before it is passed on. Returns its number.
+    fn arm(&self) -> u64 {
         let mut notice = self.notice();
         notice.number = notice.number.wrapping_add(1);
         notice.waiting = true;
+        notice.number
     }
 
-    /// Waits until [`done`](Self::done), at most `limit`; after that the
-    /// notice no longer waits, however the wait ended.
-    fn wait(&self, limit: Duration) {
+    /// Waits until [`done`](Self::done) for the notice `number`, at most
+    /// `limit`; after that it no longer waits, however the wait ended. A
+    /// newer notice, from a call that came meanwhile, is left as it is.
+    fn wait(&self, number: u64, limit: Duration) {
         let guard = self.notice();
         // Answered, timed out or poisoned: each just returns, so Windows
         // goes on.
-        let mut notice = match self
-            .0
-            .1
-            .wait_timeout_while(guard, limit, |notice| notice.waiting)
-        {
+        let mut notice = match self.0.1.wait_timeout_while(guard, limit, |notice| {
+            notice.number == number && notice.waiting
+        }) {
             Ok((notice, _)) => notice,
             Err(poisoned) => poisoned.into_inner().0,
         };
-        notice.waiting = false;
+        if notice.number == number {
+            notice.waiting = false;
+        }
     }
 }
 
@@ -269,12 +271,12 @@ unsafe extern "system" fn on_power_event(
         // Its own handle, so the wait never touches the listener, which a
         // drop may free meanwhile.
         let suspend = listener.suspend.clone();
-        suspend.arm();
+        let number = suspend.arm();
         if listener.sender.send(event).is_ok() {
-            suspend.wait(SUSPEND_WAIT);
+            suspend.wait(number, SUSPEND_WAIT);
         } else {
             // Nobody listens any more: no wait.
-            suspend.done(suspend.number());
+            suspend.done(number);
         }
     }
     ERROR_SUCCESS

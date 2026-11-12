@@ -281,6 +281,10 @@ pub fn power_events() -> Receiver<PowerEvent> {
                         break;
                     }
                     if event == PowerEvent::Suspending {
+                        // The newest notice: a newer one than this event only
+                        // if this one's wait has already ended, so its answer
+                        // may end the newer wait early (not seen; the send
+                        // still goes, as the newer one waits).
                         follow_the_sleep_now(&handled, handled.number());
                     }
                 }

@@ -54,7 +54,9 @@ impl<P: Parts> Shell<P> {
                         // The dialog does not block the app, so the laptop
                         // may have slept while it was open.
                         shell.follow_own_power();
-                        if shell.resuming.get() > 0 {
+                        if shell.asleep.get() {
+                            shell.refresh(Some(&AppError::Asleep));
+                        } else if shell.resuming.get() > 0 {
                             shell.refresh(Some(&AppError::JustWoke));
                         } else {
                             shell.user_act(|app| act(app, &path));

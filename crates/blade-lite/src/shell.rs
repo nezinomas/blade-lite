@@ -309,6 +309,8 @@ pub struct Shell<P: Parts = Laptop> {
     /// Whether the pause of an open again or an updater ended in a sleep,
     /// so the wake releases the handle and reads the firmware again too.
     redo_at_wake: Cell<bool>,
+    /// Counts the wakes, so a pause that began before one sends nothing.
+    wakes: Cell<u64>,
 }
 
 impl<P: Parts> Shell<P> {
@@ -353,6 +355,7 @@ impl<P: Parts> Shell<P> {
             quit_sent: Cell::new(false),
             asleep: Cell::new(false),
             redo_at_wake: Cell::new(false),
+            wakes: Cell::new(0),
             controller_gone: Cell::new(false),
         })
     }
@@ -432,9 +435,18 @@ impl<P: Parts> Shell<P> {
 
     /// Starts a pause after a wake, an open again or an updater: the
     /// controller may not be ready, so nothing is sent until it ends.
-    pub(super) fn begin_pause(&self) {
+    /// Returns the count of wakes now, for [`Self::slept_since`].
+    pub(super) fn begin_pause(&self) -> u64 {
         self.resuming.set(self.resuming.get().saturating_add(1));
         self.pause_began.set(Some(Instant::now()));
+        self.wakes.get()
+    }
+
+    /// Whether the laptop sleeps, or woke again, since a pause began with
+    /// `wakes` (ticket 169): the pause's end then sends nothing, and leaves
+    /// its work to the wake's own pause.
+    pub(super) fn slept_since(&self, wakes: u64) -> bool {
+        self.asleep.get() || self.wakes.get() != wakes
     }
 
     /// A wake that Windows told of but no poll has read yet starts its
