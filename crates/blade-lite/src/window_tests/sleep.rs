@@ -343,3 +343,83 @@ fn a_sleep_and_a_wake_inside_a_wake_pause_leave_the_send_to_the_last_pause() {
     step(600);
     assert!(sets_a_manual_fan(&sent_since(&f, before)));
 }
+
+/// Advances the mock clock by `millis`.
+fn step(millis: u64) {
+    i_slint_backend_testing::mock_elapsed_time(Duration::from_millis(millis));
+}
+
+/// Starts the pause after an updater ended, as the tick that saw it end.
+fn updater_ends(f: &Fixture) {
+    f.shell.programs().set(&[UPDATER]);
+    f.shell.look_for_razer();
+    f.shell.programs().set(&[]);
+    f.shell.look_for_razer();
+    f.shell.tick();
+}
+
+/// Starts the pause after an open again, as the tick that saw it.
+fn opened_again(f: &Fixture) {
+    FAKE_REOPENED.set(Reopened::Opened);
+    FAKE_RELEASED.set(false);
+    f.shell.tick();
+}
+
+/// Ticket 162: the older pause ends 0.5 s after the wake, and sends nothing
+/// then; only the last pause sends.
+fn only_the_last_pause_sends(f: &Fixture, before: usize) {
+    step(600);
+    assert_eq!(sent_since(f, before), [], "the older pause sends nothing");
+    step(1500);
+    assert!(sets_a_manual_fan(&sent_since(f, before)));
+}
+
+#[test]
+fn a_wake_in_the_pause_of_an_open_again_leaves_the_send_to_the_wake() {
+    let f = fixture(manual_fan());
+    let before = sent_count(&f);
+    opened_again(&f);
+    step(1500);
+
+    power(&f, &[PowerEvent::Resumed]);
+
+    only_the_last_pause_sends(&f, before);
+    assert!(FAKE_RELEASED.get(), "the wake releases the handle");
+}
+
+#[test]
+fn a_wake_in_the_pause_after_an_updater_leaves_the_send_to_the_wake() {
+    let f = fixture(manual_fan());
+    let before = sent_count(&f);
+    updater_ends(&f);
+    step(1500);
+
+    power(&f, &[PowerEvent::Resumed]);
+
+    only_the_last_pause_sends(&f, before);
+}
+
+#[test]
+fn an_open_again_in_a_wake_pause_leaves_the_send_to_its_own_pause() {
+    let f = fixture(manual_fan());
+    power(&f, &[PowerEvent::Resumed]);
+    let before = sent_count(&f);
+    step(1500);
+
+    opened_again(&f);
+
+    only_the_last_pause_sends(&f, before);
+    assert!(FAKE_RELEASED.get());
+}
+
+#[test]
+fn two_wakes_under_the_pause_apart_send_once() {
+    let f = fixture(manual_fan());
+    let before = sent_count(&f);
+    power(&f, &[PowerEvent::Resumed]);
+    step(1500);
+
+    power(&f, &[PowerEvent::Resumed]);
+
+    only_the_last_pause_sends(&f, before);
+}
