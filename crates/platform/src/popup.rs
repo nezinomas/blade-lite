@@ -176,7 +176,7 @@ mod tests {
         let ex_style = unsafe { GetWindowLongPtrW(popup as _, GWL_EXSTYLE) };
         destroy(popup);
         result.unwrap();
-        assert_ne!(ex_style & WS_EX_TOPMOST as isize, 0);
+        assert_ne!(ex_style & isize::try_from(WS_EX_TOPMOST).unwrap(), 0);
     }
 
     #[test]
