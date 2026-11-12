@@ -30,7 +30,7 @@ pub use keys::{WindowsKeys, enter_down, mic_keys_down, num_lock_on};
 pub use message::{ask_yes_no, show_error};
 pub use mic::{mic_muted, toggle_mic_mute};
 pub use popup::{work_area, work_area_at};
-pub use power::{WindowsPowerEvents, on_battery, shutting_down};
+pub use power::{SuspendHandled, WindowsPowerEvents, on_battery, shutting_down};
 pub use programs::WindowsPrograms;
 pub use registry::WindowsRegistry;
 pub use sensors::WindowsSensors;
@@ -40,6 +40,8 @@ pub use watch::RegistryWatch;
 /// Something Windows tells us about power.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PowerEvent {
+    /// The laptop is about to sleep or hibernate.
+    Suspending,
     /// The laptop woke from sleep or hibernation.
     Resumed,
     /// The laptop now runs on its battery.

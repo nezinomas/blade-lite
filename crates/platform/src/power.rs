@@ -1,10 +1,12 @@
-//! Resume and power source events from Windows, through power callbacks (no
-//! window needed).
+//! Sleep, resume and power source events from Windows, through power
+//! callbacks (no window needed).
 
 use std::ffi::c_void;
 use std::io;
 use std::ptr;
 use std::sync::mpsc::{self, Receiver, Sender};
+use std::sync::{Arc, Condvar, Mutex, PoisonError};
+use std::time::Duration;
 
 use windows_sys::Win32::Foundation::ERROR_SUCCESS;
 use windows_sys::Win32::System::Power::{
@@ -15,8 +17,8 @@ use windows_sys::Win32::System::Power::{
 };
 use windows_sys::Win32::System::SystemServices::GUID_ACDC_POWER_SOURCE;
 use windows_sys::Win32::UI::WindowsAndMessaging::{
-    DEVICE_NOTIFY_CALLBACK, GetSystemMetrics, PBT_APMRESUMEAUTOMATIC, PBT_POWERSETTINGCHANGE,
-    SM_SHUTTINGDOWN,
+    DEVICE_NOTIFY_CALLBACK, GetSystemMetrics, PBT_APMRESUMEAUTOMATIC, PBT_APMSUSPEND,
+    PBT_POWERSETTINGCHANGE, SM_SHUTTINGDOWN,
 };
 
 use windows_sys::core::GUID;
@@ -50,23 +52,67 @@ fn on_battery_for(ac_line_status: u8) -> Option<bool> {
     }
 }
 
+/// How long Windows' call that tells of a sleep is held for the app to send
+/// (ticket 169). Windows gives the apps about 2 s for it, one time for all
+/// of them (Microsoft's `PBT_APMSUSPEND` and Desktop Activity Moderator
+/// pages), so a stuck app holds the sleep no longer than this.
+pub const SUSPEND_WAIT: Duration = Duration::from_secs(1);
+
+/// Tells the call that told of a sleep that the app has acted on it, so the
+/// call can return and Windows can go on.
+#[derive(Clone, Default)]
+pub struct SuspendHandled(Arc<(Mutex<bool>, Condvar)>);
+
+impl SuspendHandled {
+    /// The app has sent, or given up: the call that waits returns.
+    pub fn done(&self) {
+        let (handled, signal) = &*self.0;
+        *handled.lock().unwrap_or_else(PoisonError::into_inner) = true;
+        signal.notify_all();
+    }
+
+    /// Clears an old answer, before a new sleep is passed on.
+    fn arm(&self) {
+        *self.0.0.lock().unwrap_or_else(PoisonError::into_inner) = false;
+    }
+
+    /// Waits until [`done`](Self::done), at most `limit`.
+    fn wait(&self, limit: Duration) {
+        let (handled, signal) = &*self.0;
+        let guard = handled.lock().unwrap_or_else(PoisonError::into_inner);
+        // Answered, timed out or poisoned: each just returns, so Windows
+        // goes on.
+        let _ = signal.wait_timeout_while(guard, limit, |handled| !*handled);
+    }
+}
+
+/// What Windows' calls reach: where the events go, and the sleep's answer.
+struct Listener {
+    sender: Sender<PowerEvent>,
+    suspend: SuspendHandled,
+}
+
 /// Power events from Windows, from [`register`](Self::register) until drop.
 ///
-/// Only the automatic resume is passed on. Windows sends it on every resume,
-/// with or without a user at the keyboard, so each resume is one event.
-/// The power source comes once at register, then on each change.
+/// Only the sleep and the automatic resume are passed on. Windows sends the
+/// automatic resume on every resume, with or without a user at the
+/// keyboard, so each resume is one event. On Modern Standby the sleep comes
+/// as Windows is about to freeze the desktop apps, after the screen goes
+/// off (Microsoft's Desktop Activity Moderator page); the call that tells
+/// of it waits for [`SuspendHandled::done`], at most [`SUSPEND_WAIT`]. The
+/// power source comes once at register, then on each change.
 pub struct WindowsPowerEvents {
     events: Receiver<PowerEvent>,
     registration: HPOWERNOTIFY,
     power_source: HPOWERNOTIFY,
     // Windows calls back with pointers into these, so they live until drop.
     _params: Box<DEVICE_NOTIFY_SUBSCRIBE_PARAMETERS>,
-    _sender: Box<Sender<PowerEvent>>,
+    listener: Box<Listener>,
 }
 
 // SAFETY: the params only hold pointers to the callback and to the boxed
-// sender, which is safe to use from any thread. The registration handle is
-// a plain value that any thread can unregister.
+// listener, whose sender and answer are safe to use from any thread. The
+// registration handle is a plain value that any thread can unregister.
 unsafe impl Send for WindowsPowerEvents {}
 
 impl WindowsPowerEvents {
@@ -77,15 +123,16 @@ impl WindowsPowerEvents {
     /// The Windows error if the registration fails.
     pub fn register() -> io::Result<Self> {
         let (sender, events) = mpsc::channel();
-        let sender = Box::new(sender);
+        let listener = Box::new(Listener {
+            sender,
+            suspend: SuspendHandled::default(),
+        });
         let mut params = Box::new(DEVICE_NOTIFY_SUBSCRIBE_PARAMETERS {
             Callback: Some(on_power_event),
-            Context: ptr::from_ref::<Sender<PowerEvent>>(&sender)
-                .cast_mut()
-                .cast(),
+            Context: ptr::from_ref::<Listener>(&listener).cast_mut().cast(),
         });
         let mut registration = ptr::null_mut();
-        // SAFETY: the params and the sender they point to are boxed, so they
+        // SAFETY: the params and the listener they point to are boxed, so they
         // stay put, and they are kept until drop unregisters the callback.
         let status = unsafe {
             PowerRegisterSuspendResumeNotification(
@@ -118,8 +165,14 @@ impl WindowsPowerEvents {
             registration,
             power_source: power_source as HPOWERNOTIFY,
             _params: params,
-            _sender: sender,
+            listener,
         })
+    }
+
+    /// What the app calls once it has acted on a sleep.
+    #[must_use]
+    pub fn suspend_handled(&self) -> SuspendHandled {
+        self.listener.suspend.clone()
     }
 }
 
@@ -150,23 +203,31 @@ pub fn shutting_down() -> bool {
     unsafe { GetSystemMetrics(SM_SHUTTINGDOWN) != 0 }
 }
 
-/// Called by Windows on its own thread for each power event.
+/// Called by Windows on its own thread for each power event. A sleep is
+/// held until the app has acted on it, at most [`SUSPEND_WAIT`].
 unsafe extern "system" fn on_power_event(
     context: *const c_void,
     kind: u32,
     setting: *const c_void,
 ) -> u32 {
     let event = match kind {
+        PBT_APMSUSPEND => Some(PowerEvent::Suspending),
         PBT_APMRESUMEAUTOMATIC => Some(PowerEvent::Resumed),
         // SAFETY: for this kind Windows passes a setting change.
         PBT_POWERSETTINGCHANGE => unsafe { power_source(setting.cast()) },
         _ => None,
     };
     if let Some(event) = event {
-        // SAFETY: the context is the boxed sender, kept until unregistered.
-        let sender = unsafe { &*context.cast::<Sender<PowerEvent>>() };
-        // An error only means nobody is listening any more.
-        let _ = sender.send(event);
+        // SAFETY: the context is the boxed listener, kept until unregistered.
+        let listener = unsafe { &*context.cast::<Listener>() };
+        let suspending = event == PowerEvent::Suspending;
+        if suspending {
+            listener.suspend.arm();
+        }
+        // An error only means nobody is listening any more: no wait then.
+        if listener.sender.send(event).is_ok() && suspending {
+            listener.suspend.wait(SUSPEND_WAIT);
+        }
     }
     ERROR_SUCCESS
 }
@@ -224,12 +285,39 @@ mod tests {
         }
     }
 
-    fn call(sender: &Sender<PowerEvent>, kind: u32, setting: Option<&SettingChange>) {
-        let context = ptr::from_ref(sender).cast();
+    fn listener() -> (Listener, Receiver<PowerEvent>) {
+        let (sender, events) = mpsc::channel();
+        let suspend = SuspendHandled::default();
+        (Listener { sender, suspend }, events)
+    }
+
+    fn call(listener: &Listener, kind: u32, setting: Option<&SettingChange>) {
+        let context = ptr::from_ref(listener).cast();
         let setting = setting.map_or(ptr::null(), |setting| ptr::from_ref(setting).cast());
-        // SAFETY: the context is a live sender and the setting a whole
+        // SAFETY: the context is a live listener and the setting a whole
         // change, as Windows would pass them.
         unsafe { on_power_event(context, kind, setting) };
+    }
+
+    /// Answers each sleep after `delay`, as the app does once it has sent,
+    /// and gives back the events seen once the listener is gone.
+    fn answer_after(
+        listener: &Listener,
+        events: Receiver<PowerEvent>,
+        delay: Duration,
+    ) -> std::thread::JoinHandle<Vec<PowerEvent>> {
+        let handled = listener.suspend.clone();
+        std::thread::spawn(move || {
+            let mut seen = Vec::new();
+            while let Ok(event) = events.recv() {
+                if event == PowerEvent::Suspending {
+                    std::thread::sleep(delay);
+                    handled.done();
+                }
+                seen.push(event);
+            }
+            seen
+        })
     }
 
     #[test]
@@ -241,23 +329,76 @@ mod tests {
     }
 
     #[test]
-    fn only_the_automatic_resume_is_passed_on() {
-        let (sender, events) = mpsc::channel();
+    fn only_the_sleep_and_the_automatic_resume_are_passed_on() {
+        let (listener, events) = listener();
+        let answers = answer_after(&listener, events, Duration::ZERO);
 
         for kind in [PBT_APMSUSPEND, PBT_APMRESUMEAUTOMATIC, PBT_APMRESUMESUSPEND] {
-            call(&sender, kind, None);
+            call(&listener, kind, None);
         }
+        drop(listener);
 
-        assert_eq!(events.try_iter().collect::<Vec<_>>(), [PowerEvent::Resumed]);
+        assert_eq!(
+            answers.join().unwrap(),
+            [PowerEvent::Suspending, PowerEvent::Resumed]
+        );
+    }
+
+    #[test]
+    fn a_sleep_is_held_until_the_app_has_acted() {
+        let (listener, events) = listener();
+        let delay = Duration::from_millis(100);
+        let answers = answer_after(&listener, events, delay);
+        let began = std::time::Instant::now();
+
+        call(&listener, PBT_APMSUSPEND, None);
+
+        let held = began.elapsed();
+        assert!(held >= delay && held < SUSPEND_WAIT, "{held:?}");
+        drop(listener);
+        assert_eq!(answers.join().unwrap(), [PowerEvent::Suspending]);
+    }
+
+    #[test]
+    fn a_sleep_nobody_answers_is_held_at_most_the_limit() {
+        let (listener, _events) = listener();
+        let began = std::time::Instant::now();
+
+        call(&listener, PBT_APMSUSPEND, None);
+
+        let held = began.elapsed();
+        assert!(held >= SUSPEND_WAIT && held < SUSPEND_WAIT * 2, "{held:?}");
+    }
+
+    #[test]
+    fn an_old_answer_does_not_cut_a_new_sleep_short() {
+        let (listener, _events) = listener();
+        listener.suspend.done();
+        let began = std::time::Instant::now();
+
+        call(&listener, PBT_APMSUSPEND, None);
+
+        assert!(began.elapsed() >= SUSPEND_WAIT);
+    }
+
+    #[test]
+    fn a_sleep_with_nobody_listening_is_not_held() {
+        let (listener, events) = listener();
+        drop(events);
+        let began = std::time::Instant::now();
+
+        call(&listener, PBT_APMSUSPEND, None);
+
+        assert!(began.elapsed() < SUSPEND_WAIT);
     }
 
     #[test]
     fn the_power_source_is_passed_on() {
-        let (sender, events) = mpsc::channel();
+        let (listener, events) = listener();
 
         // 0 is AC, 1 is the battery, 2 is a short-term source such as a UPS.
         for value in [1, 0, 2] {
-            call(&sender, PBT_POWERSETTINGCHANGE, Some(&power_source(value)));
+            call(&listener, PBT_POWERSETTINGCHANGE, Some(&power_source(value)));
         }
 
         assert_eq!(
@@ -272,13 +413,13 @@ mod tests {
 
     #[test]
     fn other_settings_are_ignored() {
-        let (sender, events) = mpsc::channel();
+        let (listener, events) = listener();
         let other = SettingChange {
             setting: GUID::from_u128(1),
             ..power_source(1)
         };
 
-        call(&sender, PBT_POWERSETTINGCHANGE, Some(&other));
+        call(&listener, PBT_POWERSETTINGCHANGE, Some(&other));
 
         assert_eq!(events.try_iter().count(), 0);
     }
