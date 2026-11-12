@@ -143,6 +143,7 @@ impl Custom {
     /// the boosts, then the fan targets. razer-laptop-control says a mode
     /// write after a fan target resets it; on firmware 1.6 a manual mode
     /// write kept the old target, and the fans went to it (ticket 144).
+    /// Synapse's order is kept, as the reset may hold on other firmware.
     #[must_use]
     pub fn commands(self, model: &ModelProfile) -> Vec<Command> {
         let mut commands = self.mode_commands(model);
