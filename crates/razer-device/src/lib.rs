@@ -23,7 +23,7 @@ mod reopen;
 
 pub use discovery::{HidInfo, find_controller, find_key_collections};
 pub use hid::{HidKeyReports, HidTransport};
-pub use reopen::Reopening;
+pub use reopen::{CONTROLLER_CLOSED, CONTROLLER_OPENED_AGAIN, Reopening};
 
 /// Sends and reads the controller's feature reports.
 pub trait Transport {
