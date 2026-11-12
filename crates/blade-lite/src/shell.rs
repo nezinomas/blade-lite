@@ -317,11 +317,16 @@ pub struct Shell<P: Parts = Laptop> {
     /// It counts as one more pause in `resuming`, so nothing is sent until
     /// the wake, which ends it.
     asleep: Cell<bool>,
-    /// Whether the pause of an open again or an updater ended in a sleep,
-    /// so the wake releases the handle and reads the firmware again too.
+    /// Whether the pause of an open again or an updater ended in a sleep
+    /// or a newer pause, so the last pause's end releases the handle and
+    /// reads the firmware again too.
     redo_at_wake: Cell<bool>,
-    /// Counts the wakes, so a pause that began before one sends nothing.
-    wakes: Cell<u64>,
+    /// Whether a wake's settings are still to go: the last pause sends
+    /// them, whatever pause it is (ticket 162).
+    wake_due: Cell<bool>,
+    /// Counts the pauses begun, so a pause that a newer one began in
+    /// sends nothing: only the last pause sends (ticket 162).
+    pauses: Cell<u64>,
     /// The manual Custom send whose fan targets a tick first saw due to go
     /// once more, and when (ticket 173).
     fan_targets_seen: Cell<Option<(u32, Instant)>>,
@@ -369,7 +374,8 @@ impl<P: Parts> Shell<P> {
             quit_sent: Cell::new(false),
             asleep: Cell::new(false),
             redo_at_wake: Cell::new(false),
-            wakes: Cell::new(0),
+            wake_due: Cell::new(false),
+            pauses: Cell::new(0),
             fan_targets_seen: Cell::new(None),
             controller_gone: Cell::new(false),
         })
@@ -464,18 +470,19 @@ impl<P: Parts> Shell<P> {
 
     /// Starts a pause after a wake, an open again or an updater: the
     /// controller may not be ready, so nothing is sent until it ends.
-    /// Returns the count of wakes now, for [`Self::slept_since`].
+    /// Returns its number, for [`Self::superseded`].
     pub(super) fn begin_pause(&self) -> u64 {
         self.resuming.set(self.resuming.get().saturating_add(1));
         self.pause_began.set(Some(Instant::now()));
-        self.wakes.get()
+        self.pauses.set(self.pauses.get().wrapping_add(1));
+        self.pauses.get()
     }
 
-    /// Whether the laptop sleeps, or woke again, since a pause began with
-    /// `wakes` (ticket 169): the pause's end then sends nothing, and leaves
-    /// its work to the wake's own pause.
-    pub(super) fn slept_since(&self, wakes: u64) -> bool {
-        self.asleep.get() || self.wakes.get() != wakes
+    /// Whether the laptop sleeps (ticket 169), or a newer pause began
+    /// (ticket 162), since the pause `pause` began: its end then sends
+    /// nothing, and leaves its work to the last pause.
+    pub(super) fn superseded(&self, pause: u64) -> bool {
+        self.asleep.get() || self.pauses.get() != pause
     }
 
     /// A wake that Windows told of but no poll has read yet starts its

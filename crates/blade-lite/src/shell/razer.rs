@@ -60,19 +60,19 @@ impl<P: Parts> Shell<P> {
 
     /// After a Razer updater ended: waits the wake's pause, as the
     /// controller may restart, then reads the firmware again (the update may
-    /// have changed it) and sends every setting again. Not in a wake's
-    /// pause: the wake's own send covers it.
+    /// have changed it) and sends every setting again. Not in a pause: the
+    /// last pause's send covers it.
     pub(super) fn start_after_updater(self: &Rc<Self>) {
         if self.resuming.get() > 0 || !self.updater_ended.take() {
             return;
         }
-        let wakes = self.begin_pause();
+        let pause = self.begin_pause();
         let shell = Rc::clone(self);
         Timer::single_shot(RESUME_PAUSE, move || {
             shell.resuming.set(shell.resuming.get().saturating_sub(1));
-            // A sleep or a wake since: nothing reaches the controller, and
-            // the wake reads the firmware and sends after its pause.
-            if shell.slept_since(wakes) {
+            // A sleep or a newer pause since: nothing reaches the controller,
+            // and the last pause reads the firmware and sends.
+            if shell.superseded(pause) {
                 shell.redo_at_wake.set(true);
                 return;
             }
