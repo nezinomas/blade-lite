@@ -125,9 +125,14 @@ where
     ///
     /// See [`AppError`].
     pub fn on_power(&mut self, event: PowerEvent) -> Result<(), AppError> {
+        // The rate is not touched, so its held error stays.
+        if event == PowerEvent::Suspending {
+            return self.quit_preset();
+        }
         self.held_rate_error = None;
         match event {
-            PowerEvent::Suspending => self.quit_preset(),
+            // Sent above.
+            PowerEvent::Suspending => Ok(()),
             PowerEvent::Resumed => {
                 // The rate follows even if the start fails.
                 let started = self.start();

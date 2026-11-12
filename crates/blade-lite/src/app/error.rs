@@ -32,6 +32,12 @@ pub enum AppError {
     /// A file was picked while the laptop was just waking up.
     #[error("the laptop just woke up, so the file was not used: try again in a moment")]
     JustWoke,
+    /// A change asked for after Windows told of a sleep, before it told of
+    /// the wake (ticket 169).
+    #[error(
+        "Windows said the laptop sleeps and has not said it woke, so nothing is sent: if this stays, quit Blade Lite from the tray and start it again"
+    )]
+    Asleep,
     #[error("this preset is not offered on battery or a weak charger: {0:?}")]
     NotOnBattery(Preset),
     /// The laptop took the change, and the app keeps it, but the config

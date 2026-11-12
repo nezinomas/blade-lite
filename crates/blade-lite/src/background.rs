@@ -2,9 +2,9 @@
 //! touchpad, the power-mode key and the power source.
 
 use std::panic::AssertUnwindSafe;
-use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver};
+use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 use blade_core::{PowerKeyPresses, TOUCHPAD_KEY};
@@ -271,13 +271,17 @@ pub fn power_events() -> Receiver<PowerEvent> {
     match WindowsPowerEvents::register() {
         Ok(mut events) => {
             let handled = events.suspend_handled();
+            // Only one registration per run: a second keeps the first.
+            let _ = SLEEP_NOTICE.set(handled.clone());
             spawn_part("power events", move || {
                 while let Some(event) = events.next_event() {
                     if sender.send(event).is_err() {
+                        // Nobody reads them: Windows need not wait.
+                        handled.done(handled.number());
                         break;
                     }
                     if event == PowerEvent::Suspending {
-                        follow_the_sleep_now(&handled);
+                        follow_the_sleep_now(&handled, handled.number());
                     }
                 }
             });
@@ -287,10 +291,20 @@ pub fn power_events() -> Receiver<PowerEvent> {
     receiver
 }
 
+/// The sleep notices' answer, for [`sleep_notice_waits`].
+static SLEEP_NOTICE: OnceLock<SuspendHandled> = OnceLock::new();
+
+/// Whether Windows still waits for the app to act on its last sleep
+/// notice; true if no notices can come (nothing to act on then).
+pub fn sleep_notice_waits() -> bool {
+    SLEEP_NOTICE.get().is_none_or(SuspendHandled::waiting)
+}
+
 /// Has the event loop follow the power events now, then tells Windows the
-/// sleep was acted on, even if that panicked (a bug) or the loop has ended.
-/// Windows waits at most 1 s for it in any case (`SUSPEND_WAIT`).
-fn follow_the_sleep_now(handled: &SuspendHandled) {
+/// sleep notice `number` was acted on, even if that panicked (a bug) or the
+/// loop has ended. Windows waits at most 1 s for it in any case
+/// (`SUSPEND_WAIT`).
+fn follow_the_sleep_now(handled: &SuspendHandled, number: u64) {
     let answer = handled.clone();
     let posted = slint::invoke_from_event_loop(move || {
         let followed = std::panic::catch_unwind(AssertUnwindSafe(|| {
@@ -298,13 +312,13 @@ fn follow_the_sleep_now(handled: &SuspendHandled) {
                 shell.follow_own_power();
             }
         }));
-        answer.done();
+        answer.done(number);
         if let Err(panic) = followed {
             std::panic::resume_unwind(panic);
         }
     });
     if posted.is_err() {
-        handled.done();
+        handled.done(number);
     }
 }
 

@@ -101,6 +101,12 @@ impl<P: Parts> Shell<P> {
                 let shell = Rc::clone(self);
                 Timer::single_shot(RESUME_PAUSE, move || {
                     shell.resuming.set(shell.resuming.get().saturating_sub(1));
+                    // A sleep since: nothing reaches the controller, and the
+                    // wake does all this after its pause.
+                    if shell.asleep.get() {
+                        shell.redo_at_wake.set(true);
+                        return;
+                    }
                     let first = shell.look_for_razer();
                     // This start covers an updater that just ended.
                     shell.updater_ended.set(false);
@@ -114,10 +120,7 @@ impl<P: Parts> Shell<P> {
                     shell.follow_source();
                     // As the wake: an unknown source runs the battery presets.
                     shell.app.borrow_mut().take_on_battery(P::on_battery());
-                    // A sleep since: its wake sends them.
-                    if !shell.asleep.get() {
-                        shell.act(AppOn::<P>::start);
-                    }
+                    shell.act(AppOn::<P>::start);
                     if first {
                         shell.show_window();
                     }
@@ -423,6 +426,10 @@ impl<P: Parts> Shell<P> {
             let shell = Rc::clone(self);
             Timer::single_shot(RESUME_PAUSE, move || {
                 shell.resuming.set(shell.resuming.get().saturating_sub(1));
+                // A sleep since: its wake sends them.
+                if shell.asleep.get() {
+                    return;
+                }
                 {
                     let mut app = shell.app.borrow_mut();
                     app.set_num_lock(num_lock_on());
@@ -433,10 +440,14 @@ impl<P: Parts> Shell<P> {
                 let first = shell.look_for_razer();
                 // This send covers an updater that just ended.
                 shell.updater_ended.set(false);
-                // A sleep since: its wake sends them.
-                if !shell.asleep.get() {
-                    shell.act(|app| app.on_power(PowerEvent::Resumed));
+                // An open again or an updater whose pause ended in the
+                // sleep: what it left for the wake.
+                if shell.redo_at_wake.take() {
+                    P::release_controller();
+                    shell.controller_gone.set(false);
+                    shell.app.borrow_mut().check_firmware();
                 }
+                shell.act(|app| app.on_power(PowerEvent::Resumed));
                 if first {
                     shell.show_window();
                 }
@@ -450,17 +461,29 @@ impl<P: Parts> Shell<P> {
     /// On Modern Standby the controller stays powered, so a manual fan or
     /// Performance would run on in the sleep: the quit preset goes at once,
     /// once per sleep, never after the quit. Then nothing is sent until the
-    /// wake, which sends the saved settings after its pause. In a pause
-    /// (after a wake, an open again or an updater) nothing is sent: the
-    /// controller may not be ready, and since a wake it runs what it ran in
-    /// the sleep. No retry: Windows freezes the app a few seconds later.
+    /// wake, which sends the saved settings after its pause.
+    ///
+    /// Nothing is sent in a pause (after a wake, an open again or an
+    /// updater), as no send goes then: the controller may not be ready, and
+    /// after an open again its new handle is held (ticket 132). A manual
+    /// fan may then run on in the sleep: after a wake, only if the sleep
+    /// before it was not sent; after an open again or an updater, if it was
+    /// running. Nor for a notice Windows no longer waits for: the app may
+    /// have been frozen and thawed since, so the controller may have just
+    /// woken. Both are rare (a sleep within 2 s of such an event, or an
+    /// event loop busy for over 1 s), and logged. No retry: Windows freezes
+    /// the app a few seconds later.
     fn suspend(&self) {
         if self.asleep.get() || self.quit_sent.get() {
             return;
         }
         if self.resuming.get() > 0 {
             report(
-                "the laptop goes to sleep in the pause after a wake, an open again or an updater, so nothing was sent: the controller may not be ready",
+                "the laptop goes to sleep in the pause after a wake, an open again or an updater, so the quit preset was not sent: a manual fan or Performance may keep running in the sleep",
+            );
+        } else if !P::sleep_notice_waits() {
+            report(
+                "the sleep notice was read after Windows stopped waiting for it (the app was busy), so the quit preset was not sent: a manual fan or Performance may have kept running in the sleep",
             );
         } else {
             self.send_sleep_preset();

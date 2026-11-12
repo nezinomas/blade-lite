@@ -10,7 +10,8 @@ use platform::PowerEvent;
 use razer_proto::{BLADE_18, Command, PerfMode};
 
 use super::{
-    FAKE_ON_BATTERY, FAKE_REOPENED, Fixture, click, fixture, fixture_with_programs, log_path,
+    FAKE_ON_BATTERY, FAKE_RELEASED, FAKE_REOPENED, FAKE_SLEEP_NOTICE_LATE, Fixture, click, fixture,
+    fixture_with_programs, log_path,
 };
 use crate::shell::Reopened;
 
@@ -29,6 +30,24 @@ fn manual_fan() -> Config {
 /// What the controller got since `before` commands.
 fn sent_since(f: &Fixture, before: usize) -> Vec<Command> {
     f.shell.app().machine().controller.inner.sent[before..].to_vec()
+}
+
+/// How many queries the controller got.
+fn asked_count(f: &Fixture) -> usize {
+    f.shell.app().machine().controller.inner.asked.len()
+}
+
+const UPDATER: &str = "RazerFirmwareUpdater.exe";
+
+/// The start of the log line for a failed sleep send.
+const NOT_SENT: &str = "the quit preset was not sent before the sleep, so";
+
+/// Whether one log line holds all of `parts`: the log is shared by the
+/// tests that run at once, so one part alone may be another test's.
+fn logged(parts: &[&str]) -> bool {
+    log()
+        .lines()
+        .any(|line| parts.iter().all(|part| line.contains(part)))
 }
 
 fn sent_count(f: &Fixture) -> usize {
@@ -118,10 +137,11 @@ fn a_second_sleep_notice_sends_nothing() {
 }
 
 #[test]
-fn nothing_is_sent_between_the_sleep_and_the_wake() {
+fn nothing_is_sent_or_read_between_the_sleep_and_the_wake() {
     let f = fixture(manual_fan());
     power(&f, &[PowerEvent::Suspending]);
     let before = sent_count(&f);
+    let asked = asked_count(&f);
 
     click(f.shell.window(), Button, "Performance");
     f.shell.user_act(blade_lite::App::on_power_key);
@@ -133,6 +153,56 @@ fn nothing_is_sent_between_the_sleep_and_the_wake() {
     }
 
     assert_eq!(sent_since(&f, before), []);
+    assert_eq!(asked_count(&f), asked);
+}
+
+#[test]
+fn a_click_between_the_sleep_and_the_wake_says_why_nothing_happens() {
+    let f = fixture(manual_fan());
+    power(&f, &[PowerEvent::Suspending]);
+
+    click(f.shell.window(), Button, "Performance");
+
+    let error = f.shell.window().get_error();
+    assert!(error.contains("has not said it woke"), "{error}");
+}
+
+#[test]
+fn a_sleep_notice_windows_no_longer_waits_for_sends_nothing() {
+    let f = fixture(manual_fan());
+    FAKE_SLEEP_NOTICE_LATE.set(true);
+    let before = sent_count(&f);
+
+    power(&f, &[PowerEvent::Suspending]);
+
+    assert_eq!(sent_since(&f, before), []);
+    assert!(log().contains("read after Windows stopped waiting for it"));
+    // Still nothing until the wake, which sends them.
+    pause_ends();
+    f.shell.tick();
+    assert_eq!(sent_since(&f, before), []);
+    power(&f, &[PowerEvent::Resumed]);
+    pause_ends();
+    assert!(sets_a_manual_fan(&sent_since(&f, before)));
+}
+
+#[test]
+fn a_quit_while_asleep_sends_the_quit_preset_without_a_wait() {
+    let f = fixture(Config {
+        preset: Preset::Performance,
+        ..Config::default()
+    });
+    power(&f, &[PowerEvent::Suspending]);
+    let before = sent_count(&f);
+    let began = std::time::Instant::now();
+
+    f.shell.quit();
+
+    assert!(began.elapsed() < RESUME_PAUSE / 2);
+    assert_eq!(
+        sent_since(&f, before),
+        PerfMode::Balanced.commands(&BLADE_18).unwrap()
+    );
 }
 
 #[test]
@@ -165,16 +235,46 @@ fn a_sleep_read_only_after_its_wake_sends_nothing_but_the_wake_does() {
 }
 
 #[test]
-fn a_sleep_in_the_pause_of_an_open_again_sends_nothing_at_its_end() {
+fn a_sleep_in_the_pause_of_an_open_again_leaves_its_end_to_the_wake() {
     let f = fixture(manual_fan());
     FAKE_REOPENED.set(Reopened::Opened);
+    FAKE_RELEASED.set(false);
     f.shell.tick();
     let before = sent_count(&f);
+    let asked = asked_count(&f);
 
     power(&f, &[PowerEvent::Suspending]);
     pause_ends();
 
     assert_eq!(sent_since(&f, before), []);
+    assert_eq!(asked_count(&f), asked, "no firmware read in the sleep");
+    assert!(!FAKE_RELEASED.get(), "the handle stays held");
+    power(&f, &[PowerEvent::Resumed]);
+    pause_ends();
+    assert!(FAKE_RELEASED.get());
+    assert!(asked_count(&f) > asked, "the wake reads the firmware");
+    assert!(sets_a_manual_fan(&sent_since(&f, before)));
+}
+
+#[test]
+fn a_sleep_in_the_pause_after_an_updater_leaves_its_end_to_the_wake() {
+    let f = fixture(manual_fan());
+    f.shell.programs().set(&[UPDATER]);
+    f.shell.look_for_razer();
+    f.shell.programs().set(&[]);
+    f.shell.look_for_razer();
+    f.shell.tick();
+    let before = sent_count(&f);
+    let asked = asked_count(&f);
+
+    power(&f, &[PowerEvent::Suspending]);
+    pause_ends();
+
+    assert_eq!(sent_since(&f, before), []);
+    assert_eq!(asked_count(&f), asked);
+    power(&f, &[PowerEvent::Resumed]);
+    pause_ends();
+    assert!(sets_a_manual_fan(&sent_since(&f, before)));
 }
 
 #[test]
@@ -190,13 +290,13 @@ fn a_sleep_after_the_quit_sends_nothing() {
 
 #[test]
 fn a_sleep_while_a_razer_updater_runs_sends_nothing_and_says_so() {
-    let f = fixture_with_programs(manual_fan(), &["RazerFirmwareUpdater.exe"]);
+    let f = fixture_with_programs(manual_fan(), &[UPDATER]);
     let before = sent_count(&f);
 
     power(&f, &[PowerEvent::Suspending]);
 
     assert_eq!(sent_since(&f, before), []);
-    assert!(log().contains("the quit preset was not sent before the sleep"));
+    assert!(logged(&[NOT_SENT, "a Razer updater runs"]));
 }
 
 #[test]
@@ -206,7 +306,7 @@ fn a_failed_sleep_send_is_logged() {
 
     power(&f, &[PowerEvent::Suspending]);
 
-    assert!(log().contains("the quit preset was not sent before the sleep"));
+    assert!(logged(&[NOT_SENT, "stayed busy"]));
 }
 
 #[test]

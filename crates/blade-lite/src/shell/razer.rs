@@ -70,14 +70,17 @@ impl<P: Parts> Shell<P> {
         let shell = Rc::clone(self);
         Timer::single_shot(RESUME_PAUSE, move || {
             shell.resuming.set(shell.resuming.get().saturating_sub(1));
+            // A sleep since: nothing reaches the controller, and the wake
+            // reads the firmware and sends after its pause.
+            if shell.asleep.get() {
+                shell.redo_at_wake.set(true);
+                return;
+            }
             shell.app.borrow_mut().check_firmware();
             // A power event in the pause was dropped.
             shell.follow_source();
             shell.app.borrow_mut().take_on_battery(P::on_battery());
-            // A sleep since: its wake sends them.
-            if !shell.asleep.get() {
-                shell.act(AppOn::<P>::start);
-            }
+            shell.act(AppOn::<P>::start);
         });
     }
 

@@ -58,6 +58,10 @@ pub trait Parts: 'static {
     fn controller_reopened() -> Reopened;
     /// Lets the controller send on its new handle.
     fn release_controller();
+    /// Whether Windows still waits for the app to act on its last sleep
+    /// notice. If not, the app may have been frozen and thawed since, so a
+    /// send for it could reach a controller that just woke (ticket 169).
+    fn sleep_notice_waits() -> bool;
 }
 
 /// What [`Parts::pick_file`] calls with the user's answer.
@@ -157,6 +161,10 @@ impl Parts for Laptop {
 
     fn release_controller() {
         CONTROLLER_HELD.with(|held| held.set(false));
+    }
+
+    fn sleep_notice_waits() -> bool {
+        crate::background::sleep_notice_waits()
     }
 
     fn toggle_mic_mute() -> Option<bool> {
@@ -298,6 +306,9 @@ pub struct Shell<P: Parts = Laptop> {
     /// It counts as one more pause in `resuming`, so nothing is sent until
     /// the wake, which ends it.
     asleep: Cell<bool>,
+    /// Whether the pause of an open again or an updater ended in a sleep,
+    /// so the wake releases the handle and reads the firmware again too.
+    redo_at_wake: Cell<bool>,
 }
 
 impl<P: Parts> Shell<P> {
@@ -341,6 +352,7 @@ impl<P: Parts> Shell<P> {
             stopped_parts: RefCell::new(Vec::new()),
             quit_sent: Cell::new(false),
             asleep: Cell::new(false),
+            redo_at_wake: Cell::new(false),
             controller_gone: Cell::new(false),
         })
     }
@@ -439,9 +451,10 @@ impl<P: Parts> Shell<P> {
     /// quit sends at once otherwise, and the event loop that would end the
     /// pause has stopped. At most [`RESUME_PAUSE`] (see `end_session` for
     /// the time Windows gives). The newest pause ends last, as each lasts
-    /// [`RESUME_PAUSE`], so its start is the one kept.
+    /// [`RESUME_PAUSE`], so its start is the one kept. A sleep's count is
+    /// no pause: the quit preset is safe to send then.
     fn wait_out_the_pause(&self) {
-        if self.resuming.get() == 0 {
+        if self.resuming.get() == u32::from(self.asleep.get()) {
             return;
         }
         let left = self.pause_began.get().map_or(RESUME_PAUSE, |began| {
@@ -547,14 +560,17 @@ impl<P: Parts> Shell<P> {
     /// new power source not yet polled is seen. While a resume waits it does
     /// nothing: the controller may not be awake yet, and the charger may have
     /// been pulled in the sleep. The resume fills the windows again, which
-    /// puts back a switch the click flipped.
+    /// puts back a switch the click flipped. After a sleep notice with no
+    /// wake since, it says so, as no wake may ever come.
     pub fn user_act(self: &Rc<Self>, change: impl FnOnce(&mut AppOn<P>) -> Result<(), AppError>) {
         // A Razer updater may have started since the last look.
         if self.look_for_razer() {
             self.show_window();
         }
         self.follow_own_power();
-        if self.resuming.get() == 0 {
+        if self.asleep.get() {
+            self.refresh(Some(&AppError::Asleep));
+        } else if self.resuming.get() == 0 {
             self.act(change);
         }
     }

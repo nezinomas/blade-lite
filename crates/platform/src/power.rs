@@ -58,31 +58,72 @@ fn on_battery_for(ac_line_status: u8) -> Option<bool> {
 /// pages), so a stuck app holds the sleep no longer than this.
 pub const SUSPEND_WAIT: Duration = Duration::from_secs(1);
 
+/// The sleep notice last passed on, and whether Windows' call still waits
+/// for it.
+#[derive(Clone, Copy, Default)]
+struct Notice {
+    /// Counts the sleep notices, so an answer for an old one is ignored.
+    number: u64,
+    waiting: bool,
+}
+
 /// Tells the call that told of a sleep that the app has acted on it, so the
-/// call can return and Windows can go on.
+/// call can return and Windows can go on; and tells the app whether that
+/// call still waits, as only then is the app sure not to have been frozen
+/// and thawed since.
 #[derive(Clone, Default)]
-pub struct SuspendHandled(Arc<(Mutex<bool>, Condvar)>);
+pub struct SuspendHandled(Arc<(Mutex<Notice>, Condvar)>);
 
 impl SuspendHandled {
-    /// The app has sent, or given up: the call that waits returns.
-    pub fn done(&self) {
-        let (handled, signal) = &*self.0;
-        *handled.lock().unwrap_or_else(PoisonError::into_inner) = true;
-        signal.notify_all();
+    fn notice(&self) -> std::sync::MutexGuard<'_, Notice> {
+        self.0.0.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
-    /// Clears an old answer, before a new sleep is passed on.
+    /// The number of the last sleep notice, for [`done`](Self::done).
+    #[must_use]
+    pub fn number(&self) -> u64 {
+        self.notice().number
+    }
+
+    /// Whether Windows' call for the last sleep notice still waits: the app
+    /// has not been frozen since it came.
+    #[must_use]
+    pub fn waiting(&self) -> bool {
+        self.notice().waiting
+    }
+
+    /// The app has acted on the notice `number`, or given up: its call
+    /// returns. An answer for an older notice changes nothing.
+    pub fn done(&self, number: u64) {
+        let mut notice = self.notice();
+        if notice.number == number {
+            notice.waiting = false;
+            self.0.1.notify_all();
+        }
+    }
+
+    /// Starts a new notice, before it is passed on.
     fn arm(&self) {
-        *self.0.0.lock().unwrap_or_else(PoisonError::into_inner) = false;
+        let mut notice = self.notice();
+        notice.number = notice.number.wrapping_add(1);
+        notice.waiting = true;
     }
 
-    /// Waits until [`done`](Self::done), at most `limit`.
+    /// Waits until [`done`](Self::done), at most `limit`; after that the
+    /// notice no longer waits, however the wait ended.
     fn wait(&self, limit: Duration) {
-        let (handled, signal) = &*self.0;
-        let guard = handled.lock().unwrap_or_else(PoisonError::into_inner);
+        let guard = self.notice();
         // Answered, timed out or poisoned: each just returns, so Windows
         // goes on.
-        let _ = signal.wait_timeout_while(guard, limit, |handled| !*handled);
+        let mut notice = match self
+            .0
+            .1
+            .wait_timeout_while(guard, limit, |notice| notice.waiting)
+        {
+            Ok((notice, _)) => notice,
+            Err(poisoned) => poisoned.into_inner().0,
+        };
+        notice.waiting = false;
     }
 }
 
@@ -220,13 +261,20 @@ unsafe extern "system" fn on_power_event(
     if let Some(event) = event {
         // SAFETY: the context is the boxed listener, kept until unregistered.
         let listener = unsafe { &*context.cast::<Listener>() };
-        let suspending = event == PowerEvent::Suspending;
-        if suspending {
-            listener.suspend.arm();
+        if event != PowerEvent::Suspending {
+            // An error only means nobody is listening any more.
+            let _ = listener.sender.send(event);
+            return ERROR_SUCCESS;
         }
-        // An error only means nobody is listening any more: no wait then.
-        if listener.sender.send(event).is_ok() && suspending {
-            listener.suspend.wait(SUSPEND_WAIT);
+        // Its own handle, so the wait never touches the listener, which a
+        // drop may free meanwhile.
+        let suspend = listener.suspend.clone();
+        suspend.arm();
+        if listener.sender.send(event).is_ok() {
+            suspend.wait(SUSPEND_WAIT);
+        } else {
+            // Nobody listens any more: no wait.
+            suspend.done(suspend.number());
         }
     }
     ERROR_SUCCESS
@@ -311,8 +359,9 @@ mod tests {
             let mut seen = Vec::new();
             while let Ok(event) = events.recv() {
                 if event == PowerEvent::Suspending {
+                    assert!(handled.waiting());
                     std::thread::sleep(delay);
-                    handled.done();
+                    handled.done(handled.number());
                 }
                 seen.push(event);
             }
@@ -368,17 +417,26 @@ mod tests {
 
         let held = began.elapsed();
         assert!(held >= SUSPEND_WAIT && held < SUSPEND_WAIT * 2, "{held:?}");
+        assert!(!listener.suspend.waiting(), "the app may be frozen since");
     }
 
     #[test]
-    fn an_old_answer_does_not_cut_a_new_sleep_short() {
-        let (listener, _events) = listener();
-        listener.suspend.done();
+    fn an_answer_for_an_old_sleep_does_not_cut_a_new_one_short() {
+        let (listener, events) = listener();
+        let old = listener.suspend.number();
+        let handled = listener.suspend.clone();
+        let answers = std::thread::spawn(move || {
+            while let Ok(_event) = events.recv() {
+                handled.done(old);
+            }
+        });
         let began = std::time::Instant::now();
 
         call(&listener, PBT_APMSUSPEND, None);
 
         assert!(began.elapsed() >= SUSPEND_WAIT);
+        drop(listener);
+        answers.join().unwrap();
     }
 
     #[test]
