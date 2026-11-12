@@ -1,16 +1,29 @@
 # synapse
 
-Stage list and status: `docs/PLAN.md` (open work), `docs/PLAN-done.md` (done lines, moved there at each retro). No other place holds status. Full plan: https://claude.ai/artifact/JSzNYRpwZJyywztJtBSk2P
-Laptop and protocol facts, lessons: `docs/NOTES.md`.
-Building a stage or ticket: follow the `stage` skill (`.claude/skills/stage/SKILL.md`).
+Blade Lite: a Rust app for Windows 11 that drives the Razer Blade 18 2025 (RZ09-05299ER4, USB PID 02C7).
 
-## Target
-- Rust, Windows 11, Razer Blade 18 2025 (RZ09-05299ER4, USB PID 02C7).
+## Where things are
+- Stage list and status: `docs/PLAN.md` (open work), `docs/PLAN-done.md` (done lines, moved there at each retro). No other place holds status. Full plan: https://claude.ai/artifact/JSzNYRpwZJyywztJtBSk2P
+- Laptop and protocol facts, lessons: `docs/NOTES.md`.
+- Building a stage or ticket: follow the `stage` skill (`.claude/skills/stage/SKILL.md`).
 
-## Hardware safety (wins over every other rule here)
+## IMPORTANT: Hardware safety (wins over every other rule here)
 - This app drives an expensive laptop. Add every guard that fits: validate all input, clamp values to safe ranges, refuse unknown states, and fail safe (do nothing rather than guess).
 - Never start the app to test a script or tool that starts it: a start sends the saved preset to the laptop. Test only the script's guards; the user starts the app for the laptop check.
 - Every stage and ticket is reviewed by subagents before merge (`stage` skill, step 7). The author never reviews their own stage.
+- Claude may run laptop tests itself: first say what is tested, how, how long and what is put back, and wait for the user's yes. The user quits the app from the tray; never kill it.
+
+## How to work
+- TDD: red, green, refactor, in small stages, per the plan.
+- Clean code: DRY, small functions, SOLID, YAGNI, KISS.
+- State your assumptions. If something changes the goal or the hardware's safety, stop and ask. Otherwise take the most likely reading, say which, and carry on.
+- If a simpler approach exists, say so and push back when warranted.
+- If 200 lines could be 50, rewrite it. No abstraction for single-use code, no configurability nobody asked for.
+- Touch only what the task needs. Don't reformat, refactor or "improve" adjacent code; match the existing style.
+- Remove imports and code your change made unused. Mention unrelated dead code, don't delete it.
+- Every changed line should trace back to the task.
+
+(Parts adapted from https://github.com/forrestchang/andrej-karpathy-skills)
 
 ## Review tiers
 - Both reviewers (`informed-reviewer` and `fresh-reviewer`, `.claude/agents/`) for anything that can change what is sent to the laptop: which command, its bytes or values, its limits, or when it is sent.
@@ -19,13 +32,25 @@ Building a stage or ticket: follow the `stage` skill (`.claude/skills/stage/SKIL
 - If in doubt, use both.
 
 ## Commands
+
+### Setup and checks
 - One-time setup: `git config core.hooksPath .githooks` (pre-push runs the checks below, commit-msg blocks AI attribution).
 - Checks, same as CI: `cargo fmt --all --check`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo t` (`cargo test --workspace`, quiet), `python -m unittest discover -s capture`. CI also runs `cargo deny check` (`deny.toml`) and a build on the MSRV (`rust-version` in `Cargo.toml`).
-- Window tests (in `cargo t`, `crates/blade-lite/src/window_tests`): the window, flyout and popup drawn off screen over fakes. Scripted clicks check what is sent, saved, shown and logged. Pictures are compared with `crates/blade-lite/tests/screens/`; a change fails and leaves the new picture and a diff in `target/screens/`. If the change is meant, save them (only the value 1 saves): `BLESS_SCREENS=1 cargo t` in Bash, or `$env:BLESS_SCREENS=1; cargo t; Remove-Item Env:BLESS_SCREENS` in PowerShell (never leave it set). Look at the saved pictures and commit them. On GitHub Actions the pictures are drawn, not compared (other fonts). The window tests need a debug build.
-- The app for a laptop check: quit any running Blade Lite first (tray, Quit; the one-copy lock makes a new start open the old copy), then `cargo app` from the root of the checkout that has the change (the thread's worktree, if it has one). It builds this checkout into `target/app`, so the check app does not block `cargo t` or a push. Its first run is a full build (minutes). Never point the user at a built exe such as `target\release\blade-lite.exe`: it can be older than the fix.
-- A laptop check that ends the Windows session (sign out, restart, shut down) starts the app with `powershell -ExecutionPolicy Bypass -File tools\Start-CheckApp.ps1` instead: `cargo run` ties the app to cargo, so Windows kills it with the terminal before it hears the session end (ticket 166). The script builds a release into `target/app` and starts it through Explorer, as at login.
-- Hardware tests on the laptop: `cargo hw`. Quit the app first (the tests take the one-copy lock). The charger test must start on battery.
 - PowerShell scripts: `powershell -ExecutionPolicy Bypass -File <script>`.
+
+### Window tests
+- Window tests (in `cargo t`, `crates/blade-lite/src/window_tests`): the window, flyout and popup drawn off screen over fakes. Scripted clicks check what is sent, saved, shown and logged.
+- Pictures are compared with `crates/blade-lite/tests/screens/`; a change fails and leaves the new picture and a diff in `target/screens/`. If the change is meant, save them (only the value 1 saves): `BLESS_SCREENS=1 cargo t` in Bash, or `$env:BLESS_SCREENS=1; cargo t; Remove-Item Env:BLESS_SCREENS` in PowerShell (never leave it set). Look at the saved pictures and commit them.
+- On GitHub Actions the pictures are drawn, not compared (other fonts). The window tests need a debug build.
+
+### The app for a laptop check
+- Quit any running Blade Lite first (tray, Quit; the one-copy lock makes a new start open the old copy), then `cargo app` from the root of the checkout that has the change (the thread's worktree, if it has one). It builds this checkout into `target/app`, so the check app does not block `cargo t` or a push. Its first run is a full build (minutes).
+- Never point the user at a built exe such as `target\release\blade-lite.exe`: it can be older than the fix.
+- A laptop check that ends the Windows session (sign out, restart, shut down) starts the app with `powershell -ExecutionPolicy Bypass -File tools\Start-CheckApp.ps1` instead: `cargo run` ties the app to cargo, so Windows kills it with the terminal before it hears the session end (ticket 166). The script builds a release into `target/app` and starts it through Explorer, as at login.
+
+### Hardware tests on the laptop
+- `cargo hw`. Quit the app first (the tests take the one-copy lock). The charger test must start on battery.
+- Before running one, follow the test rule under "Hardware safety".
 
 ## Git
 - One branch per stage, named for it, e.g. `feature/keyboard-static-color`.
@@ -39,20 +64,6 @@ Building a stage or ticket: follow the `stage` skill (`.claude/skills/stage/SKIL
 - Check the screen yourself with the window tests (look at each changed picture), and add a click test for each new control. Before merge, list only the checks software can't see (`stage` skill, step 8) and ask the user to do them. Checks not done yet go in "Still to check on the laptop" in `docs/PLAN.md`.
 - Every report ends with one plain line: what was blocked (permissions, push, merge, branch delete, cargo), or "nothing was blocked".
 
-## Skills
-- `/retro` (`.claude/skills/retro`) needs the `mattpocock-skills` plugin installed. In the retro's branch, also move the `[x]` lines from `docs/PLAN.md` to `docs/PLAN-done.md`.
-
-## How to work
-- TDD: red, green, refactor, in small stages, per the plan.
-- Clean code: DRY, small functions, SOLID, YAGNI, KISS.
-- State your assumptions. If something changes the goal or the hardware's safety, stop and ask. Otherwise take the most likely reading, say which, and carry on.
-- If a simpler approach exists, say so and push back when warranted.
-- If 200 lines could be 50, rewrite it. No abstraction for single-use code, no configurability nobody asked for.
-- Touch only what the task needs. Don't reformat, refactor or "improve" adjacent code; match the existing style.
-- Remove imports and code your change made unused. Mention unrelated dead code, don't delete it.
-- Every changed line should trace back to the task.
-(Parts adapted from https://github.com/forrestchang/andrej-karpathy-skills)
-
 ## Model profiles
 - Design so other Razer laptop models can be added later.
 - Protocol code stays model-agnostic.
@@ -60,3 +71,6 @@ Building a stage or ticket: follow the `stage` skill (`.claude/skills/stage/SKIL
 - 02C7 / Blade 18 2025 is the only profile for now. OpenRazer lists 02E1 as the 2026 model.
 - Adding a model should mean adding a profile, not editing core code.
 - Don't build speculative features for other models (YAGNI).
+
+## Skills
+- `/retro` (`.claude/skills/retro`) needs the `mattpocock-skills` plugin installed. In the retro's branch, also move the `[x]` lines from `docs/PLAN.md` to `docs/PLAN-done.md`.
