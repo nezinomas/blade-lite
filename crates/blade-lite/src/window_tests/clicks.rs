@@ -1849,6 +1849,35 @@ fn a_hot_spell_shows_the_heat_popup_once() {
 }
 
 #[test]
+fn a_full_speed_send_that_only_a_poll_got_through_is_logged() {
+    let mut config = Config {
+        preset: Preset::Custom,
+        ..Config::default()
+    };
+    config.custom.fan_rpm = Some(1600);
+    let f = fixture(config);
+    let start = Instant::now();
+    f.shell.app().machine_mut().controller.inner.fails = true;
+    f.shell.watch_heat(Some(96), None, start);
+    f.shell.app().machine_mut().controller.inner.fails = false;
+    f.shell.app().machine_mut().controller.inner.cpu_celsius = Some(96);
+    let wall = SystemTime::now();
+
+    for second in [2, 4, 6, 8] {
+        f.shell.tick_at(
+            start + Duration::from_secs(second),
+            wall + Duration::from_secs(second),
+        );
+    }
+
+    let log = std::fs::read_to_string(log_path()).unwrap();
+    assert!(
+        log.contains("fan guard: Full speed, sent again by a poll"),
+        "{log}"
+    );
+}
+
+#[test]
 fn a_hot_cpu_puts_a_manual_fan_at_full_speed_and_back_when_cool() {
     let mut config = Config {
         preset: Preset::Custom,

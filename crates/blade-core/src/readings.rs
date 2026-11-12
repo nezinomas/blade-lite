@@ -33,6 +33,9 @@ pub struct ReadingsSampler {
     /// Snapshots until the next battery health read; 0 reads it now.
     health_in: usize,
     errors: Vec<String>,
+    /// Whether the last GPU read failed (its power state or NVML), as
+    /// against a GPU asleep: the fan guard counts only a sleeping GPU cool.
+    gpu_failed: bool,
 }
 
 impl ReadingsSampler {
@@ -60,6 +63,12 @@ impl ReadingsSampler {
     pub fn gpu_celsius(&mut self, sensors: &mut impl Sensors) -> Option<u32> {
         self.errors.clear();
         self.gpu_if_awake(sensors).map(|gpu| gpu.celsius)
+    }
+
+    /// Whether the last GPU read failed. A GPU asleep is no failure.
+    #[must_use]
+    pub fn gpu_failed(&self) -> bool {
+        self.gpu_failed
     }
 
     /// One line per read that failed in the last read, such as
@@ -91,11 +100,15 @@ impl ReadingsSampler {
 
     /// The GPU's reading, but only if it is already awake.
     fn gpu_if_awake(&mut self, sensors: &mut impl Sensors) -> Option<GpuReading> {
-        if self.note("GPU power state", sensors.gpu_awake())? {
-            self.note("GPU", sensors.gpu())
+        self.gpu_failed = true;
+        let reading = if self.note("GPU power state", sensors.gpu_awake())? {
+            self.note("GPU", sensors.gpu())?
         } else {
-            None
-        }
+            self.gpu_failed = false;
+            return None;
+        };
+        self.gpu_failed = false;
+        Some(reading)
     }
 
     /// The value, or `None` with a line in the errors that starts with `name`.

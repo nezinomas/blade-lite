@@ -314,3 +314,25 @@ fn a_failed_gpu_temperature_read_is_named_alone() {
     assert_eq!(sampler.errors().len(), 1, "{:?}", sampler.errors());
     assert!(sampler.errors()[0].starts_with("GPU: "));
 }
+
+#[test]
+fn a_failed_gpu_read_is_told_apart_from_a_sleeping_gpu() {
+    let mut sampler = ReadingsSampler::default();
+    let mut failing = FakeSensors::new();
+    failing.gpu = None;
+    sampler.gpu_celsius(&mut failing);
+    assert!(sampler.gpu_failed(), "NVML failed");
+
+    let mut asleep = FakeSensors::new();
+    asleep.gpu_awake = false;
+    sampler.gpu_celsius(&mut asleep);
+    assert!(!sampler.gpu_failed(), "asleep is no failure");
+
+    let mut unknown = FakeSensors::new();
+    unknown.gpu_awake_fails = true;
+    sampler.sample(&mut unknown);
+    assert!(sampler.gpu_failed(), "power state unknown");
+
+    sampler.sample(&mut FakeSensors::new());
+    assert!(!sampler.gpu_failed(), "read");
+}
