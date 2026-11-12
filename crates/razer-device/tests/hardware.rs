@@ -241,24 +241,9 @@ const GET_FAN_RPM: u16 = 0x0D88;
 const CLUSTERS: [u8; 2] = [1, 2];
 const FANS: [u8; 2] = [1, 2];
 
-/// Reads `[1, index, 0]` for each index and returns the reply args.
-fn read_each<C: Clock>(
-    device: &mut Device<HidTransport, C>,
-    id: u16,
-    indexes: &[u8],
-) -> Vec<Vec<u8>> {
-    indexes
-        .iter()
-        .map(|&index| device.send(id, &[1, index, 0]).unwrap().args().to_vec())
-        .collect()
-}
-
 /// The preset of each zone, both boosts and both fan targets.
 fn custom_state<C: Clock>(device: &mut Device<HidTransport, C>) -> Vec<Vec<u8>> {
-    let mut state = preset_args(device);
-    state.extend(read_each(device, GET_BOOST, &CLUSTERS));
-    state.extend(read_each(device, GET_FAN, &FANS));
-    state
+    try_custom_state(device).unwrap()
 }
 
 #[test]
@@ -292,17 +277,13 @@ fn custom_is_set_and_read_back_and_the_old_preset_restored() {
     // Boosts and fan targets first, as razer-laptop-control says a mode
     // write after them resets them (not seen on 1.6, ticket 144).
     let put_back = put_back_custom(&mut device, &before);
-    let after = custom_state(&mut device);
+    let after = try_custom_state(&mut device);
     eprintln!(
-        "before {before:02X?}
-set {set:?}, read back {manual:02X?}
-real rpm {real_rpm:02X?}
-put back {put_back:?}
-after {after:02X?}"
+        "before {before:02X?}\nset {set:?}, read back {manual:02X?}\nreal rpm {real_rpm:02X?}\nput back {put_back:?}\nafter {after:02X?}"
     );
     // The lasting state first, so its error is never hidden.
     assert!(put_back.iter().all(Result::is_ok), "check the fans by hand");
-    assert_eq!(after, before);
+    assert_eq!(after, Ok(before));
     set.unwrap();
     let manual = manual.unwrap();
     real_rpm.unwrap();
