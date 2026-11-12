@@ -420,15 +420,32 @@ where
         self.power == Power::Battery
     }
 
-    /// Reads whether the charger is weak. On battery nothing is read. A
-    /// failed read or a reply not understood counts as a weak charge (fail
-    /// safe) until the next read, with a log line.
+    /// Reads whether the charger is weak, at a start, a power event or a
+    /// wake: the source just changed, so one full read is the full
+    /// charger. See [`read_charger_at_click`](Self::read_charger_at_click).
     pub(super) fn read_charger(&mut self) {
+        self.read_charger_with(|_| Power::Charger);
+    }
+
+    /// Reads whether the charger is weak before a click or a power-mode key
+    /// press (ticket 136): a weak or failed read counts at once, but a full
+    /// read changes nothing, so only the polls, 1 s or more apart, take the
+    /// full charger back (two full reads in a row). Two quick presses can't
+    /// count as those two reads.
+    pub(super) fn read_charger_at_click(&mut self) {
+        self.read_charger_with(|power| power);
+    }
+
+    /// Reads the charger; `full` gives the power after a full read. On
+    /// battery nothing is read. A failed read or a reply not understood
+    /// counts as a weak charge (fail safe) until the next read, with a log
+    /// line.
+    fn read_charger_with(&mut self, full: fn(Power) -> Power) {
         if self.on_battery() {
             return;
         }
         self.power = match full_power_charger(&mut self.machine.controller, self.model) {
-            Ok(Some(true)) => Power::Charger,
+            Ok(Some(true)) => full(self.power),
             Ok(Some(false)) => WEAK,
             Ok(None) => {
                 report(NOT_UNDERSTOOD);

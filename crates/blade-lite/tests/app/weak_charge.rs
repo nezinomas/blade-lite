@@ -260,7 +260,7 @@ fn the_power_key_reads_the_charger_first() {
 }
 
 #[test]
-fn a_click_refused_before_any_send_after_a_full_charger_read_sends_what_runs() {
+fn the_polls_not_a_refused_click_send_what_runs_on_the_full_charger() {
     let mut config = Config {
         preset: Preset::Performance,
         ..Config::default()
@@ -271,15 +271,62 @@ fn a_click_refused_before_any_send_after_a_full_charger_read_sends_what_runs() {
     app.machine_mut().controller.inner.charger = FakeCharger::UsbC;
     app.start().unwrap();
     app.machine_mut().controller.inner.sent.clear();
-    // Swapped to the full charger since the last poll.
+    // Swapped to the full charger: the second poll's full read sends it.
     app.machine_mut().controller.inner.charger = FakeCharger::Razer;
-
-    let result = app.on_performance(PerformanceCommand::SetPreset(Preset::Custom));
-
-    assert!(result.is_err());
+    app.follow_charger().unwrap();
+    app.follow_charger().unwrap();
     assert_eq!(
         sent(&app),
         PerfMode::Performance.commands(&BLADE_18).unwrap()
     );
+    app.machine_mut().controller.inner.sent.clear();
+
+    let result = app.on_performance(PerformanceCommand::SetPreset(Preset::Custom));
+
+    assert!(result.is_err());
+    assert_eq!(sent(&app), []);
     assert_eq!(app.running_preset(), Preset::Performance);
+}
+
+#[test]
+fn a_full_read_at_a_click_does_not_end_a_weak_charge() {
+    let (mut app, _dir, _) = crate::app();
+    app.machine_mut().controller.inner.charger = FakeCharger::UsbC;
+    app.start().unwrap();
+    app.machine_mut().controller.inner.sent.clear();
+    // A reply that flickers to full in a swap.
+    app.machine_mut().controller.inner.charger = FakeCharger::Razer;
+
+    for _ in 0..2 {
+        let result = app.on_performance(PerformanceCommand::SetPreset(Preset::Performance));
+        assert!(result.is_err());
+    }
+    assert_eq!(sent(&app), []);
+
+    // Two polls in a row take the full charger.
+    app.follow_charger().unwrap();
+    app.follow_charger().unwrap();
+    let result = app.on_performance(PerformanceCommand::SetPreset(Preset::Performance));
+    assert!(result.is_ok(), "{result:?}");
+    assert!(ran(&app, PerfMode::Performance));
+}
+
+#[test]
+fn a_full_read_at_a_power_key_press_does_not_end_a_weak_charge() {
+    let (mut app, _dir, _) = crate::app();
+    app.machine_mut().controller.inner.charger = FakeCharger::UsbC;
+    app.start().unwrap();
+    app.machine_mut().controller.inner.sent.clear();
+    app.machine_mut().controller.inner.charger = FakeCharger::Razer;
+    // One poll read full: a press right after must not be the second read.
+    app.follow_charger().unwrap();
+
+    // Balanced runs: on the battery presets the key steps to Silent, then
+    // back to Balanced, never to Performance.
+    app.on_power_key().unwrap();
+    assert!(ran(&app, PerfMode::Silent));
+    app.on_power_key().unwrap();
+
+    assert_eq!(app.running_preset(), Preset::Balanced);
+    assert!(!ran(&app, PerfMode::Performance));
 }
