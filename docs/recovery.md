@@ -47,7 +47,9 @@ not checked.
 
 ## Before a Razer firmware or BIOS update
 
-Quit Blade Lite first (tray menu, **Quit**).
+Quit Blade Lite first (tray menu, **Quit**). If a box said Blade Lite can't
+open the controller yet, it still runs with no tray icon: end
+`blade-lite.exe` in Task Manager.
 A firmware update must not meet the app's commands.
 Blade Lite sends nothing while it sees a Razer updater, but it can miss one.
 

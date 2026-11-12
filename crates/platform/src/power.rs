@@ -15,7 +15,8 @@ use windows_sys::Win32::System::Power::{
 };
 use windows_sys::Win32::System::SystemServices::GUID_ACDC_POWER_SOURCE;
 use windows_sys::Win32::UI::WindowsAndMessaging::{
-    DEVICE_NOTIFY_CALLBACK, PBT_APMRESUMEAUTOMATIC, PBT_POWERSETTINGCHANGE,
+    DEVICE_NOTIFY_CALLBACK, GetSystemMetrics, PBT_APMRESUMEAUTOMATIC, PBT_POWERSETTINGCHANGE,
+    SM_SHUTTINGDOWN,
 };
 
 use windows_sys::core::GUID;
@@ -140,6 +141,13 @@ impl Drop for WindowsPowerEvents {
             PowerUnregisterSuspendResumeNotification(self.registration);
         }
     }
+}
+
+/// Whether Windows is shutting down, restarting or signing the user out.
+#[must_use]
+pub fn shutting_down() -> bool {
+    // SAFETY: a plain query with no pointers.
+    unsafe { GetSystemMetrics(SM_SHUTTINGDOWN) != 0 }
 }
 
 /// Called by Windows on its own thread for each power event.
