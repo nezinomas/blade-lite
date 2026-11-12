@@ -29,7 +29,7 @@ pub use instance::{WakeListener, WindowsInstance};
 pub use keys::{WindowsKeys, enter_down, mic_keys_down, num_lock_on};
 pub use message::{ask_yes_no, show_error};
 pub use mic::{mic_muted, toggle_mic_mute};
-pub use popup::{work_area, work_area_at};
+pub use popup::{raise_topmost, work_area, work_area_at};
 pub use power::{SuspendHandled, WindowsPowerEvents, on_battery, shutting_down};
 pub use programs::WindowsPrograms;
 pub use registry::WindowsRegistry;

@@ -5,12 +5,13 @@ use std::rc::Rc;
 use std::time::{Duration, Instant};
 
 use blade_lite::{Rect, popup_position, report};
-use platform::work_area;
+use platform::{raise_topmost, work_area};
 use slint::winit_030::{WinitWindowAccessor, winit};
 use slint::{ComponentHandle, PhysicalPosition, Timer};
 use ui::{HEAT_HOLD, Sensor};
 use winit::platform::windows::WindowExtWindows;
 
+use super::windows::hwnd;
 use super::{Parts, Shell};
 use crate::tray::px;
 
@@ -106,7 +107,7 @@ impl<P: Parts> Shell<P> {
             return;
         }
         if self.popup_ready.get() {
-            self.popup.set_shown(true);
+            self.fade_in_on_top();
         } else {
             self.once_shown(
                 |shell| shell.popup.window(),
@@ -145,6 +146,19 @@ impl<P: Parts> Shell<P> {
             }
         }
         self.place_popup();
+        self.fade_in_on_top();
+    }
+
+    /// Fades the popup in above every other topmost window, such as a
+    /// full-screen game (ticket 155). If it can't go there it still shows,
+    /// and the log says why.
+    fn fade_in_on_top(&self) {
+        let raised = hwnd(self.popup.window())
+            .ok_or_else(|| std::io::Error::other("no window"))
+            .and_then(raise_topmost);
+        if let Err(error) = raised {
+            report(&format!("the popup can't go on top: {error}"));
+        }
         self.popup.set_shown(true);
     }
 
