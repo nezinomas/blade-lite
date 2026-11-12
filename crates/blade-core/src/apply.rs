@@ -107,6 +107,31 @@ pub fn apply_performance(
     controller.run(&commands).map_err(ApplyError::Device)
 }
 
+/// Sends only the fan targets of `config`'s Custom again, if it is Custom
+/// with a manual fan (ticket 173); otherwise nothing. Returns whether
+/// anything was sent.
+///
+/// # Errors
+///
+/// See [`ApplyError`]: a saved value out of range sends nothing.
+pub fn apply_fan_targets(
+    config: &Config,
+    model: &ModelProfile,
+    controller: &mut impl Controller,
+) -> Result<bool, ApplyError> {
+    if config.preset.perf_mode().is_some() {
+        return Ok(false);
+    }
+    let commands = custom(config.custom, model)
+        .map_err(ApplyError::Custom)?
+        .fan_target_commands(model);
+    if commands.is_empty() {
+        return Ok(false);
+    }
+    controller.run(&commands).map_err(ApplyError::Device)?;
+    Ok(true)
+}
+
 /// Reads back the mode and fan byte of each zone that `config`'s preset
 /// run sets (ticket 152), and names the zones that differ from what was
 /// sent, such as "zone 1 reads 01 01 00 00, sent 01 01 05 00". Reads only:

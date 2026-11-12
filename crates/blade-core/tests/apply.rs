@@ -4,8 +4,8 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use blade_core::{
-    ApplyError, Config, Controller, CustomSettings, Lighting, Preset, apply, apply_lighting,
-    apply_performance,
+    ApplyError, Config, Controller, CustomSettings, Lighting, Preset, apply, apply_fan_targets,
+    apply_lighting, apply_performance,
 };
 use razer_device::DeviceError;
 use razer_proto::{
@@ -455,4 +455,53 @@ fn a_model_without_a_lid_logo_gets_no_logo_commands() {
     apply(&saved, &model, &mut controller, RedKeys::default()).unwrap();
 
     assert_eq!(*log.borrow(), preset_steps(0x00));
+}
+
+#[test]
+fn the_fan_targets_alone_go_again_for_a_manual_custom() {
+    let (mut controller, log) = fakes();
+
+    let sent_any = apply_fan_targets(
+        &config(Preset::Custom, custom(3, 3, Some(3600))),
+        &BLADE_18,
+        &mut controller,
+    );
+
+    assert!(matches!(sent_any, Ok(true)));
+    assert_eq!(
+        *log.borrow(),
+        [sent(0x0D01, &[1, 1, 36]), sent(0x0D01, &[1, 2, 36])]
+    );
+}
+
+#[test]
+fn no_fan_targets_go_again_for_auto_fans_or_another_preset() {
+    let (mut controller, log) = fakes();
+
+    for config in [
+        config(Preset::Custom, custom(1, 1, None)),
+        config(Preset::Balanced, custom(1, 1, Some(3600))),
+        config(Preset::Performance, custom(1, 1, Some(3600))),
+    ] {
+        assert!(matches!(
+            apply_fan_targets(&config, &BLADE_18, &mut controller),
+            Ok(false)
+        ));
+    }
+
+    assert!(log.borrow().is_empty());
+}
+
+#[test]
+fn a_fan_target_out_of_range_is_not_sent_again() {
+    let (mut controller, log) = fakes();
+
+    let sent_any = apply_fan_targets(
+        &config(Preset::Custom, custom(1, 1, Some(9000))),
+        &BLADE_18,
+        &mut controller,
+    );
+
+    assert!(matches!(sent_any, Err(ApplyError::Custom(_))));
+    assert!(log.borrow().is_empty());
 }

@@ -35,6 +35,7 @@ where
         self.key_red = applied.is_ok().then_some(red);
         self.note_preset_send(&applied);
         self.check_preset_if_sent(&config, &applied);
+        self.note_fan_targets(&config, &applied);
         self.read_logo();
         Ok(applied?)
     }

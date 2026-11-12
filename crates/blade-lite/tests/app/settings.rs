@@ -392,3 +392,38 @@ fn reset_on_battery_puts_the_rate_back() {
 
     assert_eq!(panel_hz(&app), 240);
 }
+
+/// The fan target writes `app` sent.
+fn fan_targets_sent(app: &crate::fakes::TestApp) -> usize {
+    sent(app)
+        .iter()
+        .filter(|command| command.id == 0x0D01)
+        .count()
+}
+
+#[test]
+fn an_import_of_a_manual_custom_sends_its_fan_targets_once_more() {
+    let (mut app, dir, _) = app();
+    app.take_on_battery(Some(false));
+    let picked = exported(dir.path(), &custom_with_fan(3600));
+    app.import_settings(&picked).unwrap();
+    assert!(app.fan_targets_due().is_some());
+    app.machine_mut().controller.inner.sent.clear();
+
+    app.send_fan_targets_again().unwrap();
+
+    assert_eq!(fan_targets_sent(&app), 2);
+    assert!(app.fan_targets_due().is_none(), "once");
+}
+
+#[test]
+fn no_fan_targets_go_once_more_while_the_preset_is_unsure() {
+    // Both manual, so without the guard the kept 3000 would go.
+    let (mut app, _) = import_with_a_lighting_error(custom_with_fan(3000), custom_with_fan(3600));
+    assert!(app.preset_unsure());
+    assert!(app.fan_targets_due().is_some());
+
+    app.send_fan_targets_again().unwrap();
+
+    assert_eq!(fan_targets_sent(&app), 0);
+}

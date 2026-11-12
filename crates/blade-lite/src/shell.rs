@@ -311,6 +311,9 @@ pub struct Shell<P: Parts = Laptop> {
     redo_at_wake: Cell<bool>,
     /// Counts the wakes, so a pause that began before one sends nothing.
     wakes: Cell<u64>,
+    /// The manual Custom send whose fan targets a tick first saw due to go
+    /// once more, and when (ticket 173).
+    fan_targets_seen: Cell<Option<(u32, Instant)>>,
 }
 
 impl<P: Parts> Shell<P> {
@@ -356,6 +359,7 @@ impl<P: Parts> Shell<P> {
             asleep: Cell::new(false),
             redo_at_wake: Cell::new(false),
             wakes: Cell::new(0),
+            fan_targets_seen: Cell::new(None),
             controller_gone: Cell::new(false),
         })
     }

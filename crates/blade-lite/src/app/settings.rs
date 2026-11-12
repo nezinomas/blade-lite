@@ -71,6 +71,7 @@ where
         self.key_red = applied.is_ok().then_some(red);
         self.note_preset_send(&applied);
         self.check_preset_if_sent(&running, &applied);
+        self.note_fan_targets(&running, &applied);
         // The old config is kept, so a new preset the controller took is
         // not the one shown: the resends put the shown one back, and the
         // error says the laptop may run part of the change.
