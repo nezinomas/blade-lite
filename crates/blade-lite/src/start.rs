@@ -84,21 +84,23 @@ pub fn try_times<T, E>(
     }
 }
 
-/// Calls `attempt`, `pause` apart, until it works. Each new error is
-/// logged once, so a long wait leaves one line per reason.
+/// Waits `pause`, then calls `attempt`, `pause` apart, until it works.
+/// Each error text is logged once, so a long wait leaves one line per
+/// reason, also when two reasons take turns.
 pub fn try_until_it_works<T, E: std::fmt::Display>(
     pause: Duration,
     mut attempt: impl FnMut() -> Result<T, E>,
 ) -> T {
-    let mut said = crate::ShownErrors::default();
+    let mut said = std::collections::HashSet::new();
     loop {
+        thread::sleep(pause);
         match attempt() {
             Ok(value) => return value,
             Err(error) => {
-                if let Some(text) = said.new_text(&error.to_string()) {
+                let text = error.to_string();
+                if said.insert(text.clone()) {
                     report(&format!("still trying: {text}"));
                 }
-                thread::sleep(pause);
             }
         }
     }

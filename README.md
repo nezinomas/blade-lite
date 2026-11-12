@@ -103,8 +103,9 @@ The UI toolkit is [Slint](https://slint.dev) with its Fluent style.
   that alone ends a manual fan is not checked (laptop check 12).
 - A shutdown, restart or sign-out tries to send the same as Quit; not checked
   on the laptop (laptop check 23), and rarely nothing goes (ticket 159).
-- A login start that can't open the controller gives up after 5 tries
-  (ticket 153).
+- A login start that can't open the controller shows a box once and keeps
+  trying every 30 s, with no tray icon until it opens; a start by hand meanwhile
+  does nothing (ticket 153).
 - While Razer's own software runs, the app warns, and the fan guard and the
   background reads are off, but clicks and the power-mode key still send: a
   manual fan then has no guard. Any program whose name starts with `rz`

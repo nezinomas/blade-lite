@@ -29,8 +29,8 @@ use std::rc::Rc;
 use std::time::Duration;
 
 use blade_core::{
-    APP_NAME, Config, Log, POLL_INTERVAL, Start, razer_software, razer_updater, razer_warning,
-    start_instance, starts_in_tray,
+    APP_NAME, Config, Log, POLL_INTERVAL, RESUME_PAUSE, Start, razer_software, razer_updater,
+    razer_warning, start_instance, starts_in_tray,
 };
 use blade_lite::{
     App, Machine, accent_colour, config_or_defaults, icon, open_log, report, report_panics,
@@ -116,19 +116,40 @@ const TRAY_RETRY_PAUSE: Duration = Duration::from_secs(30);
 /// A login start whose first tries failed: shows the error once, on a
 /// thread of its own so the tries don't wait for the user, then tries every
 /// [`TRAY_RETRY_PAUSE`] until the controller opens. What a crash or a kill
-/// left running (a manual fan, Performance) then gets the app back.
-fn keep_trying_to_open(error: &dyn std::error::Error) -> HidTransport {
+/// left running (a manual fan, Performance) then gets the app back. No try
+/// while Razer software runs (or the look fails): it may hold the
+/// controller, or update it. After an open it waits the wake's pause, as
+/// the controller may just have come back. `None` if Windows is ending the
+/// session by then: nothing is sent.
+fn keep_trying_to_open(error: &dyn std::error::Error) -> Option<HidTransport> {
+    let every = TRAY_RETRY_PAUSE.as_secs();
     report(&format!(
-        "the controller can't be opened at login, so the app tries again every {} s: {error}",
-        TRAY_RETRY_PAUSE.as_secs()
+        "the controller can't be opened at login, so the app tries again every {every} s: {error}"
     ));
     let text = start_box_text(
-        "Blade Lite can't open the controller yet. It tries again every 30 s in the \
-         background; to stop it, end blade-lite.exe in Task Manager.",
+        &format!(
+            "Blade Lite can't open the controller yet. It tries again every {every} s in the \
+             background, with no tray icon until then; starting it again does nothing \
+             meanwhile. To stop it, end blade-lite.exe in Task Manager. This box is not \
+             updated: close it."
+        ),
         &error.to_string(),
     );
     std::thread::spawn(move || platform::show_error(START_BOX_TITLE, &text));
-    try_until_it_works(TRAY_RETRY_PAUSE, open_controller)
+    let controller = try_until_it_works(TRAY_RETRY_PAUSE, || {
+        match razer_software(&WindowsPrograms) {
+            Ok(found) if found.is_empty() => open_controller(),
+            Ok(found) => Err(format!("Razer software runs ({})", found.join(", ")).into()),
+            Err(error) => Err(format!("can't look for Razer software: {error}").into()),
+        }
+    });
+    report("the controller was opened at last");
+    std::thread::sleep(RESUME_PAUSE);
+    if platform::shutting_down() {
+        report("Windows ends the session, so the late start sends nothing");
+        return None;
+    }
+    Some(controller)
 }
 
 /// How many times a login start (`--tray`) tries to open the controller,
@@ -150,8 +171,11 @@ fn open_controller() -> Result<HidTransport, Box<dyn std::error::Error>> {
 
 /// Opens the controller; a login start (`--tray`) tries
 /// [`TRAY_OPEN_TRIES`] times, as it may not be ready yet. Each failed try
-/// but the last is logged, so the log shows how late it was.
-fn open_controller_at_start(in_tray: bool) -> Result<HidTransport, Box<dyn std::error::Error>> {
+/// but the last is logged, so the log shows how late it was; then it keeps
+/// trying (`None` if Windows ends the session first).
+fn open_controller_at_start(
+    in_tray: bool,
+) -> Result<Option<HidTransport>, Box<dyn std::error::Error>> {
     let tries = if in_tray { TRAY_OPEN_TRIES } else { 1 };
     let mut count = 0;
     let opened = try_times(tries, TRAY_OPEN_PAUSE, || {
@@ -168,7 +192,7 @@ fn open_controller_at_start(in_tray: bool) -> Result<HidTransport, Box<dyn std::
     });
     match opened {
         Err(error) if in_tray => Ok(keep_trying_to_open(error.as_ref())),
-        opened => opened,
+        opened => opened.map(Some),
     }
 }
 
@@ -236,6 +260,11 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         report("another copy runs, so this one ends");
         return Ok(());
     }
+    // Before the windows are made: a long wait for the controller must not
+    // leave windows nobody answers. Opening sends nothing.
+    let Some(controller) = open_controller_at_start(in_tray)? else {
+        return Ok(());
+    };
 
     let accent = accent_colour(&WindowsRegistry).unwrap_or(DEFAULT_ACCENT);
     let window_icon = window_icon(accent)?;
@@ -261,7 +290,6 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     let window = MainWindow::new()?;
     let flyout = FlyoutWindow::new()?;
     let popup = ModePopup::new()?;
-    let controller = open_controller_at_start(in_tray)?;
     let machine = Machine {
         controller: Device::new(
             Reopening::new(
