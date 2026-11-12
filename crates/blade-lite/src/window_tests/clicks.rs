@@ -172,6 +172,63 @@ fn a_run_that_ends_sends_the_quit_preset() {
 }
 
 #[test]
+fn a_panic_in_the_run_sends_the_quit_preset_and_ends_with_an_error() {
+    let f = fixture(Config {
+        preset: Preset::Performance,
+        ..Config::default()
+    });
+    let before = sent_count(&f);
+
+    let ended = f.shell.serve(|| -> Result<(), &str> { panic!("a bug") });
+
+    assert_eq!(ended, Err(crate::shell::PANICKED));
+    assert_eq!(
+        sent_since(&f, before),
+        PerfMode::Balanced.commands(&BLADE_18).unwrap()
+    );
+}
+
+#[test]
+fn a_panic_on_battery_from_a_manual_fan_sends_the_fans_on_auto_first() {
+    let mut config = Config {
+        preset: Preset::Custom,
+        ..Config::default()
+    };
+    config.custom.fan_rpm = Some(1600);
+    let f = fixture(config);
+    f.shell.act(|app| app.on_power(PowerEvent::OnBattery));
+    let before = sent_count(&f);
+
+    let ended = f.shell.serve(|| -> Result<(), &str> { panic!("a bug") });
+
+    assert_eq!(ended, Err(crate::shell::PANICKED));
+    // The panic may have cut a send: the fans go on auto before Balanced.
+    let sent = sent_since(&f, before);
+    let modes: Vec<_> = sent.iter().filter(|c| c.id == 0x0D02).collect();
+    assert!(
+        modes
+            .first()
+            .is_some_and(|c| c.args[2] == BLADE_18.custom.mode),
+        "{sent:?}"
+    );
+    assert!(modes.iter().all(|c| c.args[3] == 0), "{sent:?}");
+    assert!(sent.ends_with(&PerfMode::Balanced.commands(&BLADE_18).unwrap()));
+}
+
+#[test]
+fn a_stopped_background_part_shows_in_the_window() {
+    let f = fixture(Config::default());
+    let before = sent_count(&f);
+
+    f.shell.part_stopped("power-mode key");
+
+    let shown = f.shell.window().get_error().to_string();
+    assert!(shown.contains("power-mode key"), "{shown}");
+    assert!(f.shell.window().window().is_visible());
+    assert_eq!(sent_since(&f, before), []);
+}
+
+#[test]
 fn quitting_from_silent_sends_silent() {
     let f = fixture(Config {
         preset: Preset::Silent,

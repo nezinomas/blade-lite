@@ -9,6 +9,7 @@ mod windows;
 
 use std::cell::{Cell, RefCell};
 use std::io;
+use std::panic::AssertUnwindSafe;
 use std::path::PathBuf;
 use std::rc::Rc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -227,6 +228,9 @@ pub type AppOn<P> = App<
 /// since it can come and go on each read.
 const READ_ERROR_QUIET: Duration = Duration::from_mins(10);
 
+/// The error a run ends with when a panic (a bug) stopped it.
+pub const PANICKED: &str = "a bug stopped the app (a panic, in the log)";
+
 pub struct Shell<P: Parts = Laptop> {
     window: MainWindow,
     flyout: FlyoutWindow,
@@ -273,6 +277,8 @@ pub struct Shell<P: Parts = Laptop> {
     razer_opened: Cell<bool>,
     /// Whether a file dialog is open, so a second one is not opened.
     dialog_open: Cell<bool>,
+    /// The background parts a panic stopped, shown above the groups.
+    stopped_parts: RefCell<Vec<&'static str>>,
 }
 
 impl<P: Parts> Shell<P> {
@@ -310,6 +316,7 @@ impl<P: Parts> Shell<P> {
             razer_warning: RefCell::new(None),
             razer_opened: Cell::new(false),
             dialog_open: Cell::new(false),
+            stopped_parts: RefCell::new(Vec::new()),
         })
     }
 
@@ -362,12 +369,36 @@ impl<P: Parts> Shell<P> {
     }
 
     /// Runs `serve`, the app's run after the start, then quits as Quit
-    /// does, however it ended: an error too ends the app with the start's
-    /// settings sent and nothing to watch them. Only after the start.
-    pub fn serve<T, E>(&self, serve: impl FnOnce() -> Result<T, E>) -> Result<T, E> {
-        let served = serve();
-        self.quit();
-        served
+    /// does, however it ended: an error or a panic (a bug) too ends the app
+    /// with the start's settings sent and nothing to watch them. A panic
+    /// ends as the error [`PANICKED`]; the panic hook has logged it. Only
+    /// after the start.
+    pub fn serve<T, E: From<&'static str>>(
+        &self,
+        serve: impl FnOnce() -> Result<T, E>,
+    ) -> Result<T, E> {
+        // Each borrow taken in `serve` is dropped as the panic unwinds, so
+        // the quit finds the app free.
+        let served = std::panic::catch_unwind(AssertUnwindSafe(serve));
+        if served.is_err() {
+            self.app.borrow_mut().note_panic();
+        }
+        // A quit that panics too still ends with the start box.
+        if std::panic::catch_unwind(AssertUnwindSafe(|| self.quit())).is_err() {
+            report("the quit panicked too, so Balanced may not have been sent");
+            return Err(PANICKED.into());
+        }
+        served.unwrap_or_else(|_| Err(PANICKED.into()))
+    }
+
+    /// Notes a background part (a thread) that a panic stopped: the app
+    /// goes on without it, so the window opens and says so until the app
+    /// starts again. Nothing is sent.
+    pub fn part_stopped(self: &Rc<Self>, part: &'static str) {
+        report(&format!("a bug stopped the {part} part"));
+        self.stopped_parts.borrow_mut().push(part);
+        // It fills the window too.
+        self.show_window();
     }
 
     /// Reads the keyboard brightness while Fn is held or as it comes up,
@@ -478,9 +509,15 @@ impl<P: Parts> Shell<P> {
         // The Razer and firmware warnings are logged when they come, not
         // with the errors.
         let warning = self.razer_warning.borrow();
+        let stopped = self.stopped_parts.borrow();
+        let stopped = stopped
+            .iter()
+            .map(|part| format!("A bug stopped the {part} part. Quit Blade Lite from the tray and start it again."))
+            .collect::<Vec<_>>();
         let shown: Vec<&str> = warning
             .as_deref()
             .into_iter()
+            .chain(stopped.iter().map(String::as_str))
             .chain(app.firmware_warning())
             .chain((!errors.is_empty()).then_some(errors.as_str()))
             .collect();

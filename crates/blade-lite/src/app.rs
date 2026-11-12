@@ -268,6 +268,13 @@ where
         }
     }
 
+    /// Notes a panic (a bug) that may have cut a send: the preset is then
+    /// unsure, so a quit sends the fans on auto first, as after a failed
+    /// send.
+    pub fn note_panic(&mut self) {
+        self.preset_send_failed();
+    }
+
     /// Marks the preset unsure, with all its resends left.
     fn preset_send_cut(&mut self) {
         self.resends_left = RESEND_TRIES;
