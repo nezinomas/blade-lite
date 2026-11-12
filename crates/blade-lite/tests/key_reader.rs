@@ -479,14 +479,33 @@ fn power_key_calls_after(end: &ReaderEnd, ran: Duration) -> usize {
 }
 
 #[test]
-fn the_first_press_after_a_quiet_spell_counts_but_not_after_a_failure() {
+fn the_first_press_after_any_reopen_counts() {
+    // A first report listing the key counts even when the key's earlier
+    // state is unknown, as after a broken handle or a failure (ticket 174).
     let spell = KEY_READ_WAIT * KEY_IDLE_READS;
     assert_eq!(power_key_calls_after(&ReaderEnd::Reopen, spell), 1);
-    // A broken handle, or a failure, may hide a sleep: the key's earlier
-    // state is unknown, so a key already down is not a press.
-    assert_eq!(power_key_calls_after(&ReaderEnd::Reopen, Duration::ZERO), 0);
+    assert_eq!(power_key_calls_after(&ReaderEnd::Reopen, Duration::ZERO), 1);
     assert_eq!(
         power_key_calls_after(&ReaderEnd::Failed("gone".into()), spell),
-        0
+        1
     );
+}
+
+#[test]
+fn the_first_press_after_the_app_starts_counts_once() {
+    // Numpad Enter (Num Lock off), then Fn + numpad Enter, each the first
+    // report of a new key state, as at the app start (check 16).
+    for first in [&[0x04, 0xD3][..], &[0x04, 0x0A, 0xD3]] {
+        let mut calls = 0;
+        step_on_presses(
+            &mut source(vec![Some(report(first)), Some(report(&[0x04]))]),
+            &mut enter(&[true, true]),
+            &mut presses(),
+            |event| {
+                calls += usize::from(event == KeyEvent::PowerKey);
+                true
+            },
+        );
+        assert_eq!(calls, 1, "{first:02X?}");
+    }
 }

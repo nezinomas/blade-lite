@@ -25,14 +25,24 @@ fn presses() -> PowerKeyPresses {
 }
 
 #[test]
-fn a_key_held_before_the_first_key_up_does_not_count() {
+fn a_first_report_with_the_key_counts_once() {
+    // Key reports come only on a change, so a first report listing the
+    // key is almost always a new press (ticket 174).
     let mut presses = PowerKeyPresses::new(BLADE_18.power_key.unwrap());
     let now = Instant::now();
 
-    // The key may have been held while the reports were opened.
-    assert!(!presses.on_report(&report(&KEY_DOWN), now));
-    assert!(!presses.on_report(&report(&FN_DOWN), now));
+    assert!(presses.on_report(&report(&[0x04, 0xD3]), now));
+    assert!(!presses.on_report(&report(&[0x04, 0xD3]), now + POWER_KEY_PAUSE));
+}
+
+#[test]
+fn a_first_fn_and_numpad_enter_steps_once() {
+    let mut presses = PowerKeyPresses::new(BLADE_18.power_key.unwrap());
+    let now = Instant::now();
+
     assert!(presses.on_report(&report(&KEY_DOWN), now));
+    // Windows may get the Enter too: Enter starts unknown, so no second step.
+    assert!(!presses.on_enter(true, now + POWER_KEY_PAUSE));
 }
 
 #[test]
