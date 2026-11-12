@@ -18,8 +18,9 @@ while read -r local_ref local_sha remote_ref remote_sha; do
     exit 1
   fi
   # Two threads once both filed ticket 123: numbers count across both files.
-  dup=$(git show "$local_sha:docs/PLAN.md" "$local_sha:docs/PLAN-done.md" |
-    sed -nE 's/^- \[[ x]\] ([0-9]+)( .*)?$/\1/p' | sort -n | uniq -d | tr '\n' ' ')
+  # A missing file stops the push here (set -e), not later with no check.
+  plans=$(git show "$local_sha:docs/PLAN.md" "$local_sha:docs/PLAN-done.md")
+  dup=$(printf '%s\n' "$plans" | tr -d '\r' | sed -nE 's/^- \[[ x]\] ([0-9]+)( .*)?$/\1/p' | sort -n | uniq -d | tr '\n' ' ')
   if [ -n "$dup" ]; then
     echo "pre-push: ticket numbers used twice in docs/PLAN.md and docs/PLAN-done.md: $dup" >&2
     echo "pre-push: give the newer ticket the next free number." >&2

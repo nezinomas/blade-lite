@@ -32,6 +32,6 @@ description: Build one stage or ticket from docs/PLAN.md end to end (branch, TDD
    Still needs the user: <checks>
    Blocked: <permissions, push, merge, branch delete, cargo, or "nothing was blocked">
    ```
-   Tokens come from the `get_usage` tool; without it, write "not available". Time comes from the start time (step 1) and the merge commit; the wait is the time from each question to the user's answer. A workflow fix is only a proposal: say it, don't apply it. In a batch run, one block per stage, and one Blocked line at the end. Also put each stage's block (all but Blocked) in the body of its merge commit, so `git log` keeps it for the retro.
+   Tokens come from the `get_usage` tool; without it, write "not available". Time comes from the start time (step 1) and the merge commit; the wait is the time from each question to the user's answer. A workflow fix is only a proposal: say it, don't apply it. In a batch run, one block per stage, and one Blocked line at the end. Also put each stage's block (all but Blocked, with Time and Tokens as at the merge) in the body of its merge commit, so `git log` keeps it for the retro.
 
 In a batch run, repeat for each stage and stop early when a step needs the user. Skip tickets that need the user (see "Working style" in `docs/NOTES.md`).
