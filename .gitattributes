@@ -1,1 +1,3 @@
+# Git stores text files with LF, whatever the editor wrote (retro 2026-11-12).
+* text=auto
 .githooks/* text eol=lf
