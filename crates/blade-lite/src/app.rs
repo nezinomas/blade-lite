@@ -370,6 +370,11 @@ where
     /// minute while the last read failed (ticket 138). A read that keeps
     /// failing is logged once.
     pub fn check_firmware(&mut self) {
+        // A held controller refuses the read: the read after the updater
+        // tells, so the last result stays.
+        if self.controller_held() {
+            return;
+        }
         let version = match self.machine.controller.query(&FirmwareVersion::query()) {
             Ok(args) => {
                 FirmwareVersion::from_reply(&args).ok_or_else(|| "reply not understood".to_owned())
