@@ -347,6 +347,7 @@ impl<P: Parts> Shell<P> {
         popup: ModePopup,
         app: AppOn<P>,
     ) -> Rc<Self> {
+        // The app's start (`Self::start`) sets both again from what it left.
         let mode_watch = Cell::new(ModeWatch::new(app.running_preset()));
         let touchpad_watch = Cell::new(TouchpadWatch::new(app.touchpad_on()));
         Rc::new(Self {
@@ -526,11 +527,32 @@ impl<P: Parts> Shell<P> {
         }
     }
 
-    /// Runs `serve`, the app's run after the start, then quits as Quit
+    /// The start's sends: the saved settings, then the rate, even if the
+    /// settings failed. Then the mode and touchpad watches take what the
+    /// start left. Run it first in [`Self::serve`], so a panic in it
+    /// quits too (ticket 164).
+    ///
+    /// # Errors
+    ///
+    /// See [`AppError`]: the settings' error first.
+    pub fn start(&self) -> Result<(), AppError> {
+        let mut app = self.app.borrow_mut();
+        let started = app.start();
+        let rate = app.start_rate();
+        if let (Err(_), Err(error)) = (&started, &rate) {
+            // Only the start error is shown, so this one is logged.
+            report(&format!("the rate put back at start failed too: {error}"));
+        }
+        self.mode_watch.set(ModeWatch::new(app.running_preset()));
+        self.touchpad_watch
+            .set(TouchpadWatch::new(app.touchpad_on()));
+        started.and(rate)
+    }
+
+    /// Runs `serve`, the app's run with its start, then quits as Quit
     /// does, however it ended: an error or a panic (a bug) too ends the app
     /// with the start's settings sent and nothing to watch them. A panic
-    /// ends as the error [`PANICKED`]; the panic hook has logged it. Only
-    /// after the start.
+    /// ends as the error [`PANICKED`]; the panic hook has logged it.
     pub fn serve<T, E: From<&'static str>>(
         &self,
         serve: impl FnOnce() -> Result<T, E>,

@@ -200,6 +200,57 @@ fn a_panic_in_the_run_sends_the_quit_preset_and_ends_with_an_error() {
 }
 
 #[test]
+fn a_panic_in_the_start_sends_the_quit_preset_and_ends_with_an_error() {
+    let f = fixture(Config {
+        preset: Preset::Performance,
+        ..Config::default()
+    });
+    f.shell.app().machine_mut().controller.inner.panics = true;
+
+    let ended = f
+        .shell
+        .serve(|| f.shell.start().map_err(|error| error.to_string()));
+
+    assert_eq!(ended, Err(crate::shell::PANICKED.to_owned()));
+    let sent = sent_since(&f, 0);
+    assert!(
+        sent.ends_with(&PerfMode::Balanced.commands(&BLADE_18).unwrap()),
+        "{sent:?}"
+    );
+}
+
+#[test]
+fn a_panic_in_the_start_of_a_manual_fan_sends_the_fans_on_auto_first() {
+    let mut config = Config {
+        preset: Preset::Custom,
+        ..Config::default()
+    };
+    config.custom.fan_rpm = Some(1600);
+    let f = fixture(config);
+    let before = sent_count(&f);
+    f.shell.app().machine_mut().controller.inner.panics = true;
+
+    let ended = f
+        .shell
+        .serve(|| f.shell.start().map_err(|error| error.to_string()));
+
+    assert_eq!(ended, Err(crate::shell::PANICKED.to_owned()));
+    // The start's first run, then a panic, then the quit's sends.
+    let sent = sent_since(&f, before);
+    // After the last manual fan write: Custom with the fans on auto, then
+    // Balanced.
+    let manual = sent
+        .iter()
+        .rposition(|c| c.id == 0x0D02 && c.args[3] != 0)
+        .expect("the start's manual fan");
+    let quit = &sent[manual + 1..];
+    let modes: Vec<_> = quit.iter().filter(|c| c.id == 0x0D02).collect();
+    assert_eq!(modes[0].args[2], BLADE_18.custom.mode, "{sent:?}");
+    assert!(modes.iter().all(|c| c.args[3] == 0), "{sent:?}");
+    assert!(quit.ends_with(&PerfMode::Balanced.commands(&BLADE_18).unwrap()));
+}
+
+#[test]
 fn a_panic_on_battery_from_a_manual_fan_sends_the_fans_on_auto_first() {
     let mut config = Config {
         preset: Preset::Custom,
@@ -2618,6 +2669,22 @@ fn a_weak_charge_seen_on_a_tick_runs_balanced_and_says_so() {
     );
     assert_eq!(f.shell.popup().get_mode(), "Balanced");
     assert_eq!(f.shell.app().config().preset, Preset::Performance);
+}
+
+#[test]
+fn the_start_sets_the_mode_watch_from_what_it_left() {
+    let f = fixture(Config {
+        preset: Preset::Performance,
+        ..Config::default()
+    });
+    f.shell.app().machine_mut().controller.inner.charger = FakeCharger::UsbC;
+
+    // The start reads the weak charger and runs Balanced, so the next
+    // change sees no change of mode and pops nothing up.
+    f.shell.start().unwrap();
+    f.shell.act(|_| Ok(()));
+
+    assert_eq!(f.shell.popup().get_mode(), "");
 }
 
 #[test]

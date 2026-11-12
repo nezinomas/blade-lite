@@ -73,7 +73,7 @@ thread_local! {
 }
 
 fn main() -> ExitCode {
-    match run() {
+    match run_caught(run) {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
             report(&error.to_string());
@@ -81,6 +81,15 @@ fn main() -> ExitCode {
             ExitCode::FAILURE
         }
     }
+}
+
+/// Runs `run`; a panic (a bug) it lets out ends as the error
+/// [`shell::PANICKED`], so the start box shows it (ticket 164). The panic
+/// hook has logged it, unless it came before the log was opened.
+fn run_caught(
+    run: impl FnOnce() -> Result<(), Box<dyn std::error::Error>> + std::panic::UnwindSafe,
+) -> Result<(), Box<dyn std::error::Error>> {
+    std::panic::catch_unwind(run).unwrap_or_else(|_| Err(shell::PANICKED.into()))
 }
 
 /// The window title of the start's message boxes.
@@ -203,6 +212,17 @@ fn window_icon(accent: Rgb) -> Result<Icon, BadIcon> {
     let pixels = icon::pixels([accent.red, accent.green, accent.blue], WINDOW_ICON_SIZE);
     let size = WINDOW_ICON_SIZE.into();
     Icon::from_rgba(pixels, size, size)
+}
+
+#[cfg(test)]
+#[test]
+fn a_panic_in_the_run_ends_with_an_error() {
+    let ran = run_caught(|| panic!("a bug"));
+
+    assert_eq!(
+        ran.map_err(|error| error.to_string()),
+        Err(shell::PANICKED.to_owned())
+    );
 }
 
 #[cfg(test)]
@@ -334,29 +354,24 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     // Once, before the first send, so the log has it.
     app.check_firmware();
     let firmware_unchecked = app.firmware_warning().is_some();
-    let started = app.start();
-    // The rate follows even if the start fails.
-    let rate = app.start_rate();
-    if let (Err(_), Err(error)) = (&started, &rate) {
-        // Only the start error is shown, so this one is logged.
-        report(&format!("the rate put back at start failed too: {error}"));
-    }
-    let started = started.and(rate);
-    // A failed start shows in the window, so a login start opens it.
-    let start_failed = started.is_err();
 
     window.set_accent(bind::colour(accent));
     flyout.set_accent(bind::colour(accent));
     popup.set_accent(bind::colour(accent));
     let shell = Shell::new(window, flyout, popup, app);
-    bind::callbacks(&shell);
-    shell.watch_windows();
-    SHELL.with(|cell| cell.replace(Some(Rc::clone(&shell))));
 
-    // The start has sent settings: however the rest ends (Quit, or an
-    // error from here on), the quit preset goes, so no manual fan or
-    // Performance runs on with no app.
+    // The start sends settings: however the rest ends (Quit, or an error
+    // or a panic in the start or after it), the quit preset goes, so no
+    // manual fan or Performance runs on with no app (ticket 164).
     let served = shell.serve(|| -> Result<(), Box<dyn std::error::Error>> {
+        // First, inside `serve`: never move it out (ticket 164).
+        let started = shell.start();
+        // A failed start shows in the window, so a login start opens it.
+        let start_failed = started.is_err();
+        bind::callbacks(&shell);
+        shell.watch_windows();
+        SHELL.with(|cell| cell.replace(Some(Rc::clone(&shell))));
+
         // These read the controller, so a panic in them quits too.
         let razer_found = shell.look_for_razer();
         shell.refresh(started.err().as_ref());
