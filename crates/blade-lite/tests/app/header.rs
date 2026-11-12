@@ -31,7 +31,7 @@ fn the_header_keeps_the_controller_read_errors() {
 #[test]
 fn the_header_keeps_the_cpu_temperature_for_the_heat_warning() {
     let (mut app, _dir, _) = app();
-    app.machine_mut().controller.cpu_celsius = Some(96);
+    app.machine_mut().controller.inner.cpu_celsius = Some(96);
 
     app.header(Readings::default());
 
@@ -41,9 +41,9 @@ fn the_header_keeps_the_cpu_temperature_for_the_heat_warning() {
 #[test]
 fn a_cpu_temperature_that_cant_be_read_is_none() {
     let (mut app, _dir, _) = app();
-    app.machine_mut().controller.cpu_celsius = Some(96);
+    app.machine_mut().controller.inner.cpu_celsius = Some(96);
     app.header(Readings::default());
-    app.machine_mut().controller.cpu_celsius = None;
+    app.machine_mut().controller.inner.cpu_celsius = None;
 
     app.header(Readings::default());
 
@@ -53,21 +53,21 @@ fn a_cpu_temperature_that_cant_be_read_is_none() {
 #[test]
 fn the_cpu_temperature_alone_is_read_for_the_heat_warning() {
     let (mut app, _dir, _) = app();
-    app.machine_mut().controller.cpu_celsius = Some(97);
+    app.machine_mut().controller.inner.cpu_celsius = Some(97);
 
     app.read_cpu_temperature();
 
     assert_eq!(app.cpu_celsius(), Some(97));
-    assert_eq!(app.machine().controller.asked, [Celsius::query()]);
-    assert_eq!(app.machine().controller.sent, []);
+    assert_eq!(app.machine().controller.inner.asked, [Celsius::query()]);
+    assert_eq!(app.machine().controller.inner.sent, []);
 }
 
 #[test]
 fn a_failed_cpu_temperature_read_is_kept_in_the_read_errors() {
     let (mut app, _dir, _) = app();
-    app.machine_mut().controller.cpu_celsius = Some(97);
+    app.machine_mut().controller.inner.cpu_celsius = Some(97);
     app.read_cpu_temperature();
-    app.machine_mut().controller.cpu_celsius = None;
+    app.machine_mut().controller.inner.cpu_celsius = None;
 
     app.read_cpu_temperature();
 

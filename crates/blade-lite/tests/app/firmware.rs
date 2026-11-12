@@ -8,7 +8,7 @@ use crate::fakes::TestApp;
 
 fn checked(reply: Option<Vec<u8>>) -> TestApp {
     let (mut app, _dir, _) = crate::app_with(Config::default());
-    app.machine_mut().controller.firmware = reply;
+    app.machine_mut().controller.inner.firmware = reply;
     app.check_firmware();
     app
 }
@@ -29,7 +29,7 @@ fn another_firmware_gives_a_warning_and_sends_still_go() {
     assert!(warning.contains("1.9"), "{warning}");
     assert!(warning.contains("1.6 and 1.7"), "{warning}");
     app.start().unwrap();
-    assert_ne!(app.machine().controller.sent.len(), 0);
+    assert_ne!(app.machine().controller.inner.sent.len(), 0);
 }
 
 #[test]
@@ -44,7 +44,10 @@ fn a_failed_or_short_read_gives_a_warning() {
 #[test]
 fn the_firmware_is_read_with_its_own_query() {
     let app = checked(None);
-    assert_eq!(app.machine().controller.asked, [FirmwareVersion::query()]);
+    assert_eq!(
+        app.machine().controller.inner.asked,
+        [FirmwareVersion::query()]
+    );
     // A read only: nothing is sent.
-    assert_eq!(app.machine().controller.sent, []);
+    assert_eq!(app.machine().controller.inner.sent, []);
 }

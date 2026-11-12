@@ -1,7 +1,6 @@
 //! The controller, closed for good once the app has sent its quit preset.
 
 use std::io;
-use std::ops::{Deref, DerefMut};
 
 use blade_core::{Controller, Query};
 use razer_device::DeviceError;
@@ -11,7 +10,9 @@ use razer_proto::Command;
 /// nothing (a timer, a power event, a click, a nested message) can send
 /// after the quit preset.
 pub struct Gated<C> {
-    inner: C,
+    /// The controller itself, for the tests to read their fake. Any use
+    /// outside the tests goes around the gate.
+    pub inner: C,
     closed: bool,
 }
 
@@ -45,20 +46,5 @@ impl<C: Controller> Controller for Gated<C> {
 impl<C: Query> Query for Gated<C> {
     fn query(&mut self, command: &Command) -> Result<Vec<u8>, DeviceError> {
         self.open()?.query(command)
-    }
-}
-
-/// The tests read the fake controller through it.
-impl<C> Deref for Gated<C> {
-    type Target = C;
-
-    fn deref(&self) -> &C {
-        &self.inner
-    }
-}
-
-impl<C> DerefMut for Gated<C> {
-    fn deref_mut(&mut self) -> &mut C {
-        &mut self.inner
     }
 }

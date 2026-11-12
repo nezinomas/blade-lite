@@ -23,11 +23,11 @@ const WHITE: Rgb = Rgb::new(0xFF, 0xFF, 0xFF);
 
 /// What the controller got since `before` commands.
 fn sent_since(f: &Fixture, before: usize) -> Vec<Command> {
-    f.shell.app().machine().controller.sent[before..].to_vec()
+    f.shell.app().machine().controller.inner.sent[before..].to_vec()
 }
 
 fn sent_count(f: &Fixture) -> usize {
-    f.shell.app().machine().controller.sent.len()
+    f.shell.app().machine().controller.inner.sent.len()
 }
 
 #[test]
@@ -245,6 +245,28 @@ fn nothing_is_sent_after_the_quit_preset() {
 }
 
 #[test]
+fn a_charger_seen_by_a_tick_after_the_quit_preset_sends_nothing() {
+    let f = fixture(Config {
+        preset: Preset::Performance,
+        ..Config::default()
+    });
+    FAKE_ON_BATTERY.set(true);
+    f.shell.act(|app| app.on_power(PowerEvent::OnBattery));
+    f.shell.end_session();
+    let (sender, receiver) = std::sync::mpsc::channel();
+    f.shell.listen_for_power(receiver);
+    FAKE_ON_BATTERY.set(false);
+    sender.send(PowerEvent::OnAc).unwrap();
+    let before = sent_count(&f);
+
+    for _ in 0..3 {
+        f.shell.tick();
+    }
+
+    assert_eq!(sent_since(&f, before), []);
+}
+
+#[test]
 fn a_session_end_while_the_app_is_busy_leaves_the_quit_preset_to_the_quit() {
     let f = fixture(Config {
         preset: Preset::Performance,
@@ -299,14 +321,14 @@ fn a_failed_balanced_on_quit_is_logged_and_not_sent_again() {
         preset: Preset::Performance,
         ..Config::default()
     });
-    f.shell.app().machine_mut().controller.fails = true;
+    f.shell.app().machine_mut().controller.inner.fails = true;
     FAKE_RELEASED.set(false);
-    let runs = f.shell.app().machine().controller.runs;
+    let runs = f.shell.app().machine().controller.inner.runs;
 
     f.shell.quit();
 
     // A Busy failure: one run, not tried again.
-    assert_eq!(f.shell.app().machine().controller.runs - runs, 1);
+    assert_eq!(f.shell.app().machine().controller.inner.runs - runs, 1);
     assert!(!FAKE_RELEASED.get());
     let log = std::fs::read_to_string(log_path()).unwrap();
     assert!(log.contains("Balanced was not sent at quit"), "{log}");
@@ -319,7 +341,12 @@ fn a_quit_send_refused_by_a_held_controller_is_tried_once_more() {
         ..Config::default()
     });
     FAKE_RELEASED.set(false);
-    f.shell.app().machine_mut().controller.not_connected_runs = 1;
+    f.shell
+        .app()
+        .machine_mut()
+        .controller
+        .inner
+        .not_connected_runs = 1;
     let before = sent_count(&f);
 
     f.shell.quit();
@@ -337,12 +364,17 @@ fn a_quit_send_refused_twice_is_not_tried_a_third_time() {
         preset: Preset::Performance,
         ..Config::default()
     });
-    f.shell.app().machine_mut().controller.not_connected_runs = 5;
-    let runs = f.shell.app().machine().controller.runs;
+    f.shell
+        .app()
+        .machine_mut()
+        .controller
+        .inner
+        .not_connected_runs = 5;
+    let runs = f.shell.app().machine().controller.inner.runs;
 
     f.shell.quit();
 
-    assert_eq!(f.shell.app().machine().controller.runs - runs, 2);
+    assert_eq!(f.shell.app().machine().controller.inner.runs - runs, 2);
 }
 
 #[test]
@@ -353,9 +385,9 @@ fn quitting_after_a_failed_switch_from_a_manual_fan_sends_the_fans_on_auto() {
     };
     config.custom.fan_rpm = Some(1600);
     let f = fixture(config);
-    f.shell.app().machine_mut().controller.fails = true;
+    f.shell.app().machine_mut().controller.inner.fails = true;
     f.shell.act(|app| app.on_power(PowerEvent::OnBattery));
-    f.shell.app().machine_mut().controller.fails = false;
+    f.shell.app().machine_mut().controller.inner.fails = false;
     let before = sent_count(&f);
 
     f.shell.quit();
@@ -439,7 +471,7 @@ const UNKNOWN_NATIVE: u8 = 0x7F;
 #[test]
 fn a_native_mode_the_model_lacks_shows_the_rates_unknown_and_the_error() {
     let f = fixture(Config::default());
-    f.shell.app().machine_mut().controller.native_byte = UNKNOWN_NATIVE;
+    f.shell.app().machine_mut().controller.inner.native_byte = UNKNOWN_NATIVE;
     f.shell.app().machine_mut().displays.0.current.hz = 120;
 
     f.shell.refresh(None);
@@ -459,7 +491,7 @@ fn a_native_mode_the_model_lacks_shows_the_rates_unknown_and_the_error() {
 #[test]
 fn a_native_mode_click_sends_nothing_while_the_chosen_mode_is_unknown() {
     let f = fixture(Config::default());
-    f.shell.app().machine_mut().controller.native_byte = UNKNOWN_NATIVE;
+    f.shell.app().machine_mut().controller.inner.native_byte = UNKNOWN_NATIVE;
     f.shell.refresh(None);
     let before = sent_count(&f);
 
@@ -480,7 +512,7 @@ fn a_refused_60_hz_tried_again_shows_the_rate_while_the_native_mode_is_unknown()
         sixty_hz_on_battery: true,
         ..Config::default()
     });
-    f.shell.app().machine_mut().controller.native_byte = UNKNOWN_NATIVE;
+    f.shell.app().machine_mut().controller.inner.native_byte = UNKNOWN_NATIVE;
     FAKE_ON_BATTERY.set(true);
     f.shell.app().machine_mut().displays.1 = 1;
     let (sender, receiver) = std::sync::mpsc::channel();
@@ -611,7 +643,7 @@ fn failed_send_shows_the_brightness_again<R: ElementRoot + ComponentHandle>(
     label: &str,
     component: &str,
 ) {
-    f.shell.app().machine_mut().controller.fails = true;
+    f.shell.app().machine_mut().controller.inner.fails = true;
     let slider = control(root, Slider, label);
     let start = slider.absolute_position();
     let left_end = LogicalPosition::new(start.x, start.y + slider.size().height / 2.0);
@@ -954,7 +986,7 @@ fn the_flyout_shows_and_resets_the_preset_when_the_touchpad_cant_be_read() {
 #[test]
 fn the_flyout_shows_and_resets_the_preset_when_the_native_mode_cant_be_read() {
     let f = fixture(Config::default());
-    f.shell.app().machine_mut().controller.native_fails = true;
+    f.shell.app().machine_mut().controller.inner.native_fails = true;
 
     click(f.shell.flyout(), Button, "Silent");
     assert!(f.shell.flyout().get_reset_enabled());
@@ -1184,7 +1216,7 @@ fn a_failed_click_shows_the_error_and_logs_it() {
     let f = fixture(Config::default());
     // Other tests fail the native mode read too, so the shared log check
     // shows only that such a line is logged, not that this test wrote it.
-    f.shell.app().machine_mut().controller.native_fails = true;
+    f.shell.app().machine_mut().controller.inner.native_fails = true;
     let before = sent_count(&f);
 
     click(f.shell.window(), Button, "1920 × 1200, up to 440 Hz");
@@ -1525,7 +1557,12 @@ fn lit_fixture() -> Fixture {
 fn fn_f11_moves_both_brightness_sliders() {
     let f = lit_fixture();
     let before = sent_count(&f);
-    f.shell.app().machine_mut().controller.brightness_level = Some(255);
+    f.shell
+        .app()
+        .machine_mut()
+        .controller
+        .inner
+        .brightness_level = Some(255);
 
     f.shell.follow_brightness_keys();
     // The sliders follow in their change handlers, run by the event loop.
@@ -1545,13 +1582,18 @@ fn fn_f11_moves_both_brightness_sliders() {
 #[test]
 fn an_fn_press_that_changes_nothing_keeps_a_shown_error() {
     let f = lit_fixture();
-    f.shell.app().machine_mut().controller.native_fails = true;
+    f.shell.app().machine_mut().controller.inner.native_fails = true;
     click(f.shell.window(), Button, "60 Hz");
     let error = f.shell.window().get_error();
     assert!(error.contains("busy"), "{error}");
-    f.shell.app().machine_mut().controller.native_fails = false;
+    f.shell.app().machine_mut().controller.inner.native_fails = false;
     let level = razer_proto::Brightness::new(35).unwrap().level();
-    f.shell.app().machine_mut().controller.brightness_level = Some(level);
+    f.shell
+        .app()
+        .machine_mut()
+        .controller
+        .inner
+        .brightness_level = Some(level);
 
     f.shell.follow_brightness_keys();
 
@@ -1567,7 +1609,12 @@ fn fn_up_during_the_resume_pause_reads_and_sends_nothing() {
     sender.send(PowerEvent::Resumed).unwrap();
     f.shell.follow_power(&receiver);
     let before = sent_count(&f);
-    f.shell.app().machine_mut().controller.brightness_level = Some(255);
+    f.shell
+        .app()
+        .machine_mut()
+        .controller
+        .inner
+        .brightness_level = Some(255);
 
     f.shell.follow_brightness_keys();
 
@@ -1594,8 +1641,13 @@ fn a_failed_brightness_read_after_fn_is_logged_not_shown() {
 #[test]
 fn a_failed_vapor_send_after_fn_shows_the_error_and_the_new_level() {
     let f = lit_fixture();
-    f.shell.app().machine_mut().controller.brightness_level = Some(255);
-    f.shell.app().machine_mut().controller.fails = true;
+    f.shell
+        .app()
+        .machine_mut()
+        .controller
+        .inner
+        .brightness_level = Some(255);
+    f.shell.app().machine_mut().controller.inner.fails = true;
 
     f.shell.follow_brightness_keys();
     slint::platform::update_timers_and_animations();
@@ -1648,10 +1700,10 @@ fn the_battery_health_ends_the_charge_limit_note() {
 fn without_the_charge_limit_the_battery_health_has_its_own_row() {
     let f = fixture(Config::default());
     // A failed set, then a failed read, leaves the limit's state unknown.
-    f.shell.app().machine_mut().controller.fails = true;
-    f.shell.app().machine_mut().controller.charge = None;
+    f.shell.app().machine_mut().controller.inner.fails = true;
+    f.shell.app().machine_mut().controller.inner.charge = None;
     click(f.shell.window(), Switch, "Battery charge limit");
-    f.shell.app().machine_mut().controller.fails = false;
+    f.shell.app().machine_mut().controller.inner.fails = false;
     assert!(!text_shown(&f, "Battery health"), "nothing known yet");
     read_health(&f);
 
@@ -1793,12 +1845,12 @@ fn a_hot_cpu_puts_a_manual_fan_at_full_speed_and_back_when_cool() {
 /// The temperature queries the controller got since `before` queries.
 fn temperature_reads_since(f: &Fixture, before: usize) -> usize {
     let app = f.shell.app();
-    let asked = &app.machine().controller.asked[before..];
+    let asked = &app.machine().controller.inner.asked[before..];
     asked.iter().filter(|&c| *c == Celsius::query()).count()
 }
 
 fn asked_count(f: &Fixture) -> usize {
-    f.shell.app().machine().controller.asked.len()
+    f.shell.app().machine().controller.inner.asked.len()
 }
 
 #[test]
@@ -1810,7 +1862,7 @@ fn with_no_view_open_a_tick_reads_only_the_cpu_temperature_and_the_charger() {
 
     let app = f.shell.app();
     assert_eq!(
-        app.machine().controller.asked[asked..],
+        app.machine().controller.inner.asked[asked..],
         [Celsius::query(), Charger::query()]
     );
     drop(app);
@@ -1902,7 +1954,7 @@ fn tick_for(f: &Fixture, start: Instant, step: Duration, duration: Duration) {
 #[test]
 fn with_no_view_open_a_hot_cpu_shows_the_heat_popup() {
     let f = fixture(Config::default());
-    f.shell.app().machine_mut().controller.cpu_celsius = Some(101);
+    f.shell.app().machine_mut().controller.inner.cpu_celsius = Some(101);
 
     tick_for(&f, Instant::now(), Duration::from_secs(1), ui::HEAT_HOLD);
 
@@ -1913,7 +1965,7 @@ fn with_no_view_open_a_hot_cpu_shows_the_heat_popup() {
 #[test]
 fn with_the_flyout_open_a_hot_cpu_shows_the_heat_popup() {
     let f = fixture(Config::default());
-    f.shell.app().machine_mut().controller.cpu_celsius = Some(101);
+    f.shell.app().machine_mut().controller.inner.cpu_celsius = Some(101);
     f.shell.toggle_flyout(ICON);
 
     tick_for(&f, Instant::now(), Duration::from_secs(1), ui::HEAT_HOLD);
@@ -1938,7 +1990,7 @@ fn with_the_window_open_a_tick_reads_no_controller_while_razer_software_runs() {
     let f = fixture(Config::default());
     f.shell.programs().set(&["Razer Synapse Service"]);
     f.shell.look_for_razer();
-    f.shell.app().machine_mut().controller.cpu_celsius = Some(50);
+    f.shell.app().machine_mut().controller.inner.cpu_celsius = Some(50);
     f.shell.show_window();
     let asked = asked_count(&f);
 
@@ -1968,7 +2020,7 @@ fn opening_the_window_reads_no_temperature_while_razer_software_runs() {
     let f = fixture(Config::default());
     f.shell.programs().set(&["Razer Synapse Service"]);
     f.shell.look_for_razer();
-    f.shell.app().machine_mut().controller.cpu_celsius = Some(50);
+    f.shell.app().machine_mut().controller.inner.cpu_celsius = Some(50);
     let asked = asked_count(&f);
 
     f.shell.show_window();
@@ -2241,7 +2293,7 @@ fn a_custom_slider_goes_back_after_a_failed_send() {
         preset: Preset::Custom,
         ..Config::default()
     });
-    f.shell.app().machine_mut().controller.fails = true;
+    f.shell.app().machine_mut().controller.inner.fails = true;
     let slider = control(f.shell.window(), Slider, "CPU boost");
     let start = slider.absolute_position();
     let left_end = LogicalPosition::new(start.x, start.y + slider.size().height / 2.0);
@@ -2305,7 +2357,7 @@ fn custom_drag_cut_short_is_put_back(come_back: impl FnOnce(&Fixture)) {
 
 fn charger_reads_since(f: &Fixture, before: usize) -> usize {
     let app = f.shell.app();
-    let asked = &app.machine().controller.asked[before..];
+    let asked = &app.machine().controller.inner.asked[before..];
     asked.iter().filter(|&c| *c == Charger::query()).count()
 }
 
@@ -2315,7 +2367,7 @@ fn a_weak_charge_seen_on_a_tick_runs_balanced_and_says_so() {
         preset: Preset::Performance,
         ..Config::default()
     });
-    f.shell.app().machine_mut().controller.charger = FakeCharger::UsbC;
+    f.shell.app().machine_mut().controller.inner.charger = FakeCharger::UsbC;
     let sent = sent_count(&f);
 
     f.shell.tick();
@@ -2336,10 +2388,10 @@ fn the_full_charger_back_on_a_tick_runs_the_saved_preset_again() {
         preset: Preset::Performance,
         ..Config::default()
     });
-    f.shell.app().machine_mut().controller.charger = FakeCharger::UsbC;
+    f.shell.app().machine_mut().controller.inner.charger = FakeCharger::UsbC;
     let start = Instant::now();
     tick_for(&f, start, Duration::from_secs(1), Duration::ZERO);
-    f.shell.app().machine_mut().controller.charger = FakeCharger::Razer;
+    f.shell.app().machine_mut().controller.inner.charger = FakeCharger::Razer;
     let sent = sent_count(&f);
 
     // Two full power reads in a row bring it back.
@@ -2383,7 +2435,7 @@ fn no_background_charger_read_while_razer_software_runs() {
 #[test]
 fn a_weak_charge_with_balanced_saved_greys_out_performance_and_says_so() {
     let f = fixture(Config::default());
-    f.shell.app().machine_mut().controller.charger = FakeCharger::UsbC;
+    f.shell.app().machine_mut().controller.inner.charger = FakeCharger::UsbC;
     let sent = sent_count(&f);
 
     f.shell.tick();
@@ -2408,11 +2460,11 @@ fn failed_switch_fixture() -> Fixture {
         ..Config::default()
     });
     FAKE_ON_BATTERY.set(true);
-    f.shell.app().machine_mut().controller.fails = true;
+    f.shell.app().machine_mut().controller.inner.fails = true;
     let (sender, receiver) = std::sync::mpsc::channel();
     sender.send(PowerEvent::OnBattery).unwrap();
     f.shell.follow_power(&receiver);
-    f.shell.app().machine_mut().controller.fails = false;
+    f.shell.app().machine_mut().controller.inner.fails = false;
     f
 }
 
@@ -2457,11 +2509,11 @@ fn a_lasting_60_hz_error_behind_a_failed_switch_shows_once_the_resend_works() {
         .modes
         .retain(|mode| mode.hz != 60);
     FAKE_ON_BATTERY.set(true);
-    f.shell.app().machine_mut().controller.fails = true;
+    f.shell.app().machine_mut().controller.inner.fails = true;
     let (sender, receiver) = std::sync::mpsc::channel();
     sender.send(PowerEvent::OnBattery).unwrap();
     f.shell.follow_power(&receiver);
-    f.shell.app().machine_mut().controller.fails = false;
+    f.shell.app().machine_mut().controller.inner.fails = false;
     let error = f.shell.window().get_error();
     assert!(!error.contains("60 Hz"), "{error}");
 
@@ -2483,7 +2535,7 @@ fn a_switch_that_fails_again_in_a_tick_is_not_sent_again_in_that_tick() {
     sender.send(PowerEvent::OnAc).unwrap();
     FAKE_ON_BATTERY.set(false);
     // Each run takes one command, then fails.
-    f.shell.app().machine_mut().controller.fails_after = Some(1);
+    f.shell.app().machine_mut().controller.inner.fails_after = Some(1);
     let sent = sent_count(&f);
 
     let later = blade_core::HEAT_INTERVAL;
@@ -2581,7 +2633,7 @@ fn a_switch_that_fails_in_a_tick_is_not_sent_again_in_that_tick() {
     FAKE_ON_BATTERY.set(true);
     sender.send(PowerEvent::OnBattery).unwrap();
     // Each run takes one command, then fails.
-    f.shell.app().machine_mut().controller.fails_after = Some(1);
+    f.shell.app().machine_mut().controller.inner.fails_after = Some(1);
     let sent = sent_count(&f);
 
     f.shell.tick();
@@ -2635,10 +2687,10 @@ fn a_switch_that_fails_in_a_tick_waits_out_the_next_tick_too() {
     f.shell.listen_for_power(receiver);
     FAKE_ON_BATTERY.set(true);
     sender.send(PowerEvent::OnBattery).unwrap();
-    f.shell.app().machine_mut().controller.fails = true;
+    f.shell.app().machine_mut().controller.inner.fails = true;
     let start = (Instant::now(), SystemTime::now());
     heat_read(&f, start, 0);
-    f.shell.app().machine_mut().controller.fails = false;
+    f.shell.app().machine_mut().controller.inner.fails = false;
     let sent = sent_count(&f);
 
     heat_read(&f, start, 1);
@@ -2654,9 +2706,9 @@ fn a_failed_resend_waits_out_the_next_poll() {
     let f = failed_switch_fixture();
     let start = (Instant::now(), SystemTime::now());
     heat_read(&f, start, 0);
-    f.shell.app().machine_mut().controller.fails = true;
+    f.shell.app().machine_mut().controller.inner.fails = true;
     heat_read(&f, start, 1);
-    f.shell.app().machine_mut().controller.fails = false;
+    f.shell.app().machine_mut().controller.inner.fails = false;
     let sent = sent_count(&f);
 
     heat_read(&f, start, 2);

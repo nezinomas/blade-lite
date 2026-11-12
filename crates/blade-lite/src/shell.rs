@@ -357,28 +357,36 @@ impl<P: Parts> Shell<P> {
         // A session end can come inside a Windows call made while the app
         // is borrowed: the quit after the loop then sends it.
         let Ok(mut app) = self.app.try_borrow_mut() else {
-            report("the app was busy at the session end, so the quit preset waits");
+            report(
+                "the app was busy, so the quit preset was not sent now: it goes at the end of the loop, if Windows lets the app run that long",
+            );
             return;
         };
         self.quit_sent.set(true);
-        // First: the fans matter more than the rate.
-        let mut sent = app.quit_preset();
-        if sent.as_ref().is_err_and(nothing_sent) {
-            // The controller holds a new handle (or just opened one), so
-            // nothing reached it: one more try is safe. It skips the 2 s
-            // pause and the Razer look a reopen gets, as the app ends; a
-            // controller not ready fails the reply check, and is logged.
-            P::release_controller();
-            sent = app.quit_preset();
-        }
-        if let Err(error) = sent {
-            report(&format!(
-                "Balanced was not sent at quit, so a manual fan or Performance may keep running: {error}"
-            ));
-        }
+        // Closed however the sends end, a panic too.
+        let sent = std::panic::catch_unwind(AssertUnwindSafe(|| {
+            // First: the fans matter more than the rate.
+            let mut sent = app.quit_preset();
+            if sent.as_ref().is_err_and(nothing_sent) {
+                // The controller holds a new handle (or just opened one), so
+                // nothing reached it: one more try is safe. It skips the 2 s
+                // pause and the Razer look a reopen gets, as the app ends; a
+                // controller not ready fails the reply check, and is logged.
+                P::release_controller();
+                sent = app.quit_preset();
+            }
+            if let Err(error) = sent {
+                report(&format!(
+                    "Balanced was not sent at quit, so a manual fan or Performance may keep running: {error}"
+                ));
+            }
+        }));
         // Nothing more may reach the controller: an event still queued, or
         // the call this one came inside, would undo the quit preset.
         app.close_controller();
+        if let Err(panic) = sent {
+            std::panic::resume_unwind(panic);
+        }
         // After the fans: only the rate, a Windows call that may be slow.
         if let Err(error) = app.on_quit() {
             report(&format!("the panel may stay at 60 Hz: {error}"));

@@ -172,7 +172,7 @@ pub fn fixture_with_programs(config: Config, programs: &[&str]) -> Fixture {
     FAKE_HOLD.set(false);
     FAKE_HELD.take();
     let (mut app, dir, _) = app_on(&BLADE_18, config);
-    let controller = &mut app.machine_mut().controller;
+    let controller = &mut app.machine_mut().controller.inner;
     controller.logo_reply = Some(vec![0, 4, 1]);
     controller.charge = Some(0x50);
     let started = app.start();

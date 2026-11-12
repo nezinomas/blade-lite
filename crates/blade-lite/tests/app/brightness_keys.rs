@@ -35,7 +35,7 @@ fn vapor_command(percent: u8, on: bool) -> razer_proto::Command {
 #[test]
 fn a_new_level_is_shown_saved_and_followed_by_the_vapor_light() {
     let (mut app, _dir, path) = app_lit(35, true);
-    app.machine_mut().controller.brightness_level = Some(255);
+    app.machine_mut().controller.inner.brightness_level = Some(255);
 
     assert!(app.on_brightness_keys().unwrap());
 
@@ -50,7 +50,7 @@ fn a_new_level_is_shown_saved_and_followed_by_the_vapor_light() {
 #[test]
 fn a_vapor_light_switched_off_stays_off() {
     let (mut app, _dir, path) = app_lit(35, false);
-    app.machine_mut().controller.brightness_level = Some(0);
+    app.machine_mut().controller.inner.brightness_level = Some(0);
 
     app.on_brightness_keys().unwrap();
 
@@ -66,7 +66,7 @@ fn a_vapor_light_switched_off_stays_off() {
 fn the_same_level_sends_and_saves_nothing() {
     let (mut app, _dir, path) = app_lit(35, true);
     let level = Brightness::new(35).unwrap().level();
-    app.machine_mut().controller.brightness_level = Some(level);
+    app.machine_mut().controller.inner.brightness_level = Some(level);
 
     assert!(!app.on_brightness_keys().unwrap());
 
@@ -90,7 +90,7 @@ fn without_saved_lighting_nothing_is_taken() {
     // The keyboard colour is not known, so a saved lighting would send
     // white at the next start.
     let (mut app, _dir, path) = app();
-    app.machine_mut().controller.brightness_level = Some(90);
+    app.machine_mut().controller.inner.brightness_level = Some(90);
 
     assert!(!app.on_brightness_keys().unwrap());
 
@@ -103,8 +103,8 @@ fn without_saved_lighting_nothing_is_taken() {
 fn a_failed_vapor_send_still_keeps_the_new_level() {
     // The keyboard already runs the new level: the laptop set it.
     let (mut app, _dir, path) = app_lit(35, true);
-    app.machine_mut().controller.brightness_level = Some(255);
-    app.machine_mut().controller.fails = true;
+    app.machine_mut().controller.inner.brightness_level = Some(255);
+    app.machine_mut().controller.inner.fails = true;
 
     assert!(app.on_brightness_keys().is_err());
 
@@ -118,7 +118,7 @@ fn a_failed_vapor_send_still_keeps_the_new_level() {
 #[test]
 fn a_failed_save_keeps_the_new_level_in_memory() {
     let (mut app, _dir, path) = app_lit(35, true);
-    app.machine_mut().controller.brightness_level = Some(255);
+    app.machine_mut().controller.inner.brightness_level = Some(255);
     break_save(&path);
 
     let error = app.on_brightness_keys().unwrap_err();
@@ -137,7 +137,7 @@ fn the_colour_is_kept() {
         }),
         ..Config::default()
     });
-    app.machine_mut().controller.brightness_level = Some(255);
+    app.machine_mut().controller.inner.brightness_level = Some(255);
 
     app.on_brightness_keys().unwrap();
 

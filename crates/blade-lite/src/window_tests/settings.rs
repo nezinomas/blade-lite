@@ -24,7 +24,7 @@ fn pick(name: &str) -> (TempDir, PathBuf) {
 }
 
 fn sent_count(f: &Fixture) -> usize {
-    f.shell.app().machine().controller.sent.len()
+    f.shell.app().machine().controller.inner.sent.len()
 }
 
 #[test]
@@ -56,7 +56,7 @@ fn import_sends_saves_and_shows_the_picked_file() {
     click(f.shell.window(), Button, "Import…");
 
     assert_eq!(FAKE_DIALOGS.take(), [FileDialog::Open]);
-    let sent = f.shell.app().machine().controller.sent[before..].to_vec();
+    let sent = f.shell.app().machine().controller.inner.sent[before..].to_vec();
     assert!(sent.starts_with(&PerfMode::Silent.commands(&BLADE_18).unwrap()));
     assert_eq!(f.shell.app().config().preset, Preset::Silent);
     assert_eq!(selected_preset(&f), "Silent");
@@ -118,7 +118,7 @@ fn reset_sends_and_shows_the_defaults() {
 
     click(f.shell.window(), Button, "Reset");
 
-    let sent = f.shell.app().machine().controller.sent[before..].to_vec();
+    let sent = f.shell.app().machine().controller.inner.sent[before..].to_vec();
     assert!(sent.starts_with(&PerfMode::Balanced.commands(&BLADE_18).unwrap()));
     assert_eq!(f.shell.app().config().preset, Preset::Balanced);
     assert_eq!(selected_preset(&f), "Balanced");
@@ -161,7 +161,7 @@ fn a_file_picked_while_the_laptop_wakes_says_to_try_again() {
     .unwrap();
     FAKE_HOLD.set(true);
     click(f.shell.window(), Button, "Import…");
-    f.shell.app().machine_mut().controller.sent.clear();
+    f.shell.app().machine_mut().controller.inner.sent.clear();
     resuming(&f);
 
     FAKE_HELD.take().unwrap()();

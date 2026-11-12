@@ -53,7 +53,7 @@ fn the_power_key_steps_from_custom_to_silent() {
 fn on_battery_the_power_key_steps_from_the_running_preset() {
     let (mut app, _dir, _) = performance_app();
     app.on_power(PowerEvent::OnBattery).unwrap();
-    app.machine_mut().controller.sent.clear();
+    app.machine_mut().controller.inner.sent.clear();
 
     // Balanced runs in place of Performance, so Silent is next.
     app.on_power_key().unwrap();
@@ -65,7 +65,7 @@ fn on_battery_the_power_key_steps_from_the_running_preset() {
 #[test]
 fn a_power_key_step_the_controller_refuses_is_neither_kept_nor_saved() {
     let (mut app, _dir, path) = app();
-    app.machine_mut().controller.fails = true;
+    app.machine_mut().controller.inner.fails = true;
 
     assert!(app.on_power_key().is_err());
     assert_eq!(app.config().preset, Preset::Balanced);

@@ -116,7 +116,7 @@ fn a_brightness_change_keeps_the_vapor_light_off() {
 #[test]
 fn a_failed_vapor_light_send_saves_nothing() {
     let (mut app, _dir, path) = vapor_app(true);
-    app.machine_mut().controller.fails = true;
+    app.machine_mut().controller.inner.fails = true;
 
     assert!(
         app.on_keyboard(KeyboardCommand::SetVaporLight(false))

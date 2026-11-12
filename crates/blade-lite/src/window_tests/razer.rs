@@ -29,12 +29,12 @@ fn look(f: &Fixture) -> bool {
 fn razer_software_shows_a_warning_and_sends_nothing() {
     let f = fixture(Config::default());
     f.shell.programs().set(&["explorer.exe", SYNAPSE]);
-    let before = f.shell.app().machine().controller.sent.len();
+    let before = f.shell.app().machine().controller.inner.sent.len();
 
     let first = look(&f);
 
     assert!(first, "the first find opens the window");
-    assert_eq!(f.shell.app().machine().controller.sent.len(), before);
+    assert_eq!(f.shell.app().machine().controller.inner.sent.len(), before);
     let error = f.shell.window().get_error();
     assert!(error.contains(SYNAPSE), "{error}");
     assert!(!error.contains("explorer"), "{error}");
@@ -82,10 +82,10 @@ fn razer_software_is_looked_for_after_a_resume() {
 fn reopen(f: &Fixture, asked: Reopened) -> usize {
     f.shell.window().hide().unwrap();
     FAKE_RELEASED.set(false);
-    let before = f.shell.app().machine().controller.sent.len();
+    let before = f.shell.app().machine().controller.inner.sent.len();
     FAKE_REOPENED.set(asked);
     f.shell.tick();
-    f.shell.app().machine().controller.sent.len() - before
+    f.shell.app().machine().controller.inner.sent.len() - before
 }
 
 fn pause_ends() {
@@ -120,12 +120,12 @@ fn after_the_controller_is_opened_again_razer_software_shows_and_the_window_open
 #[test]
 fn after_the_controller_is_opened_again_the_settings_are_sent_again() {
     let f = fixture(Config::default());
-    let before = f.shell.app().machine().controller.sent.len();
+    let before = f.shell.app().machine().controller.inner.sent.len();
 
     assert_eq!(reopen(&f, Reopened::Opened), 0);
     pause_ends();
 
-    assert!(f.shell.app().machine().controller.sent.len() > before);
+    assert!(f.shell.app().machine().controller.inner.sent.len() > before);
     assert_eq!(f.shell.window().get_error(), "");
     assert!(!f.shell.window().window().is_visible());
 }
@@ -133,12 +133,12 @@ fn after_the_controller_is_opened_again_the_settings_are_sent_again() {
 #[test]
 fn a_click_before_the_tick_after_an_open_again_sends_nothing() {
     let f = fixture(Config::default());
-    let before = f.shell.app().machine().controller.sent.len();
+    let before = f.shell.app().machine().controller.inner.sent.len();
     FAKE_REOPENED.set(Reopened::Opened);
 
     click(f.shell.window(), Button, "Silent");
 
-    assert_eq!(f.shell.app().machine().controller.sent.len(), before);
+    assert_eq!(f.shell.app().machine().controller.inner.sent.len(), before);
     pause_ends();
 }
 
@@ -150,7 +150,7 @@ fn a_charger_pulled_in_the_pause_after_an_open_again_sends_no_ac_preset() {
     });
     let (sender, receiver) = std::sync::mpsc::channel();
     f.shell.listen_for_power(receiver);
-    let before = f.shell.app().machine().controller.sent.len();
+    let before = f.shell.app().machine().controller.inner.sent.len();
 
     reopen(&f, Reopened::Opened);
     FAKE_ON_BATTERY.set(true);
@@ -159,7 +159,7 @@ fn a_charger_pulled_in_the_pause_after_an_open_again_sends_no_ac_preset() {
     pause_ends();
 
     let app = f.shell.app();
-    let sent = &app.machine().controller.sent[before..];
+    let sent = &app.machine().controller.inner.sent[before..];
     let performance = PerfMode::Performance.commands(&BLADE_18).unwrap();
     assert!(
         !sent.iter().any(|command| performance.contains(command)),
@@ -178,9 +178,9 @@ fn a_failed_open_again_only_looks_for_razer_software() {
     assert!(f.shell.window().window().is_visible());
     assert!(!FAKE_RELEASED.get(), "no handle to release");
     // No pause: a click goes on at once.
-    let before = f.shell.app().machine().controller.sent.len();
+    let before = f.shell.app().machine().controller.inner.sent.len();
     click(f.shell.window(), Button, "Silent");
-    assert!(f.shell.app().machine().controller.sent.len() > before);
+    assert!(f.shell.app().machine().controller.inner.sent.len() > before);
 }
 
 #[test]
@@ -213,7 +213,7 @@ fn opens_again_are_logged_once_per_run_and_each_new_failure_once() {
 fn an_unlisted_firmware_shows_a_warning_beside_the_razer_one() {
     let f = fixture(Config::default());
     f.shell.programs().set(&[SYNAPSE]);
-    f.shell.app().machine_mut().controller.firmware = Some(vec![1, 9]);
+    f.shell.app().machine_mut().controller.inner.firmware = Some(vec![1, 9]);
     f.shell.app().check_firmware();
 
     look(&f);
@@ -233,7 +233,7 @@ fn the_fan_guard_sends_nothing_while_razer_software_runs() {
     let f = fixture(config);
     f.shell.programs().set(&[SYNAPSE]);
     look(&f);
-    let before = f.shell.app().machine().controller.sent.len();
+    let before = f.shell.app().machine().controller.inner.sent.len();
     let start = std::time::Instant::now();
     let hold = ui::FAN_GUARD_HOLD.as_secs();
 
@@ -241,14 +241,14 @@ fn the_fan_guard_sends_nothing_while_razer_software_runs() {
         f.shell
             .watch_heat(None, Some(90), start + Duration::from_secs(second));
     }
-    assert_eq!(f.shell.app().machine().controller.sent.len(), before);
+    assert_eq!(f.shell.app().machine().controller.inner.sent.len(), before);
 
     // Once it is gone, the next reading sends the top speed.
     f.shell.programs().set(&[]);
     look(&f);
     f.shell
         .watch_heat(None, Some(90), start + Duration::from_secs(hold + 1));
-    assert!(f.shell.app().machine().controller.sent.len() > before);
+    assert!(f.shell.app().machine().controller.inner.sent.len() > before);
 }
 
 /// The label chosen in `choices`.
@@ -259,7 +259,7 @@ fn chosen(choices: &slint::ModelRc<Choice>) -> String {
 
 fn native_reads_since(f: &Fixture, before: usize) -> usize {
     let app = f.shell.app();
-    let asked = &app.machine().controller.asked[before..];
+    let asked = &app.machine().controller.inner.asked[before..];
     asked.iter().filter(|&c| *c == NativeMode::query()).count()
 }
 
@@ -267,7 +267,7 @@ fn native_reads_since(f: &Fixture, before: usize) -> usize {
 fn a_window_fill_reads_no_native_mode_while_razer_software_runs() {
     let f = fixture(Config::default());
     f.shell.programs().set(&[SYNAPSE]);
-    let before = f.shell.app().machine().controller.asked.len();
+    let before = f.shell.app().machine().controller.inner.asked.len();
 
     look(&f);
 

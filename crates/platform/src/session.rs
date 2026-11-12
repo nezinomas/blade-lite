@@ -75,10 +75,14 @@ impl SessionEndWatch {
         if hwnd.is_null() {
             return Err(io::Error::last_os_error());
         }
+        let watch = Self { hwnd };
         // Only now: a failed start leaves no callback behind. Each
-        // message comes on this thread, after this returns.
-        let _ = ON_END.set(on_end);
-        Ok(Self { hwnd })
+        // message comes on this thread, after this returns. A start that
+        // lost a race for the slot drops its window.
+        ON_END
+            .set(on_end)
+            .map_err(|_| io::Error::other("the session end is already watched"))?;
+        Ok(watch)
     }
 }
 
