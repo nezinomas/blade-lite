@@ -37,7 +37,8 @@ use blade_lite::{
     try_times,
 };
 use platform::{
-    WindowsDisplays, WindowsInstance, WindowsKeys, WindowsPrograms, WindowsRegistry, num_lock_on,
+    SessionEndWatch, WindowsDisplays, WindowsInstance, WindowsKeys, WindowsPrograms,
+    WindowsRegistry, num_lock_on,
 };
 use razer_device::{Device, HidTransport, Reopening, SystemClock};
 use razer_proto::{BLADE_18, Rgb};
@@ -150,6 +151,13 @@ fn the_window_icon_is_made_from_the_tray_picture() {
     assert!(window_icon(DEFAULT_ACCENT).is_ok());
 }
 
+/// Windows ends the session: the quit preset goes before it returns.
+fn on_session_end() {
+    if let Some(shell) = SHELL.with(|cell| cell.borrow().clone()) {
+        shell.end_session();
+    }
+}
+
 fn run() -> Result<(), Box<dyn std::error::Error>> {
     // With no APPDATA there is no log: this error goes to stderr only.
     let appdata = PathBuf::from(std::env::var_os("APPDATA").ok_or("no APPDATA")?);
@@ -246,6 +254,15 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         tray.on_action(on_tray);
         TRAY.with(|cell| cell.replace(Some(Rc::clone(&tray))));
         open_window_on_wake(instance.listener()?);
+        // Held to the end of the run: dropping it stops the watch. Without
+        // it the app runs on, as before it had one.
+        let _session = SessionEndWatch::start(on_session_end)
+            .inspect_err(|error| {
+                report(&format!(
+                    "a shutdown or sign-out will send nothing: {error}"
+                ));
+            })
+            .ok();
         if let Some(watch) = touchpad {
             follow_the_touchpad(watch);
         }

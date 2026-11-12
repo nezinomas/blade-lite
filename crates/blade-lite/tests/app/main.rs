@@ -47,7 +47,7 @@ fn app() -> (TestApp, TempDir, PathBuf) {
 }
 
 fn sent(app: &TestApp) -> &[Command] {
-    &app.machine().controller.sent
+    &app.machine().controller.inner.sent
 }
 
 fn panel_hz(app: &TestApp) -> u32 {

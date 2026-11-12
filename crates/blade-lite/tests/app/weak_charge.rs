@@ -18,7 +18,7 @@ fn ran(app: &TestApp, mode: PerfMode) -> bool {
 
 fn weak_performance_app() -> (TestApp, TempDir) {
     let (mut app, dir, _) = performance_app();
-    app.machine_mut().controller.charger = FakeCharger::UsbC;
+    app.machine_mut().controller.inner.charger = FakeCharger::UsbC;
     (app, dir)
 }
 
@@ -37,7 +37,7 @@ fn a_start_on_a_weak_charge_runs_balanced_for_a_saved_performance() {
 #[test]
 fn a_failed_charger_read_at_start_runs_balanced() {
     let (mut app, _dir) = weak_performance_app();
-    app.machine_mut().controller.charger = FakeCharger::Fails;
+    app.machine_mut().controller.inner.charger = FakeCharger::Fails;
 
     app.start().unwrap();
 
@@ -48,9 +48,9 @@ fn a_failed_charger_read_at_start_runs_balanced() {
 #[test]
 fn performance_is_refused_on_a_weak_charge() {
     let (mut app, _dir, _) = crate::app();
-    app.machine_mut().controller.charger = FakeCharger::UsbC;
+    app.machine_mut().controller.inner.charger = FakeCharger::UsbC;
     app.start().unwrap();
-    app.machine_mut().controller.sent.clear();
+    app.machine_mut().controller.inner.sent.clear();
 
     let result = app.on_performance(PerformanceCommand::SetPreset(Preset::Performance));
 
@@ -77,14 +77,14 @@ fn the_performance_view_offers_only_the_battery_presets() {
 fn a_charger_change_on_a_poll_sends_the_preset_it_runs() {
     let (mut app, _dir, _) = performance_app();
     app.start().unwrap();
-    app.machine_mut().controller.sent.clear();
+    app.machine_mut().controller.inner.sent.clear();
 
-    app.machine_mut().controller.charger = FakeCharger::UsbC;
+    app.machine_mut().controller.inner.charger = FakeCharger::UsbC;
     assert!(app.follow_charger().unwrap());
     assert_eq!(sent(&app), PerfMode::Balanced.commands(&BLADE_18).unwrap());
 
-    app.machine_mut().controller.sent.clear();
-    app.machine_mut().controller.charger = FakeCharger::Razer;
+    app.machine_mut().controller.inner.sent.clear();
+    app.machine_mut().controller.inner.charger = FakeCharger::Razer;
     // One full power read is not enough: a reply may flicker in a swap.
     assert!(!app.follow_charger().unwrap());
     assert_eq!(sent(&app), []);
@@ -99,7 +99,7 @@ fn a_charger_change_on_a_poll_sends_the_preset_it_runs() {
 fn a_poll_with_the_same_charger_sends_nothing() {
     let (mut app, _dir, _) = performance_app();
     app.start().unwrap();
-    app.machine_mut().controller.sent.clear();
+    app.machine_mut().controller.inner.sent.clear();
 
     assert!(!app.follow_charger().unwrap());
     assert_eq!(sent(&app), []);
@@ -109,8 +109,8 @@ fn a_poll_with_the_same_charger_sends_nothing() {
 fn a_failed_charger_read_on_a_poll_keeps_the_last_charger() {
     let (mut app, _dir) = weak_performance_app();
     app.start().unwrap();
-    app.machine_mut().controller.sent.clear();
-    app.machine_mut().controller.charger = FakeCharger::Fails;
+    app.machine_mut().controller.inner.sent.clear();
+    app.machine_mut().controller.inner.charger = FakeCharger::Fails;
 
     assert!(!app.follow_charger().unwrap());
     assert_eq!(sent(&app), []);
@@ -121,18 +121,18 @@ fn a_failed_charger_read_on_a_poll_keeps_the_last_charger() {
 fn on_battery_the_charger_is_not_read() {
     let (mut app, _dir, _) = performance_app();
     app.on_power(PowerEvent::OnBattery).unwrap();
-    app.machine_mut().controller.asked.clear();
+    app.machine_mut().controller.inner.asked.clear();
 
     assert!(!app.follow_charger().unwrap());
-    assert_eq!(app.machine().controller.asked, []);
+    assert_eq!(app.machine().controller.inner.asked, []);
 }
 
 #[test]
 fn a_charger_plugged_in_on_a_weak_charge_keeps_balanced() {
     let (mut app, _dir, _) = performance_app();
     app.on_power(PowerEvent::OnBattery).unwrap();
-    app.machine_mut().controller.sent.clear();
-    app.machine_mut().controller.charger = FakeCharger::UsbC;
+    app.machine_mut().controller.inner.sent.clear();
+    app.machine_mut().controller.inner.charger = FakeCharger::UsbC;
 
     app.on_power(PowerEvent::OnAc).unwrap();
 
@@ -143,7 +143,7 @@ fn a_charger_plugged_in_on_a_weak_charge_keeps_balanced() {
 #[test]
 fn the_power_key_does_not_step_to_performance_on_a_weak_charge() {
     let (mut app, _dir, _) = crate::app();
-    app.machine_mut().controller.charger = FakeCharger::UsbC;
+    app.machine_mut().controller.inner.charger = FakeCharger::UsbC;
     app.start().unwrap();
 
     for _ in 0..4 {
@@ -156,10 +156,10 @@ fn the_power_key_does_not_step_to_performance_on_a_weak_charge() {
 fn a_weak_read_between_two_full_ones_keeps_the_weak_charge() {
     let (mut app, _dir) = weak_performance_app();
     app.start().unwrap();
-    app.machine_mut().controller.sent.clear();
+    app.machine_mut().controller.inner.sent.clear();
 
     for charger in [FakeCharger::Razer, FakeCharger::UsbC, FakeCharger::Razer] {
-        app.machine_mut().controller.charger = charger;
+        app.machine_mut().controller.inner.charger = charger;
         app.follow_charger().unwrap();
     }
 
@@ -171,8 +171,8 @@ fn a_weak_read_between_two_full_ones_keeps_the_weak_charge() {
 fn a_weak_charge_coming_with_balanced_saved_is_still_reported() {
     let (mut app, _dir, _) = crate::app();
     app.start().unwrap();
-    app.machine_mut().controller.sent.clear();
-    app.machine_mut().controller.charger = FakeCharger::UsbC;
+    app.machine_mut().controller.inner.sent.clear();
+    app.machine_mut().controller.inner.charger = FakeCharger::UsbC;
 
     assert!(app.follow_charger().unwrap());
     assert_eq!(sent(&app), []);
@@ -182,8 +182,8 @@ fn a_weak_charge_coming_with_balanced_saved_is_still_reported() {
 fn a_failed_charger_read_on_a_power_event_runs_balanced() {
     let (mut app, _dir, _) = performance_app();
     app.on_power(PowerEvent::OnBattery).unwrap();
-    app.machine_mut().controller.sent.clear();
-    app.machine_mut().controller.charger = FakeCharger::Fails;
+    app.machine_mut().controller.inner.sent.clear();
+    app.machine_mut().controller.inner.charger = FakeCharger::Fails;
 
     app.on_power(PowerEvent::OnAc).unwrap();
 
@@ -195,8 +195,8 @@ fn a_failed_charger_read_on_a_power_event_runs_balanced() {
 fn a_resume_on_a_weak_charge_runs_balanced() {
     let (mut app, _dir, _) = performance_app();
     app.start().unwrap();
-    app.machine_mut().controller.sent.clear();
-    app.machine_mut().controller.charger = FakeCharger::UsbC;
+    app.machine_mut().controller.inner.sent.clear();
+    app.machine_mut().controller.inner.charger = FakeCharger::UsbC;
 
     app.on_power(PowerEvent::Resumed).unwrap();
 
@@ -208,9 +208,9 @@ fn a_resume_on_a_weak_charge_runs_balanced() {
 fn a_performance_click_reads_the_charger_first() {
     let (mut app, _dir, _) = crate::app();
     app.start().unwrap();
-    app.machine_mut().controller.sent.clear();
+    app.machine_mut().controller.inner.sent.clear();
     // Swapped to USB-C since the last poll.
-    app.machine_mut().controller.charger = FakeCharger::UsbC;
+    app.machine_mut().controller.inner.charger = FakeCharger::UsbC;
 
     let result = app.on_performance(PerformanceCommand::SetPreset(Preset::Performance));
 
@@ -222,9 +222,9 @@ fn a_performance_click_reads_the_charger_first() {
 fn a_refused_click_that_finds_a_weak_charger_sends_balanced() {
     let (mut app, _dir, _) = performance_app();
     app.start().unwrap();
-    app.machine_mut().controller.sent.clear();
+    app.machine_mut().controller.inner.sent.clear();
     // Swapped to USB-C since the last poll, while Performance runs.
-    app.machine_mut().controller.charger = FakeCharger::UsbC;
+    app.machine_mut().controller.inner.charger = FakeCharger::UsbC;
 
     let result = app.on_performance(PerformanceCommand::SetPreset(Preset::Custom));
 
@@ -238,8 +238,8 @@ fn a_refused_click_that_finds_a_weak_charger_sends_balanced() {
 fn a_refused_click_whose_charger_read_fails_sends_balanced() {
     let (mut app, _dir, _) = performance_app();
     app.start().unwrap();
-    app.machine_mut().controller.sent.clear();
-    app.machine_mut().controller.charger = FakeCharger::Fails;
+    app.machine_mut().controller.inner.sent.clear();
+    app.machine_mut().controller.inner.charger = FakeCharger::Fails;
 
     let result = app.on_performance(PerformanceCommand::SetPreset(Preset::Performance));
 
@@ -251,7 +251,7 @@ fn a_refused_click_whose_charger_read_fails_sends_balanced() {
 fn the_power_key_reads_the_charger_first() {
     let (mut app, _dir, _) = performance_app();
     app.start().unwrap();
-    app.machine_mut().controller.charger = FakeCharger::UsbC;
+    app.machine_mut().controller.inner.charger = FakeCharger::UsbC;
 
     for _ in 0..4 {
         app.on_power_key().unwrap();
@@ -268,11 +268,11 @@ fn a_click_refused_before_any_send_after_a_full_charger_read_sends_what_runs() {
     // Out of range, as a hand edit could leave it: Custom is refused.
     config.custom.fan_rpm = Some(9000);
     let (mut app, _dir, _) = crate::app_with(config);
-    app.machine_mut().controller.charger = FakeCharger::UsbC;
+    app.machine_mut().controller.inner.charger = FakeCharger::UsbC;
     app.start().unwrap();
-    app.machine_mut().controller.sent.clear();
+    app.machine_mut().controller.inner.sent.clear();
     // Swapped to the full charger since the last poll.
-    app.machine_mut().controller.charger = FakeCharger::Razer;
+    app.machine_mut().controller.inner.charger = FakeCharger::Razer;
 
     let result = app.on_performance(PerformanceCommand::SetPreset(Preset::Custom));
 

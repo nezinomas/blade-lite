@@ -144,9 +144,9 @@ fn a_mute_without_saved_lighting_is_kept_and_sends_nothing() {
 fn a_failed_paint_is_painted_on_the_next_change() {
     let (mut app, _dir, _) = lit_app();
     let before = started(&mut app);
-    app.machine_mut().controller.fails = true;
+    app.machine_mut().controller.inner.fails = true;
     assert!(app.on_mic_muted(Some(true)).is_err());
-    app.machine_mut().controller.fails = false;
+    app.machine_mut().controller.inner.fails = false;
 
     app.on_mic_muted(Some(false)).unwrap();
 

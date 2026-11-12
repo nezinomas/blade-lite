@@ -25,7 +25,7 @@ fn custom_app(fan_rpm: Option<u16>) -> TestApp {
     config.custom.fan_rpm = fan_rpm;
     let (mut app, _dir, _) = crate::app_with(config);
     app.start().unwrap();
-    app.machine_mut().controller.sent.clear();
+    app.machine_mut().controller.inner.sent.clear();
     app
 }
 
@@ -38,7 +38,7 @@ fn the_guard_sends_the_top_speed_then_the_saved_one() {
     assert_eq!(fan_speeds(&app), [top, top]);
     assert_eq!(app.config().custom.fan_rpm, Some(1600));
 
-    app.machine_mut().controller.sent.clear();
+    app.machine_mut().controller.inner.sent.clear();
     assert!(app.set_fan_boost(false).unwrap());
     assert_eq!(fan_speeds(&app), [1600, 1600]);
 }
@@ -47,7 +47,7 @@ fn the_guard_sends_the_top_speed_then_the_saved_one() {
 fn the_guard_sends_nothing_again_while_it_stays_on() {
     let mut app = custom_app(Some(1600));
     app.set_fan_boost(true).unwrap();
-    app.machine_mut().controller.sent.clear();
+    app.machine_mut().controller.inner.sent.clear();
 
     assert!(!app.set_fan_boost(true).unwrap());
     assert_eq!(sent(&app), []);
@@ -61,7 +61,7 @@ fn the_guard_sends_nothing_for_fans_on_auto_or_another_preset() {
 
     let (mut app, _dir, _) = crate::performance_app();
     app.start().unwrap();
-    app.machine_mut().controller.sent.clear();
+    app.machine_mut().controller.inner.sent.clear();
     assert!(!app.set_fan_boost(true).unwrap());
     assert_eq!(sent(&app), []);
 }
@@ -70,7 +70,7 @@ fn the_guard_sends_nothing_for_fans_on_auto_or_another_preset() {
 fn a_fan_click_while_the_guard_is_on_saves_the_speed_but_sends_the_top_one() {
     let mut app = custom_app(Some(1600));
     app.set_fan_boost(true).unwrap();
-    app.machine_mut().controller.sent.clear();
+    app.machine_mut().controller.inner.sent.clear();
     let top = BLADE_18.custom.fan_rpm.max;
 
     app.on_performance(PerformanceCommand::SetFanRpm(Some(2000)))
@@ -84,7 +84,7 @@ fn a_fan_click_while_the_guard_is_on_saves_the_speed_but_sends_the_top_one() {
 fn a_fan_speed_the_model_does_not_take_is_refused_while_the_guard_is_on() {
     let mut app = custom_app(Some(1600));
     app.set_fan_boost(true).unwrap();
-    app.machine_mut().controller.sent.clear();
+    app.machine_mut().controller.inner.sent.clear();
 
     let result = app.on_performance(PerformanceCommand::SetFanRpm(Some(9000)));
 
@@ -96,13 +96,13 @@ fn a_fan_speed_the_model_does_not_take_is_refused_while_the_guard_is_on() {
 #[test]
 fn a_failed_full_speed_send_is_tried_again_while_the_guard_stays_on() {
     let mut app = custom_app(Some(1600));
-    app.machine_mut().controller.fails = true;
+    app.machine_mut().controller.inner.fails = true;
     assert!(app.set_fan_boost(true).is_err());
     // The polls use up their resends.
     for _ in 0..5 {
         let _ = app.resend_preset();
     }
-    app.machine_mut().controller.fails = false;
+    app.machine_mut().controller.inner.fails = false;
 
     // The next reading keeps the guard on and arms the resends again.
     assert!(!app.set_fan_boost(true).unwrap());

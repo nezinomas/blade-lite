@@ -17,6 +17,7 @@ mod power;
 mod programs;
 mod registry;
 mod sensors;
+mod session;
 mod watch;
 
 use std::io;
@@ -33,6 +34,7 @@ pub use power::{WindowsPowerEvents, on_battery};
 pub use programs::WindowsPrograms;
 pub use registry::WindowsRegistry;
 pub use sensors::WindowsSensors;
+pub use session::SessionEndWatch;
 pub use watch::RegistryWatch;
 
 /// Something Windows tells us about power.

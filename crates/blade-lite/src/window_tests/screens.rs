@@ -48,7 +48,7 @@ fn window_on_battery() {
 #[test]
 fn window_with_an_error() {
     let f = fixture(Config::default());
-    f.shell.app().machine_mut().controller.fails = true;
+    f.shell.app().machine_mut().controller.inner.fails = true;
     click(f.shell.window(), Button, "Silent");
     check("window-error", f.shell.window().window());
 }

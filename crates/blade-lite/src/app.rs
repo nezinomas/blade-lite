@@ -4,6 +4,7 @@
 mod clicks;
 mod error;
 mod events;
+mod gate;
 mod settings;
 mod views;
 
@@ -17,6 +18,7 @@ use platform::{DisplayApi, KeyInjector, Registry};
 use razer_proto::{FirmwareVersion, ModelProfile, NativeMode, RedKey, RedKeys, Rgb, Rpm};
 
 pub use error::{AppError, took_effect};
+pub use gate::Gated;
 
 use crate::report;
 
@@ -97,7 +99,7 @@ pub struct App<C, D, R, K> {
     model: &'static ModelProfile,
     config: Config,
     config_path: PathBuf,
-    machine: Machine<C, D, R, K>,
+    machine: Machine<Gated<C>, D, R, K>,
     battery_rate: BatteryRate,
     power: Power,
     /// Whether the last start, preset change or power switch failed, so
@@ -169,7 +171,12 @@ where
             model,
             config,
             config_path,
-            machine,
+            machine: Machine {
+                controller: Gated::new(machine.controller),
+                displays: machine.displays,
+                registry: machine.registry,
+                keys: machine.keys,
+            },
             battery_rate: BatteryRate::default(),
             power: Power::Charger,
             preset_unsure: false,
@@ -196,11 +203,11 @@ where
     }
 
     #[must_use]
-    pub fn machine(&self) -> &Machine<C, D, R, K> {
+    pub fn machine(&self) -> &Machine<Gated<C>, D, R, K> {
         &self.machine
     }
 
-    pub fn machine_mut(&mut self) -> &mut Machine<C, D, R, K> {
+    pub fn machine_mut(&mut self) -> &mut Machine<Gated<C>, D, R, K> {
         &mut self.machine
     }
 
@@ -266,6 +273,12 @@ where
             Err(ApplyError::Device(_)) => self.preset_send_cut(),
             Err(_) => {}
         }
+    }
+
+    /// Closes the controller for good, after the quit preset: every later
+    /// send and read is refused.
+    pub fn close_controller(&mut self) {
+        self.machine.controller.close();
     }
 
     /// Notes a panic (a bug) that may have cut a send: the preset is then

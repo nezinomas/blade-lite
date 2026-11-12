@@ -58,7 +58,7 @@ fn performance_is_refused_on_battery() {
 fn a_resume_on_battery_applies_balanced_for_a_saved_performance() {
     let (mut app, _dir, _) = performance_app();
     app.on_power(PowerEvent::OnBattery).unwrap();
-    app.machine_mut().controller.sent.clear();
+    app.machine_mut().controller.inner.sent.clear();
 
     app.on_power(PowerEvent::Resumed).unwrap();
 
@@ -68,7 +68,7 @@ fn a_resume_on_battery_applies_balanced_for_a_saved_performance() {
 #[test]
 fn start_reads_the_charge_limit_for_the_performance_view() {
     let (mut app, _dir, _) = app();
-    app.machine_mut().controller.charge = Some(LIMIT_ON);
+    app.machine_mut().controller.inner.charge = Some(LIMIT_ON);
 
     app.start().unwrap();
 
@@ -88,9 +88,9 @@ fn a_failed_charge_limit_read_hides_the_switch_and_keeps_the_start() {
 #[test]
 fn a_resume_reads_the_charge_limit_again() {
     let (mut app, _dir, _) = app();
-    app.machine_mut().controller.charge = Some(LIMIT_ON);
+    app.machine_mut().controller.inner.charge = Some(LIMIT_ON);
     app.start().unwrap();
-    app.machine_mut().controller.charge = Some(LIMIT_OFF);
+    app.machine_mut().controller.inner.charge = Some(LIMIT_OFF);
 
     app.on_power(PowerEvent::Resumed).unwrap();
 
@@ -100,9 +100,9 @@ fn a_resume_reads_the_charge_limit_again() {
 #[test]
 fn the_charge_limit_switch_sends_its_command_and_saves_nothing() {
     let (mut app, _dir, path) = app();
-    app.machine_mut().controller.charge = Some(LIMIT_ON);
+    app.machine_mut().controller.inner.charge = Some(LIMIT_ON);
     app.start().unwrap();
-    app.machine_mut().controller.sent.clear();
+    app.machine_mut().controller.inner.sent.clear();
 
     app.on_performance(PerformanceCommand::SetChargeLimit(false))
         .unwrap();
@@ -115,9 +115,9 @@ fn the_charge_limit_switch_sends_its_command_and_saves_nothing() {
 #[test]
 fn a_failed_charge_limit_switch_shows_the_state_read_back() {
     let (mut app, _dir, _) = app();
-    app.machine_mut().controller.charge = Some(LIMIT_ON);
+    app.machine_mut().controller.inner.charge = Some(LIMIT_ON);
     app.start().unwrap();
-    app.machine_mut().controller.fails = true;
+    app.machine_mut().controller.inner.fails = true;
 
     assert!(
         app.on_performance(PerformanceCommand::SetChargeLimit(false))
@@ -129,8 +129,8 @@ fn a_failed_charge_limit_switch_shows_the_state_read_back() {
 #[test]
 fn a_charge_limit_that_does_not_take_shows_the_state_read_back() {
     let (mut app, _dir, _) = app();
-    app.machine_mut().controller.charge = Some(LIMIT_ON);
-    app.machine_mut().controller.charge_stuck = true;
+    app.machine_mut().controller.inner.charge = Some(LIMIT_ON);
+    app.machine_mut().controller.inner.charge_stuck = true;
     app.start().unwrap();
 
     assert!(
@@ -143,10 +143,10 @@ fn a_charge_limit_that_does_not_take_shows_the_state_read_back() {
 #[test]
 fn a_charge_limit_switch_does_not_touch_the_preset() {
     let (mut app, _dir, _) = app();
-    app.machine_mut().controller.charge = Some(LIMIT_OFF);
+    app.machine_mut().controller.inner.charge = Some(LIMIT_OFF);
     app.start().unwrap();
     let before = *app.config();
-    app.machine_mut().controller.sent.clear();
+    app.machine_mut().controller.inner.sent.clear();
 
     app.on_performance(PerformanceCommand::SetChargeLimit(true))
         .unwrap();
@@ -199,7 +199,7 @@ fn the_power_event_after_a_start_on_battery_sends_nothing() {
     let (mut app, _dir, _) = performance_app();
     app.take_on_battery(Some(true));
     app.start().unwrap();
-    app.machine_mut().controller.sent.clear();
+    app.machine_mut().controller.inner.sent.clear();
 
     app.on_power(PowerEvent::OnBattery).unwrap();
 
@@ -211,7 +211,7 @@ fn an_ac_event_after_a_start_taken_as_battery_sends_the_saved_preset_once() {
     let (mut app, _dir, _) = performance_app();
     app.take_on_battery(Some(true));
     app.start().unwrap();
-    app.machine_mut().controller.sent.clear();
+    app.machine_mut().controller.inner.sent.clear();
 
     app.on_power(PowerEvent::OnAc).unwrap();
 
@@ -254,11 +254,11 @@ fn a_lighting_error_at_start_leaves_the_preset_sure() {
         ..Config::default()
     });
     // The preset run goes, the lighting run fails.
-    app.machine_mut().controller.ok_runs = Some(1);
+    app.machine_mut().controller.inner.ok_runs = Some(1);
 
     assert!(app.start().is_err());
-    app.machine_mut().controller.ok_runs = None;
-    app.machine_mut().controller.sent.clear();
+    app.machine_mut().controller.inner.ok_runs = None;
+    app.machine_mut().controller.inner.sent.clear();
 
     assert!(!app.preset_unsure());
     assert!(!app.resend_preset().unwrap());
@@ -269,10 +269,10 @@ fn a_lighting_error_at_start_leaves_the_preset_sure() {
 fn a_power_event_sends_again_after_a_failed_start() {
     let (mut app, _dir, _) = performance_app();
     app.take_on_battery(Some(true));
-    app.machine_mut().controller.fails = true;
+    app.machine_mut().controller.inner.fails = true;
     assert!(app.start().is_err());
-    app.machine_mut().controller.fails = false;
-    app.machine_mut().controller.sent.clear();
+    app.machine_mut().controller.inner.fails = false;
+    app.machine_mut().controller.inner.sent.clear();
 
     app.on_power(PowerEvent::OnBattery).unwrap();
 
@@ -282,9 +282,9 @@ fn a_power_event_sends_again_after_a_failed_start() {
 #[test]
 fn a_power_event_sends_again_after_a_failed_switch() {
     let (mut app, _dir, _) = performance_app();
-    app.machine_mut().controller.fails = true;
+    app.machine_mut().controller.inner.fails = true;
     assert!(app.on_power(PowerEvent::OnBattery).is_err());
-    app.machine_mut().controller.fails = false;
+    app.machine_mut().controller.inner.fails = false;
 
     app.on_power(PowerEvent::OnBattery).unwrap();
 
@@ -294,10 +294,10 @@ fn a_power_event_sends_again_after_a_failed_switch() {
 #[test]
 fn a_power_event_sends_again_after_a_failed_preset_click() {
     let (mut app, _dir, _) = app();
-    app.machine_mut().controller.fails = true;
+    app.machine_mut().controller.inner.fails = true;
     let click = app.on_performance(PerformanceCommand::SetPreset(Preset::Performance));
     assert!(click.is_err());
-    app.machine_mut().controller.fails = false;
+    app.machine_mut().controller.inner.fails = false;
 
     app.on_power(PowerEvent::OnBattery).unwrap();
 
@@ -310,7 +310,7 @@ fn the_rate_follows_the_battery_even_when_the_preset_send_fails() {
         sixty_hz_on_battery: true,
         ..Config::default()
     });
-    app.machine_mut().controller.fails = true;
+    app.machine_mut().controller.inner.fails = true;
     assert!(app.start().is_err());
 
     assert!(app.on_power(PowerEvent::OnBattery).is_err());
@@ -325,7 +325,7 @@ fn a_60_hz_refused_with_a_failed_preset_switch_is_tried_again() {
         ..Config::default()
     });
     let before = panel_hz(&app);
-    app.machine_mut().controller.fails = true;
+    app.machine_mut().controller.inner.fails = true;
     assert!(app.start().is_err());
     app.machine_mut().displays.1 = 1;
 
@@ -412,7 +412,7 @@ fn failed_switch_with(
         ..Config::default()
     });
     change(&mut app.machine_mut().displays.0);
-    app.machine_mut().controller.fails = true;
+    app.machine_mut().controller.inner.fails = true;
     let switched = app.on_power(PowerEvent::OnBattery);
     assert!(
         matches!(switched, Err(blade_lite::AppError::Apply(_))),
@@ -424,7 +424,7 @@ fn failed_switch_with(
 #[test]
 fn a_lasting_60_hz_error_behind_a_failed_preset_shows_once_a_resend_works() {
     let (mut app, _dir) = no_60_hz_behind_a_failed_switch();
-    app.machine_mut().controller.fails = false;
+    app.machine_mut().controller.inner.fails = false;
 
     let resent = app.resend_preset();
 
@@ -446,7 +446,7 @@ fn a_lasting_60_hz_error_waits_out_a_failed_resend() {
         matches!(failed, Err(blade_lite::AppError::Apply(_))),
         "{failed:?}"
     );
-    app.machine_mut().controller.fails = false;
+    app.machine_mut().controller.inner.fails = false;
 
     let resent = app.resend_preset();
 
@@ -460,7 +460,7 @@ fn a_lasting_60_hz_error_waits_out_a_failed_resend() {
 fn a_new_power_event_drops_a_held_60_hz_error() {
     let (mut app, _dir) = no_60_hz_behind_a_failed_switch();
     app.on_power(PowerEvent::OnAc).unwrap_err();
-    app.machine_mut().controller.fails = false;
+    app.machine_mut().controller.inner.fails = false;
 
     assert!(app.resend_preset().unwrap());
 }
@@ -468,16 +468,16 @@ fn a_new_power_event_drops_a_held_60_hz_error() {
 #[test]
 fn a_preset_click_that_works_drops_a_held_60_hz_error() {
     let (mut app, _dir) = no_60_hz_behind_a_failed_switch();
-    app.machine_mut().controller.fails = false;
+    app.machine_mut().controller.inner.fails = false;
     app.on_performance(PerformanceCommand::SetPreset(Preset::Silent))
         .unwrap();
     // A later failed click marks the preset unsure again.
-    app.machine_mut().controller.fails = true;
+    app.machine_mut().controller.inner.fails = true;
     assert!(
         app.on_performance(PerformanceCommand::SetPreset(Preset::Balanced))
             .is_err()
     );
-    app.machine_mut().controller.fails = false;
+    app.machine_mut().controller.inner.fails = false;
 
     assert!(app.resend_preset().unwrap());
 }
@@ -487,7 +487,7 @@ fn turning_the_60_hz_switch_off_drops_a_held_60_hz_error() {
     let (mut app, _dir) = no_60_hz_behind_a_failed_switch();
     app.on_display(DisplayCommand::SetSixtyHzOnBattery(false))
         .unwrap();
-    app.machine_mut().controller.fails = false;
+    app.machine_mut().controller.inner.fails = false;
 
     assert!(app.resend_preset().unwrap());
 }
@@ -503,7 +503,7 @@ fn a_last_failed_resend_drops_a_held_60_hz_error() {
         app.on_performance(PerformanceCommand::SetPreset(Preset::Balanced))
             .is_err()
     );
-    app.machine_mut().controller.fails = false;
+    app.machine_mut().controller.inner.fails = false;
 
     assert!(app.resend_preset().unwrap());
 }
@@ -512,7 +512,7 @@ fn a_last_failed_resend_drops_a_held_60_hz_error() {
 fn no_panel_behind_a_failed_switch_is_not_held() {
     // The window's display view shows it already.
     let (mut app, _dir) = failed_switch_with(|panel| panel.technology = OutputTechnology::External);
-    app.machine_mut().controller.fails = false;
+    app.machine_mut().controller.inner.fails = false;
 
     assert!(app.resend_preset().unwrap());
 }
@@ -558,9 +558,9 @@ fn a_resume_on_a_new_battery_sets_60_hz() {
 #[test]
 fn the_poll_sends_the_preset_again_after_a_failed_switch() {
     let (mut app, _dir, _) = performance_app();
-    app.machine_mut().controller.fails = true;
+    app.machine_mut().controller.inner.fails = true;
     assert!(app.on_power(PowerEvent::OnBattery).is_err());
-    app.machine_mut().controller.fails = false;
+    app.machine_mut().controller.inner.fails = false;
 
     assert!(app.resend_preset().unwrap());
 
@@ -570,11 +570,11 @@ fn the_poll_sends_the_preset_again_after_a_failed_switch() {
 #[test]
 fn the_poll_sends_nothing_once_the_preset_took() {
     let (mut app, _dir, _) = performance_app();
-    app.machine_mut().controller.fails = true;
+    app.machine_mut().controller.inner.fails = true;
     assert!(app.on_power(PowerEvent::OnBattery).is_err());
-    app.machine_mut().controller.fails = false;
+    app.machine_mut().controller.inner.fails = false;
     app.resend_preset().unwrap();
-    app.machine_mut().controller.sent.clear();
+    app.machine_mut().controller.inner.sent.clear();
 
     assert!(!app.resend_preset().unwrap());
 
@@ -585,7 +585,7 @@ fn the_poll_sends_nothing_once_the_preset_took() {
 fn the_poll_sends_nothing_after_a_start_that_worked() {
     let (mut app, _dir, _) = performance_app();
     app.start().unwrap();
-    app.machine_mut().controller.sent.clear();
+    app.machine_mut().controller.inner.sent.clear();
 
     assert!(!app.resend_preset().unwrap());
 
@@ -595,11 +595,11 @@ fn the_poll_sends_nothing_after_a_start_that_worked() {
 #[test]
 fn the_poll_tries_again_after_a_failed_resend() {
     let (mut app, _dir, _) = performance_app();
-    app.machine_mut().controller.fails = true;
+    app.machine_mut().controller.inner.fails = true;
     assert!(app.on_power(PowerEvent::OnBattery).is_err());
 
     assert!(app.resend_preset().is_err());
-    app.machine_mut().controller.fails = false;
+    app.machine_mut().controller.inner.fails = false;
     assert!(app.resend_preset().unwrap());
 
     assert_eq!(sent(&app), PerfMode::Balanced.commands(&BLADE_18).unwrap());
@@ -621,13 +621,13 @@ fn a_custom_send_cut_before_the_fan_is_sent_whole_on_the_next_poll() {
     let (mut app, _dir, _) = app_with(config);
     app.take_on_battery(Some(true));
     app.start().unwrap();
-    app.machine_mut().controller.sent.clear();
+    app.machine_mut().controller.inner.sent.clear();
     // The mode write goes, the fan target does not.
-    app.machine_mut().controller.fails_after = Some(fan_at);
+    app.machine_mut().controller.inner.fails_after = Some(fan_at);
     assert!(app.on_power(PowerEvent::OnAc).is_err());
     assert!(sent(&app).iter().all(|c| c.id != SET_FAN));
-    app.machine_mut().controller.fails_after = None;
-    app.machine_mut().controller.sent.clear();
+    app.machine_mut().controller.inner.fails_after = None;
+    app.machine_mut().controller.inner.sent.clear();
 
     assert!(app.resend_preset().unwrap());
 
@@ -637,12 +637,12 @@ fn a_custom_send_cut_before_the_fan_is_sent_whole_on_the_next_poll() {
 #[test]
 fn the_poll_sends_again_only_a_few_times() {
     let (mut app, _dir, _) = performance_app();
-    app.machine_mut().controller.fails = true;
+    app.machine_mut().controller.inner.fails = true;
     assert!(app.on_power(PowerEvent::OnBattery).is_err());
     for _ in 0..blade_lite::RESEND_TRIES {
         assert!(app.resend_preset().is_err());
     }
-    app.machine_mut().controller.fails = false;
+    app.machine_mut().controller.inner.fails = false;
 
     assert!(!app.resend_preset().unwrap());
 
@@ -653,13 +653,13 @@ fn the_poll_sends_again_only_a_few_times() {
 #[test]
 fn a_new_failure_gives_the_poll_its_tries_again() {
     let (mut app, _dir, _) = performance_app();
-    app.machine_mut().controller.fails = true;
+    app.machine_mut().controller.inner.fails = true;
     assert!(app.on_power(PowerEvent::OnBattery).is_err());
     for _ in 0..blade_lite::RESEND_TRIES {
         assert!(app.resend_preset().is_err());
     }
     assert!(app.on_power(PowerEvent::OnBattery).is_err());
-    app.machine_mut().controller.fails = false;
+    app.machine_mut().controller.inner.fails = false;
 
     assert!(app.resend_preset().unwrap());
 }
@@ -667,10 +667,10 @@ fn a_new_failure_gives_the_poll_its_tries_again() {
 #[test]
 fn the_poll_after_a_failed_preset_click_sends_the_old_preset() {
     let (mut app, _dir, _) = app();
-    app.machine_mut().controller.fails = true;
+    app.machine_mut().controller.inner.fails = true;
     let click = app.on_performance(PerformanceCommand::SetPreset(Preset::Performance));
     assert!(click.is_err());
-    app.machine_mut().controller.fails = false;
+    app.machine_mut().controller.inner.fails = false;
 
     assert!(app.resend_preset().unwrap());
 
@@ -762,12 +762,12 @@ fn a_refused_value_keeps_a_resend_still_due() {
         preset: Preset::Custom,
         ..Config::default()
     });
-    app.machine_mut().controller.fails = true;
+    app.machine_mut().controller.inner.fails = true;
     assert!(
         app.on_performance(PerformanceCommand::SetCpuBoost(1))
             .is_err()
     );
-    app.machine_mut().controller.fails = false;
+    app.machine_mut().controller.inner.fails = false;
     assert!(
         app.on_performance(PerformanceCommand::SetCpuBoost(200))
             .is_err()

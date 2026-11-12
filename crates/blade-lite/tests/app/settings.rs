@@ -168,7 +168,7 @@ fn import_the_controller_refuses_keeps_the_old_settings() {
             ..Config::default()
         },
     );
-    app.machine_mut().controller.fails = true;
+    app.machine_mut().controller.inner.fails = true;
 
     assert!(app.import_settings(&picked).is_err());
 
@@ -200,10 +200,10 @@ fn import_with_a_lighting_error(shown: Config, file: Config) -> (crate::fakes::T
             ..file
         },
     );
-    app.machine_mut().controller.ok_runs = Some(1);
+    app.machine_mut().controller.inner.ok_runs = Some(1);
     let error = app.import_settings(&picked).unwrap_err().to_string();
-    app.machine_mut().controller.ok_runs = None;
-    app.machine_mut().controller.sent.clear();
+    app.machine_mut().controller.inner.ok_runs = None;
+    app.machine_mut().controller.inner.sent.clear();
     assert_eq!(*app.config(), shown);
     (app, error)
 }
@@ -263,11 +263,11 @@ fn reset_whose_lighting_fails_puts_the_old_preset_back() {
     };
     let (mut app, _dir, _) = app_with(shown);
     app.take_on_battery(Some(false));
-    app.machine_mut().controller.ok_runs = Some(1);
+    app.machine_mut().controller.inner.ok_runs = Some(1);
 
     assert!(app.reset_settings().is_err());
-    app.machine_mut().controller.ok_runs = None;
-    app.machine_mut().controller.sent.clear();
+    app.machine_mut().controller.inner.ok_runs = None;
+    app.machine_mut().controller.inner.sent.clear();
 
     assert_eq!(*app.config(), shown);
     assert!(app.resend_preset().unwrap());

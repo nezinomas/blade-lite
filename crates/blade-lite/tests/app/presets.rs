@@ -34,7 +34,7 @@ fn picking_a_preset_sends_it_saves_it_and_shows_it() {
 #[test]
 fn a_preset_the_controller_refuses_is_neither_kept_nor_saved() {
     let (mut app, _dir, path) = app();
-    app.machine_mut().controller.fails = true;
+    app.machine_mut().controller.inner.fails = true;
 
     let result = app.on_performance(PerformanceCommand::SetPreset(Preset::Silent));
 
@@ -66,13 +66,13 @@ fn a_preset_not_saved_is_sent_again_at_resume_and_back_on_ac() {
     let (mut app, _dir, path) = app();
     break_save(&path);
     let _ = app.on_performance(PerformanceCommand::SetPreset(Preset::Performance));
-    app.machine_mut().controller.sent.clear();
+    app.machine_mut().controller.inner.sent.clear();
 
     app.on_power(PowerEvent::Resumed).unwrap();
     assert!(sent(&app).starts_with(&PerfMode::Performance.commands(&BLADE_18).unwrap()));
 
     app.on_power(PowerEvent::OnBattery).unwrap();
-    app.machine_mut().controller.sent.clear();
+    app.machine_mut().controller.inner.sent.clear();
     app.on_power(PowerEvent::OnAc).unwrap();
     assert_eq!(
         sent(&app),
@@ -84,11 +84,11 @@ fn a_preset_not_saved_is_sent_again_at_resume_and_back_on_ac() {
 fn the_popup_follows_a_change_the_laptop_took() {
     let (mut app, _dir, path) = app();
     assert!(took_effect(&Ok(())));
-    app.machine_mut().controller.fails = true;
+    app.machine_mut().controller.inner.fails = true;
     let refused = app.on_performance(PerformanceCommand::SetPreset(Preset::Silent));
     assert!(!took_effect(&refused));
 
-    app.machine_mut().controller.fails = false;
+    app.machine_mut().controller.inner.fails = false;
     break_save(&path);
     let not_saved = app.on_performance(PerformanceCommand::SetPreset(Preset::Silent));
 

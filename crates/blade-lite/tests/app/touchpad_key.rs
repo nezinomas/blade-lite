@@ -131,9 +131,9 @@ fn an_unreadable_touchpad_state_leaves_the_key_and_the_start_alone() {
 fn after_a_failed_lighting_send_the_next_change_paints_the_key() {
     let (mut app, _dir, _) = touchpad_off_app();
     app.start().unwrap();
-    app.machine_mut().controller.fails = true;
+    app.machine_mut().controller.inner.fails = true;
     assert!(app.on_keyboard(KeyboardCommand::SetColour(WHITE)).is_err());
-    app.machine_mut().controller.fails = false;
+    app.machine_mut().controller.inner.fails = false;
     let before = sent(&app).len();
 
     app.on_touchpad_changed().unwrap();
@@ -147,9 +147,9 @@ fn a_failed_key_paint_is_tried_again_on_the_next_change() {
     app.machine_mut().registry.touchpad = Some(1);
     app.start().unwrap();
     app.machine_mut().registry.touchpad = Some(0);
-    app.machine_mut().controller.fails = true;
+    app.machine_mut().controller.inner.fails = true;
     assert!(app.on_touchpad_changed().is_err());
-    app.machine_mut().controller.fails = false;
+    app.machine_mut().controller.inner.fails = false;
     let before = sent(&app).len();
 
     app.on_touchpad_changed().unwrap();
@@ -284,9 +284,9 @@ fn num_lock_with_an_unreadable_touchpad_keeps_the_key_plain() {
 fn a_failed_paint_on_num_lock_is_painted_on_the_next_change() {
     let (mut app, _dir, _) = num_lock_app();
     app.start().unwrap();
-    app.machine_mut().controller.fails = true;
+    app.machine_mut().controller.inner.fails = true;
     assert!(app.on_num_lock(false).is_err());
-    app.machine_mut().controller.fails = false;
+    app.machine_mut().controller.inner.fails = false;
     assert!(!app.num_lock_on());
     let before = sent(&app).len();
 

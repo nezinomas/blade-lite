@@ -39,21 +39,21 @@ fn unread_native_mode(app: &TestApp) -> Option<razer_proto::NativeMode> {
 fn a_view_without_a_read_shows_the_native_mode_last_read_or_set() {
     let (mut app, _dir, _) = app();
     assert_eq!(unread_native_mode(&app), None, "none read yet");
-    let asked = app.machine().controller.asked.len();
+    let asked = app.machine().controller.inner.asked.len();
     app.display_view().unwrap();
     assert_eq!(unread_native_mode(&app), Some(BLADE_18.native_modes[0]));
 
     app.on_display(DisplayCommand::SetNativeMode(FHD)).unwrap();
 
     assert_eq!(unread_native_mode(&app), Some(FHD));
-    assert_eq!(app.machine().controller.asked.len(), asked + 1);
+    assert_eq!(app.machine().controller.inner.asked.len(), asked + 1);
 }
 
 #[test]
 fn a_failed_native_mode_read_leaves_none_for_a_view_without_a_read() {
     let (mut app, _dir, _) = app();
     app.display_view().unwrap();
-    app.machine_mut().controller.native_fails = true;
+    app.machine_mut().controller.inner.native_fails = true;
 
     assert!(app.display_view().is_err());
 
@@ -64,7 +64,7 @@ fn a_failed_native_mode_read_leaves_none_for_a_view_without_a_read() {
 fn a_failed_native_mode_set_leaves_none_for_a_view_without_a_read() {
     let (mut app, _dir, _) = app();
     app.display_view().unwrap();
-    app.machine_mut().controller.fails_after = Some(0);
+    app.machine_mut().controller.inner.fails_after = Some(0);
 
     assert!(app.on_display(DisplayCommand::SetNativeMode(FHD)).is_err());
 
@@ -488,7 +488,7 @@ fn a_put_back_refused_at_the_first_ac_event_or_wake_is_tried_again() {
 #[test]
 fn a_start_on_a_weak_charge_puts_the_saved_rate_back() {
     let (mut app, _dir) = left_at_60(true);
-    app.machine_mut().controller.charger = FakeCharger::UsbC;
+    app.machine_mut().controller.inner.charger = FakeCharger::UsbC;
     app.take_on_battery(Some(false));
     app.start().unwrap();
 
