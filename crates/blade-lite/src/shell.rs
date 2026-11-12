@@ -611,6 +611,9 @@ impl<P: Parts> Shell<P> {
         // The Razer and firmware warnings are logged when they come, not
         // with the errors.
         let warning = self.razer_warning.borrow();
+        let mismatch = app.preset_mismatch().map(|differs| {
+            format!("The controller does not run the preset sent ({differs}). It is not sent again by itself.")
+        });
         let stopped = self.stopped_parts.borrow();
         let stopped = stopped
             .iter()
@@ -621,6 +624,7 @@ impl<P: Parts> Shell<P> {
             .into_iter()
             .chain(stopped.iter().map(String::as_str))
             .chain(app.firmware_warning())
+            .chain(mismatch.as_deref())
             .chain((!errors.is_empty()).then_some(errors.as_str()))
             .collect();
         self.window.set_error(shown.join("\n").into());

@@ -5,11 +5,11 @@ use std::time::Duration;
 use razer_device::{Clock, Device, DeviceError, Transport};
 use razer_proto::{
     Brightness, BrightnessError, Command, CpuBoost, Custom, CustomError, FanMode, GpuBoost,
-    ModelProfile, PresetError, RedKeys, Rpm,
+    ModelProfile, PerfMode, PresetError, RedKeys, Rpm,
 };
 
 use crate::red_keys::colour_frame;
-use crate::{Config, CustomSettings, Lighting};
+use crate::{Config, CustomSettings, Lighting, Query};
 
 /// How long to wait after resume before applying again, so the controller is
 /// awake. A guess: the device layer also reads again (never resends) while it replies Busy.
@@ -105,6 +105,47 @@ pub fn apply_performance(
 ) -> Result<(), ApplyError> {
     let commands = preset_commands(*config, model)?;
     controller.run(&commands).map_err(ApplyError::Device)
+}
+
+/// Reads back the mode and fan byte of each zone that `config`'s preset
+/// run sets (ticket 152), and names the zones that differ from what was
+/// sent, such as "zone 1 reads 01 01 00 00, sent 01 01 05 00". Reads only:
+/// a difference is never sent again. A value the model refuses gives no
+/// commands, so nothing to read.
+///
+/// # Errors
+///
+/// The first failed read.
+pub fn preset_differs(
+    config: &Config,
+    model: &ModelProfile,
+    controller: &mut impl Query,
+) -> Result<Option<String>, DeviceError> {
+    let Ok(commands) = preset_commands(*config, model) else {
+        return Ok(None);
+    };
+    let mut differs = Vec::new();
+    for (query, sent) in commands.iter().filter_map(PerfMode::read_back) {
+        let read = controller.query(&query)?;
+        if read.get(..sent.len()) != Some(sent.as_slice()) {
+            differs.push(format!(
+                "zone {} reads {}, sent {}",
+                sent.get(1).copied().unwrap_or_default(),
+                hex(&read),
+                hex(&sent)
+            ));
+        }
+    }
+    Ok((!differs.is_empty()).then(|| differs.join("; ")))
+}
+
+/// Bytes as hex, space apart.
+fn hex(bytes: &[u8]) -> String {
+    bytes
+        .iter()
+        .map(|byte| format!("{byte:02X}"))
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 /// Sends only the lighting: the brightness, the vapor light, then the

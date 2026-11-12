@@ -165,3 +165,33 @@ fn a_custom_slider_sends_the_custom_values() {
     // The four zones, then the CPU boost first among the boosts.
     assert_eq!(sent(&app)[4].args, [1, 1, 3]);
 }
+
+#[test]
+fn a_preset_the_controller_took_shows_no_difference() {
+    let (mut app, _dir, _) = crate::app();
+    app.start().unwrap();
+
+    app.on_performance(PerformanceCommand::SetPreset(Preset::Silent))
+        .unwrap();
+
+    assert_eq!(app.preset_mismatch(), None);
+}
+
+#[test]
+fn a_preset_the_controller_did_not_take_shows_the_difference_and_is_not_sent_again() {
+    let (mut app, _dir, _) = crate::app();
+    app.start().unwrap();
+    app.machine_mut().controller.inner.modes_stuck = true;
+    let runs = app.machine().controller.inner.runs;
+
+    app.on_performance(PerformanceCommand::SetPreset(Preset::Silent))
+        .unwrap();
+
+    let mismatch = app.preset_mismatch().unwrap();
+    assert!(mismatch.contains("zone 1"), "{mismatch}");
+    assert_eq!(
+        app.machine().controller.inner.runs,
+        runs + 1,
+        "one send only"
+    );
+}

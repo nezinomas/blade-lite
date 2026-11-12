@@ -12,7 +12,7 @@ use std::path::PathBuf;
 
 use blade_core::{
     ApplyError, BatteryRate, Config, Controller, Lighting, Preset, Query, apply_performance,
-    charge_limit_on, full_power_charger, logo_on, touchpad_on,
+    charge_limit_on, full_power_charger, logo_on, preset_differs, touchpad_on,
 };
 use platform::{DisplayApi, KeyInjector, Registry};
 use razer_proto::{FirmwareVersion, ModelProfile, NativeMode, RedKey, RedKeys, Rgb, Rpm};
@@ -154,6 +154,10 @@ pub struct App<C, D, R, K> {
     /// reading the controller. `None` if none yet, or the last read or set
     /// failed.
     native_mode: Option<NativeMode>,
+    /// The zones whose mode or fan byte read back other than sent, after
+    /// the last preset send (ticket 152). Shown and logged; never sent
+    /// again for it.
+    preset_mismatch: Option<String>,
 }
 
 impl<C, D, R, K> App<C, D, R, K>
@@ -197,6 +201,7 @@ where
             read_errors: Vec::new(),
             cpu_celsius: None,
             native_mode: None,
+            preset_mismatch: None,
         }
     }
 
@@ -260,6 +265,46 @@ where
     #[must_use]
     pub fn preset_unsure(&self) -> bool {
         self.preset_unsure
+    }
+
+    /// Sends `config`'s preset, then reads it back (ticket 152).
+    fn send_preset(&mut self, config: &Config) -> Result<(), ApplyError> {
+        let applied = apply_performance(config, self.model, &mut self.machine.controller);
+        self.check_preset_if_sent(config, &applied);
+        applied
+    }
+
+    /// Reads back the preset of `config` if `applied` sent it whole, and
+    /// keeps, logs and shows a zone that differs. A failed read is logged.
+    fn check_preset_if_sent(&mut self, config: &Config, applied: &Result<(), ApplyError>) {
+        if !matches!(applied, Ok(()) | Err(ApplyError::AfterPreset(_))) {
+            return;
+        }
+        let found = match preset_differs(config, self.model, &mut self.machine.controller) {
+            Ok(found) => found,
+            Err(error) => {
+                report(&format!("can't read the preset back: {error}"));
+                return;
+            }
+        };
+        if found != self.preset_mismatch {
+            report(
+                found
+                    .as_deref()
+                    .map_or(
+                        "the controller runs the preset sent again".to_owned(),
+                        |differs| format!("the controller does not run the preset sent: {differs}"),
+                    )
+                    .as_str(),
+            );
+        }
+        self.preset_mismatch = found;
+    }
+
+    /// The zones that read back other than the last preset sent, if any.
+    #[must_use]
+    pub fn preset_mismatch(&self) -> Option<&str> {
+        self.preset_mismatch.as_deref()
     }
 
     /// Notes a start, preset change or switch: one the controller may have
@@ -538,7 +583,7 @@ where
         if !manual || self.config.custom.fan_rpm == Some(top) {
             return Ok(false);
         }
-        let applied = apply_performance(&running, self.model, &mut self.machine.controller);
+        let applied = self.send_preset(&running);
         self.note_preset_send(&applied);
         applied?;
         Ok(true)

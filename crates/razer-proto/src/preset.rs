@@ -75,6 +75,23 @@ impl PerfMode {
             .collect()
     }
 
+    /// For a mode write (any preset's, Custom's too), the query that reads
+    /// its zone back and the args the reply should start with; `None` for
+    /// any other command.
+    #[must_use]
+    pub fn read_back(write: &Command) -> Option<(Command, Vec<u8>)> {
+        let [storage, zone, ..] = write.args[..] else {
+            return None;
+        };
+        (write.id == SET_PRESET).then(|| {
+            let query = Command {
+                id: GET_PRESET,
+                args: vec![storage, zone, 0, 0],
+            };
+            (query, write.args.clone())
+        })
+    }
+
     /// The preset of `zone` in a query's reply args, read with the model's
     /// mode bytes. `None` for a mode the model does not offer, or a reply
     /// for another storage or zone.
