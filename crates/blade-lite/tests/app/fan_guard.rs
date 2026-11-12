@@ -2,6 +2,7 @@
 //! the model's top speed; the saved speed is kept and goes back after.
 
 use blade_core::{Config, Preset};
+use platform::PowerEvent;
 use razer_proto::{BLADE_18, Command};
 use ui::PerformanceCommand;
 
@@ -117,4 +118,86 @@ fn a_fan_saved_at_the_top_speed_sends_nothing_more() {
     let mut app = custom_app(Some(top));
     assert!(!app.set_fan_boost(true).unwrap());
     assert_eq!(sent(&app), []);
+}
+
+#[test]
+fn a_failed_full_speed_send_waits_until_a_resend_takes_it() {
+    let mut app = custom_app(Some(1600));
+    app.machine_mut().controller.inner.fails = true;
+    assert!(app.set_fan_boost(true).is_err());
+    assert!(app.boost_unsent());
+    assert!(app.resend_preset().is_err());
+    assert!(app.boost_unsent(), "a failed resend did not take it");
+    app.machine_mut().controller.inner.fails = false;
+
+    assert!(app.resend_preset().unwrap());
+
+    assert!(!app.boost_unsent());
+}
+
+#[test]
+fn a_resend_that_shows_a_held_rate_error_still_takes_the_full_speed() {
+    let mut config = Config {
+        preset: Preset::Custom,
+        sixty_hz_on_battery: true,
+        ..Config::default()
+    };
+    config.custom.fan_rpm = Some(1600);
+    let (mut app, _dir, _) = crate::app_with(config);
+    app.start().unwrap();
+    app.machine_mut()
+        .displays
+        .0
+        .modes
+        .retain(|mode| mode.hz != 60);
+    app.machine_mut().controller.inner.fails = true;
+    assert!(app.set_fan_boost(true).is_err());
+    assert!(app.on_power(PowerEvent::OnBattery).is_err());
+    app.machine_mut().controller.inner.fails = false;
+
+    let resent = app.resend_preset();
+
+    assert!(
+        matches!(resent, Err(blade_lite::AppError::Display(_))),
+        "{resent:?}"
+    );
+    assert!(!app.boost_unsent());
+}
+
+#[test]
+fn a_failed_send_that_is_not_the_guard_s_leaves_no_full_speed_unsent() {
+    let mut app = custom_app(Some(1600));
+    app.set_fan_boost(true).unwrap();
+    app.machine_mut().controller.inner.fails = true;
+
+    assert!(
+        app.on_performance(PerformanceCommand::SetFanRpm(Some(2000)))
+            .is_err()
+    );
+
+    assert!(!app.boost_unsent());
+}
+
+#[test]
+fn a_send_that_works_takes_a_full_speed_left_unsent() {
+    let mut app = custom_app(Some(1600));
+    app.machine_mut().controller.inner.fails = true;
+    assert!(app.set_fan_boost(true).is_err());
+    app.machine_mut().controller.inner.fails = false;
+
+    app.on_performance(PerformanceCommand::SetFanRpm(Some(2000)))
+        .unwrap();
+
+    assert!(!app.boost_unsent());
+}
+
+#[test]
+fn the_guard_going_off_drops_a_full_speed_left_unsent() {
+    let mut app = custom_app(Some(1600));
+    app.machine_mut().controller.inner.fails = true;
+    assert!(app.set_fan_boost(true).is_err());
+
+    let _ = app.set_fan_boost(false);
+
+    assert!(!app.boost_unsent());
 }
