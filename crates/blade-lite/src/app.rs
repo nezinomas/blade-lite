@@ -428,11 +428,12 @@ where
     }
 
     /// Reads whether the charger is weak before a click or a power-mode key
-    /// press, by the poll's rule (ticket 136): from a weak charge, a full
-    /// read counts only as the second in a row, so a reply that flickers in
-    /// a swap can't let Performance or Custom run.
+    /// press (ticket 136): a weak or failed read counts at once, but a full
+    /// read changes nothing, so only the polls, 1 s or more apart, take the
+    /// full charger back (two full reads in a row). Two quick presses can't
+    /// count as those two reads.
     pub(super) fn read_charger_at_click(&mut self) {
-        self.read_charger_with(|power| power.after_poll(true));
+        self.read_charger_with(|power| power);
     }
 
     /// Reads the charger; `full` gives the power after a full read. On
