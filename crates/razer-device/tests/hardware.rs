@@ -280,7 +280,8 @@ fn custom_is_set_and_read_back_and_the_old_preset_restored() {
     std::thread::sleep(Duration::from_secs(5));
     let real_rpm = read_each(&mut device, GET_FAN_RPM, &FANS);
 
-    // Boosts and fan targets first: a mode write after them resets them.
+    // Boosts and fan targets first, as razer-laptop-control says a mode
+    // write after them resets them (not seen on 1.6, ticket 144).
     let boosts = &before[4..6];
     let targets = &before[6..8];
     for args in boosts {
@@ -344,4 +345,122 @@ fn the_key_reports_open_and_wait_quietly() {
         let key = razer_proto::BLADE_18.power_key.unwrap();
         assert_ne!(key.held(&report), Some(true), "{report:02X?}");
     }
+}
+
+/// Reads `[1, index, 0]` for each index, keeping the first error.
+fn try_read_each<C: Clock>(
+    device: &mut Device<HidTransport, C>,
+    id: u16,
+    indexes: &[u8],
+) -> Result<Vec<Vec<u8>>, String> {
+    indexes
+        .iter()
+        .map(|&index| {
+            device
+                .send(id, &[1, index, 0])
+                .map(|reply| reply.args().to_vec())
+                .map_err(|error| error.to_string())
+        })
+        .collect()
+}
+
+#[test]
+#[ignore = "needs the Blade 18, and runs the fans on manual for 10 s"]
+fn a_custom_mode_write_alone_and_what_the_fans_do() {
+    use razer_proto::{BLADE_18, CpuBoost, Custom, FanMode, GpuBoost, Rpm};
+
+    let mut device = Device::new(open(), SystemClock);
+    let before = custom_state(&mut device);
+    // The fans go to the target already set: refuse one the model does
+    // not take, such as 0, which would stop them.
+    let range = BLADE_18.custom.fan_rpm;
+    for args in &before[6..8] {
+        let rpm = u16::from(args[2]) * 100;
+        assert!(
+            (range.min..=range.max).contains(&rpm),
+            "fan target {rpm} RPM is outside the model's range: not run"
+        );
+    }
+
+    // Only the mode writes of a manual Custom (fan byte manual), as a kill
+    // between them and the fan targets would leave it (ticket 144).
+    let custom = Custom {
+        cpu: CpuBoost::new(1, &BLADE_18).unwrap(),
+        gpu: GpuBoost::new(1, &BLADE_18).unwrap(),
+        fan: FanMode::Manual(Rpm::new(3000, &BLADE_18).unwrap()),
+    };
+    let modes: Vec<_> = custom.commands(&BLADE_18)[..BLADE_18.perf_zones.len()].to_vec();
+    assert!(
+        modes
+            .iter()
+            .all(|command| command.id == 0x0D02 && command.args[2..4] == [BLADE_18.custom.mode, 1])
+    );
+
+    // From here on every step keeps its result, and the state is put back
+    // before any assert.
+    let set = device.run(&modes);
+    let mut seen = Vec::new();
+    let mut read_error = Ok(());
+    if set.is_ok() {
+        for second in 1..=10 {
+            std::thread::sleep(Duration::from_secs(1));
+            let reads = try_read_each(&mut device, GET_FAN, &FANS)
+                .and_then(|target| Ok((target, try_read_each(&mut device, GET_FAN_RPM, &FANS)?)));
+            match reads {
+                Ok((target, real)) => seen.push((second, target, real)),
+                Err(error) => {
+                    read_error = Err(error);
+                    break;
+                }
+            }
+        }
+    }
+    let modes_read: Result<Vec<_>, String> = razer_proto::PerfMode::queries(&BLADE_18)
+        .iter()
+        .map(|query| {
+            device
+                .send(query.id, &query.args)
+                .map(|reply| reply.args().to_vec())
+                .map_err(|error| error.to_string())
+        })
+        .collect();
+
+    // Put back as the Custom test does: boosts and fan targets, then modes.
+    // Every send is tried, so a failed one does not keep the fans manual.
+    let put_back: Vec<_> = before[4..6]
+        .iter()
+        .map(|args| (SET_BOOST, args))
+        .chain(before[6..8].iter().map(|args| (SET_FAN, args)))
+        .chain(before[..4].iter().map(|args| (0x0D02, args)))
+        .map(|(id, args)| {
+            device
+                .send(id, args)
+                .map(|_| ())
+                .map_err(|error| error.to_string())
+        })
+        .collect();
+    let after = custom_state(&mut device);
+
+    eprintln!("before {before:02X?}\nset {set:?}\nmodes after the writes {modes_read:02X?}");
+    for (second, target, real) in &seen {
+        eprintln!("{second:>2} s: target {target:02X?}, real {real:02X?}");
+    }
+    eprintln!("put back {put_back:?}\nafter {after:02X?}");
+    // The lasting state first, so its error is never hidden.
+    assert!(put_back.iter().all(Result::is_ok), "check the fans by hand");
+    assert_eq!(after, before);
+    set.unwrap();
+    read_error.unwrap();
+    // What ticket 144 measured: the mode took, the target was kept, and
+    // the fans ran.
+    assert!(
+        modes_read
+            .unwrap()
+            .iter()
+            .all(|args| args[2..4] == [BLADE_18.custom.mode, 1])
+    );
+    assert_eq!(seen.len(), 10);
+    assert!(seen.iter().all(|(_, target, _)| target[..] == before[6..8]));
+    let (_, _, last) = &seen[9];
+    assert!(last.iter().all(|args| args[2] > 0), "{last:02X?}");
 }
