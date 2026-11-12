@@ -1819,13 +1819,13 @@ fn a_hot_cpu_puts_a_manual_fan_at_full_speed_and_back_when_cool() {
             .collect()
     };
 
-    let hot_end = ui::FAN_GUARD_HOLD.as_secs();
-    for second in 0..=hot_end {
-        f.shell
-            .watch_heat(Some(96), None, start + Duration::from_secs(second));
-    }
+    let hot_end = 1;
+    f.shell.watch_heat(Some(96), None, start);
+    assert_eq!(fan_speeds(&f, before), [top, top], "the first reading");
+    f.shell
+        .watch_heat(Some(96), None, start + Duration::from_secs(hot_end));
 
-    assert_eq!(fan_speeds(&f, before), [top, top]);
+    assert_eq!(fan_speeds(&f, before), [top, top], "sent once");
     assert_eq!(f.shell.popup().get_caption(), "Fans");
     assert_eq!(f.shell.popup().get_mode(), "Full speed");
     let log = std::fs::read_to_string(log_path()).unwrap();
@@ -1851,6 +1851,45 @@ fn temperature_reads_since(f: &Fixture, before: usize) -> usize {
 
 fn asked_count(f: &Fixture) -> usize {
     f.shell.app().machine().controller.inner.asked.len()
+}
+
+#[test]
+fn a_manual_fan_reads_the_temperature_every_2_s() {
+    let mut config = Config {
+        preset: Preset::Custom,
+        ..Config::default()
+    };
+    config.custom.fan_rpm = Some(1600);
+    let f = fixture(config);
+    let asked = asked_count(&f);
+    let now = Instant::now();
+    let wall = SystemTime::now();
+
+    for second in [0, 2, 4] {
+        f.shell.tick_at(
+            now + Duration::from_secs(second),
+            wall + Duration::from_secs(second),
+        );
+    }
+
+    assert_eq!(temperature_reads_since(&f, asked), 3);
+}
+
+#[test]
+fn without_a_manual_fan_the_temperature_is_read_every_10_s() {
+    let f = fixture(Config::default());
+    let asked = asked_count(&f);
+    let now = Instant::now();
+    let wall = SystemTime::now();
+
+    for second in [0, 2, 4] {
+        f.shell.tick_at(
+            now + Duration::from_secs(second),
+            wall + Duration::from_secs(second),
+        );
+    }
+
+    assert_eq!(temperature_reads_since(&f, asked), 1);
 }
 
 #[test]

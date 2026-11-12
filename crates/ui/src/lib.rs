@@ -10,7 +10,7 @@ mod performance;
 mod popup;
 
 pub use display::{DisplayCommand, DisplayState, DisplayView, NativeOption, RateSegment};
-pub use fan_guard::{FAN_GUARD_COOL_HOLD, FAN_GUARD_HOLD, FanGuard};
+pub use fan_guard::{FAN_GUARD_COOL_HOLD, FanGuard};
 pub use header::{Header, HeaderState, MISSING, PowerPill, Stat};
 pub use keyboard::{KeyboardCommand, KeyboardState, KeyboardView, Swatch};
 pub use performance::{

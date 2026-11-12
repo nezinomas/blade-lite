@@ -1,5 +1,5 @@
 //! The fan guard (ticket 129): a manual Custom fan holds its speed however
-//! hot the laptop gets, so while the CPU or GPU stays hot the app sends the
+//! hot the laptop gets, so once the CPU or GPU reads hot the app sends the
 //! model's top fan speed, and the saved speed again once both have cooled.
 //! App policy, not model data: it only says when.
 
@@ -7,16 +7,11 @@ use std::time::{Duration, Instant};
 
 use crate::popup::{HEAT_GAP, HEAT_MAX, Sensor};
 
-/// How long a sensor stays at its guard limit before the fans go to full.
-pub const FAN_GUARD_HOLD: Duration = Duration::from_secs(30);
 /// How long every sensor read must stay cool before the saved speed goes
 /// back.
 pub const FAN_GUARD_COOL_HOLD: Duration = Duration::from_secs(60);
 /// A sensor is cool this far under its guard limit.
 const COOL_MARGIN: u32 = 10;
-/// A hot spell ends only this far under the guard limit, so a sensor that
-/// swings around its limit under load still turns the guard on.
-const HOT_MARGIN: u32 = 3;
 /// A GPU not read for this long counts as cool: it went to sleep after a
 /// load (the app reads it only while it is awake), and a sleeping GPU
 /// cools down.
@@ -46,7 +41,8 @@ pub struct FanGuard {
 /// One sensor's recent readings.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 struct Track {
-    hot_since: Option<Instant>,
+    /// Whether the last reading was at or above the guard limit.
+    hot: bool,
     cool_since: Option<Instant>,
     last_reading: Option<Instant>,
 }
@@ -59,9 +55,9 @@ impl FanGuard {
     }
 
     /// Takes one reading of each sensor at `now` (`None`: not read). Returns
-    /// the new state when it changes: on once a sensor has been at its
-    /// guard limit for [`FAN_GUARD_HOLD`], off once every sensor read lately
-    /// has been cool for [`FAN_GUARD_COOL_HOLD`]. The CPU must be among
+    /// the new state when it changes: on at the first recent reading of a
+    /// sensor at its guard limit (user pick 2026-11-12: no wait), off once
+    /// every sensor read lately has been cool for [`FAN_GUARD_COOL_HOLD`]. The CPU must be among
     /// them: with no CPU reading the guard stays on. A GPU not read lately
     /// holds it on only if its last reading was not cool, for up to 5 min.
     pub fn note(&mut self, cpu: Option<u32>, gpu: Option<u32>, now: Instant) -> Option<bool> {
@@ -83,7 +79,7 @@ impl FanGuard {
             };
             !(cpu_cool && gpu_cool)
         } else {
-            self.cpu.hot_for(now) || self.gpu.hot_for(now)
+            self.cpu.hot_now(now) || self.gpu.hot_now(now)
         };
         let changed = next != self.on;
         self.on = next;
@@ -101,14 +97,9 @@ impl Track {
             .is_none_or(|last| now.saturating_duration_since(last) > HEAT_GAP);
         self.last_reading = Some(now);
         if gap {
-            self.hot_since = None;
             self.cool_since = None;
         }
-        if celsius >= limit {
-            self.hot_since.get_or_insert(now);
-        } else if celsius < limit.saturating_sub(HOT_MARGIN) {
-            self.hot_since = None;
-        }
+        self.hot = celsius >= limit;
         if celsius < limit.saturating_sub(COOL_MARGIN) {
             self.cool_since.get_or_insert(now);
         } else {
@@ -116,17 +107,13 @@ impl Track {
         }
     }
 
-    /// Whether it has been hot for [`FAN_GUARD_HOLD`], by a reading taken
-    /// lately: an old hot reading of a sensor no longer read does not turn
-    /// the guard on.
-    fn hot_for(&self, now: Instant) -> bool {
+    /// Whether its last reading, taken lately, was hot: an old hot reading
+    /// of a sensor no longer read does not turn the guard on.
+    fn hot_now(&self, now: Instant) -> bool {
         let recent = self
             .last_reading
             .is_some_and(|last| now.saturating_duration_since(last) <= HEAT_GAP);
-        recent
-            && self
-                .hot_since
-                .is_some_and(|since| now.saturating_duration_since(since) >= FAN_GUARD_HOLD)
+        recent && self.hot
     }
 
     /// Whether it has been cool for [`FAN_GUARD_COOL_HOLD`]; `None` if it
