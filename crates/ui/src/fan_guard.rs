@@ -38,6 +38,8 @@ pub struct FanGuard {
     /// The last failed GPU read, or one past any real heat. A GPU not read
     /// lately counts as cool only [`FAN_GUARD_COOL_HOLD`] after it.
     gpu_failed_at: Option<Instant>,
+    /// Whether it is on only because the GPU's reads failed lately.
+    held_by_gpu_fault: bool,
 }
 
 /// One sensor's recent readings.
@@ -54,6 +56,14 @@ impl FanGuard {
     #[must_use]
     pub fn on(&self) -> bool {
         self.on
+    }
+
+    /// Whether it is on only because the GPU's reads failed lately (or
+    /// gave a heat past any real one): every sensor read lately is cool
+    /// (ticket 163).
+    #[must_use]
+    pub fn held_by_gpu_fault(&self) -> bool {
+        self.held_by_gpu_fault
     }
 
     /// Notes whether the last GPU read failed, before [`note`](Self::note)
@@ -74,15 +84,20 @@ impl FanGuard {
         }
         self.cpu.note(cpu, Sensor::Cpu.guard_limit(), now);
         self.gpu.note(gpu, Sensor::Gpu.guard_limit(), now);
+        self.held_by_gpu_fault = false;
         let next = if self.on {
             let cpu_cool = self.cpu.settled(now) == Some(true);
             let gpu_cool = match self.gpu.settled(now) {
                 Some(cool) => cool,
                 // Not read lately: a GPU asleep cools, but only once no read
                 // has failed for the cool hold, as one that fails may be hot.
-                None => self
-                    .gpu_failed_at
-                    .is_none_or(|at| now.saturating_duration_since(at) >= FAN_GUARD_COOL_HOLD),
+                None => {
+                    let cool = self
+                        .gpu_failed_at
+                        .is_none_or(|at| now.saturating_duration_since(at) >= FAN_GUARD_COOL_HOLD);
+                    self.held_by_gpu_fault = cpu_cool && !cool;
+                    cool
+                }
             };
             !(cpu_cool && gpu_cool)
         } else {
