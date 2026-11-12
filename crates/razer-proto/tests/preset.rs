@@ -149,3 +149,17 @@ fn a_reply_with_a_preset_the_model_lacks_is_none() {
         None
     );
 }
+
+#[test]
+fn a_mode_write_reads_back_its_own_zone_and_nothing_else_does() {
+    let silent = PerfMode::Silent.commands(&BLADE_18).unwrap();
+    let (query, expected) = PerfMode::read_back(&silent[0]).unwrap();
+
+    assert_eq!(query, PerfMode::queries(&BLADE_18)[0]);
+    assert_eq!(expected, silent[0].args);
+    let other = razer_proto::Command {
+        id: 0x0D01,
+        args: vec![1, 1, 30],
+    };
+    assert_eq!(PerfMode::read_back(&other), None);
+}

@@ -115,7 +115,8 @@ pub fn apply_performance(
 ///
 /// # Errors
 ///
-/// The first failed read.
+/// The first failed read, or a reply too short to compare
+/// ([`DeviceError::ShortReply`]).
 pub fn preset_differs(
     config: &Config,
     model: &ModelProfile,
@@ -127,6 +128,9 @@ pub fn preset_differs(
     let mut differs = Vec::new();
     for (query, sent) in commands.iter().filter_map(PerfMode::read_back) {
         let read = controller.query(&query)?;
+        if read.len() < sent.len() {
+            return Err(DeviceError::ShortReply);
+        }
         if read.get(..sent.len()) != Some(sent.as_slice()) {
             differs.push(format!(
                 "zone {} reads {}, sent {}",

@@ -2,8 +2,8 @@
 //! a Num Lock or mic mute change and on quit.
 
 use blade_core::{
-    ApplyError, Config, Controller, DisplayError, Preset, Query, apply, full_power_charger,
-    paint_red_keys, touchpad_on,
+    ApplyError, Config, Controller, DisplayError, Preset, Query, apply, apply_performance,
+    full_power_charger, paint_red_keys, touchpad_on,
 };
 use platform::{DisplayApi, KeyInjector, PowerEvent, Registry};
 use razer_proto::RedKeys;
@@ -303,7 +303,9 @@ where
                 auto_fans.custom.cpu_boost = 0;
                 auto_fans.custom.gpu_boost = 0;
             }
-            match self.send_preset(&auto_fans) {
+            // No read-back before the last send: a read that drops the
+            // handle would make the quit's retry send this step again.
+            match apply_performance(&auto_fans, self.model, &mut self.machine.controller) {
                 // A saved boost out of range: nothing was sent, so the
                 // preset below still goes.
                 Ok(()) | Err(ApplyError::Custom(_)) => {}

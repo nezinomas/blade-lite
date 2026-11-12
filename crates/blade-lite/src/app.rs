@@ -41,6 +41,19 @@ const DEFAULT_LIGHTING: Lighting = Lighting {
     vapor_light: true,
 };
 
+/// What the read-back after a preset send found (ticket 152).
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum PresetCheck {
+    /// No send yet, or the last failed partway.
+    Unknown,
+    /// Every zone reads back as sent.
+    Runs,
+    /// The zones that read back otherwise, as text.
+    Differs(String),
+    /// The read failed, with its error.
+    Unread(String),
+}
+
 /// The parts of the laptop the app talks to.
 pub struct Machine<C, D, R, K> {
     pub controller: C,
@@ -154,10 +167,9 @@ pub struct App<C, D, R, K> {
     /// reading the controller. `None` if none yet, or the last read or set
     /// failed.
     native_mode: Option<NativeMode>,
-    /// The zones whose mode or fan byte read back other than sent, after
-    /// the last preset send (ticket 152). Shown and logged; never sent
-    /// again for it.
-    preset_mismatch: Option<String>,
+    /// What the read-back after the last preset send found (ticket 152).
+    /// A difference is shown and logged; never sent again for it.
+    preset_check: PresetCheck,
 }
 
 impl<C, D, R, K> App<C, D, R, K>
@@ -201,7 +213,7 @@ where
             read_errors: Vec::new(),
             cpu_celsius: None,
             native_mode: None,
-            preset_mismatch: None,
+            preset_check: PresetCheck::Unknown,
         }
     }
 
@@ -275,36 +287,46 @@ where
     }
 
     /// Reads back the preset of `config` if `applied` sent it whole, and
-    /// keeps, logs and shows a zone that differs. A failed read is logged.
+    /// keeps, logs and shows a zone that differs. After a send that failed
+    /// partway, or a failed read, nothing is known: an old difference is
+    /// dropped. Each change is logged once.
     fn check_preset_if_sent(&mut self, config: &Config, applied: &Result<(), ApplyError>) {
-        if !matches!(applied, Ok(()) | Err(ApplyError::AfterPreset(_))) {
-            return;
-        }
-        let found = match preset_differs(config, self.model, &mut self.machine.controller) {
-            Ok(found) => found,
-            Err(error) => {
-                report(&format!("can't read the preset back: {error}"));
-                return;
+        let check = match applied {
+            Ok(()) | Err(ApplyError::AfterPreset(_)) => {
+                match preset_differs(config, self.model, &mut self.machine.controller) {
+                    Ok(None) => PresetCheck::Runs,
+                    Ok(Some(differs)) => PresetCheck::Differs(differs),
+                    Err(error) => PresetCheck::Unread(error.to_string()),
+                }
             }
+            Err(ApplyError::Device(_)) => PresetCheck::Unknown,
+            // Nothing was sent.
+            Err(_) => return,
         };
-        if found != self.preset_mismatch {
-            report(
-                found
-                    .as_deref()
-                    .map_or(
-                        "the controller runs the preset sent again".to_owned(),
-                        |differs| format!("the controller does not run the preset sent: {differs}"),
-                    )
-                    .as_str(),
-            );
+        if check != self.preset_check {
+            match (&check, &self.preset_check) {
+                (PresetCheck::Differs(differs), _) => report(&format!(
+                    "the controller does not run the preset sent ({differs})"
+                )),
+                (PresetCheck::Unread(error), _) => {
+                    report(&format!("can't read the preset back: {error}"));
+                }
+                (PresetCheck::Runs, PresetCheck::Differs(_)) => {
+                    report("the controller runs the preset sent again");
+                }
+                _ => {}
+            }
         }
-        self.preset_mismatch = found;
+        self.preset_check = check;
     }
 
     /// The zones that read back other than the last preset sent, if any.
     #[must_use]
     pub fn preset_mismatch(&self) -> Option<&str> {
-        self.preset_mismatch.as_deref()
+        match &self.preset_check {
+            PresetCheck::Differs(differs) => Some(differs),
+            _ => None,
+        }
     }
 
     /// Notes a start, preset change or switch: one the controller may have
