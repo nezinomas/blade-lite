@@ -257,10 +257,10 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         // Held to the end of the run: dropping it stops the watch. Without
         // it the app runs on, as before it had one.
         let _session = SessionEndWatch::start(on_session_end)
-            .map_err(|error| {
+            .inspect_err(|error| {
                 report(&format!(
                     "a shutdown or sign-out will send nothing: {error}"
-                ))
+                ));
             })
             .ok();
         if let Some(watch) = touchpad {
