@@ -112,14 +112,12 @@ impl ReaderEnd {
     }
 
     /// Whether this was a real quiet spell, after a reader that ran for
-    /// `ran`, so the next open keeps the key as last seen and a first
-    /// press after it counts (ticket 158; see
+    /// `ran`, so the next open keeps the key as last seen (see
     /// [`blade_core::PowerKeyPresses::after_quiet_spell`]). Not after a
     /// failure, or a run too short for its quiet reads to have waited (a
     /// broken handle): either may hide a gap, such as a sleep, so the
-    /// state starts unknown again. A full spell may hide a sleep too; then
-    /// a key pressed down in the gap counts once: a real press, still held
-    /// to the pause between steps.
+    /// state starts unknown again. Either way a first report listing the
+    /// key counts once (ticket 174).
     #[must_use]
     pub fn keeps_key_state(&self, ran: Duration) -> bool {
         let full_spell = KEY_READ_WAIT * KEY_IDLE_READS;

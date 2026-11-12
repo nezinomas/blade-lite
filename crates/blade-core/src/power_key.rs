@@ -53,8 +53,12 @@ pub fn next_preset(running: Preset, model: &ModelProfile, on_battery: bool) -> O
 #[derive(Debug, Clone)]
 pub struct PowerKeyPresses {
     key: PowerKey,
-    /// `None` until the first key report. A key held before then is not
-    /// a new press: it may have been down while the reports were opened.
+    /// `None` until the first key report. Unknown counts as not held, so
+    /// a first report listing the key is a press (ticket 174): key reports
+    /// come only on a change, so it almost always is one. The only false
+    /// step is the key held through the open while another Razer key
+    /// changes: one step, through every usual guard (the pause, battery,
+    /// charger, Razer software).
     held: Option<bool>,
     /// When Fn went down, while it is held. If a release report is lost,
     /// the next Fn press keeps the old time, so Enter is not watched until
@@ -98,8 +102,8 @@ impl PowerKeyPresses {
     }
 
     /// The state to go on with after the reports were opened again over a
-    /// quiet spell. The key as last seen stays, so a first press after it
-    /// counts (ticket 158), and so do the step and mic times, so the pause
+    /// quiet spell. The key as last seen stays, so a key last seen held
+    /// does not step again, and so do the step and mic times, so the pause
     /// still holds. Fn, Enter and the mic keys start unknown: a release
     /// may have been lost in the gap.
     #[must_use]
@@ -119,7 +123,7 @@ impl PowerKeyPresses {
             return false;
         };
         self.follow_fn(report, now);
-        let pressed = held && self.held == Some(false);
+        let pressed = held && self.held != Some(true);
         self.held = Some(held);
         pressed && self.step(now)
     }
