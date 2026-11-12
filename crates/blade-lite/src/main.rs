@@ -151,6 +151,20 @@ fn the_window_icon_is_made_from_the_tray_picture() {
     assert!(window_icon(DEFAULT_ACCENT).is_ok());
 }
 
+/// Whether a Razer updater runs as the app starts. A look that fails
+/// counts as one (fail safe): the shell's next look that works lets go.
+fn updater_at_start() -> bool {
+    razer_software(&WindowsPrograms).map_or_else(
+        |error| {
+            report(&format!(
+                "can't look for a Razer updater, so nothing is sent until a look works: {error}"
+            ));
+            true
+        },
+        |found| razer_updater(&found),
+    )
+}
+
 /// Starts the poll, each [`POLL_INTERVAL`], and the watchdog that logs it
 /// if it stalls (ticket 143).
 fn poll(shell: &Rc<Shell>) -> Timer {
@@ -235,9 +249,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     // Before the start reads the touchpad, so no switch is missed.
     let touchpad = watch_touchpad();
     // A Razer updater must never meet the start's sends (ticket 145).
-    app.hold_controller(razer_updater(
-        &razer_software(&WindowsPrograms).unwrap_or_default(),
-    ));
+    app.hold_controller(updater_at_start());
     // Once, before the first send, so the log has it.
     app.check_firmware();
     let firmware_unchecked = app.firmware_warning().is_some();

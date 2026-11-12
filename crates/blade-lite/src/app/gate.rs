@@ -32,6 +32,11 @@ impl<C> Gated<C> {
         self.closed = true;
     }
 
+    /// Whether every send and read is held.
+    pub fn held(&self) -> bool {
+        self.held
+    }
+
     /// Refuses every send and read while `held`.
     pub fn hold(&mut self, held: bool) {
         self.held = held;

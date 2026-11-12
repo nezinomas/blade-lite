@@ -7,10 +7,11 @@
 use std::rc::Rc;
 use std::time::{Duration, Instant};
 
-use blade_core::{razer_software, razer_updater, razer_warning};
+use blade_core::{RESUME_PAUSE, razer_software, razer_updater, razer_warning};
 use blade_lite::report;
+use slint::Timer;
 
-use super::{Parts, Shell};
+use super::{AppOn, Parts, Shell};
 
 /// How often Razer software is looked for, beside the start, each wake
 /// and each open again.
@@ -31,13 +32,16 @@ impl<P: Parts> Shell<P> {
             }
         };
         let updater = razer_updater(&found);
-        if self.razer_updater.replace(updater) != updater {
+        // The hold itself, as the start may have set it before the shell.
+        let held = self.app.borrow().controller_held();
+        if held != updater {
             report(if updater {
                 "a Razer updater runs, so the app sends nothing"
             } else {
                 "no Razer updater runs now, so the settings are sent again"
             });
-            // The next tick sends them, as the update may have reset them.
+            // A tick sends them after a pause, as the update may have
+            // reset the controller and changed its firmware.
             self.updater_ended.set(!updater);
         }
         self.app.borrow_mut().hold_controller(updater);
@@ -52,6 +56,26 @@ impl<P: Parts> Shell<P> {
             );
         }
         first
+    }
+
+    /// After a Razer updater ended: waits the wake's pause, as the
+    /// controller may restart, then reads the firmware again (the update may
+    /// have changed it) and sends every setting again. Not in a wake's
+    /// pause: the wake's own send covers it.
+    pub(super) fn start_after_updater(self: &Rc<Self>) {
+        if self.resuming.get() > 0 || !self.updater_ended.take() {
+            return;
+        }
+        self.resuming.set(self.resuming.get().saturating_add(1));
+        let shell = Rc::clone(self);
+        Timer::single_shot(RESUME_PAUSE, move || {
+            shell.resuming.set(shell.resuming.get().saturating_sub(1));
+            shell.app.borrow_mut().check_firmware();
+            // A power event in the pause was dropped.
+            shell.follow_source();
+            shell.app.borrow_mut().take_on_battery(P::on_battery());
+            shell.act(AppOn::<P>::start);
+        });
     }
 
     /// Looks for Razer software each [`RAZER_LOOK_GAP`], as it may start

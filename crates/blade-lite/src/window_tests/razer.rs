@@ -251,8 +251,17 @@ fn a_click_looks_for_a_razer_updater_first() {
     assert!(error.contains("updater"), "{error}");
 }
 
+/// How many Balanced preset runs were sent since `before` commands.
+fn balanced_runs_since(f: &Fixture, before: usize) -> usize {
+    let balanced = PerfMode::Balanced.commands(&BLADE_18).unwrap();
+    let sent = f.shell.app().machine().controller.inner.sent[before..].to_vec();
+    sent.windows(balanced.len())
+        .filter(|run| *run == balanced.as_slice())
+        .count()
+}
+
 #[test]
-fn the_settings_go_again_when_a_razer_updater_ends() {
+fn the_settings_go_again_after_a_pause_when_a_razer_updater_ends() {
     let f = fixture(Config::default());
     f.shell.programs().set(&[UPDATER]);
     look(&f);
@@ -261,10 +270,48 @@ fn the_settings_go_again_when_a_razer_updater_ends() {
     let before = f.shell.app().machine().controller.inner.sent.len();
 
     f.shell.tick();
+    assert_eq!(
+        f.shell.app().machine().controller.inner.sent.len(),
+        before,
+        "not at once"
+    );
+    pause_ends();
 
-    let sent = f.shell.app().machine().controller.inner.sent[before..].to_vec();
-    let balanced = PerfMode::Balanced.commands(&BLADE_18).unwrap();
-    assert!(sent.starts_with(&balanced), "{sent:?}");
+    assert_eq!(balanced_runs_since(&f, before), 1);
+}
+
+#[test]
+fn an_updater_that_ends_at_a_wake_gets_the_wake_send_only() {
+    let f = fixture(Config::default());
+    f.shell.programs().set(&[UPDATER]);
+    look(&f);
+    f.shell.programs().set(&[]);
+    let before = f.shell.app().machine().controller.inner.sent.len();
+    let (sender, receiver) = std::sync::mpsc::channel();
+    sender.send(PowerEvent::Resumed).unwrap();
+
+    f.shell.follow_power(&receiver);
+    pause_ends();
+    f.shell.tick();
+    pause_ends();
+
+    assert_eq!(balanced_runs_since(&f, before), 1);
+}
+
+#[test]
+fn the_firmware_is_read_again_when_a_razer_updater_ends() {
+    let f = fixture(Config::default());
+    f.shell.programs().set(&[UPDATER]);
+    look(&f);
+    f.shell.app().machine_mut().controller.inner.firmware = Some(vec![1, 9]);
+    f.shell.programs().set(&[]);
+    look(&f);
+
+    f.shell.tick();
+    pause_ends();
+
+    let error = f.shell.window().get_error();
+    assert!(error.contains("firmware is 1.9"), "{error}");
 }
 
 #[test]

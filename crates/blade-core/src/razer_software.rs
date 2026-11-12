@@ -61,7 +61,8 @@ pub fn razer_warning(found: &[String]) -> Option<String> {
         if razer_updater(found) {
             return format!(
                 "A Razer updater runs ({}). The app sends nothing to the \
-                 controller until it ends, and the fan guard is off.",
+                 controller until it ends, and the fan guard is off. A \
+                 manual fan stays as set until then.",
                 found.join(", ")
             );
         }

@@ -273,8 +273,6 @@ pub struct Shell<P: Parts = Laptop> {
     /// The warning for the Razer software last found, shown above the
     /// groups while it runs.
     razer_warning: RefCell<Option<String>>,
-    /// Whether a Razer updater runs: the controller is then held.
-    razer_updater: Cell<bool>,
     /// Whether a Razer updater ended since the last tick, which then sends
     /// the settings again.
     updater_ended: Cell<bool>,
@@ -323,7 +321,6 @@ impl<P: Parts> Shell<P> {
             power: RefCell::new(None),
             programs: P::Programs::default(),
             razer_warning: RefCell::new(None),
-            razer_updater: Cell::new(false),
             razer_looked: Cell::new(None),
             updater_ended: Cell::new(false),
             razer_opened: Cell::new(false),
@@ -495,7 +492,9 @@ impl<P: Parts> Shell<P> {
     /// puts back a switch the click flipped.
     pub fn user_act(self: &Rc<Self>, change: impl FnOnce(&mut AppOn<P>) -> Result<(), AppError>) {
         // A Razer updater may have started since the last look.
-        self.look_for_razer();
+        if self.look_for_razer() {
+            self.show_window();
+        }
         self.follow_own_power();
         if self.resuming.get() == 0 {
             self.act(change);
