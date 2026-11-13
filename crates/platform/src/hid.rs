@@ -554,12 +554,13 @@ mod tests {
         let (server, _client) = pipe("silent");
         let started = std::time::Instant::now();
         assert_eq!(
-            read_with_limit(&server, Duration::from_millis(50)).unwrap(),
+            read_with_limit(&server, Duration::from_millis(200)).unwrap(),
             None
         );
+        // A Windows wait can end up to a timer tick (about 16 ms) early.
         let took = started.elapsed();
-        assert!(took >= Duration::from_millis(40), "{took:?}");
-        assert!(took < Duration::from_secs(2), "{took:?}");
+        assert!(took >= Duration::from_millis(150), "{took:?}");
+        assert!(took < Duration::from_secs(3), "{took:?}");
     }
 
     #[test]
