@@ -143,24 +143,40 @@ export component StatCell inherits VerticalLayout {
 
 // A slider whose Narrator set-value, increase and decrease are let go at
 // once, as an arrow key is on its release: `released` sends the value,
-// and nothing is left shown unsent. A set-value off the slider, or not a
-// number, does nothing.
+// and nothing is left shown unsent. So each step is one send, as each
+// arrow key press is. A set-value off the slider, between two steps, or
+// not a number, and any action on a disabled slider, do nothing. `changed` is not called:
+// no slider here uses it.
 export component SendingSlider inherits Slider {
+    // The step Narrator is told is the one the slider takes.
+    accessible-value-step: root.step;
     accessible-action-set-value(v) => {
         if v.is-float() {
             root.let-go-at(v.to-float());
         }
     }
+    // To the next step up or down, also from a value between two steps
+    // (a drag can leave one).
     accessible-action-increment => {
-        root.let-go-at(min(root.maximum, root.value + root.step));
+        root.let-go-at(min(root.maximum, root.stop(floor(root.stops-from-minimum() + 1))));
     }
     accessible-action-decrement => {
-        root.let-go-at(max(root.minimum, root.value - root.step));
+        root.let-go-at(max(root.minimum, root.stop(ceil(root.stops-from-minimum() - 1))));
+    }
+
+    pure function stops-from-minimum() -> float {
+        (root.value - root.minimum) / root.step
+    }
+
+    pure function stop(n: float) -> float {
+        n * root.step + root.minimum
     }
 
     function let-go-at(value: float) {
         // Also false for NaN.
-        if value >= root.minimum && value <= root.maximum && value != root.value {
+        let on-a-step = root.stop(round((value - root.minimum) / root.step)) == value;
+        if root.enabled && on-a-step && value >= root.minimum && value <= root.maximum
+            && value != root.value {
             root.value = value;
             root.released(value);
         }

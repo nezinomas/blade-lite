@@ -980,6 +980,34 @@ fn a_narrator_set_value_on_the_flyout_brightness_sends_it() {
     );
 }
 
+/// From 33%, as a drag can leave it, the Narrator action `act` sends
+/// `sent`: the next step of 5.
+fn narrator_steps_from_33_percent(act: fn(&ElementHandle), sent: u8) {
+    let f = fixture(Config {
+        lighting: Some(blade_core::Lighting {
+            brightness: 33,
+            colour: WHITE,
+            vapor_light: true,
+        }),
+        ..Config::default()
+    });
+    let before = sent_count(&f);
+
+    act(&control(f.shell.window(), Slider, "Brightness"));
+
+    assert_eq!(sent_since(&f, before), lighting_commands(sent, WHITE));
+}
+
+#[test]
+fn a_narrator_increase_between_two_steps_goes_to_the_next_step_up() {
+    narrator_steps_from_33_percent(ElementHandle::invoke_accessible_increment_action, 35);
+}
+
+#[test]
+fn a_narrator_decrease_between_two_steps_goes_to_the_next_step_down() {
+    narrator_steps_from_33_percent(ElementHandle::invoke_accessible_decrement_action, 30);
+}
+
 #[test]
 fn a_narrator_action_off_the_brightness_slider_sends_nothing() {
     let f = fixture(Config::default());
@@ -987,7 +1015,7 @@ fn a_narrator_action_off_the_brightness_slider_sends_nothing() {
     let slider = control(f.shell.window(), Slider, "Brightness");
 
     slider.invoke_accessible_increment_action();
-    for value in ["150", "-5", "NaN", "half"] {
+    for value in ["150", "-5", "NaN", "half", "33"] {
         slider.set_accessible_value(value);
     }
 
@@ -2487,7 +2515,6 @@ fn a_custom_cpu_boost_click_one_step_up_sends_the_custom_commands() {
     };
     assert_eq!(sent_since(&f, before), custom.commands(&BLADE_18));
     assert_eq!(f.shell.app().config().custom.cpu_boost, 2);
-    // The rows are made again after a change, so find the slider again.
     let slider = control(f.shell.window(), Slider, "CPU boost");
     assert_eq!(slider.accessible_value().unwrap(), "2");
 }
@@ -2619,7 +2646,6 @@ fn a_custom_slider_goes_back_after_a_failed_send() {
     let error = f.shell.window().get_error();
     assert!(error.contains("busy"), "{error}");
     assert_eq!(f.shell.app().config().custom.cpu_boost, 1);
-    // The rows are made again after a change, so find the slider again.
     let slider = control(f.shell.window(), Slider, "CPU boost");
     assert_eq!(slider.accessible_value().unwrap(), "1");
 }
@@ -2679,6 +2705,37 @@ fn a_narrator_set_value_off_a_custom_slider_sends_nothing() {
 
     assert_eq!(sent_since(&f, before), []);
     shows_cpu_boost(&f, 1);
+}
+
+#[test]
+fn a_narrator_set_value_between_two_stops_sends_nothing() {
+    let f = custom_fixture();
+    let before = sent_count(&f);
+
+    for value in ["1.6", "0.4", "2.5"] {
+        control(f.shell.window(), Slider, "CPU boost").set_accessible_value(value);
+    }
+
+    assert_eq!(sent_since(&f, before), []);
+    shows_cpu_boost(&f, 1);
+}
+
+#[test]
+fn a_narrator_set_value_in_the_pause_after_a_wake_goes_back_unsent() {
+    let f = custom_fixture();
+    let (sender, receiver) = std::sync::mpsc::channel();
+    sender.send(PowerEvent::Resumed).unwrap();
+    f.shell.follow_power(&receiver);
+    let before = sent_count(&f);
+
+    control(f.shell.window(), Slider, "CPU boost").set_accessible_value("2");
+    control(f.shell.window(), Slider, "Brightness").set_accessible_value("30");
+
+    assert_eq!(sent_since(&f, before), []);
+    shows_cpu_boost(&f, 1);
+    let slider = control(f.shell.window(), Slider, "Brightness");
+    assert_eq!(slider.accessible_value().unwrap(), "100");
+    assert_eq!(percent_shown(f.shell.window(), "KeyboardGroup"), "100%");
 }
 
 #[test]
