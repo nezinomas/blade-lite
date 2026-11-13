@@ -890,18 +890,6 @@ fn showing_the_window_puts_back_a_brightness_drag_cut_short() {
 }
 
 #[test]
-fn showing_the_window_puts_back_a_brightness_set_by_narrator() {
-    let f = fixture(Config::default());
-    let before = sent_count(&f);
-    control(f.shell.window(), Slider, "Brightness").set_accessible_value("30");
-    assert_eq!(percent_shown(f.shell.window(), "KeyboardGroup"), "30%");
-
-    f.shell.show_window();
-
-    shows_the_laptop_brightness(&f, f.shell.window(), "Brightness", "KeyboardGroup", before);
-}
-
-#[test]
 fn focusing_the_window_puts_back_a_brightness_drag_cut_short() {
     let f = fixture(Config::default());
     press_without_release(f.shell.window(), "Brightness");
@@ -910,27 +898,6 @@ fn focusing_the_window_puts_back_a_brightness_drag_cut_short() {
     f.shell.on_window_event(&WinitEvent::Focused(true));
 
     shows_the_laptop_brightness(&f, f.shell.window(), "Brightness", "KeyboardGroup", before);
-}
-
-#[test]
-fn focusing_the_window_puts_back_a_brightness_set_by_narrator() {
-    let f = fixture(Config::default());
-    let before = sent_count(&f);
-    control(f.shell.window(), Slider, "Brightness").set_accessible_value("30");
-
-    f.shell.on_window_event(&WinitEvent::Focused(true));
-
-    shows_the_laptop_brightness(&f, f.shell.window(), "Brightness", "KeyboardGroup", before);
-}
-
-#[test]
-fn losing_the_focus_keeps_a_brightness_set_by_narrator() {
-    let f = fixture(Config::default());
-    control(f.shell.window(), Slider, "Brightness").set_accessible_value("30");
-
-    f.shell.on_window_event(&WinitEvent::Focused(false));
-
-    assert_eq!(percent_shown(f.shell.window(), "KeyboardGroup"), "30%");
 }
 
 #[test]
@@ -951,22 +918,110 @@ fn opening_the_flyout_puts_back_a_brightness_drag_cut_short() {
     );
 }
 
+/// A Narrator action on the brightness slider `label` of `component` sends
+/// `percent` at once; the slider and its text show it, also after the
+/// window or flyout is shown again by `come_back`.
+fn narrator_sends_the_brightness<R: ElementRoot + ComponentHandle>(
+    f: &Fixture,
+    root: &R,
+    (label, component): (&str, &str),
+    act: impl FnOnce(&ElementHandle),
+    percent: u8,
+    come_back: impl FnOnce(&Fixture),
+) {
+    let before = sent_count(f);
+
+    act(&control(root, Slider, label));
+
+    assert_eq!(sent_since(f, before), lighting_commands(percent, WHITE));
+    assert_eq!(f.shell.app().config().lighting.unwrap().brightness, percent);
+    come_back(f);
+    let slider = control(root, Slider, label);
+    assert_eq!(slider.accessible_value().unwrap(), percent.to_string());
+    assert_eq!(percent_shown(root, component), format!("{percent}%"));
+}
+
 #[test]
-fn opening_the_flyout_puts_back_a_brightness_set_by_narrator() {
+fn a_narrator_set_value_on_the_window_brightness_sends_it() {
     let f = fixture(Config::default());
-    let before = sent_count(&f);
-    control(f.shell.flyout(), Slider, "Keyboard light").set_accessible_value("30");
-    assert_eq!(percent_shown(f.shell.flyout(), "FlyoutWindow"), "30%");
+    narrator_sends_the_brightness(
+        &f,
+        f.shell.window(),
+        ("Brightness", "KeyboardGroup"),
+        |slider| slider.set_accessible_value("30"),
+        30,
+        |f| f.shell.show_window(),
+    );
+}
 
-    f.shell.toggle_flyout(ICON);
+#[test]
+fn a_narrator_decrease_on_the_window_brightness_sends_it() {
+    let f = fixture(Config::default());
+    narrator_sends_the_brightness(
+        &f,
+        f.shell.window(),
+        ("Brightness", "KeyboardGroup"),
+        ElementHandle::invoke_accessible_decrement_action,
+        95,
+        |f| f.shell.on_window_event(&WinitEvent::Focused(true)),
+    );
+}
 
-    shows_the_laptop_brightness(
+#[test]
+fn a_narrator_set_value_on_the_flyout_brightness_sends_it() {
+    let f = fixture(Config::default());
+    narrator_sends_the_brightness(
         &f,
         f.shell.flyout(),
-        "Keyboard light",
-        "FlyoutWindow",
-        before,
+        ("Keyboard light", "FlyoutWindow"),
+        |slider| slider.set_accessible_value("30"),
+        30,
+        |f| f.shell.toggle_flyout(ICON),
     );
+}
+
+/// From 33%, as a drag can leave it, the Narrator action `act` sends
+/// `sent`: the next step of 5.
+fn narrator_steps_from_33_percent(act: fn(&ElementHandle), sent: u8) {
+    let f = fixture(Config {
+        lighting: Some(blade_core::Lighting {
+            brightness: 33,
+            colour: WHITE,
+            vapor_light: true,
+        }),
+        ..Config::default()
+    });
+    let before = sent_count(&f);
+
+    act(&control(f.shell.window(), Slider, "Brightness"));
+
+    assert_eq!(sent_since(&f, before), lighting_commands(sent, WHITE));
+}
+
+#[test]
+fn a_narrator_increase_between_two_steps_goes_to_the_next_step_up() {
+    narrator_steps_from_33_percent(ElementHandle::invoke_accessible_increment_action, 35);
+}
+
+#[test]
+fn a_narrator_decrease_between_two_steps_goes_to_the_next_step_down() {
+    narrator_steps_from_33_percent(ElementHandle::invoke_accessible_decrement_action, 30);
+}
+
+#[test]
+fn a_narrator_action_off_the_brightness_slider_sends_nothing() {
+    let f = fixture(Config::default());
+    let before = sent_count(&f);
+    let slider = control(f.shell.window(), Slider, "Brightness");
+
+    slider.invoke_accessible_increment_action();
+    for value in ["150", "-5", "NaN", "half", "33"] {
+        slider.set_accessible_value(value);
+    }
+
+    assert_eq!(sent_since(&f, before), []);
+    assert_eq!(slider.accessible_value().unwrap(), "100");
+    assert_eq!(percent_shown(f.shell.window(), "KeyboardGroup"), "100%");
 }
 
 #[test]
@@ -2460,7 +2515,6 @@ fn a_custom_cpu_boost_click_one_step_up_sends_the_custom_commands() {
     };
     assert_eq!(sent_since(&f, before), custom.commands(&BLADE_18));
     assert_eq!(f.shell.app().config().custom.cpu_boost, 2);
-    // The rows are made again after a change, so find the slider again.
     let slider = control(f.shell.window(), Slider, "CPU boost");
     assert_eq!(slider.accessible_value().unwrap(), "2");
 }
@@ -2592,9 +2646,172 @@ fn a_custom_slider_goes_back_after_a_failed_send() {
     let error = f.shell.window().get_error();
     assert!(error.contains("busy"), "{error}");
     assert_eq!(f.shell.app().config().custom.cpu_boost, 1);
-    // The rows are made again after a change, so find the slider again.
     let slider = control(f.shell.window(), Slider, "CPU boost");
     assert_eq!(slider.accessible_value().unwrap(), "1");
+}
+
+fn custom_fixture() -> Fixture {
+    fixture(Config {
+        preset: Preset::Custom,
+        ..Config::default()
+    })
+}
+
+/// The CPU boost the window shows and the laptop has: the slider, its text
+/// and the saved level all say `level`.
+fn shows_cpu_boost(f: &Fixture, level: u8) {
+    let slider = control(f.shell.window(), Slider, "CPU boost");
+    assert_eq!(slider.accessible_value().unwrap(), level.to_string());
+    assert_eq!(custom_text_shown(f, 0), level.to_string());
+    assert_eq!(f.shell.app().config().custom.cpu_boost, level);
+}
+
+#[test]
+fn a_narrator_set_value_on_a_custom_slider_sends_it() {
+    let f = custom_fixture();
+    let before = sent_count(&f);
+
+    control(f.shell.window(), Slider, "CPU boost").set_accessible_value("2");
+
+    let fan = razer_proto::FanMode::Auto;
+    assert_eq!(sent_since(&f, before), custom_commands(2, fan));
+    shows_cpu_boost(&f, 2);
+}
+
+#[test]
+fn narrator_increase_and_decrease_on_a_custom_slider_send_them() {
+    let f = custom_fixture();
+    let fan = razer_proto::FanMode::Auto;
+
+    let before = sent_count(&f);
+    control(f.shell.window(), Slider, "CPU boost").invoke_accessible_increment_action();
+    assert_eq!(sent_since(&f, before), custom_commands(2, fan));
+    shows_cpu_boost(&f, 2);
+
+    let before = sent_count(&f);
+    control(f.shell.window(), Slider, "CPU boost").invoke_accessible_decrement_action();
+    assert_eq!(sent_since(&f, before), custom_commands(1, fan));
+    shows_cpu_boost(&f, 1);
+}
+
+#[test]
+fn a_narrator_set_value_off_a_custom_slider_sends_nothing() {
+    let f = custom_fixture();
+    let before = sent_count(&f);
+
+    for value in ["9", "-1", "NaN", "inf", "two"] {
+        control(f.shell.window(), Slider, "CPU boost").set_accessible_value(value);
+    }
+
+    assert_eq!(sent_since(&f, before), []);
+    shows_cpu_boost(&f, 1);
+}
+
+#[test]
+fn a_narrator_set_value_between_two_stops_sends_nothing() {
+    let f = custom_fixture();
+    let before = sent_count(&f);
+
+    for value in ["1.6", "0.4", "2.5"] {
+        control(f.shell.window(), Slider, "CPU boost").set_accessible_value(value);
+    }
+
+    assert_eq!(sent_since(&f, before), []);
+    shows_cpu_boost(&f, 1);
+}
+
+#[test]
+fn a_narrator_set_value_in_the_pause_after_a_wake_goes_back_unsent() {
+    let f = custom_fixture();
+    let (sender, receiver) = std::sync::mpsc::channel();
+    sender.send(PowerEvent::Resumed).unwrap();
+    f.shell.follow_power(&receiver);
+    let before = sent_count(&f);
+
+    control(f.shell.window(), Slider, "CPU boost").set_accessible_value("2");
+    control(f.shell.window(), Slider, "Brightness").set_accessible_value("30");
+
+    assert_eq!(sent_since(&f, before), []);
+    shows_cpu_boost(&f, 1);
+    let slider = control(f.shell.window(), Slider, "Brightness");
+    assert_eq!(slider.accessible_value().unwrap(), "100");
+    assert_eq!(percent_shown(f.shell.window(), "KeyboardGroup"), "100%");
+}
+
+#[test]
+fn a_narrator_increase_at_the_top_of_a_custom_slider_sends_nothing() {
+    let mut config = Config {
+        preset: Preset::Custom,
+        ..Config::default()
+    };
+    config.custom.cpu_boost = 3;
+    let f = fixture(config);
+    let before = sent_count(&f);
+
+    control(f.shell.window(), Slider, "CPU boost").invoke_accessible_increment_action();
+
+    assert_eq!(sent_since(&f, before), []);
+    shows_cpu_boost(&f, 3);
+}
+
+/// Presses and lets go `key` in the window, as the keyboard does.
+fn press_key(f: &Fixture, key: slint::platform::Key) {
+    let window = f.shell.window().window();
+    let text: slint::SharedString = key.into();
+    window.dispatch_event(WindowEvent::KeyPressed { text: text.clone() });
+    window.dispatch_event(WindowEvent::KeyReleased { text });
+}
+
+#[test]
+fn a_custom_slider_keeps_the_focus_after_each_arrow_key() {
+    let f = custom_fixture();
+    let fan = razer_proto::FanMode::Auto;
+    // A click on the handle at level 1 of 0 to 3 focuses the slider and
+    // changes nothing.
+    let slider = control(f.shell.window(), Slider, "CPU boost");
+    let start = slider.absolute_position();
+    let size = slider.size();
+    let handle = LogicalPosition::new(start.x + size.width / 3.0, start.y + size.height / 2.0);
+    let window = f.shell.window().window();
+    let button = PointerEventButton::Left;
+    window.dispatch_event(WindowEvent::PointerPressed {
+        position: handle,
+        button,
+    });
+    window.dispatch_event(WindowEvent::PointerReleased {
+        position: handle,
+        button,
+    });
+    let before = sent_count(&f);
+
+    press_key(&f, slint::platform::Key::RightArrow);
+    assert_eq!(sent_since(&f, before), custom_commands(2, fan));
+    press_key(&f, slint::platform::Key::RightArrow);
+
+    assert_eq!(
+        sent_since(&f, before),
+        [custom_commands(2, fan), custom_commands(3, fan)].concat()
+    );
+    shows_cpu_boost(&f, 3);
+    assert!(slider.is_valid(), "the rows were made again");
+}
+
+#[test]
+fn a_custom_slider_follows_a_preset_change_after_its_own_release() {
+    let f = custom_fixture();
+    let slider = control(f.shell.window(), Slider, "CPU boost");
+    let start = slider.absolute_position();
+    let left_end = LogicalPosition::new(start.x, start.y + slider.size().height / 2.0);
+    slider.mock_drag(left_end, PointerEventButton::Left);
+    shows_cpu_boost(&f, 0);
+
+    // The laptop's level changes elsewhere: the slider goes there once the
+    // event loop runs the change handlers.
+    f.shell
+        .act(|app| app.on_performance(ui::PerformanceCommand::SetCpuBoost(2)));
+    slint::platform::update_timers_and_animations();
+
+    shows_cpu_boost(&f, 2);
 }
 
 #[test]

@@ -95,11 +95,11 @@ impl<P: Parts> Shell<P> {
     }
 
     /// The window shown or focused shows the laptop's brightness and Custom
-    /// values, not a Narrator set-value or a drag it lost while away.
+    /// values, not a drag it lost while away.
     fn put_back_sliders(&self) {
         drop_lost_drag(self.window.window());
         self.window.invoke_show_brightness();
-        bind::sliders(&self.window, &self.app.borrow().performance_view());
+        bind::remake_sliders(&self.window, &self.app.borrow().performance_view());
     }
 
     pub fn show_window(self: &Rc<Self>) {
@@ -253,7 +253,7 @@ impl<P: Parts> Shell<P> {
 /// thinks its handle is pressed, so a later mouse-up over it calls
 /// `released` with the value `show-brightness` set: the laptop's own, which
 /// `KeyboardView::move_brightness` skips, so nothing is sent. The Custom
-/// sliders have no such value to set, so `bind::sliders` makes them again.
+/// sliders have no such value to set, so `bind::remake_sliders` makes them again.
 fn drop_lost_drag(window: &slint::Window) {
     window.dispatch_event(WindowEvent::PointerExited);
 }
