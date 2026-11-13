@@ -1,7 +1,7 @@
 // The shared pieces of the windows: the data rows Rust fills, the theme
 // colours, and the small building blocks every group uses.
 
-import { Palette } from "std-widgets.slint";
+import { Palette, Slider } from "std-widgets.slint";
 
 export struct Stat {
     label: string,
@@ -138,5 +138,31 @@ export component StatCell inherits VerticalLayout {
         text: root.stat.value;
         font-size: 16px;
         font-weight: 600;
+    }
+}
+
+// A slider whose Narrator set-value, increase and decrease are let go at
+// once, as an arrow key is on its release: `released` sends the value,
+// and nothing is left shown unsent. A set-value off the slider, or not a
+// number, does nothing.
+export component SendingSlider inherits Slider {
+    accessible-action-set-value(v) => {
+        if v.is-float() {
+            root.let-go-at(v.to-float());
+        }
+    }
+    accessible-action-increment => {
+        root.let-go-at(min(root.maximum, root.value + root.step));
+    }
+    accessible-action-decrement => {
+        root.let-go-at(max(root.minimum, root.value - root.step));
+    }
+
+    function let-go-at(value: float) {
+        // Also false for NaN.
+        if value >= root.minimum && value <= root.maximum && value != root.value {
+            root.value = value;
+            root.released(value);
+        }
     }
 }

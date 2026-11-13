@@ -2,8 +2,8 @@
 // Rust fills every property from the view models, and each callback becomes
 // a view-model command. Each group lives in its own file.
 
-import { Button, ScrollView, Slider, Switch } from "std-widgets.slint";
-import { BrightnessRange, Choice, Segments, Show, SliderRow, Stat, SwatchItem, Theme } from "parts.slint";
+import { Button, ScrollView, Switch } from "std-widgets.slint";
+import { BrightnessRange, Choice, Segments, SendingSlider, Show, SliderRow, Stat, SwatchItem, Theme } from "parts.slint";
 import { Header } from "header.slint";
 import { DisplayGroup } from "display.slint";
 import { PerformanceGroup } from "performance.slint";
@@ -187,8 +187,8 @@ export component FlyoutWindow inherits Window {
         brightness-slider.value = root.brightness;
     }
 
-    // Called when the flyout is shown: a drag cut short or a Narrator
-    // set-value left the slider at a value never sent.
+    // Called when the flyout is shown: a drag cut short left the slider at a
+    // value never sent.
     public function show-brightness() {
         brightness-slider.value = root.brightness;
     }
@@ -265,7 +265,7 @@ export component FlyoutWindow inherits Window {
                 width: 110px;
                 vertical-alignment: center;
             }
-            brightness-slider := Slider {
+            brightness-slider := SendingSlider {
                 accessible-label: "Keyboard light";
                 minimum: BrightnessRange.minimum;
                 maximum: BrightnessRange.maximum;

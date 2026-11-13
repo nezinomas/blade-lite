@@ -4,7 +4,7 @@
 use std::rc::{Rc, Weak};
 
 use razer_proto::Rgb;
-use slint::{ModelRc, SharedString, VecModel};
+use slint::{Model, ModelRc, SharedString, VecModel};
 use ui::{DisplayView, Header, KeyboardView, PerformanceView, PresetOption};
 
 use crate::shell::{AppOn, Parts, Shell};
@@ -84,16 +84,45 @@ pub fn performance(window: &MainWindow, view: &PerformanceView) {
     });
 }
 
+/// Shows the Custom slider rows. A row that changed is updated, not made
+/// again, so a focused slider keeps the focus. Only a change in the number
+/// of rows makes them again.
+fn sliders(window: &MainWindow, view: &PerformanceView) {
+    let rows = window.get_sliders();
+    if rows.row_count() != view.sliders.len() {
+        return remake_sliders(window, view);
+    }
+    for (i, row) in slider_rows(view).enumerate() {
+        if !rows.row_data(i).is_some_and(|shown| same_row(&shown, &row)) {
+            rows.set_row_data(i, row);
+        }
+    }
+}
+
+/// Rows equal by value: `ModelRc` equals only itself, so the texts are
+/// compared one by one.
+fn same_row(a: &SliderRow, b: &SliderRow) -> bool {
+    a.label == b.label
+        && a.stops == b.stops
+        && a.position == b.position
+        && a.text == b.text
+        && a.texts.iter().eq(b.texts.iter())
+}
+
 /// Makes the Custom slider rows again. New rows drop a drag the old ones
 /// still thought was pressed.
-pub fn sliders(window: &MainWindow, view: &PerformanceView) {
-    window.set_sliders(model(view.sliders.iter().map(|slider| SliderRow {
+pub fn remake_sliders(window: &MainWindow, view: &PerformanceView) {
+    window.set_sliders(model(slider_rows(view)));
+}
+
+fn slider_rows(view: &PerformanceView) -> impl Iterator<Item = SliderRow> + '_ {
+    view.sliders.iter().map(|slider| SliderRow {
         label: text(slider.label),
         stops: int(slider.stops()),
         position: int(slider.position),
         text: text(&slider.text),
         texts: model(slider.texts.iter().map(|t| text(t))),
-    })));
+    })
 }
 
 pub fn keyboard(window: &MainWindow, view: &KeyboardView) {
