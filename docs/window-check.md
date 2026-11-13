@@ -40,7 +40,7 @@ Start the app as above. A blue bolt icon shows in the tray. It may hide under th
    **60 Hz on battery (stage 35).** Flip "Switch to 60 Hz on battery". Open the window: its switch shows the same state. Flip it in the window, and the flyout follows. Put it back as it was.
 5. **Reset to Balanced.** With Silent set, click it. The preset goes back to Balanced, and the button greys out.
 6. **Open window.** Click it. The settings window opens and shows the same state.
-7. **Double click (ticket 176).** Close the window. Double-click the icon. The window opens and comes to the front. No flyout stays open. One single click after that opens the flyout as before.
+7. **Double click (ticket 176).** Close the window. Double-click the icon. The window opens and comes to the front. No flyout stays open. Wait a second: one single click then opens the flyout as before.
 8. **Menu.** Right-click the icon. "Open window" opens the window. "Quit" ends the app, and the icon goes away.
 
 # Battery presets check (stage 36)
