@@ -85,22 +85,38 @@ pub fn performance(window: &MainWindow, view: &PerformanceView) {
 }
 
 /// Shows the Custom slider rows. A row that changed is updated, not made
-/// again, so a focused slider keeps the focus. Only a change in the number
-/// of rows makes them again.
+/// again, so a focused slider keeps the focus. A drag or arrow key not yet
+/// sent stays, unless the row changed. Only a change in the
+/// number of rows makes them again.
 fn sliders(window: &MainWindow, view: &PerformanceView) {
+    update_sliders(window, view, same_row);
+}
+
+/// Puts each Custom slider back at the laptop's stop at once, in place, so
+/// a drag the window lost is dropped and a focused slider keeps the focus.
+pub fn put_back_sliders(window: &MainWindow, view: &PerformanceView) {
+    update_sliders(window, view, |_, _| false);
+}
+
+/// Sets each row that is not `same` as the one shown.
+fn update_sliders(
+    window: &MainWindow,
+    view: &PerformanceView,
+    same: impl Fn(&SliderRow, &SliderRow) -> bool,
+) {
     let rows = window.get_sliders();
     if rows.row_count() != view.sliders.len() {
-        return remake_sliders(window, view);
+        return window.set_sliders(model(slider_rows(view)));
     }
     for (i, row) in slider_rows(view).enumerate() {
-        if !rows.row_data(i).is_some_and(|shown| same_row(&shown, &row)) {
+        if !rows.row_data(i).is_some_and(|shown| same(&shown, &row)) {
             rows.set_row_data(i, row);
         }
     }
 }
 
-/// Rows equal by value: `ModelRc` equals only itself, so the texts are
-/// compared one by one.
+/// Rows equal by value, but for where the slider is: `ModelRc` equals only
+/// itself, so the texts are compared one by one.
 fn same_row(a: &SliderRow, b: &SliderRow) -> bool {
     a.label == b.label
         && a.stops == b.stops
@@ -109,17 +125,12 @@ fn same_row(a: &SliderRow, b: &SliderRow) -> bool {
         && a.texts.iter().eq(b.texts.iter())
 }
 
-/// Makes the Custom slider rows again. New rows drop a drag the old ones
-/// still thought was pressed.
-pub fn remake_sliders(window: &MainWindow, view: &PerformanceView) {
-    window.set_sliders(model(slider_rows(view)));
-}
-
 fn slider_rows(view: &PerformanceView) -> impl Iterator<Item = SliderRow> + '_ {
     view.sliders.iter().map(|slider| SliderRow {
         label: text(slider.label),
         stops: int(slider.stops()),
         position: int(slider.position),
+        value: stop(slider.position),
         text: text(&slider.text),
         texts: model(slider.texts.iter().map(|t| text(t))),
     })
@@ -143,6 +154,12 @@ pub fn keyboard(window: &MainWindow, view: &KeyboardView) {
 
 fn int(value: usize) -> i32 {
     i32::try_from(value).unwrap_or(i32::MAX)
+}
+
+/// A slider stop as the slider's value. Stops are few, so the cap is never
+/// reached.
+fn stop(value: usize) -> f32 {
+    f32::from(u16::try_from(value).unwrap_or(u16::MAX))
 }
 
 fn index(value: i32) -> usize {

@@ -35,15 +35,10 @@ export component PerformanceGroup inherits VerticalLayout {
             padding: 16px;
             padding-left: 52px;
             spacing: 12px;
+            // A change (a send, a preset, the window shown or focused) updates
+            // a row in place, it does not make it again, so a focused slider
+            // keeps the focus.
             for row[index] in root.sliders: HorizontalLayout {
-                // The laptop's stop. A change (a send, a preset) moves the
-                // slider there, even after a release broke its binding: a
-                // change updates the row, it does not make it again, so a
-                // focused slider keeps the focus.
-                property <int> laptop: row.position;
-                changed laptop => {
-                    slider.value = self.laptop;
-                }
                 spacing: 12px;
                 Text {
                     text: row.label;
@@ -55,7 +50,7 @@ export component PerformanceGroup inherits VerticalLayout {
                     minimum: 0;
                     maximum: row.stops - 1;
                     step: 1;
-                    value: row.position;
+                    value <=> row.value;
                     // Sent only when the slider is let go. Then the slider goes
                     // back to what the laptop has, so a release that sends
                     // nothing (the pause after a wake) does not leave it at

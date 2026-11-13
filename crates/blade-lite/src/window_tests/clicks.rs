@@ -2762,12 +2762,9 @@ fn press_key(f: &Fixture, key: slint::platform::Key) {
     window.dispatch_event(WindowEvent::KeyReleased { text });
 }
 
-#[test]
-fn a_custom_slider_keeps_the_focus_after_each_arrow_key() {
-    let f = custom_fixture();
-    let fan = razer_proto::FanMode::Auto;
-    // A click on the handle at level 1 of 0 to 3 focuses the slider and
-    // changes nothing.
+/// Clicks the CPU boost handle at level 1 of 0 to 3, which focuses the
+/// slider and changes nothing.
+fn focus_cpu_boost(f: &Fixture) -> ElementHandle {
     let slider = control(f.shell.window(), Slider, "CPU boost");
     let start = slider.absolute_position();
     let size = slider.size();
@@ -2782,6 +2779,14 @@ fn a_custom_slider_keeps_the_focus_after_each_arrow_key() {
         position: handle,
         button,
     });
+    slider
+}
+
+#[test]
+fn a_custom_slider_keeps_the_focus_after_each_arrow_key() {
+    let f = custom_fixture();
+    let fan = razer_proto::FanMode::Auto;
+    let slider = focus_cpu_boost(&f);
     let before = sent_count(&f);
 
     press_key(&f, slint::platform::Key::RightArrow);
@@ -2794,6 +2799,26 @@ fn a_custom_slider_keeps_the_focus_after_each_arrow_key() {
     );
     shows_cpu_boost(&f, 3);
     assert!(slider.is_valid(), "the rows were made again");
+    // The release's own write-back kept the new stop in the model.
+    let row = f.shell.window().get_sliders().row_data(0).unwrap();
+    assert_eq!((row.position, row.value), (3, 3.0));
+}
+
+#[test]
+fn a_custom_slider_keeps_the_focus_when_the_window_is_focused_again() {
+    let f = custom_fixture();
+    let slider = focus_cpu_boost(&f);
+    let before = sent_count(&f);
+
+    f.shell.on_window_event(&WinitEvent::Focused(true));
+    press_key(&f, slint::platform::Key::RightArrow);
+
+    assert!(slider.is_valid(), "the rows were made again");
+    assert_eq!(
+        sent_since(&f, before),
+        custom_commands(2, razer_proto::FanMode::Auto)
+    );
+    shows_cpu_boost(&f, 2);
 }
 
 #[test]
@@ -2805,13 +2830,38 @@ fn a_custom_slider_follows_a_preset_change_after_its_own_release() {
     slider.mock_drag(left_end, PointerEventButton::Left);
     shows_cpu_boost(&f, 0);
 
-    // The laptop's level changes elsewhere: the slider goes there once the
-    // event loop runs the change handlers.
+    // The laptop's level changes elsewhere: the slider goes there at once.
     f.shell
         .act(|app| app.on_performance(ui::PerformanceCommand::SetCpuBoost(2)));
-    slint::platform::update_timers_and_animations();
 
     shows_cpu_boost(&f, 2);
+}
+
+#[test]
+fn a_refresh_keeps_a_custom_slider_drag_not_yet_let_go() {
+    let f = custom_fixture();
+    let slider = control(f.shell.window(), Slider, "CPU boost");
+    let start = slider.absolute_position();
+    let left_end = LogicalPosition::new(start.x, start.y + slider.size().height / 2.0);
+    let window = f.shell.window().window();
+    let button = PointerEventButton::Left;
+    window.dispatch_event(WindowEvent::PointerPressed {
+        position: left_end,
+        button,
+    });
+    let before = sent_count(&f);
+
+    f.shell.refresh(None);
+
+    assert_eq!(slider.accessible_value().unwrap(), "0");
+    window.dispatch_event(WindowEvent::PointerReleased {
+        position: left_end,
+        button,
+    });
+    assert_eq!(
+        sent_since(&f, before),
+        custom_commands(0, razer_proto::FanMode::Auto)
+    );
 }
 
 #[test]
@@ -2846,7 +2896,15 @@ fn custom_drag_cut_short_is_put_back(come_back: impl FnOnce(&Fixture)) {
     let before = sent_count(&f);
 
     come_back(&f);
-    // Back again: a press elsewhere, let go over the slider.
+    // At once, the same row: no change handler has run.
+    assert!(slider.is_valid(), "the rows were made again");
+    assert_eq!(slider.accessible_value().unwrap(), "1");
+    // Back again: the mouse moves to the left end and a press elsewhere is
+    // let go there.
+    f.shell
+        .window()
+        .window()
+        .dispatch_event(WindowEvent::PointerMoved { position: left_end });
     f.shell
         .window()
         .window()
