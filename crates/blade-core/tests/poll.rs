@@ -300,3 +300,19 @@ fn a_skipped_guard_read_still_waits_the_long_interval() {
     clock.now += HEAT_INTERVAL.saturating_sub(GUARD_HEAT_INTERVAL);
     assert!(schedule.heat_due(clock.now, clock.wall(), GUARD_HEAT_INTERVAL));
 }
+
+#[test]
+fn a_heat_read_made_due_after_a_sleep_runs_at_once() {
+    // Ticket 171: the wake's pause has ended, so the wake is known.
+    let mut clock = FakeClock::new();
+    let mut schedule = PollSchedule::default();
+    assert!(schedule.heat_due(clock.now, clock.wall(), GUARD_HEAT_INTERVAL));
+    clock.now += GUARD_HEAT_INTERVAL;
+    clock.wall_ahead = Duration::from_secs(600);
+
+    schedule.read_heat_now();
+
+    assert!(schedule.heat_due(clock.now, clock.wall(), GUARD_HEAT_INTERVAL));
+    clock.now += GUARD_HEAT_INTERVAL;
+    assert!(schedule.heat_due(clock.now, clock.wall(), GUARD_HEAT_INTERVAL));
+}
