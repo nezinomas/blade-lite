@@ -367,15 +367,29 @@ fn probe_gpu_line<C: Clock>(
     )
 }
 
+/// Whether the GPU probes were asked for (`BLADE_GPU_PROBE=1`; they wake the
+/// GPU and take minutes, so not in every `cargo hw`).
+fn gpu_probe_asked() -> bool {
+    let asked = std::env::var_os("BLADE_GPU_PROBE").is_some_and(|value| value == "1");
+    if !asked {
+        eprintln!("skipped: set BLADE_GPU_PROBE=1 to run it");
+    }
+    asked
+}
+
 /// Ticket 193: does an NVML read on an open handle wake a sleeping GPU?
 /// Starts NVML (a wake), waits up to 30 s for the GPU to sleep, then for
 /// 60 s reads it through NVML each second and its power state (no wake)
 /// ten times a second. Asserts no awake power state after the first sleep.
 /// The controller is not used, but the lock keeps the app from reading too.
 #[test]
-#[ignore = "needs the Blade 18; wakes the GPU about 2 s; about 95 s"]
+#[ignore = "needs the Blade 18 and BLADE_GPU_PROBE=1; wakes the GPU about 2 s; about 95 s"]
 fn an_nvml_read_does_not_wake_a_sleeping_gpu() {
     use platform::Sensors;
+
+    if !gpu_probe_asked() {
+        return;
+    }
 
     hold_lock();
     let mut sensors = platform::WindowsSensors::default();
@@ -410,8 +424,11 @@ fn an_nvml_read_does_not_wake_a_sleeping_gpu() {
 /// start wakes the GPU), then NVML closed and 40 s more with no NVML, while
 /// the GPU falls asleep again.
 #[test]
-#[ignore = "needs the Blade 18; wakes the GPU for about 25 s; about 80 s"]
+#[ignore = "needs the Blade 18 and BLADE_GPU_PROBE=1; wakes the GPU for about 25 s; about 80 s"]
 fn the_second_temperature_field_follows_the_gpu() {
+    if !gpu_probe_asked() {
+        return;
+    }
     let mut device = Device::new(open(), SystemClock);
     let started = std::time::Instant::now();
     let phases = [("left alone", 20, false), ("NVML open", 20, true)];
