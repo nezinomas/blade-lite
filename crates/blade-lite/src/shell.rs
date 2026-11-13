@@ -374,6 +374,9 @@ pub struct Shell<P: Parts = Laptop> {
     /// It counts as one more pause in `resuming`, so nothing is sent until
     /// the wake, which ends it.
     asleep: Cell<bool>,
+    /// Whether the quit preset went at the sleep notice since the last
+    /// wake: if not, a new notice tries it again (ticket 191).
+    sleep_preset_sent: Cell<bool>,
     /// Since a sleep notice: when the ticks' run with no gap began, and
     /// the last tick, by the wall clock (ticket 170).
     awake_run: Cell<Option<(SystemTime, SystemTime)>>,
@@ -444,6 +447,7 @@ impl<P: Parts> Shell<P> {
             stopped_parts: RefCell::new(Vec::new()),
             quit_sent: Cell::new(false),
             asleep: Cell::new(false),
+            sleep_preset_sent: Cell::new(false),
             awake_run: Cell::new(None),
             missed_wake_held: Cell::new(false),
             slept_at: Cell::new(None),
