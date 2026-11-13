@@ -315,6 +315,20 @@ mod tests {
     }
 
     #[test]
+    fn a_timed_out_send_is_not_sent_again_and_drops_the_handle() {
+        const TIMED_OUT: Option<io::ErrorKind> = Some(io::ErrorKind::TimedOut);
+        let (s, mut controller) = setup(&[TIMED_OUT], &[], Duration::ZERO);
+        let error = controller.send_report(&REPORT).unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::TimedOut);
+        // No read on the stalled handle.
+        assert!(not_connected(controller.read_report()));
+        // The next send opens a new handle, held, and is not sent.
+        assert!(not_connected(controller.send_report(&REPORT)));
+        assert!(s.held.get());
+        assert_eq!(*s.log.borrow(), [(0, "send"), (1, "open")]);
+    }
+
+    #[test]
     fn a_short_report_keeps_the_handle() {
         let (s, mut controller) = setup(&[None, SHORT], &[], Duration::ZERO);
         controller.send_report(&REPORT).unwrap();
