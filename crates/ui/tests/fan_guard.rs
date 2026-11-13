@@ -87,6 +87,33 @@ fn a_warm_gpu_keeps_the_guard_on() {
     assert!(guard.on());
 }
 
+/// Laptop check 19B (ticket 175): at full fans a steady GPU load settled at
+/// 74 to 76 °C, 10 °C under its limit, and the guard went off mid-load.
+#[test]
+fn a_gpu_under_load_at_full_fans_keeps_the_guard_on() {
+    let mut guard = FanGuard::default();
+    let (now, _) = feed(&mut guard, Instant::now(), HOT_TIME, Some(70), Some(87));
+    let (_, changes) = feed(&mut guard, now, FAN_GUARD_COOL_HOLD * 5, Some(70), Some(74));
+    assert!(changes.is_empty(), "{changes:?}");
+    assert!(guard.on());
+}
+
+#[test]
+fn the_gpu_is_cool_20_degrees_under_its_limit() {
+    let mut guard = FanGuard::default();
+    let (now, _) = feed(&mut guard, Instant::now(), HOT_TIME, Some(70), Some(87));
+    let (now, changes) = feed(&mut guard, now, FAN_GUARD_COOL_HOLD * 2, Some(70), Some(67));
+    assert!(changes.is_empty(), "{changes:?}");
+    let (_, changes) = feed(
+        &mut guard,
+        now,
+        FAN_GUARD_COOL_HOLD + SECOND,
+        Some(70),
+        Some(66),
+    );
+    assert_eq!(changes, [false]);
+}
+
 #[test]
 fn an_asleep_gpu_does_not_keep_it_on_but_an_unread_cpu_does() {
     let mut guard = FanGuard::default();
