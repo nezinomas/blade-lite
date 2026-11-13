@@ -291,9 +291,15 @@ mod tests {
     fn only_a_shown_topmost_window_of_another_owner_covers() {
         // As a full-screen game that went on top again (ticket 195).
         assert!(covers(true, true, false));
-        assert!(!covers(false, true, false), "a window out of sight covers nothing");
+        assert!(
+            !covers(false, true, false),
+            "a window out of sight covers nothing"
+        );
         assert!(!covers(true, false, false), "a plain window is under it");
-        assert!(!covers(true, true, true), "the popup's own windows are its part");
+        assert!(
+            !covers(true, true, true),
+            "the popup's own windows are its part"
+        );
     }
 
     #[test]
@@ -309,7 +315,10 @@ mod tests {
         assert!(overlap(rect(199, 199, 300, 300), popup), "one corner pixel");
         assert!(!overlap(rect(0, 0, 1, 1), popup), "the corner helper");
         assert!(!overlap(rect(200, 100, 300, 200), popup), "edge to edge");
-        assert!(!overlap(rect(100, 200, 200, 300), popup), "edge to edge below");
+        assert!(
+            !overlap(rect(100, 200, 200, 300), popup),
+            "edge to edge below"
+        );
     }
 
     #[test]
