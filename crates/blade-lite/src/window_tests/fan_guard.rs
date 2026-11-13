@@ -138,7 +138,9 @@ fn failed_gpu_reads_say_nothing_while_razer_software_runs() {
 }
 
 /// A held rate error can't come behind the guard's send: 60 Hz follows
-/// only the battery, where Custom does not run (the App test covers it).
+/// only the battery, where Custom does not run, so such a resend does not
+/// take it (the App test
+/// `a_battery_resend_with_a_held_rate_error_leaves_the_full_speed_unsent`).
 #[test]
 fn a_poll_that_takes_the_guard_s_failed_full_speed_says_so_once() {
     let f = manual_fan();

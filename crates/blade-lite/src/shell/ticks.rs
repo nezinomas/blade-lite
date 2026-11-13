@@ -236,8 +236,8 @@ impl<P: Parts> Shell<P> {
     /// shown (it may not be the preset's), unless a rate error was held
     /// behind that send: it is shown then, with the windows filled again.
     /// A failed one is shown. If the guard's own full-speed send failed,
-    /// its log line said nothing went: a resend that takes it says so,
-    /// even one that shows a held rate error (ticket 163).
+    /// its log line said nothing went: a resend that takes it says so
+    /// (ticket 163).
     fn resend_preset(self: &Rc<Self>) {
         let quiet = self.app.borrow().preset_failures() == self.preset_failures_seen.get();
         if !quiet || !self.heat_reads_allowed() {
