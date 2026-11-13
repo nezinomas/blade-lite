@@ -27,7 +27,7 @@ impl HidTransport {
     /// [`io::ErrorKind::NotFound`] if there is no controller, or any hidapi error.
     pub fn open(model: &ModelProfile) -> io::Result<Self> {
         let mut api = shared_api();
-        let api = api_in(&mut api)?;
+        let api = api_in(&mut api, new_api)?;
         let devices = model_devices(api, &model.usb)?;
         let info = find_controller(&devices, &model.usb)
             .cloned()
@@ -74,7 +74,7 @@ impl HidKeyReports {
         };
         let key = model.power_key.ok_or_else(not_found)?;
         let mut api = shared_api();
-        let api = api_in(&mut api)?;
+        let api = api_in(&mut api, new_api)?;
         let infos = model_devices(api, &model.usb)?;
         let devices: Vec<HidDevice> = find_key_collections(&infos, &model.usb, &key)
             .into_iter()
@@ -170,12 +170,16 @@ fn shared_api() -> MutexGuard<'static, Option<HidApi>> {
     API.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
-/// The context in `slot`, made on first use.
-fn api_in(slot: &mut Option<HidApi>) -> io::Result<&mut HidApi> {
+/// The context in `slot`, made by `make` on first use only.
+fn api_in<T>(slot: &mut Option<T>, make: impl FnOnce() -> io::Result<T>) -> io::Result<&mut T> {
     match slot {
         Some(api) => Ok(api),
-        None => Ok(slot.insert(HidApi::new().map_err(io::Error::other)?)),
+        None => Ok(slot.insert(make()?)),
     }
+}
+
+fn new_api() -> io::Result<HidApi> {
+    HidApi::new().map_err(io::Error::other)
 }
 
 /// The HID device list: hidapi's, or a fake in the tests.
@@ -488,6 +492,30 @@ mod tests {
             assert_eq!(error.kind(), io::ErrorKind::InvalidInput);
             assert_eq!(list.asked, []);
         }
+    }
+
+    #[test]
+    fn the_context_is_made_once() {
+        let mut slot = None;
+        let mut made = 0;
+
+        for _ in 0..2 {
+            api_in(&mut slot, || {
+                made += 1;
+                Ok(made)
+            })
+            .unwrap();
+        }
+
+        assert_eq!(made, 1);
+    }
+
+    #[test]
+    fn a_context_that_failed_is_made_again() {
+        let mut slot: Option<u8> = None;
+
+        assert!(api_in(&mut slot, || Err(io::Error::other("no HID"))).is_err());
+        assert_eq!(*api_in(&mut slot, || Ok(7)).unwrap(), 7);
     }
 
     #[test]
