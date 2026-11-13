@@ -477,21 +477,22 @@ fn refuse_unknown_state(before: &[Vec<u8>]) {
     use razer_proto::{BLADE_18, CpuBoost, GpuBoost};
 
     let zones = BLADE_18.perf_zones;
+    // The callers and the put-back slice the state as 4 modes, 2 boosts
+    // and 2 fan targets.
     assert!(
-        before.len() == zones.len() + CLUSTERS.len() + FANS.len(),
+        zones.len() == 4 && before.len() == zones.len() + CLUSTERS.len() + FANS.len(),
         "state {before:02X?} not understood: not run"
     );
     let bytes = BLADE_18.mode_bytes;
-    let modes = [
-        bytes.silent,
-        bytes.balanced,
-        bytes.performance,
-        BLADE_18.custom.mode,
-    ];
+    let custom = BLADE_18.custom.mode;
+    let presets = [bytes.silent, bytes.balanced, bytes.performance];
     for (args, &zone) in before[..4].iter().zip(zones) {
+        // A manual fan byte only with Custom, as the app and the open-source
+        // tools send it.
         assert!(
-            matches!(args[..], [1, echoed, mode, FAN_AUTO | FAN_MANUAL]
-                if echoed == zone && modes.contains(&mode)),
+            matches!(args[..], [1, echoed, mode, fan] if echoed == zone
+                && ((presets.contains(&mode) && fan == FAN_AUTO)
+                    || (mode == custom && matches!(fan, FAN_AUTO | FAN_MANUAL)))),
             "zone {zone} mode reply {args:02X?} not understood: not run"
         );
     }
@@ -507,11 +508,14 @@ fn refuse_unknown_state(before: &[Vec<u8>]) {
     }
     let range = BLADE_18.custom.fan_rpm;
     for (args, fan) in before[6..8].iter().zip(FANS) {
+        let [1, echoed, hundreds] = args[..] else {
+            panic!("fan {fan} target reply {args:02X?} not understood: not run");
+        };
         assert!(
-            args.len() >= 3 && args[0] == 1 && args[1] == fan,
+            echoed == fan,
             "fan {fan} target reply {args:02X?} not understood: not run"
         );
-        let rpm = u16::from(args[2]) * 100;
+        let rpm = u16::from(hundreds) * 100;
         assert!(
             (range.min..=range.max).contains(&rpm),
             "fan target {rpm} RPM is outside the model's range: not run"
@@ -1178,4 +1182,16 @@ fn a_boost_reply_of_another_length_is_refused() {
 #[should_panic(expected = "outside the model's range")]
 fn a_fan_target_outside_the_range_is_still_refused() {
     refuse_unknown_state(&state_with(6, &[1, 1, 0]));
+}
+
+#[test]
+#[should_panic(expected = "zone 1 mode reply")]
+fn a_manual_fan_byte_outside_custom_is_refused() {
+    refuse_unknown_state(&state_with(0, &[1, 1, 0x00, 0x01]));
+}
+
+#[test]
+#[should_panic(expected = "fan 1 target reply")]
+fn a_fan_target_reply_of_another_length_is_refused() {
+    refuse_unknown_state(&state_with(6, &[1, 1, 35, 0]));
 }
