@@ -192,9 +192,15 @@ impl<P: Parts> Shell<P> {
                         return;
                     }
                     let first = shell.look_for_razer();
-                    // This start covers an updater that just ended, and an
-                    // older pause that left its work to this one.
-                    shell.updater_ended.set(false);
+                    if first {
+                        shell.show_window();
+                    }
+                    // An updater that just ended: its own pause sends.
+                    if shell.wait_for_updater() {
+                        return;
+                    }
+                    // This start covers an older pause that left its work
+                    // to this one.
                     shell.redo_at_wake.set(false);
                     P::release_controller();
                     shell.controller_gone.set(false);
@@ -207,9 +213,6 @@ impl<P: Parts> Shell<P> {
                     // As the wake: an unknown source runs the battery presets.
                     shell.app.borrow_mut().take_on_battery(P::on_battery());
                     shell.act(AppOn::<P>::start);
-                    if first {
-                        shell.show_window();
-                    }
                 });
                 true
             }
@@ -606,7 +609,15 @@ impl<P: Parts> Shell<P> {
 
     /// The end of the last pause after a wake (the wake's own, or an open
     /// again begun in it): sends the saved settings.
-    fn end_wake_pause(self: &Rc<Self>) {
+    pub(super) fn end_wake_pause(self: &Rc<Self>) {
+        let first = self.look_for_razer();
+        if first {
+            self.show_window();
+        }
+        // An updater that just ended: its own pause sends.
+        if self.wait_for_updater() {
+            return;
+        }
         self.wake_due.set(false);
         self.woke.set(true);
         {
@@ -616,9 +627,6 @@ impl<P: Parts> Shell<P> {
             // power event may come after this resume.
             app.take_on_battery(P::on_battery());
         }
-        let first = self.look_for_razer();
-        // This send covers an updater that just ended.
-        self.updater_ended.set(false);
         // An open again or an updater whose pause ended in the sleep or
         // a newer pause: what it left for the wake.
         if self.redo_at_wake.take() {
@@ -630,9 +638,6 @@ impl<P: Parts> Shell<P> {
         // The wake is known now: the fan guard reads at the next tick, not
         // one skipped as late by the sleep and 10 s more (ticket 171).
         self.schedule.borrow_mut().read_heat_now();
-        if first {
-            self.show_window();
-        }
     }
 
     /// Windows says the laptop goes to sleep or hibernates (ticket 169).

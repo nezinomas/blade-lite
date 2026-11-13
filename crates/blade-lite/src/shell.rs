@@ -340,8 +340,9 @@ pub struct Shell<P: Parts = Laptop> {
     slept_at: Cell<Option<SystemTime>>,
     woke: Cell<bool>,
     /// Whether the pause of an open again or an updater ended in a sleep
-    /// or a newer pause, so the last pause's end releases the handle and
-    /// reads the firmware again too.
+    /// or a newer pause, or a last pause's end left its work to an
+    /// updater's own pause (ticket 179), so the last pause's end releases
+    /// the handle and reads the firmware again too.
     redo_at_wake: Cell<bool>,
     /// Whether a wake's settings are still to go: the last pause sends
     /// them, whatever pause it is (ticket 162).

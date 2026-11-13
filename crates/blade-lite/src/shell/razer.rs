@@ -61,7 +61,7 @@ impl<P: Parts> Shell<P> {
     /// After a Razer updater ended: waits the wake's pause, as the
     /// controller may restart, then reads the firmware again (the update may
     /// have changed it) and sends every setting again. Not in a pause: the
-    /// last pause's send covers it.
+    /// last pause's end begins it (see [`Self::wait_for_updater`]).
     pub(super) fn start_after_updater(self: &Rc<Self>) {
         if self.resuming.get() > 0 || !self.updater_ended.take() {
             return;
@@ -76,6 +76,16 @@ impl<P: Parts> Shell<P> {
                 shell.redo_at_wake.set(true);
                 return;
             }
+            // Begun at a wake's end: the wake's end now (ticket 179).
+            if shell.wake_due.get() {
+                shell.end_wake_pause();
+                return;
+            }
+            // Begun at an open again's end: its release (ticket 179).
+            if shell.redo_at_wake.take() {
+                P::release_controller();
+                shell.controller_gone.set(false);
+            }
             shell.app.borrow_mut().check_firmware();
             // A power event in the pause was dropped.
             shell.follow_source();
@@ -85,6 +95,20 @@ impl<P: Parts> Shell<P> {
             // guard reads at the next tick, not one skipped as late (171).
             shell.schedule.borrow_mut().read_heat_now();
         });
+    }
+
+    /// At the last pause's end, after its look: an updater found ended in
+    /// that pause or by that look gets its own full pause, as the update may
+    /// have reset the controller just now (ticket 179). The updater's end
+    /// then does this pause's work too (a wake's send, a release and a
+    /// firmware read). True if it began, so the caller sends nothing.
+    pub(super) fn wait_for_updater(self: &Rc<Self>) -> bool {
+        if !self.updater_ended.get() {
+            return false;
+        }
+        self.redo_at_wake.set(true);
+        self.start_after_updater();
+        true
     }
 
     /// Reads the firmware again if the last read failed (such as a
