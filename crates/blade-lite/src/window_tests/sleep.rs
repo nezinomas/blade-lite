@@ -10,8 +10,8 @@ use platform::PowerEvent;
 use razer_proto::{BLADE_18, Command, FirmwareVersion, PerfMode};
 
 use super::{
-    FAKE_INPUT_AGE, FAKE_ON_BATTERY, FAKE_RELEASED, FAKE_REOPENED, FAKE_SLEEP_NOTICE_LATE, Fixture,
-    click, fixture, fixture_with_programs, log_path,
+    FAKE_INPUT_AGE, FAKE_LID_OPEN, FAKE_ON_BATTERY, FAKE_RELEASED, FAKE_REOPENED, FAKE_SCREEN_ON,
+    FAKE_SLEEP_NOTICE_LATE, Fixture, click, fixture, fixture_with_programs, log_path,
 };
 use crate::shell::Reopened;
 
@@ -806,6 +806,61 @@ fn input_in_the_first_30_s_after_the_notice_does_not_count() {
     pause_ends();
 
     assert_eq!(sent_since(&f, before), []);
+}
+
+/// Whether a minute of running with input after a sleep notice, with the
+/// lid and the screen as given, counts as a wake.
+fn a_missed_wake_with(lid_open: Option<bool>, screen_on: Option<bool>) -> bool {
+    let f = fixture(manual_fan());
+    asleep_with_input(&f);
+    FAKE_LID_OPEN.set(lid_open);
+    FAKE_SCREEN_ON.set(screen_on);
+    let before = sent_count(&f);
+
+    tick_for(&f, SystemTime::now(), 60);
+    pause_ends();
+
+    sets_a_manual_fan(&sent_since(&f, before))
+}
+
+#[test]
+fn with_the_lid_shut_and_the_screen_off_input_does_not_count() {
+    // An external mouse, or a program that injects input, with the lid
+    // shut on a game whose hibernate failed (ticket 184).
+    assert!(!a_missed_wake_with(Some(false), Some(false)));
+    assert!(logged(&["lid shut, screen off", "so the sleep goes on"]));
+}
+
+#[test]
+fn the_lid_open_with_the_screen_off_lets_input_count() {
+    assert!(a_missed_wake_with(Some(true), Some(false)));
+    assert!(logged(&["lid open, screen off", "counts as a wake"]));
+}
+
+#[test]
+fn the_screen_on_with_the_lid_shut_lets_input_count() {
+    // Such as an external screen.
+    assert!(a_missed_wake_with(Some(false), Some(true)));
+}
+
+#[test]
+fn the_lid_open_with_the_screen_not_known_lets_input_count() {
+    assert!(a_missed_wake_with(Some(true), None));
+}
+
+#[test]
+fn neither_known_does_not_let_input_count() {
+    assert!(!a_missed_wake_with(None, None));
+}
+
+#[test]
+fn the_lid_shut_with_the_screen_not_known_does_not_let_input_count() {
+    assert!(!a_missed_wake_with(Some(false), None));
+}
+
+#[test]
+fn the_screen_off_with_the_lid_not_known_does_not_let_input_count() {
+    assert!(!a_missed_wake_with(None, Some(false)));
 }
 
 #[test]

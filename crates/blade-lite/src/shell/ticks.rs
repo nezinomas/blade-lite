@@ -41,6 +41,16 @@ const TICK_GAP: Duration = Duration::from_secs(5);
 /// let input from before the notice in.
 const INPUT_GRACE: Duration = Duration::from_secs(30);
 
+/// What Windows said of the lid or the screen, for the log: `yes` or `no`,
+/// or "not known" if it said nothing.
+fn said(state: Option<bool>, yes: &'static str, no: &'static str) -> &'static str {
+    match state {
+        Some(true) => yes,
+        Some(false) => no,
+        None => "not known",
+    }
+}
+
 /// A sleep at least this long by the wall clock lets the fan guard end its
 /// full speed after a short cool hold (ticket 172): the chips cooled in it.
 const LONG_SLEEP: Duration = Duration::from_mins(5);
@@ -535,7 +545,11 @@ impl<P: Parts> Shell<P> {
     /// on a game whose hibernate failed, the sleep goes on: the quit
     /// preset runs and nothing is sent, the safe side. A clock set back or
     /// an unknown input time does the same. Input another program injects
-    /// counts too (Windows' last-input time can't tell it apart).
+    /// counts too (Windows' last-input time can't tell it apart), as does
+    /// an external mouse or keyboard, so the lid must also be open or the
+    /// screen on, by Windows' last notices (ticket 184): with the lid shut
+    /// and the screen off, or neither known, the sleep goes on, logged once
+    /// per sleep notice.
     fn follow_missed_wake(self: &Rc<Self>, wall: SystemTime) {
         if !self.asleep.get() {
             return;
@@ -550,16 +564,31 @@ impl<P: Parts> Shell<P> {
         let Ok(ran) = wall.duration_since(began) else {
             return;
         };
-        if ran >= MISSED_WAKE_AFTER
-            && P::input_age().is_some_and(|age| age.saturating_add(INPUT_GRACE) < ran)
+        if ran < MISSED_WAKE_AFTER
+            || P::input_age().is_none_or(|age| age.saturating_add(INPUT_GRACE) >= ran)
         {
-            report(
-                "the app has run for a minute since Windows said the laptop sleeps, with input from the user and no wake notice, so this counts as a wake: the settings go again after the pause",
-            );
-            // The sleep failed: the chips did not cool (ticket 172).
-            self.slept_at.set(None);
-            self.wake();
+            return;
         }
+        let (lid_open, screen_on) = (P::lid_open(), P::screen_on());
+        let seen = format!(
+            "lid {}, screen {}",
+            said(lid_open, "open", "shut"),
+            said(screen_on, "on", "off")
+        );
+        if lid_open != Some(true) && screen_on != Some(true) {
+            if !self.missed_wake_held.replace(true) {
+                report(&format!(
+                    "the app has run for a minute since Windows said the laptop sleeps, with input from the user and no wake notice, but not with the lid open or the screen on ({seen}), so the sleep goes on: nothing is sent"
+                ));
+            }
+            return;
+        }
+        report(&format!(
+            "the app has run for a minute since Windows said the laptop sleeps, with input from the user and no wake notice ({seen}), so this counts as a wake: the settings go again after the pause"
+        ));
+        // The sleep failed: the chips did not cool (ticket 172).
+        self.slept_at.set(None);
+        self.wake();
     }
 
     /// At the first tick after a wake's pause, measures the sleep by the
@@ -672,6 +701,7 @@ impl<P: Parts> Shell<P> {
         // A notice while asleep (the last sleep had no wake notice) starts
         // the minute to a missed wake again; nothing was sent since the last.
         self.awake_run.set(None);
+        self.missed_wake_held.set(false);
         // From the last notice: the app ran since an earlier one.
         self.slept_at.set(Some(SystemTime::now()));
         self.woke.set(false);

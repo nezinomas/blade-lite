@@ -87,6 +87,14 @@ impl Parts for Fakes {
     fn input_age() -> Option<std::time::Duration> {
         FAKE_INPUT_AGE.get()
     }
+
+    fn lid_open() -> Option<bool> {
+        FAKE_LID_OPEN.get()
+    }
+
+    fn screen_on() -> Option<bool> {
+        FAKE_SCREEN_ON.get()
+    }
 }
 
 thread_local! {
@@ -112,6 +120,10 @@ thread_local! {
     pub static FAKE_SLEEP_NOTICE_LATE: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
     /// How long ago the user last gave input: unknown unless a test sets it.
     pub static FAKE_INPUT_AGE: std::cell::Cell<Option<std::time::Duration>> = const { std::cell::Cell::new(None) };
+    /// Whether the lid is open: open unless a test sets it.
+    pub static FAKE_LID_OPEN: std::cell::Cell<Option<bool>> = const { std::cell::Cell::new(Some(true)) };
+    /// Whether the screen is on: on unless a test sets it.
+    pub static FAKE_SCREEN_ON: std::cell::Cell<Option<bool>> = const { std::cell::Cell::new(Some(true)) };
     /// What the GPU reads: asleep unless a test sets it.
     pub static FAKE_GPU: std::cell::Cell<FakeGpu> = const { std::cell::Cell::new(FakeGpu::Asleep) };
     /// The file dialogs shown.
