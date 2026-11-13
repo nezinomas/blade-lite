@@ -306,9 +306,15 @@ fn a_heat_read_made_due_after_a_sleep_runs_at_once() {
     // Ticket 171: the wake's pause has ended, so the wake is known.
     let mut clock = FakeClock::new();
     let mut schedule = PollSchedule::default();
+    let mut without = PollSchedule::default();
     assert!(schedule.heat_due(clock.now, clock.wall(), GUARD_HEAT_INTERVAL));
+    assert!(without.heat_due(clock.now, clock.wall(), GUARD_HEAT_INTERVAL));
     clock.now += GUARD_HEAT_INTERVAL;
     clock.wall_ahead = Duration::from_secs(600);
+    assert!(
+        !without.heat_due(clock.now, clock.wall(), GUARD_HEAT_INTERVAL),
+        "skipped without it"
+    );
 
     schedule.read_heat_now();
 

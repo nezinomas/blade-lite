@@ -684,7 +684,8 @@ fn sends_full_speed(sent: &[Command]) -> bool {
 }
 
 /// A heat read, then a sleep and a wake an hour later by the wall clock,
-/// with the CPU hot since. Returns the time of the read.
+/// with the CPU hot since. Returns the `Instant` of the read and the wall
+/// clock at the wake.
 fn hot_after_an_hour_asleep(f: &Fixture) -> (std::time::Instant, SystemTime) {
     let now = std::time::Instant::now();
     let wall = SystemTime::now();
