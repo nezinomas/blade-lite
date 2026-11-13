@@ -203,6 +203,8 @@ fn each_preset_is_set_and_read_back_and_the_old_one_restored() {
 
     let mut device = Device::new(open(), SystemClock);
     let before = preset_args(&mut device);
+    // The put-back writes the replies as read.
+    refuse_unknown_modes(&before);
 
     let read_back: Vec<_> = [PerfMode::Silent, PerfMode::Balanced, PerfMode::Performance]
         .into_iter()
@@ -467,12 +469,36 @@ fn a_custom_mode_write_alone_and_what_the_fans_do() {
     assert!(last.iter().all(|args| args[2] > 0), "{last:02X?}");
 }
 
+/// Refuses to run when the mode replies read before a test are not ones
+/// the put-back can safely write: one per zone, each echoing its zone, with
+/// a preset the model offers on auto fans, or Custom on auto or manual fans
+/// (a manual fan byte only with Custom, as the app and the open-source
+/// tools send it).
+fn refuse_unknown_modes(modes: &[Vec<u8>]) {
+    use razer_proto::{BLADE_18, PerfMode};
+
+    let zones = BLADE_18.perf_zones;
+    assert!(
+        modes.len() == zones.len(),
+        "mode replies {modes:02X?} not understood: not run"
+    );
+    let custom = BLADE_18.custom.mode;
+    for (args, &zone) in modes.iter().zip(zones) {
+        let preset = PerfMode::from_reply(&BLADE_18, zone, args).is_some();
+        assert!(
+            matches!(args[..], [1, echoed, mode, fan] if echoed == zone
+                && ((preset && fan == FAN_AUTO)
+                    || (mode == custom && matches!(fan, FAN_AUTO | FAN_MANUAL)))),
+            "zone {zone} mode reply {args:02X?} not understood: not run"
+        );
+    }
+}
+
 /// Refuses to run when the state read before the test is not one the
-/// put-back can safely write: each mode reply must echo its zone and hold a
-/// mode the model offers and an auto or manual fan byte, each boost reply
-/// must echo its cluster and hold a level the model takes, and each fan
-/// target must be in the model's range (0 would stop the fans: the
-/// put-back writes it while the fans are still manual).
+/// put-back can safely write: the modes as [`refuse_unknown_modes`] takes
+/// them, each boost reply must echo its cluster and hold a level the model
+/// takes, and each fan target must be in the model's range (0 would stop
+/// the fans: the put-back writes it while the fans are still manual).
 fn refuse_unknown_state(before: &[Vec<u8>]) {
     use razer_proto::{BLADE_18, CpuBoost, GpuBoost};
 
@@ -483,19 +509,7 @@ fn refuse_unknown_state(before: &[Vec<u8>]) {
         zones.len() == 4 && before.len() == zones.len() + CLUSTERS.len() + FANS.len(),
         "state {before:02X?} not understood: not run"
     );
-    let bytes = BLADE_18.mode_bytes;
-    let custom = BLADE_18.custom.mode;
-    let presets = [bytes.silent, bytes.balanced, bytes.performance];
-    for (args, &zone) in before[..4].iter().zip(zones) {
-        // A manual fan byte only with Custom, as the app and the open-source
-        // tools send it.
-        assert!(
-            matches!(args[..], [1, echoed, mode, fan] if echoed == zone
-                && ((presets.contains(&mode) && fan == FAN_AUTO)
-                    || (mode == custom && matches!(fan, FAN_AUTO | FAN_MANUAL)))),
-            "zone {zone} mode reply {args:02X?} not understood: not run"
-        );
-    }
+    refuse_unknown_modes(&before[..4]);
     let boosts: [fn(u8) -> bool; 2] = [
         |level| CpuBoost::new(level, &BLADE_18).is_ok(),
         |level| GpuBoost::new(level, &BLADE_18).is_ok(),
@@ -1194,4 +1208,47 @@ fn a_manual_fan_byte_outside_custom_is_refused() {
 #[should_panic(expected = "fan 1 target reply")]
 fn a_fan_target_reply_of_another_length_is_refused() {
     refuse_unknown_state(&state_with(6, &[1, 1, 35, 0]));
+}
+
+#[test]
+#[should_panic(expected = "zone 1 mode reply")]
+fn a_mode_reply_of_another_storage_is_refused() {
+    refuse_unknown_state(&state_with(0, &[0, 1, 0x00, 0x00]));
+}
+
+#[test]
+#[should_panic(expected = "zone 4 mode reply")]
+fn a_later_zone_that_does_not_echo_is_refused() {
+    refuse_unknown_state(&state_with(3, &[1, 3, 0x00, 0x00]));
+}
+
+#[test]
+#[should_panic(expected = "cluster 2 boost reply")]
+fn a_boost_reply_of_another_storage_is_refused() {
+    refuse_unknown_state(&state_with(5, &[0, 2, 1]));
+}
+
+#[test]
+#[should_panic(expected = "fan 1 target reply")]
+fn a_fan_target_reply_for_another_fan_is_refused() {
+    refuse_unknown_state(&state_with(6, &[1, 2, 35]));
+}
+
+#[test]
+fn the_preset_test_puts_back_only_known_modes() {
+    refuse_unknown_modes(&sane_state()[..4]);
+}
+
+#[test]
+#[should_panic(expected = "zone 1 mode reply")]
+fn the_preset_test_refuses_an_unknown_mode() {
+    let mut modes = sane_state()[..4].to_vec();
+    modes[0] = vec![1, 1, 0x07, 0x00];
+    refuse_unknown_modes(&modes);
+}
+
+#[test]
+#[should_panic(expected = "not run")]
+fn the_preset_test_refuses_a_missing_zone() {
+    refuse_unknown_modes(&sane_state()[..3]);
 }
