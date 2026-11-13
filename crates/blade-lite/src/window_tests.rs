@@ -83,6 +83,10 @@ impl Parts for Fakes {
     fn sleep_notice_waits() -> bool {
         !FAKE_SLEEP_NOTICE_LATE.get()
     }
+
+    fn input_age() -> Option<std::time::Duration> {
+        FAKE_INPUT_AGE.get()
+    }
 }
 
 thread_local! {
@@ -106,6 +110,8 @@ thread_local! {
     /// Whether Windows stopped waiting for the last sleep notice before the
     /// app read it: it waits unless a test sets it.
     pub static FAKE_SLEEP_NOTICE_LATE: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    /// How long ago the user last gave input: unknown unless a test sets it.
+    pub static FAKE_INPUT_AGE: std::cell::Cell<Option<std::time::Duration>> = const { std::cell::Cell::new(None) };
     /// What the GPU reads: asleep unless a test sets it.
     pub static FAKE_GPU: std::cell::Cell<FakeGpu> = const { std::cell::Cell::new(FakeGpu::Asleep) };
     /// The file dialogs shown.
@@ -229,6 +235,7 @@ pub fn fixture_with_programs(config: Config, programs: &[&str]) -> Fixture {
     FAKE_HOLD.set(false);
     FAKE_HELD.take();
     FAKE_SLEEP_NOTICE_LATE.set(false);
+    FAKE_INPUT_AGE.set(None);
     FAKE_GPU.set(FakeGpu::Asleep);
     let (mut app, dir, _) = app_on(&BLADE_18, config);
     let controller = &mut app.machine_mut().controller.inner;

@@ -66,6 +66,8 @@ pub trait Parts: 'static {
     /// notice. If not, the app may have been frozen and thawed since, so a
     /// send for it could reach a controller that just woke (ticket 169).
     fn sleep_notice_waits() -> bool;
+    /// How long ago the user last gave input. `None` if it can't be told.
+    fn input_age() -> Option<Duration>;
 }
 
 /// What [`Parts::pick_file`] calls with the user's answer.
@@ -170,6 +172,10 @@ impl Parts for Laptop {
 
     fn sleep_notice_waits() -> bool {
         crate::background::sleep_notice_waits()
+    }
+
+    fn input_age() -> Option<Duration> {
+        platform::input_age()
     }
 
     fn toggle_mic_mute() -> Option<bool> {

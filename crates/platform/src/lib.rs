@@ -26,7 +26,7 @@ pub use backdrop::{hide_caption_buttons, round_corners, set_mica};
 pub use display::WindowsDisplays;
 pub use files::{FileDialog, pick_file};
 pub use instance::{WakeListener, WindowsInstance};
-pub use keys::{WindowsKeys, enter_down, mic_keys_down, num_lock_on};
+pub use keys::{WindowsKeys, enter_down, input_age, mic_keys_down, num_lock_on};
 pub use message::{ask_yes_no, show_error};
 pub use mic::{mic_muted, toggle_mic_mute};
 pub use popup::{raise_topmost, work_area, work_area_at};

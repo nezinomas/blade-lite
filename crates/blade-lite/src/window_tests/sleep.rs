@@ -2,7 +2,7 @@
 //! again (ticket 169): on Modern Standby the controller stays powered and
 //! would run a manual fan on in the sleep.
 
-use std::time::Duration;
+use std::time::{Duration, SystemTime};
 
 use blade_core::{Config, Preset, RESUME_PAUSE};
 use i_slint_backend_testing::AccessibleRole::Button;
@@ -10,8 +10,8 @@ use platform::PowerEvent;
 use razer_proto::{BLADE_18, Command, FirmwareVersion, PerfMode};
 
 use super::{
-    FAKE_ON_BATTERY, FAKE_RELEASED, FAKE_REOPENED, FAKE_SLEEP_NOTICE_LATE, Fixture, click, fixture,
-    fixture_with_programs, log_path,
+    FAKE_INPUT_AGE, FAKE_ON_BATTERY, FAKE_RELEASED, FAKE_REOPENED, FAKE_SLEEP_NOTICE_LATE, Fixture,
+    click, fixture, fixture_with_programs, log_path,
 };
 use crate::shell::Reopened;
 
@@ -469,7 +469,7 @@ fn two_wakes_under_the_pause_apart_send_once() {
 }
 
 /// Ticks each second from `wall` for `seconds`, as a running app does.
-fn tick_for(f: &Fixture, wall: std::time::SystemTime, seconds: u64) {
+fn tick_for(f: &Fixture, wall: SystemTime, seconds: u64) {
     let now = std::time::Instant::now();
     for second in 0..=seconds {
         f.shell.tick_at(
@@ -479,12 +479,18 @@ fn tick_for(f: &Fixture, wall: std::time::SystemTime, seconds: u64) {
     }
 }
 
+/// A sleep notice, then input from the user a second ago from now on.
+fn asleep_with_input(f: &Fixture) {
+    power(f, &[PowerEvent::Suspending]);
+    FAKE_INPUT_AGE.set(Some(Duration::from_secs(1)));
+}
+
 #[test]
-fn a_minute_of_running_with_no_wake_notice_counts_as_a_wake() {
+fn a_minute_of_running_and_input_with_no_wake_notice_counts_as_a_wake() {
     let f = fixture(manual_fan());
-    power(&f, &[PowerEvent::Suspending]);
+    asleep_with_input(&f);
     let before = sent_count(&f);
-    let wall = std::time::SystemTime::now();
+    let wall = SystemTime::now();
 
     tick_for(&f, wall, 59);
     assert_eq!(sent_since(&f, before), [], "not before a minute");
@@ -493,33 +499,84 @@ fn a_minute_of_running_with_no_wake_notice_counts_as_a_wake() {
     pause_ends();
 
     assert!(sets_a_manual_fan(&sent_since(&f, before)));
-    assert!(logged(&["with no wake notice", "counts as a wake"]));
+    assert!(logged(&[
+        "input from the user and no wake notice",
+        "counts as a wake"
+    ]));
+}
+
+#[test]
+fn with_no_input_since_the_notice_the_sleep_goes_on() {
+    let f = fixture(manual_fan());
+    power(&f, &[PowerEvent::Suspending]);
+    let before = sent_count(&f);
+    let wall = SystemTime::now();
+
+    // Unknown, then older than the run: the lid may be shut on a game.
+    tick_for(&f, wall, 120);
+    FAKE_INPUT_AGE.set(Some(Duration::from_secs(200)));
+    tick_for(&f, wall + Duration::from_secs(121), 60);
+    pause_ends();
+
+    assert_eq!(sent_since(&f, before), []);
+    let error = {
+        click(f.shell.window(), Button, "Performance");
+        f.shell.window().get_error()
+    };
+    assert!(error.contains("has not said it woke"), "{error}");
 }
 
 #[test]
 fn a_gap_in_the_ticks_starts_the_minute_again() {
     let f = fixture(manual_fan());
-    power(&f, &[PowerEvent::Suspending]);
+    asleep_with_input(&f);
     let before = sent_count(&f);
-    let wall = std::time::SystemTime::now();
+    let wall = SystemTime::now();
 
     // Frozen for 10 min in the sleep, then 59 s of ticks.
     tick_for(&f, wall, 30);
     tick_for(&f, wall + Duration::from_secs(630), 59);
-    pause_ends();
-    assert_eq!(sent_since(&f, before), []);
-    // A clock set back starts it again too.
-    tick_for(&f, wall, 59);
     pause_ends();
 
     assert_eq!(sent_since(&f, before), []);
 }
 
 #[test]
+fn a_clock_set_back_starts_the_minute_again() {
+    let f = fixture(manual_fan());
+    asleep_with_input(&f);
+    let before = sent_count(&f);
+    let wall = SystemTime::now();
+
+    tick_for(&f, wall, 40);
+    tick_for(&f, wall + Duration::from_secs(38), 32);
+    pause_ends();
+
+    assert_eq!(sent_since(&f, before), []);
+}
+
+#[test]
+fn ticks_5_s_apart_are_one_run() {
+    let f = fixture(manual_fan());
+    asleep_with_input(&f);
+    let before = sent_count(&f);
+    let wall = SystemTime::now();
+    let now = std::time::Instant::now();
+
+    for step in 0..=12 {
+        let gap = Duration::from_secs(5 * step);
+        f.shell.tick_at(now + gap, wall + gap);
+    }
+    pause_ends();
+
+    assert!(sets_a_manual_fan(&sent_since(&f, before)));
+}
+
+#[test]
 fn a_new_sleep_notice_starts_the_minute_again() {
     let f = fixture(manual_fan());
-    power(&f, &[PowerEvent::Suspending]);
-    let wall = std::time::SystemTime::now();
+    asleep_with_input(&f);
+    let wall = SystemTime::now();
     tick_for(&f, wall, 60);
     pause_ends();
     power(&f, &[PowerEvent::Suspending]);
@@ -534,9 +591,9 @@ fn a_new_sleep_notice_starts_the_minute_again() {
 #[test]
 fn a_sleep_notice_while_asleep_starts_the_minute_again() {
     let f = fixture(manual_fan());
-    power(&f, &[PowerEvent::Suspending]);
+    asleep_with_input(&f);
     let before = sent_count(&f);
-    let wall = std::time::SystemTime::now();
+    let wall = SystemTime::now();
     tick_for(&f, wall, 55);
 
     // A real sleep after one that Windows cancelled with no wake notice.
@@ -545,4 +602,18 @@ fn a_sleep_notice_while_asleep_starts_the_minute_again() {
     pause_ends();
 
     assert_eq!(sent_since(&f, before), []);
+}
+
+#[test]
+fn a_wake_notice_after_the_missed_one_sends_the_settings_once_more() {
+    let f = fixture(manual_fan());
+    asleep_with_input(&f);
+    tick_for(&f, SystemTime::now(), 60);
+    pause_ends();
+    let before = sent_count(&f);
+
+    power(&f, &[PowerEvent::Resumed]);
+    pause_ends();
+
+    assert!(sets_a_manual_fan(&sent_since(&f, before)));
 }

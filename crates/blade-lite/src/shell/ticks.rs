@@ -24,10 +24,11 @@ const GONE_KEY: &str = "controller closed or held";
 /// (ticket 173; on the laptop 2 s worked).
 const FAN_TARGETS_AGAIN: Duration = Duration::from_secs(2);
 
-/// How long the app runs on after a sleep notice with no wake notice
-/// before that counts as a wake (ticket 170). Windows freezes the app a
-/// few seconds after the notice, so a minute of ticks means it is not
-/// asleep.
+/// How long the app runs on after a sleep notice with no wake notice,
+/// with input from the user in that time, before that counts as a wake
+/// (ticket 170). Windows freezes the app a few seconds after the notice,
+/// so a minute of ticks means it is likely not asleep; the input makes
+/// sure.
 const MISSED_WAKE_AFTER: Duration = Duration::from_secs(60);
 
 /// The longest wall-clock gap between two ticks that still counts as one
@@ -500,10 +501,12 @@ impl<P: Parts> Shell<P> {
 
     /// After a sleep notice, counts a run of ticks of
     /// [`MISSED_WAKE_AFTER`] with no gap over [`TICK_GAP`] (wall clock,
-    /// which counts a freeze) as a wake: Windows may send no wake notice,
-    /// such as for a sleep that turns into a hibernate (Microsoft's
-    /// `PBT_APMRESUMEAUTOMATIC` page). A clock set back starts the run
-    /// again, the safe side.
+    /// which counts a freeze), and input from the user in that run, as a
+    /// wake: a failed or cancelled sleep may bring no wake notice (not
+    /// documented, a safety net). With no input, such as with the lid shut
+    /// on a game whose hibernate failed, the sleep goes on: the quit
+    /// preset runs and nothing is sent, the safe side. A clock set back or
+    /// an unknown input time does the same.
     fn follow_missed_wake(self: &Rc<Self>, wall: SystemTime) {
         if !self.asleep.get() {
             return;
@@ -515,12 +518,12 @@ impl<P: Parts> Shell<P> {
             _ => wall,
         };
         self.awake_run.set(Some((began, wall)));
-        if wall
-            .duration_since(began)
-            .is_ok_and(|ran| ran >= MISSED_WAKE_AFTER)
-        {
+        let Ok(ran) = wall.duration_since(began) else {
+            return;
+        };
+        if ran >= MISSED_WAKE_AFTER && P::input_age().is_some_and(|age| age < ran) {
             report(
-                "the app has run for a minute since Windows said the laptop sleeps, with no wake notice, so this counts as a wake: the settings go again after the pause",
+                "the app has run for a minute since Windows said the laptop sleeps, with input from the user and no wake notice, so this counts as a wake: the settings go again after the pause",
             );
             self.wake();
         }
