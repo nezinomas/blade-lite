@@ -43,7 +43,7 @@ const INPUT_GRACE: Duration = Duration::from_secs(30);
 
 /// A sleep at least this long by the wall clock lets the fan guard end its
 /// full speed after a short cool hold (ticket 172): the chips cooled in it.
-const LONG_SLEEP: Duration = Duration::from_secs(5 * 60);
+const LONG_SLEEP: Duration = Duration::from_mins(5);
 
 #[cfg(test)]
 thread_local! {
