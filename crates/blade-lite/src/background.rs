@@ -1,7 +1,6 @@
 //! Threads that wait for the world outside the app: a second start, the
 //! touchpad, the power-mode key and the power source.
 
-use std::ffi::{CStr, CString};
 use std::panic::AssertUnwindSafe;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver};
@@ -162,10 +161,10 @@ pub fn follow_the_power_key() {
         // The collection that sent last: the next open reads it alone, so
         // its reads can wait long (ticket 188). Forgotten as the key state
         // is, as the gap is unknown.
-        let mut sender: Option<CString> = None;
+        let mut sender: Option<String> = None;
         // The last sender logged, so a new one is logged once: a dead key
         // can then be traced to the collection read.
-        let mut logged: Option<CString> = None;
+        let mut logged: Option<String> = None;
         loop {
             let opened = HidKeyReports::open_preferring(&BLADE_18, sender.as_deref());
             let (problem, pause) = match opened {
@@ -178,14 +177,11 @@ pub fn follow_the_power_key() {
                     if let Some(path) = reports.sender()
                         && logged.as_deref() != Some(path)
                     {
-                        report(&format!(
-                            "the power-mode key is read on {}",
-                            path.to_string_lossy()
-                        ));
+                        report(&format!("the power-mode key is read on {path}"));
                         logged = Some(path.to_owned());
                     }
                     sender = if end.keeps_key_state(ran) {
-                        reports.sender().map(CStr::to_owned).or(sender)
+                        reports.sender().map(str::to_owned).or(sender)
                     } else {
                         None
                     };

@@ -1,5 +1,3 @@
-use std::ffi::CString;
-
 use razer_device::{HidInfo, find_controller, find_key_collections};
 use razer_proto::{BLADE_18, UsbId};
 
@@ -17,7 +15,7 @@ fn info(
     usage: u16,
 ) -> HidInfo {
     HidInfo {
-        path: CString::new(path).unwrap(),
+        path: path.to_owned(),
         vendor_id,
         product_id,
         interface_number,
@@ -62,7 +60,7 @@ fn another_model_is_found_by_its_own_usb_id() {
 
     let found = find_controller(&devices, &other_model).unwrap();
 
-    assert_eq!(found.path.to_str().unwrap(), "other model");
+    assert_eq!(found.path, "other model");
 }
 
 /// The key report collections, as read on the laptop: interface 1 has two

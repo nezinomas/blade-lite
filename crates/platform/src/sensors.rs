@@ -415,7 +415,7 @@ fn display_adapter_ids() -> io::Result<Vec<String>> {
 }
 
 /// The IDs in a list of nul-ended strings that ends in an empty one.
-fn split_ids(buffer: &[u16]) -> Vec<String> {
+pub(crate) fn split_ids(buffer: &[u16]) -> Vec<String> {
     buffer
         .split(|&c| c == 0)
         .take_while(|id| !id.is_empty())
@@ -461,7 +461,7 @@ fn is_awake(state: DEVICE_POWER_STATE) -> io::Result<bool> {
     }
 }
 
-fn check(result: CONFIGRET) -> io::Result<()> {
+pub(crate) fn check(result: CONFIGRET) -> io::Result<()> {
     if result == CR_SUCCESS {
         Ok(())
     } else {
