@@ -2827,11 +2827,9 @@ fn a_custom_slider_follows_a_preset_change_after_its_own_release() {
     slider.mock_drag(left_end, PointerEventButton::Left);
     shows_cpu_boost(&f, 0);
 
-    // The laptop's level changes elsewhere: the slider goes there once the
-    // event loop runs the change handlers.
+    // The laptop's level changes elsewhere: the slider goes there at once.
     f.shell
         .act(|app| app.on_performance(ui::PerformanceCommand::SetCpuBoost(2)));
-    slint::platform::update_timers_and_animations();
 
     shows_cpu_boost(&f, 2);
 }

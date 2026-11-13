@@ -99,7 +99,7 @@ impl<P: Parts> Shell<P> {
     fn put_back_sliders(&self) {
         drop_lost_drag(self.window.window());
         self.window.invoke_show_brightness();
-        bind::remake_sliders(&self.window, &self.app.borrow().performance_view());
+        bind::put_back_sliders(&self.window, &self.app.borrow().performance_view());
     }
 
     pub fn show_window(self: &Rc<Self>) {
@@ -258,7 +258,7 @@ impl<P: Parts> Shell<P> {
 /// thinks its handle is pressed, so a later mouse-up over it calls
 /// `released` with the value `show-brightness` set: the laptop's own, which
 /// `KeyboardView::move_brightness` skips, so nothing is sent. The Custom
-/// sliders have no such value to set, so `bind::remake_sliders` makes them again.
+/// sliders are put back the same way by `bind::put_back_sliders`.
 fn drop_lost_drag(window: &slint::Window) {
     window.dispatch_event(WindowEvent::PointerExited);
 }

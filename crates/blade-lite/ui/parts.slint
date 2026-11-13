@@ -18,6 +18,10 @@ export struct SliderRow {
     label: string,
     stops: int,
     position: int,
+    // Where the slider is: the laptop's stop, or a drag or arrow key not
+    // yet sent. The slider is bound to it both ways, so Rust can put the
+    // slider back at once without making the row again.
+    value: float,
     text: string,
     // The value at each stop, as text, for the text to follow a drag.
     texts: [string],
