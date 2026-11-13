@@ -303,6 +303,9 @@ where
     ///
     /// See [`AppError`]. A failure stops the sends after it.
     pub fn quit_preset(&mut self) -> Result<(), AppError> {
+        // No manual fan targets may go after the quit's sends, even when
+        // the first one fails (ticket 182).
+        self.forget_fan_targets();
         let running = self.running(self.config);
         let manual_saved =
             self.config.preset == Preset::Custom && self.config.custom.fan_rpm.is_some();
