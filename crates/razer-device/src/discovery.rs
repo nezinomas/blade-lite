@@ -1,13 +1,11 @@
 //! Finds the controller among the HID devices.
 
-use std::ffi::CString;
-
 use razer_proto::{PowerKey, UsbId};
 
 /// What the HID layer tells about one device collection.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct HidInfo {
-    pub path: CString,
+    pub path: String,
     pub vendor_id: u16,
     pub product_id: u16,
     pub interface_number: i32,
@@ -64,7 +62,9 @@ pub(crate) fn model_interface(path: &str, usb: &UsbId) -> Option<i32> {
     if ids != model.each_ref().map(String::as_str) {
         return None;
     }
-    let interfaces: Vec<&str> = tokens.filter_map(|token| token.strip_prefix("mi_")).collect();
+    let interfaces: Vec<&str> = tokens
+        .filter_map(|token| token.strip_prefix("mi_"))
+        .collect();
     match interfaces.as_slice() {
         [] => Some(0),
         [number] if number.len() == 2 && number.bytes().all(|b| b.is_ascii_hexdigit()) => {
@@ -94,14 +94,26 @@ mod tests {
     fn the_models_paths_give_their_interface() {
         let usb = &BLADE_18.usb;
 
-        assert_eq!(model_interface(&path("VID_1532&PID_02C7&MI_02"), usb), Some(2));
-        assert_eq!(model_interface(&path("VID_1532&PID_02C7&MI_01&COL03"), usb), Some(1));
-        assert_eq!(model_interface(&path("vid_1532&pid_02c7&mi_0a&col01"), usb), Some(10));
+        assert_eq!(
+            model_interface(&path("VID_1532&PID_02C7&MI_02"), usb),
+            Some(2)
+        );
+        assert_eq!(
+            model_interface(&path("VID_1532&PID_02C7&MI_01&COL03"), usb),
+            Some(1)
+        );
+        assert_eq!(
+            model_interface(&path("vid_1532&pid_02c7&mi_0a&col01"), usb),
+            Some(10)
+        );
     }
 
     #[test]
     fn a_path_with_no_interface_is_interface_0() {
-        assert_eq!(model_interface(&path("VID_1532&PID_02C7"), &BLADE_18.usb), Some(0));
+        assert_eq!(
+            model_interface(&path("VID_1532&PID_02C7"), &BLADE_18.usb),
+            Some(0)
+        );
     }
 
     #[test]
@@ -126,7 +138,8 @@ mod tests {
 
     #[test]
     fn the_ids_count_only_in_the_device_part() {
-        let other = r"\?\HID#VID_046D&PID_C52B#VID_1532&PID_02C7#{4d1e55b2-f16f-11cf-88cb-001111000030}";
+        let other =
+            r"\?\HID#VID_046D&PID_C52B#VID_1532&PID_02C7#{4d1e55b2-f16f-11cf-88cb-001111000030}";
 
         assert_eq!(model_interface(other, &BLADE_18.usb), None);
         assert_eq!(model_interface("", &BLADE_18.usb), None);

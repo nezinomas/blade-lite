@@ -1,20 +1,20 @@
-//! The real [`Transport`]: feature reports through hidapi. Also the key
-//! reports the keyboard sends on its own.
+//! The real [`Transport`]: feature reports through Windows' HID calls. Also
+//! the key reports the keyboard sends on its own. Only the model's own HID
+//! paths are ever opened (ticket 194).
 
-use std::ffi::{CStr, CString};
 use std::io;
-use std::sync::{Mutex, MutexGuard, PoisonError};
 use std::time::Duration;
 
-use hidapi::{DeviceInfo, HidApi, HidDevice};
+use platform::{HidDetails, HidDevice};
 use razer_proto::{ModelProfile, REPORT_LEN, UsbId};
 
+use crate::discovery::model_interface;
 use crate::{HidInfo, Transport, find_controller, find_key_collections};
 
 /// The controller does not number its reports, so each one starts with ID 0.
 const REPORT_ID: u8 = 0;
 
-/// The controller, opened through hidapi.
+/// The controller, opened through Windows' HID calls.
 pub struct HidTransport {
     device: HidDevice,
     info: HidInfo,
@@ -25,11 +25,9 @@ impl HidTransport {
     ///
     /// # Errors
     ///
-    /// [`io::ErrorKind::NotFound`] if there is no controller, or any hidapi error.
+    /// [`io::ErrorKind::NotFound`] if there is no controller, or any HID error.
     pub fn open(model: &ModelProfile) -> io::Result<Self> {
-        let mut api = shared_api();
-        let api = api_in(&mut api, new_api)?;
-        let devices = model_devices(api, &model.usb)?;
+        let devices = model_devices(&WindowsHid, &model.usb)?;
         let info = find_controller(&devices, &model.usb)
             .cloned()
             .ok_or_else(|| {
@@ -38,7 +36,7 @@ impl HidTransport {
                     format!("no {} controller", model.name),
                 )
             })?;
-        let device = api.open_path(&info.path).map_err(io::Error::other)?;
+        let device = HidDevice::open(&info.path)?;
         Ok(Self { device, info })
     }
 
@@ -53,11 +51,11 @@ impl HidTransport {
 const KEY_REPORT_ROOM: usize = 64;
 
 /// The collections that send the model's key reports, opened through
-/// hidapi. They are only read: nothing is sent to them.
+/// Windows' HID calls. They are only read: nothing is sent to them.
 pub struct HidKeyReports {
     sources: KeySources<HidDevice>,
     /// The path of each collection in `sources`, in the same order.
-    paths: Vec<CString>,
+    paths: Vec<String>,
 }
 
 impl HidKeyReports {
@@ -67,7 +65,7 @@ impl HidKeyReports {
     /// # Errors
     ///
     /// [`io::ErrorKind::NotFound`] if the model has no power key or none
-    /// of its collections opens, or any hidapi error.
+    /// of its collections opens, or any HID error.
     pub fn open(model: &ModelProfile) -> io::Result<Self> {
         Self::open_preferring(model, None)
     }
@@ -80,7 +78,7 @@ impl HidKeyReports {
     /// # Errors
     ///
     /// As [`open`](Self::open).
-    pub fn open_preferring(model: &ModelProfile, sender: Option<&CStr>) -> io::Result<Self> {
+    pub fn open_preferring(model: &ModelProfile, sender: Option<&str>) -> io::Result<Self> {
         let not_found = || {
             io::Error::new(
                 io::ErrorKind::NotFound,
@@ -88,16 +86,14 @@ impl HidKeyReports {
             )
         };
         let key = model.power_key.ok_or_else(not_found)?;
-        let mut api = shared_api();
-        let api = api_in(&mut api, new_api)?;
-        let infos = model_devices(api, &model.usb)?;
+        let infos = model_devices(&WindowsHid, &model.usb)?;
         let found = find_key_collections(&infos, &model.usb, &key);
         let picked = pick_key_collections(found.clone(), sender);
-        let open_each = |infos: &[&HidInfo]| -> (Vec<CString>, Vec<HidDevice>) {
+        let open_each = |infos: &[&HidInfo]| -> (Vec<String>, Vec<HidDevice>) {
             infos
                 .iter()
                 .filter_map(|info| {
-                    let device = api.open_path(&info.path).ok()?;
+                    let device = HidDevice::open(&info.path).ok()?;
                     Some((info.path.clone(), device))
                 })
                 .unzip()
@@ -124,9 +120,9 @@ impl HidKeyReports {
 
     /// The path of the collection that sent, once one has.
     #[must_use]
-    pub fn sender(&self) -> Option<&CStr> {
+    pub fn sender(&self) -> Option<&str> {
         let index = self.sources.source?;
-        self.paths.get(index).map(CString::as_c_str)
+        self.paths.get(index).map(String::as_str)
     }
 
     /// Waits up to `wait` for a report on each collection in turn until one
@@ -135,7 +131,7 @@ impl HidKeyReports {
     ///
     /// # Errors
     ///
-    /// Any hidapi error, such as the keyboard going away, or the collection
+    /// Any HID error, such as the keyboard going away, or the collection
     /// that sent last no longer being in the list (it can't today: the list
     /// never changes after `open`).
     pub fn read(&mut self, wait: Duration) -> io::Result<Option<Vec<u8>>> {
@@ -145,15 +141,15 @@ impl HidKeyReports {
 
 /// Only the collection at `sender` when it is in `found`, else all of
 /// `found`.
-fn pick_key_collections<'a>(found: Vec<&'a HidInfo>, sender: Option<&CStr>) -> Vec<&'a HidInfo> {
-    let picked = sender.and_then(|path| found.iter().find(|info| info.path.as_c_str() == path));
+fn pick_key_collections<'a>(found: Vec<&'a HidInfo>, sender: Option<&str>) -> Vec<&'a HidInfo> {
+    let picked = sender.and_then(|path| found.iter().find(|info| info.path == path));
     match picked {
         Some(&info) => vec![info],
         None => found,
     }
 }
 
-/// A collection read with a wait: hidapi's, or a fake in the tests.
+/// A collection read with a wait: Windows', or a fake in the tests.
 trait ReadTimeout {
     /// Reads one report into `buffer`, waiting up to `millis`. 0 bytes if
     /// none came.
@@ -162,7 +158,8 @@ trait ReadTimeout {
 
 impl ReadTimeout for HidDevice {
     fn read_timeout(&self, buffer: &mut [u8], millis: i32) -> io::Result<usize> {
-        HidDevice::read_timeout(self, buffer, millis).map_err(io::Error::other)
+        let wait = Duration::from_millis(u64::try_from(millis).unwrap_or(0));
+        HidDevice::read(self, buffer, wait)
     }
 }
 
@@ -205,7 +202,7 @@ impl<D: ReadTimeout> KeySources<D> {
                 self.source = Some(index);
                 let report = buffer
                     .get(..read)
-                    .ok_or_else(|| io::Error::other("hidapi read more than the buffer"))?;
+                    .ok_or_else(|| io::Error::other("the HID read gave more than the buffer"))?;
                 return Ok(Some(report.to_vec()));
             }
         }
@@ -213,95 +210,62 @@ impl<D: ReadTimeout> KeySources<D> {
     }
 }
 
-/// The one hidapi context of the run. hidapi 2.6 lists every HID device
-/// on the PC when a context is made, and asks each one for its strings
-/// (requests that go to the device and could wake it), even through
-/// `new_without_enumerate`. So the context is made once, and each open
-/// after lists only the model's VID and PID (ticket 186).
-static API: Mutex<Option<HidApi>> = Mutex::new(None);
-
-/// The shared context's lock. A poisoned lock is taken as it is: the
-/// context holds only a device list, which each open lists again.
-fn shared_api() -> MutexGuard<'static, Option<HidApi>> {
-    API.lock().unwrap_or_else(PoisonError::into_inner)
+/// The HID layer: Windows', or a fake in the tests.
+trait HidSystem {
+    /// The paths of the HID interfaces present, read with no open.
+    fn paths(&self) -> io::Result<Vec<String>>;
+    /// The details of the collection at `path`. This opens it, and so
+    /// wakes its device if it sleeps.
+    fn details(&self, path: &str) -> io::Result<HidDetails>;
 }
 
-/// The context in `slot`, made by `make` on first use only.
-fn api_in<T>(slot: &mut Option<T>, make: impl FnOnce() -> io::Result<T>) -> io::Result<&mut T> {
-    match slot {
-        Some(api) => Ok(api),
-        None => Ok(slot.insert(make()?)),
+/// Windows' HID layer.
+struct WindowsHid;
+
+impl HidSystem for WindowsHid {
+    fn paths(&self) -> io::Result<Vec<String>> {
+        platform::hid_paths()
+    }
+
+    fn details(&self, path: &str) -> io::Result<HidDetails> {
+        platform::hid_details(path)
     }
 }
 
-fn new_api() -> io::Result<HidApi> {
-    HidApi::new().map_err(io::Error::other)
-}
-
-/// The HID device list: hidapi's, or a fake in the tests.
-trait DeviceList {
-    /// Empties the list.
-    fn reset(&mut self);
-    /// Adds the devices with this VID and PID.
-    fn add(&mut self, vendor_id: u16, product_id: u16) -> io::Result<()>;
-    /// The devices in the list.
-    fn infos(&self) -> Vec<HidInfo>;
-}
-
-impl DeviceList for HidApi {
-    fn reset(&mut self) {
-        // hidapi's reset only clears its list and can't fail.
-        let _ = self.reset_devices();
-    }
-
-    fn add(&mut self, vendor_id: u16, product_id: u16) -> io::Result<()> {
-        self.add_devices(vendor_id, product_id)
-            .map_err(io::Error::other)
-    }
-
-    fn infos(&self) -> Vec<HidInfo> {
-        self.device_list().map(hid_info).collect()
-    }
-}
-
-/// The HID collections with the model's VID and PID, listed again. A VID
-/// or PID of 0 is refused: hidapi takes 0 as any, which lists every device.
-fn model_devices(list: &mut impl DeviceList, usb: &UsbId) -> io::Result<Vec<HidInfo>> {
-    if usb.vendor_id == 0 || usb.product_id == 0 {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidInput,
-            "a VID or PID of 0 would list every HID device",
-        ));
-    }
-    list.reset();
-    list.add(usb.vendor_id, usb.product_id)?;
-    Ok(list.infos())
-}
-
-fn hid_info(device: &DeviceInfo) -> HidInfo {
-    HidInfo {
-        path: device.path().to_owned(),
-        vendor_id: device.vendor_id(),
-        product_id: device.product_id(),
-        interface_number: device.interface_number(),
-        usage_page: device.usage_page(),
-        usage: device.usage(),
-    }
+/// The HID collections of the model's device. Only paths that name the
+/// model's VID and PID are opened (for their usages), so no other device
+/// is opened or asked anything: an open wakes a sleeping USB device
+/// (ticket 194). A collection that can't be read, or whose VID and PID
+/// are not its path's, is left out.
+fn model_devices(system: &impl HidSystem, usb: &UsbId) -> io::Result<Vec<HidInfo>> {
+    let infos = system
+        .paths()?
+        .into_iter()
+        .filter_map(|path| {
+            let interface_number = model_interface(&path, usb)?;
+            let details = system.details(&path).ok()?;
+            let same = details.vendor_id == usb.vendor_id && details.product_id == usb.product_id;
+            same.then_some(HidInfo {
+                path,
+                vendor_id: details.vendor_id,
+                product_id: details.product_id,
+                interface_number,
+                usage_page: details.usage_page,
+                usage: details.usage,
+            })
+        })
+        .collect();
+    Ok(infos)
 }
 
 impl Transport for HidTransport {
     fn send_report(&mut self, report: &[u8; REPORT_LEN]) -> io::Result<()> {
-        self.device
-            .send_feature_report(&feature_buffer(report))
-            .map_err(io::Error::other)
+        self.device.send_feature(&feature_buffer(report))
     }
 
     fn read_report(&mut self) -> io::Result<[u8; REPORT_LEN]> {
         let mut buffer = [REPORT_ID; REPORT_LEN + 1];
-        let read = self
-            .device
-            .get_feature_report(&mut buffer)
-            .map_err(io::Error::other)?;
+        let read = self.device.get_feature(&mut buffer)?;
         feature_report(&buffer, read)
     }
 }
@@ -488,127 +452,147 @@ mod tests {
         assert!(sources.single());
     }
 
-    fn key_entry(path: &CStr) -> HidInfo {
+    fn key_entry(path: &str) -> HidInfo {
         HidInfo {
             path: path.to_owned(),
-            ..entry(0x1532, 0x02C7)
+            vendor_id: 0x1532,
+            product_id: 0x02C7,
+            interface_number: 1,
+            usage_page: 0x01,
+            usage: 0x00,
         }
     }
 
     #[test]
     fn the_last_sender_is_the_only_collection_opened() {
-        let found = [key_entry(c"a"), key_entry(c"b")];
+        let found = [key_entry("a"), key_entry("b")];
         let found: Vec<&HidInfo> = found.iter().collect();
 
-        let picked = pick_key_collections(found.clone(), Some(c"b"));
+        let picked = pick_key_collections(found.clone(), Some("b"));
         assert_eq!(picked.len(), 1);
-        assert_eq!(picked[0].path.as_c_str(), c"b");
+        assert_eq!(picked[0].path, "b");
         assert_eq!(pick_key_collections(found.clone(), None).len(), 2);
         // A sender no longer listed (its path changed): all of them.
-        assert_eq!(pick_key_collections(found, Some(c"gone")).len(), 2);
+        assert_eq!(pick_key_collections(found, Some("gone")).len(), 2);
     }
 
     #[test]
-    fn a_wait_too_long_for_hidapi_is_its_longest() {
+    fn a_wait_too_long_is_the_longest() {
         let (mut sources, log) = sources(vec![vec![]]);
 
         sources.read(Duration::MAX).unwrap();
         assert_eq!(*log.borrow(), [(0, i32::MAX)]);
     }
 
-    /// A device list that logs each VID and PID it is asked to add, and
-    /// keeps a stale entry until it is reset.
-    #[derive(Default)]
-    struct FakeList {
-        asked: Vec<(u16, u16)>,
-        entries: Vec<HidInfo>,
+    /// A HID path as Windows lists it, for this device part.
+    fn path(device: &str) -> String {
+        format!(r"\?\HID#{device}#7&8e7fa24&0&0000#{{4d1e55b2-f16f-11cf-88cb-001111000030}}")
     }
 
-    fn entry(vendor_id: u16, product_id: u16) -> HidInfo {
-        HidInfo {
-            path: c"path".to_owned(),
+    /// A HID layer with these collections, that logs each path it opens.
+    struct FakeHid {
+        collections: Vec<(String, io::Result<HidDetails>)>,
+        opened: RefCell<Vec<String>>,
+    }
+
+    impl FakeHid {
+        fn new(collections: Vec<(String, io::Result<HidDetails>)>) -> Self {
+            Self {
+                collections,
+                opened: RefCell::default(),
+            }
+        }
+    }
+
+    impl HidSystem for FakeHid {
+        fn paths(&self) -> io::Result<Vec<String>> {
+            Ok(self
+                .collections
+                .iter()
+                .map(|(path, _)| path.clone())
+                .collect())
+        }
+
+        fn details(&self, path: &str) -> io::Result<HidDetails> {
+            self.opened.borrow_mut().push(path.to_owned());
+            let (_, details) = self
+                .collections
+                .iter()
+                .find(|(known, _)| known == path)
+                .unwrap();
+            match details {
+                Ok(details) => Ok(*details),
+                Err(error) => Err(io::Error::new(error.kind(), error.to_string())),
+            }
+        }
+    }
+
+    fn details(vendor_id: u16, product_id: u16, usage_page: u16, usage: u16) -> HidDetails {
+        HidDetails {
             vendor_id,
             product_id,
-            interface_number: 0,
-            usage_page: 0,
-            usage: 0,
-        }
-    }
-
-    impl DeviceList for FakeList {
-        fn reset(&mut self) {
-            self.entries.clear();
-        }
-
-        fn add(&mut self, vendor_id: u16, product_id: u16) -> io::Result<()> {
-            self.asked.push((vendor_id, product_id));
-            self.entries.push(entry(vendor_id, product_id));
-            Ok(())
-        }
-
-        fn infos(&self) -> Vec<HidInfo> {
-            self.entries.clone()
+            usage_page,
+            usage,
         }
     }
 
     #[test]
-    fn only_the_models_vid_and_pid_are_listed() {
+    fn only_the_models_paths_are_opened() {
         let usb = &razer_proto::BLADE_18.usb;
-        let mut list = FakeList {
-            entries: vec![entry(0x046D, 0xC52B)],
-            ..FakeList::default()
-        };
+        let controller = path("VID_1532&PID_02C7&MI_02");
+        let keys = path("VID_1532&PID_02C7&MI_01&COL02");
+        let hid = FakeHid::new(vec![
+            (
+                path("VID_046D&PID_C52B&MI_01&COL01"),
+                Ok(details(0x046D, 0xC52B, 1, 2)),
+            ),
+            (controller.clone(), Ok(details(0x1532, 0x02C7, 1, 2))),
+            (path("ELAN0406&COL03"), Ok(details(0x04F3, 0x3282, 0x0D, 5))),
+            (keys.clone(), Ok(details(0x1532, 0x02C7, 1, 0))),
+        ]);
 
-        let infos = model_devices(&mut list, usb).unwrap();
+        let infos = model_devices(&hid, usb).unwrap();
 
-        assert_eq!(list.asked, [(usb.vendor_id, usb.product_id)]);
-        assert_eq!(infos, [entry(usb.vendor_id, usb.product_id)]);
+        assert_eq!(*hid.opened.borrow(), [controller.clone(), keys.clone()]);
+        assert_eq!(
+            infos,
+            [
+                HidInfo {
+                    path: controller,
+                    vendor_id: 0x1532,
+                    product_id: 0x02C7,
+                    interface_number: 2,
+                    usage_page: 1,
+                    usage: 2,
+                },
+                HidInfo {
+                    path: keys,
+                    vendor_id: 0x1532,
+                    product_id: 0x02C7,
+                    interface_number: 1,
+                    usage_page: 1,
+                    usage: 0,
+                },
+            ]
+        );
     }
 
     #[test]
-    fn a_vid_or_pid_of_0_is_refused_and_nothing_is_listed() {
-        let usb = razer_proto::BLADE_18.usb;
-        for zero in [
-            UsbId {
-                vendor_id: 0,
-                ..usb
-            },
-            UsbId {
-                product_id: 0,
-                ..usb
-            },
-        ] {
-            let mut list = FakeList::default();
+    fn a_collection_unlike_its_path_or_unread_is_left_out() {
+        let usb = &razer_proto::BLADE_18.usb;
+        let hid = FakeHid::new(vec![
+            (
+                path("VID_1532&PID_02C7&MI_02"),
+                Ok(details(0x1532, 0x0099, 1, 2)),
+            ),
+            (
+                path("VID_1532&PID_02C7&MI_01&COL01"),
+                Err(io::Error::other("gone")),
+            ),
+        ]);
 
-            let error = model_devices(&mut list, &zero).unwrap_err();
-
-            assert_eq!(error.kind(), io::ErrorKind::InvalidInput);
-            assert_eq!(list.asked, []);
-        }
-    }
-
-    #[test]
-    fn the_context_is_made_once() {
-        let mut slot = None;
-        let mut made = 0;
-
-        for _ in 0..2 {
-            api_in(&mut slot, || {
-                made += 1;
-                Ok(made)
-            })
-            .unwrap();
-        }
-
-        assert_eq!(made, 1);
-    }
-
-    #[test]
-    fn a_context_that_failed_is_made_again() {
-        let mut slot: Option<u8> = None;
-
-        assert!(api_in(&mut slot, || Err(io::Error::other("no HID"))).is_err());
-        assert_eq!(*api_in(&mut slot, || Ok(7)).unwrap(), 7);
+        assert_eq!(model_devices(&hid, usb).unwrap(), []);
+        assert_eq!(hid.opened.borrow().len(), 2);
     }
 
     #[test]

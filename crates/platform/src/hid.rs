@@ -14,12 +14,11 @@ use windows_sys::Win32::Devices::DeviceAndDriverInstallation::{
 };
 use windows_sys::Win32::Devices::HumanInterfaceDevice::{
     HIDD_ATTRIBUTES, HIDP_CAPS, HIDP_STATUS_SUCCESS, HidD_FreePreparsedData, HidD_GetAttributes,
-    HidD_GetHidGuid, HidD_GetPreparsedData, HidD_SetFeature, HidD_SetNumInputBuffers,
-    HidP_GetCaps,
+    HidD_GetHidGuid, HidD_GetPreparsedData, HidD_SetFeature, HidD_SetNumInputBuffers, HidP_GetCaps,
 };
 use windows_sys::Win32::Foundation::{
-    ERROR_IO_INCOMPLETE, ERROR_IO_PENDING, ERROR_OPERATION_ABORTED, GENERIC_READ, GENERIC_WRITE, INVALID_HANDLE_VALUE,
-    WAIT_TIMEOUT,
+    ERROR_IO_INCOMPLETE, ERROR_IO_PENDING, ERROR_OPERATION_ABORTED, GENERIC_READ, GENERIC_WRITE,
+    INVALID_HANDLE_VALUE, WAIT_TIMEOUT,
 };
 use windows_sys::Win32::Storage::FileSystem::{
     CreateFileW, FILE_FLAG_OVERLAPPED, FILE_SHARE_READ, FILE_SHARE_WRITE, OPEN_EXISTING, ReadFile,
@@ -376,6 +375,8 @@ fn caps(handle: &Handle) -> io::Result<HIDP_CAPS> {
     if status == HIDP_STATUS_SUCCESS {
         Ok(caps)
     } else {
-        Err(io::Error::other(format!("HidP_GetCaps returned {status:#x}")))
+        Err(io::Error::other(format!(
+            "HidP_GetCaps returned {status:#x}"
+        )))
     }
 }
