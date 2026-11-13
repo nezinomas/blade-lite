@@ -113,6 +113,15 @@ impl MicState {
         self.muted.store(value, Ordering::Release);
     }
 
+    /// Notes the mute a read gave, only if no notice has noted one since
+    /// the mute was made unknown: a notice is newer than a read it raced.
+    fn note_read(&self, muted: bool) {
+        let value = if muted { MUTED } else { UNMUTED };
+        let _ = self
+            .muted
+            .compare_exchange(UNKNOWN, value, Ordering::AcqRel, Ordering::Acquire);
+    }
+
     /// The mute as last noted; `None` if unknown.
     fn muted(&self) -> Option<bool> {
         match self.muted.load(Ordering::Acquire) {
@@ -213,15 +222,17 @@ impl MicWatch {
     /// registers its change notice and reads its mute.
     fn watch_default_mic(&mut self) -> windows::core::Result<()> {
         self.unwatch_mic();
+        self.state.note_mute(None);
         let volume = endpoint_volume_from(&self.devices)?;
         let notice: IAudioEndpointVolumeCallback = VolumeNotices(Arc::clone(&self.state)).into();
         // SAFETY: `volume` is a live endpoint volume; the notice is
         // unregistered in `unwatch_mic`.
         unsafe { volume.RegisterControlChangeNotify(&notice) }?;
         self.mic = Some((volume.clone(), notice));
-        // SAFETY: as above. Read after the register, so no change is lost.
+        // SAFETY: as above. Read after the register, so no change is lost;
+        // a notice that came meanwhile is newer and is kept.
         let muted = unsafe { volume.GetMute() }?;
-        self.state.note_mute(Some(muted.as_bool()));
+        self.state.note_read(muted.as_bool());
         Ok(())
     }
 
@@ -369,6 +380,27 @@ mod tests {
         assert_eq!(state.muted(), Some(false));
         state.note_mute(None);
         assert_eq!(state.muted(), None);
+    }
+
+    #[test]
+    fn a_read_does_not_overwrite_a_notice_that_came_meanwhile() {
+        let state = MicState::default();
+        state.note_mute(None);
+
+        state.note_mute(Some(true));
+        state.note_read(false);
+
+        assert_eq!(state.muted(), Some(true));
+    }
+
+    #[test]
+    fn a_read_with_no_notice_meanwhile_is_kept() {
+        let state = MicState::default();
+        state.note_mute(None);
+
+        state.note_read(true);
+
+        assert_eq!(state.muted(), Some(true));
     }
 
     #[test]

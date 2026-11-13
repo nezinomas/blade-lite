@@ -74,21 +74,13 @@ impl HidKeyReports {
 
     /// As [`open`](Self::open), but only the collection at `sender` (the
     /// one that sent last, see [`sender`](Self::sender)) when it is still
-    /// one of the model's key collections and opens; else all of them.
+    /// one of the model's key collections and opens; else all of them,
+    /// from the same device list.
     ///
     /// # Errors
     ///
     /// As [`open`](Self::open).
     pub fn open_preferring(model: &ModelProfile, sender: Option<&CStr>) -> io::Result<Self> {
-        if let Some(path) = sender
-            && let Ok(reports) = Self::open_picked(model, Some(path))
-        {
-            return Ok(reports);
-        }
-        Self::open_picked(model, None)
-    }
-
-    fn open_picked(model: &ModelProfile, sender: Option<&CStr>) -> io::Result<Self> {
         let not_found = || {
             io::Error::new(
                 io::ErrorKind::NotFound,
@@ -100,13 +92,20 @@ impl HidKeyReports {
         let api = api_in(&mut api, new_api)?;
         let infos = model_devices(api, &model.usb)?;
         let found = find_key_collections(&infos, &model.usb, &key);
-        let (paths, devices): (Vec<CString>, Vec<HidDevice>) = pick_key_collections(found, sender)
-            .into_iter()
-            .filter_map(|info| {
-                let device = api.open_path(&info.path).ok()?;
-                Some((info.path.clone(), device))
-            })
-            .unzip();
+        let picked = pick_key_collections(found.clone(), sender);
+        let open_each = |infos: &[&HidInfo]| -> (Vec<CString>, Vec<HidDevice>) {
+            infos
+                .iter()
+                .filter_map(|info| {
+                    let device = api.open_path(&info.path).ok()?;
+                    Some((info.path.clone(), device))
+                })
+                .unzip()
+        };
+        let (mut paths, mut devices) = open_each(&picked);
+        if devices.is_empty() && picked.len() < found.len() {
+            (paths, devices) = open_each(&found);
+        }
         if devices.is_empty() {
             return Err(not_found());
         }
@@ -183,12 +182,12 @@ impl<D: ReadTimeout> KeySources<D> {
         }
     }
 
-    /// See [`HidKeyReports::read`].
     /// Whether only one collection is read: there is one, or one sent.
     fn single(&self) -> bool {
         self.devices.len() == 1 || self.source.is_some()
     }
 
+    /// See [`HidKeyReports::read`].
     fn read(&mut self, wait: Duration) -> io::Result<Option<Vec<u8>>> {
         let millis = i32::try_from(wait.as_millis()).unwrap_or(i32::MAX);
         let mut buffer = [0; KEY_REPORT_ROOM];
