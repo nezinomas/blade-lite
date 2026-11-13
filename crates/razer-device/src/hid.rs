@@ -512,6 +512,8 @@ mod tests {
         collections: Vec<(String, io::Result<HidDetails>)>,
         /// The paths whose parent is not a USB device; the rest are.
         not_usb: Vec<String>,
+        /// The paths whose parent can't be read.
+        no_parent: Vec<String>,
         opened: RefCell<Vec<String>>,
     }
 
@@ -520,6 +522,7 @@ mod tests {
             Self {
                 collections,
                 not_usb: Vec::new(),
+                no_parent: Vec::new(),
                 opened: RefCell::default(),
             }
         }
@@ -535,6 +538,9 @@ mod tests {
         }
 
         fn parent_id(&self, path: &str) -> io::Result<String> {
+            if self.no_parent.iter().any(|known| known == path) {
+                return Err(io::Error::other("no parent"));
+            }
             Ok(if self.not_usb.iter().any(|known| known == path) {
                 r"RZVIRTUAL\VID_1532&PID_02C7&MI_02".to_owned()
             } else {
@@ -625,15 +631,32 @@ mod tests {
     }
 
     #[test]
-    fn a_model_path_not_on_usb_is_not_opened() {
+    fn only_a_usb_parent_counts() {
+        for (parent, usb) in [
+            (r"USB\VID_1532&PID_02C7&MI_02\6&11f2b19&0&0002", true),
+            (r"usb\vid_1532&pid_02c7&mi_02\1", true),
+            (r"USBPRINT\VID_1532&PID_02C7\1", false),
+            (r"RZVIRTUAL\VID_1532&PID_02C7&MI_02\1", false),
+            ("USB", false),
+            ("", false),
+        ] {
+            assert_eq!(on_usb(parent), usb, "{parent}");
+        }
+    }
+
+    #[test]
+    fn a_model_path_not_on_usb_or_with_no_parent_is_not_opened() {
         let usb = &razer_proto::BLADE_18.usb;
         let virtual_one = path("VID_1532&PID_02C7&MI_02&COL01");
         let real = path("VID_1532&PID_02C7&MI_02");
+        let unknown = path("VID_1532&PID_02C7&MI_02&COL02");
         let mut hid = FakeHid::new(vec![
             (virtual_one.clone(), Ok(details(0x1532, 0x02C7, 1, 2))),
+            (unknown.clone(), Ok(details(0x1532, 0x02C7, 1, 2))),
             (real.clone(), Ok(details(0x1532, 0x02C7, 1, 2))),
         ]);
         hid.not_usb = vec![virtual_one];
+        hid.no_parent = vec![unknown];
 
         let infos = model_devices(&hid, usb).unwrap();
 
