@@ -88,7 +88,8 @@ fn a_warm_gpu_keeps_the_guard_on() {
 }
 
 /// Laptop check 19B (ticket 175): at full fans a steady GPU load settled at
-/// 74 to 76 °C, 10 °C under its limit, and the guard went off mid-load.
+/// 74 to 76 °C, under the old 77 °C cool line, and the guard went off
+/// mid-load.
 #[test]
 fn a_gpu_under_load_at_full_fans_keeps_the_guard_on() {
     let mut guard = FanGuard::default();
