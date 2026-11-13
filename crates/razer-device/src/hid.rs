@@ -5,7 +5,7 @@ use std::io;
 use std::time::Duration;
 
 use hidapi::{DeviceInfo, HidApi, HidDevice};
-use razer_proto::{ModelProfile, REPORT_LEN};
+use razer_proto::{ModelProfile, REPORT_LEN, UsbId};
 
 use crate::{HidInfo, Transport, find_controller, find_key_collections};
 
@@ -152,6 +152,38 @@ impl<D: ReadTimeout> KeySources<D> {
         }
         Ok(None)
     }
+}
+
+/// The HID device list: hidapi's, or a fake in the tests.
+trait DeviceList {
+    /// Empties the list.
+    fn reset(&mut self);
+    /// Adds the devices with this VID and PID.
+    fn add(&mut self, vendor_id: u16, product_id: u16) -> io::Result<()>;
+    /// The devices in the list.
+    fn infos(&self) -> Vec<HidInfo>;
+}
+
+impl DeviceList for HidApi {
+    fn reset(&mut self) {
+        // hidapi's reset only clears its list and can't fail.
+        let _ = self.reset_devices();
+    }
+
+    fn add(&mut self, vendor_id: u16, product_id: u16) -> io::Result<()> {
+        self.add_devices(vendor_id, product_id)
+            .map_err(io::Error::other)
+    }
+
+    fn infos(&self) -> Vec<HidInfo> {
+        self.device_list().map(hid_info).collect()
+    }
+}
+
+/// The HID collections with the model's VID and PID, listed again.
+fn model_devices(list: &mut impl DeviceList, usb: &UsbId) -> io::Result<Vec<HidInfo>> {
+    list.add(0, 0)?;
+    Ok(list.infos())
 }
 
 fn hid_info(device: &DeviceInfo) -> HidInfo {
@@ -353,6 +385,55 @@ mod tests {
 
         sources.read(Duration::MAX).unwrap();
         assert_eq!(*log.borrow(), [(0, i32::MAX)]);
+    }
+
+    /// A device list that logs each VID and PID it is asked to add, and
+    /// keeps a stale entry until it is reset.
+    #[derive(Default)]
+    struct FakeList {
+        asked: Vec<(u16, u16)>,
+        entries: Vec<HidInfo>,
+    }
+
+    fn entry(vendor_id: u16, product_id: u16) -> HidInfo {
+        HidInfo {
+            path: c"path".to_owned(),
+            vendor_id,
+            product_id,
+            interface_number: 0,
+            usage_page: 0,
+            usage: 0,
+        }
+    }
+
+    impl DeviceList for FakeList {
+        fn reset(&mut self) {
+            self.entries.clear();
+        }
+
+        fn add(&mut self, vendor_id: u16, product_id: u16) -> io::Result<()> {
+            self.asked.push((vendor_id, product_id));
+            self.entries.push(entry(vendor_id, product_id));
+            Ok(())
+        }
+
+        fn infos(&self) -> Vec<HidInfo> {
+            self.entries.clone()
+        }
+    }
+
+    #[test]
+    fn only_the_models_vid_and_pid_are_listed() {
+        let usb = &razer_proto::BLADE_18.usb;
+        let mut list = FakeList {
+            entries: vec![entry(0x046D, 0xC52B)],
+            ..FakeList::default()
+        };
+
+        let infos = model_devices(&mut list, usb).unwrap();
+
+        assert_eq!(list.asked, [(usb.vendor_id, usb.product_id)]);
+        assert_eq!(infos, [entry(usb.vendor_id, usb.product_id)]);
     }
 
     #[test]
