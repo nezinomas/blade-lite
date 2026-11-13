@@ -538,6 +538,8 @@ impl<P: Parts> Shell<P> {
             report(
                 "the app has run for a minute since Windows said the laptop sleeps, with input from the user and no wake notice, so this counts as a wake: the settings go again after the pause",
             );
+            // The sleep failed: the chips did not cool (ticket 172).
+            self.slept_at.set(None);
             self.wake();
         }
     }
@@ -546,14 +548,19 @@ impl<P: Parts> Shell<P> {
     /// wall clock (`Instant` may not count it): after a
     /// [`LONG_SLEEP`], a fan guard at full speed ends after a short cool
     /// hold (ticket 172), which is logged. A sleep not measured (its notice
-    /// came with the wake, or the clock was set back) keeps the usual hold.
+    /// came with the wake, a missed wake, or the clock was set back) keeps
+    /// the usual hold. A clock set forward in the sleep is believed: the
+    /// short hold still needs its cool readings. Only for a manual fan, the
+    /// one the guard speeds up.
     fn follow_long_sleep(&self, wall: SystemTime) {
         if !self.woke.take() {
             return;
         }
-        let Some(slept) = self
-            .slept_at
-            .take()
+        let slept_at = self.slept_at.take();
+        if !self.app.borrow().manual_fan_runs() {
+            return;
+        }
+        let Some(slept) = slept_at
             .and_then(|at| wall.duration_since(at).ok())
             .filter(|&slept| slept >= LONG_SLEEP)
         else {
@@ -562,7 +569,8 @@ impl<P: Parts> Shell<P> {
         let mut guard = self.fan_guard.get();
         let on = guard.woke();
         self.fan_guard.set(guard);
-        if on && self.app.borrow().manual_fan_runs() {
+        // Nothing is sent while Razer software runs.
+        if on && self.heat_reads_allowed() {
             report(&format!(
                 "fan guard: the laptop slept {} min, so {} s of cool readings end full speed",
                 slept.as_secs() / 60,
@@ -647,11 +655,12 @@ impl<P: Parts> Shell<P> {
         // A notice while asleep (the last sleep had no wake notice) starts
         // the minute to a missed wake again; nothing was sent since the last.
         self.awake_run.set(None);
+        // From the last notice: the app ran since an earlier one.
+        self.slept_at.set(Some(SystemTime::now()));
+        self.woke.set(false);
         if self.asleep.get() || self.quit_sent.get() {
             return;
         }
-        self.slept_at.set(Some(SystemTime::now()));
-        self.woke.set(false);
         if self.resuming.get() > 0 {
             report(
                 "the laptop goes to sleep in the pause after a wake, an open again or an updater, so the quit preset was not sent: a manual fan or Performance may keep running in the sleep",

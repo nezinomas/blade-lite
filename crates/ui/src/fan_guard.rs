@@ -102,7 +102,9 @@ impl FanGuard {
     /// Takes one reading of each sensor at `now` (`None`: not read). Returns
     /// the new state when it changes: on at the first recent reading of a
     /// sensor at its guard limit (user pick 2026-11-12: no wait), off once
-    /// every sensor read lately has been cool for [`FAN_GUARD_COOL_HOLD`]. The CPU must be among
+    /// every sensor read lately has been cool for [`FAN_GUARD_COOL_HOLD`]
+    /// (after a long sleep, maybe [`FAN_GUARD_WAKE_HOLD`]: see
+    /// [`woke`](Self::woke)). The CPU must be among
     /// them: with no CPU reading the guard stays on. A GPU not read lately
     /// holds it on only while its reads fail (see [`gpu_failed`](Self::gpu_failed)).
     pub fn note(&mut self, cpu: Option<u32>, gpu: Option<u32>, now: Instant) -> Option<bool> {

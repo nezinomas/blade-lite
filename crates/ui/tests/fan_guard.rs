@@ -316,10 +316,19 @@ fn a_gap_in_the_readings_after_a_long_sleep_keeps_the_usual_hold() {
 
     // Three reads missed at the 2 s guard interval.
     let later = now + 7 * SECOND;
-    let (_, changes) = feed(&mut guard, later, 10 * SECOND, Some(70), Some(60));
+    let (_, changes) = feed(&mut guard, later, FAN_GUARD_WAKE_HOLD, Some(70), Some(60));
 
     assert!(changes.is_empty(), "{changes:?}");
     assert!(guard.on());
+}
+
+#[test]
+fn reads_6_s_apart_after_a_long_sleep_keep_the_short_hold() {
+    let (mut guard, now) = on_and_woke();
+    let changes: Vec<bool> = (0..5)
+        .filter_map(|step| guard.note(Some(70), Some(60), now + step * 6 * SECOND))
+        .collect();
+    assert_eq!(changes, [false]);
 }
 
 #[test]
