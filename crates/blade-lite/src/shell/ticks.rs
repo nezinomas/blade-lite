@@ -24,6 +24,16 @@ const GONE_KEY: &str = "controller closed or held";
 /// (ticket 173; on the laptop 2 s worked).
 const FAN_TARGETS_AGAIN: Duration = Duration::from_secs(2);
 
+/// How long the app runs on after a sleep notice with no wake notice
+/// before that counts as a wake (ticket 170). Windows freezes the app a
+/// few seconds after the notice, so a minute of ticks means it is not
+/// asleep.
+const MISSED_WAKE_AFTER: Duration = Duration::from_secs(60);
+
+/// The longest wall-clock gap between two ticks that still counts as one
+/// run: a longer one may be a freeze in the sleep.
+const TICK_GAP: Duration = Duration::from_secs(5);
+
 #[cfg(test)]
 thread_local! {
     /// The `sent again by a poll` lines this test's thread logged: the
@@ -48,6 +58,7 @@ impl<P: Parts> Shell<P> {
         let failures = self.app.borrow().preset_failures();
         let looked = self.look_for_razer_now_and_then(now);
         self.follow_own_power();
+        self.follow_missed_wake(wall);
         self.start_after_updater();
         self.send_fan_targets_again(now);
         if looked {
@@ -481,28 +492,62 @@ impl<P: Parts> Shell<P> {
         }
         if event == PowerEvent::Resumed {
             report("Windows says the laptop woke, so the settings go again after the pause");
-            // The sleep's pause ends: the wake's own begins.
-            if self.asleep.replace(false) {
-                self.resuming.set(self.resuming.get().saturating_sub(1));
-            }
-            // The last pause sends the wake's settings.
-            self.wake_due.set(true);
-            // The time asleep may not count in `Instant`, so a spell before
-            // the sleep is not carried over.
-            self.heat_watch.set(HeatWatch::default());
-            // The controller needs a moment after the wake.
-            let pause = self.begin_pause();
-            let shell = Rc::clone(self);
-            Timer::single_shot(RESUME_PAUSE, move || {
-                shell.resuming.set(shell.resuming.get().saturating_sub(1));
-                // A sleep or a newer pause since: the last pause sends them.
-                if !shell.superseded(pause) {
-                    shell.end_wake_pause();
-                }
-            });
+            self.wake();
         } else {
             self.act(|app| app.on_power(event));
         }
+    }
+
+    /// After a sleep notice, counts a run of ticks of
+    /// [`MISSED_WAKE_AFTER`] with no gap over [`TICK_GAP`] (wall clock,
+    /// which counts a freeze) as a wake: Windows may send no wake notice,
+    /// such as for a sleep that turns into a hibernate (Microsoft's
+    /// `PBT_APMRESUMEAUTOMATIC` page). A clock set back starts the run
+    /// again, the safe side.
+    fn follow_missed_wake(self: &Rc<Self>, wall: SystemTime) {
+        if !self.asleep.get() {
+            return;
+        }
+        let began = match self.awake_run.get() {
+            Some((began, last)) if wall.duration_since(last).is_ok_and(|gap| gap <= TICK_GAP) => {
+                began
+            }
+            _ => wall,
+        };
+        self.awake_run.set(Some((began, wall)));
+        if wall
+            .duration_since(began)
+            .is_ok_and(|ran| ran >= MISSED_WAKE_AFTER)
+        {
+            report(
+                "the app has run for a minute since Windows said the laptop sleeps, with no wake notice, so this counts as a wake: the settings go again after the pause",
+            );
+            self.wake();
+        }
+    }
+
+    /// Ends a sleep, if any, and sends the saved settings after the wake's
+    /// pause.
+    fn wake(self: &Rc<Self>) {
+        // The sleep's pause ends: the wake's own begins.
+        if self.asleep.replace(false) {
+            self.resuming.set(self.resuming.get().saturating_sub(1));
+        }
+        // The last pause sends the wake's settings.
+        self.wake_due.set(true);
+        // The time asleep may not count in `Instant`, so a spell before
+        // the sleep is not carried over.
+        self.heat_watch.set(HeatWatch::default());
+        // The controller needs a moment after the wake.
+        let pause = self.begin_pause();
+        let shell = Rc::clone(self);
+        Timer::single_shot(RESUME_PAUSE, move || {
+            shell.resuming.set(shell.resuming.get().saturating_sub(1));
+            // A sleep or a newer pause since: the last pause sends them.
+            if !shell.superseded(pause) {
+                shell.end_wake_pause();
+            }
+        });
     }
 
     /// The end of the last pause after a wake (the wake's own, or an open
@@ -564,6 +609,7 @@ impl<P: Parts> Shell<P> {
             self.send_sleep_preset();
         }
         self.asleep.set(true);
+        self.awake_run.set(None);
         self.resuming.set(self.resuming.get().saturating_add(1));
     }
 

@@ -467,3 +467,66 @@ fn two_wakes_under_the_pause_apart_send_once() {
 
     only_the_last_pause_sends(&f, before, false);
 }
+
+/// Ticks each second from `wall` for `seconds`, as a running app does.
+fn tick_for(f: &Fixture, wall: std::time::SystemTime, seconds: u64) {
+    let now = std::time::Instant::now();
+    for second in 0..=seconds {
+        f.shell.tick_at(
+            now + Duration::from_secs(second),
+            wall + Duration::from_secs(second),
+        );
+    }
+}
+
+#[test]
+fn a_minute_of_running_with_no_wake_notice_counts_as_a_wake() {
+    let f = fixture(manual_fan());
+    power(&f, &[PowerEvent::Suspending]);
+    let before = sent_count(&f);
+    let wall = std::time::SystemTime::now();
+
+    tick_for(&f, wall, 59);
+    assert_eq!(sent_since(&f, before), [], "not before a minute");
+    tick_for(&f, wall + Duration::from_secs(60), 0);
+    assert_eq!(sent_since(&f, before), [], "not in the wake's pause");
+    pause_ends();
+
+    assert!(sets_a_manual_fan(&sent_since(&f, before)));
+    assert!(logged(&["with no wake notice", "counts as a wake"]));
+}
+
+#[test]
+fn a_gap_in_the_ticks_starts_the_minute_again() {
+    let f = fixture(manual_fan());
+    power(&f, &[PowerEvent::Suspending]);
+    let before = sent_count(&f);
+    let wall = std::time::SystemTime::now();
+
+    // Frozen for 10 min in the sleep, then 59 s of ticks.
+    tick_for(&f, wall, 30);
+    tick_for(&f, wall + Duration::from_secs(630), 59);
+    pause_ends();
+    assert_eq!(sent_since(&f, before), []);
+    // A clock set back starts it again too.
+    tick_for(&f, wall, 59);
+    pause_ends();
+
+    assert_eq!(sent_since(&f, before), []);
+}
+
+#[test]
+fn a_new_sleep_notice_starts_the_minute_again() {
+    let f = fixture(manual_fan());
+    power(&f, &[PowerEvent::Suspending]);
+    let wall = std::time::SystemTime::now();
+    tick_for(&f, wall, 60);
+    pause_ends();
+    power(&f, &[PowerEvent::Suspending]);
+    let before = sent_count(&f);
+
+    tick_for(&f, wall + Duration::from_secs(61), 58);
+    pause_ends();
+
+    assert_eq!(sent_since(&f, before), []);
+}
