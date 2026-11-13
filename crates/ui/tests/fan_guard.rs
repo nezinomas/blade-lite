@@ -62,7 +62,7 @@ fn the_guard_goes_off_only_after_both_cool_for_the_cool_hold() {
     let mut guard = FanGuard::default();
     let (now, _) = feed(&mut guard, Instant::now(), HOT_TIME, Some(96), Some(80));
     assert!(guard.on());
-    // Under the limit but not cool yet (10 °C margin): stays on.
+    // Under the limit but not cool yet (the cool lines): stays on.
     let (now, changes) = feed(&mut guard, now, FAN_GUARD_COOL_HOLD * 2, Some(90), Some(70));
     assert!(changes.is_empty(), "{changes:?}");
     // Cool, but not for long enough.
@@ -71,10 +71,10 @@ fn the_guard_goes_off_only_after_both_cool_for_the_cool_hold() {
         now,
         FAN_GUARD_COOL_HOLD.saturating_sub(2 * SECOND),
         Some(80),
-        Some(70),
+        Some(60),
     );
     assert!(changes.is_empty(), "{changes:?}");
-    let (_, changes) = feed(&mut guard, now, 3 * SECOND, Some(80), Some(70));
+    let (_, changes) = feed(&mut guard, now, 3 * SECOND, Some(80), Some(60));
     assert_eq!(changes, [false]);
 }
 
