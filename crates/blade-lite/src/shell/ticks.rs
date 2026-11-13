@@ -693,6 +693,8 @@ impl<P: Parts> Shell<P> {
         {
             let mut app = self.app.borrow_mut();
             app.set_num_lock(num_lock_on());
+            // The mic is read again at the next tick, not only on notices.
+            P::mic_read_again();
             // The charger may have been pulled in the sleep, and the
             // power event may come after this resume.
             app.take_on_battery(P::on_battery());

@@ -21,8 +21,8 @@ use blade_core::{
 };
 use blade_lite::{App, AppError, Rect, SaidLately, ShownErrors, report, took_effect};
 use platform::{
-    DisplayApi, FileDialog, KeyInjector, PowerEvent, Programs, Registry, Sensors, WindowsDisplays,
-    WindowsKeys, WindowsPrograms, WindowsRegistry, WindowsSensors,
+    DisplayApi, FileDialog, KeyInjector, MicWatch, PowerEvent, Programs, Registry, Sensors,
+    WindowsDisplays, WindowsKeys, WindowsPrograms, WindowsRegistry, WindowsSensors,
 };
 use razer_device::{Device, DeviceError, HidTransport, Reopening, SystemClock};
 use razer_proto::BLADE_18;
@@ -58,6 +58,9 @@ pub trait Parts: 'static {
     fn pick_file(owner: Option<isize>, dialog: FileDialog, done: PickedFile);
     /// Whether the default mic is muted now. `None` if it can't be read.
     fn mic_muted() -> Option<bool>;
+    /// Makes the next [`mic_muted`](Self::mic_muted) ask Windows again, as
+    /// after a wake.
+    fn mic_read_again();
     /// Mutes the default mic if it is not muted, or the other way round.
     /// Whether it is muted after; `None` if that can't be told.
     fn toggle_mic_mute() -> Option<bool>;
@@ -111,6 +114,10 @@ thread_local! {
     pub static CONTROLLER_HELD: Rc<Cell<bool>> = Rc::default();
     /// The last failed open again, so each one is logged once.
     static REOPEN_ERRORS: RefCell<ShownErrors> = RefCell::new(ShownErrors::default());
+    /// The default mic's mute as Windows' notices keep it (ticket 188), on
+    /// the event-loop thread. Made at the first look; tried again at the
+    /// next look if that fails.
+    static MIC_WATCH: RefCell<Option<MicWatch>> = const { RefCell::new(None) };
 }
 
 /// Opens the controller again after its handle died (a driver install, the
@@ -164,11 +171,26 @@ impl Parts for Laptop {
         crate::background::on_battery_now()
     }
 
-    /// A read that fails is said once, until a read works again.
+    /// A read that fails is said once, until a read works again. Asks
+    /// Windows only at the first look, after a new default mic, after a
+    /// wake, or after a failed read; else the change notices keep it.
     fn mic_muted() -> Option<bool> {
-        let read = platform::mic_muted();
+        let read = MIC_WATCH.with_borrow_mut(|watch| {
+            if watch.is_none() {
+                *watch = Some(MicWatch::new()?);
+            }
+            watch.as_mut().map_or(Ok(None), MicWatch::muted)
+        });
         say_mic_error(read.as_ref().err());
-        read.ok()
+        read.ok().flatten()
+    }
+
+    fn mic_read_again() {
+        MIC_WATCH.with_borrow(|watch| {
+            if let Some(watch) = watch {
+                watch.read_again();
+            }
+        });
     }
 
     fn controller_reopened() -> Reopened {

@@ -10,8 +10,9 @@ use platform::PowerEvent;
 use razer_proto::{BLADE_18, Command, FirmwareVersion, PerfMode};
 
 use super::{
-    FAKE_INPUT_AGE, FAKE_LID_OPEN, FAKE_ON_BATTERY, FAKE_RELEASED, FAKE_REOPENED, FAKE_SCREEN_ON,
-    FAKE_SLEEP_NOTICE_LATE, Fixture, click, fixture, fixture_with_programs, log_path,
+    FAKE_INPUT_AGE, FAKE_LID_OPEN, FAKE_MIC_READS_AGAIN, FAKE_ON_BATTERY, FAKE_RELEASED,
+    FAKE_REOPENED, FAKE_SCREEN_ON, FAKE_SLEEP_NOTICE_LATE, Fixture, click, fixture,
+    fixture_with_programs, log_path,
 };
 use crate::shell::Reopened;
 
@@ -1014,4 +1015,18 @@ fn the_fan_guard_reads_at_the_first_tick_after_an_updater_s_pause() {
     f.shell.tick_at(now + later, wall + later);
 
     assert!(sends_full_speed(&sent_since(&f, before)));
+}
+
+#[test]
+fn the_wake_reads_the_mic_again_after_its_pause() {
+    // The mute is kept from Windows' notices; a wake asks once (ticket 188).
+    let f = fixture(Config::default());
+    power(&f, &[PowerEvent::Suspending]);
+    power(&f, &[PowerEvent::Resumed]);
+    assert_eq!(FAKE_MIC_READS_AGAIN.get(), 0, "not in the pause");
+
+    pause_ends();
+
+    assert_eq!(FAKE_MIC_READS_AGAIN.get(), 1);
+    drop(f);
 }

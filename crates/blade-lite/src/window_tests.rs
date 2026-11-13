@@ -67,6 +67,10 @@ impl Parts for Fakes {
         FAKE_MIC.get()
     }
 
+    fn mic_read_again() {
+        FAKE_MIC_READS_AGAIN.set(FAKE_MIC_READS_AGAIN.get() + 1);
+    }
+
     fn toggle_mic_mute() -> Option<bool> {
         FAKE_MIC.set(FAKE_MIC.get().map(|muted| !muted));
         FAKE_MIC.get()
@@ -111,6 +115,8 @@ thread_local! {
     pub static FAKE_HELD: RefCell<Option<Box<dyn FnOnce()>>> = const { RefCell::new(None) };
     /// The default mic's mute: unknown unless a test sets it.
     pub static FAKE_MIC: std::cell::Cell<Option<bool>> = const { std::cell::Cell::new(None) };
+    /// How many times the mic was asked to be read again.
+    pub static FAKE_MIC_READS_AGAIN: std::cell::Cell<u32> = const { std::cell::Cell::new(0) };
     /// What opens of the controller again asked: nothing unless a test sets it.
     pub static FAKE_REOPENED: std::cell::Cell<Reopened> = const { std::cell::Cell::new(Reopened::No) };
     /// Whether the shell let the controller send on a new handle.
@@ -244,6 +250,7 @@ pub fn fixture_with_programs(config: Config, programs: &[&str]) -> Fixture {
     FAKE_ON_BATTERY.set(false);
     FAKE_SOURCE_UNKNOWN.set(false);
     FAKE_MIC.set(None);
+    FAKE_MIC_READS_AGAIN.set(0);
     FAKE_HOLD.set(false);
     FAKE_HELD.take();
     FAKE_SLEEP_NOTICE_LATE.set(false);
