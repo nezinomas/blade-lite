@@ -2,10 +2,11 @@
 //! reports the keyboard sends on its own.
 
 use std::io;
+use std::sync::{Mutex, MutexGuard, PoisonError};
 use std::time::Duration;
 
 use hidapi::{DeviceInfo, HidApi, HidDevice};
-use razer_proto::{ModelProfile, REPORT_LEN};
+use razer_proto::{ModelProfile, REPORT_LEN, UsbId};
 
 use crate::{HidInfo, Transport, find_controller, find_key_collections};
 
@@ -25,8 +26,9 @@ impl HidTransport {
     ///
     /// [`io::ErrorKind::NotFound`] if there is no controller, or any hidapi error.
     pub fn open(model: &ModelProfile) -> io::Result<Self> {
-        let api = HidApi::new().map_err(io::Error::other)?;
-        let devices: Vec<HidInfo> = api.device_list().map(hid_info).collect();
+        let mut api = shared_api();
+        let api = api_in(&mut api, new_api)?;
+        let devices = model_devices(api, &model.usb)?;
         let info = find_controller(&devices, &model.usb)
             .cloned()
             .ok_or_else(|| {
@@ -71,8 +73,9 @@ impl HidKeyReports {
             )
         };
         let key = model.power_key.ok_or_else(not_found)?;
-        let api = HidApi::new().map_err(io::Error::other)?;
-        let infos: Vec<HidInfo> = api.device_list().map(hid_info).collect();
+        let mut api = shared_api();
+        let api = api_in(&mut api, new_api)?;
+        let infos = model_devices(api, &model.usb)?;
         let devices: Vec<HidDevice> = find_key_collections(&infos, &model.usb, &key)
             .into_iter()
             .filter_map(|info| api.open_path(&info.path).ok())
@@ -152,6 +155,71 @@ impl<D: ReadTimeout> KeySources<D> {
         }
         Ok(None)
     }
+}
+
+/// The one hidapi context of the run. hidapi 2.6 lists every HID device
+/// on the PC when a context is made, and asks each one for its strings
+/// (requests that go to the device and could wake it), even through
+/// `new_without_enumerate`. So the context is made once, and each open
+/// after lists only the model's VID and PID (ticket 186).
+static API: Mutex<Option<HidApi>> = Mutex::new(None);
+
+/// The shared context's lock. A poisoned lock is taken as it is: the
+/// context holds only a device list, which each open lists again.
+fn shared_api() -> MutexGuard<'static, Option<HidApi>> {
+    API.lock().unwrap_or_else(PoisonError::into_inner)
+}
+
+/// The context in `slot`, made by `make` on first use only.
+fn api_in<T>(slot: &mut Option<T>, make: impl FnOnce() -> io::Result<T>) -> io::Result<&mut T> {
+    match slot {
+        Some(api) => Ok(api),
+        None => Ok(slot.insert(make()?)),
+    }
+}
+
+fn new_api() -> io::Result<HidApi> {
+    HidApi::new().map_err(io::Error::other)
+}
+
+/// The HID device list: hidapi's, or a fake in the tests.
+trait DeviceList {
+    /// Empties the list.
+    fn reset(&mut self);
+    /// Adds the devices with this VID and PID.
+    fn add(&mut self, vendor_id: u16, product_id: u16) -> io::Result<()>;
+    /// The devices in the list.
+    fn infos(&self) -> Vec<HidInfo>;
+}
+
+impl DeviceList for HidApi {
+    fn reset(&mut self) {
+        // hidapi's reset only clears its list and can't fail.
+        let _ = self.reset_devices();
+    }
+
+    fn add(&mut self, vendor_id: u16, product_id: u16) -> io::Result<()> {
+        self.add_devices(vendor_id, product_id)
+            .map_err(io::Error::other)
+    }
+
+    fn infos(&self) -> Vec<HidInfo> {
+        self.device_list().map(hid_info).collect()
+    }
+}
+
+/// The HID collections with the model's VID and PID, listed again. A VID
+/// or PID of 0 is refused: hidapi takes 0 as any, which lists every device.
+fn model_devices(list: &mut impl DeviceList, usb: &UsbId) -> io::Result<Vec<HidInfo>> {
+    if usb.vendor_id == 0 || usb.product_id == 0 {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "a VID or PID of 0 would list every HID device",
+        ));
+    }
+    list.reset();
+    list.add(usb.vendor_id, usb.product_id)?;
+    Ok(list.infos())
 }
 
 fn hid_info(device: &DeviceInfo) -> HidInfo {
@@ -353,6 +421,101 @@ mod tests {
 
         sources.read(Duration::MAX).unwrap();
         assert_eq!(*log.borrow(), [(0, i32::MAX)]);
+    }
+
+    /// A device list that logs each VID and PID it is asked to add, and
+    /// keeps a stale entry until it is reset.
+    #[derive(Default)]
+    struct FakeList {
+        asked: Vec<(u16, u16)>,
+        entries: Vec<HidInfo>,
+    }
+
+    fn entry(vendor_id: u16, product_id: u16) -> HidInfo {
+        HidInfo {
+            path: c"path".to_owned(),
+            vendor_id,
+            product_id,
+            interface_number: 0,
+            usage_page: 0,
+            usage: 0,
+        }
+    }
+
+    impl DeviceList for FakeList {
+        fn reset(&mut self) {
+            self.entries.clear();
+        }
+
+        fn add(&mut self, vendor_id: u16, product_id: u16) -> io::Result<()> {
+            self.asked.push((vendor_id, product_id));
+            self.entries.push(entry(vendor_id, product_id));
+            Ok(())
+        }
+
+        fn infos(&self) -> Vec<HidInfo> {
+            self.entries.clone()
+        }
+    }
+
+    #[test]
+    fn only_the_models_vid_and_pid_are_listed() {
+        let usb = &razer_proto::BLADE_18.usb;
+        let mut list = FakeList {
+            entries: vec![entry(0x046D, 0xC52B)],
+            ..FakeList::default()
+        };
+
+        let infos = model_devices(&mut list, usb).unwrap();
+
+        assert_eq!(list.asked, [(usb.vendor_id, usb.product_id)]);
+        assert_eq!(infos, [entry(usb.vendor_id, usb.product_id)]);
+    }
+
+    #[test]
+    fn a_vid_or_pid_of_0_is_refused_and_nothing_is_listed() {
+        let usb = razer_proto::BLADE_18.usb;
+        for zero in [
+            UsbId {
+                vendor_id: 0,
+                ..usb
+            },
+            UsbId {
+                product_id: 0,
+                ..usb
+            },
+        ] {
+            let mut list = FakeList::default();
+
+            let error = model_devices(&mut list, &zero).unwrap_err();
+
+            assert_eq!(error.kind(), io::ErrorKind::InvalidInput);
+            assert_eq!(list.asked, []);
+        }
+    }
+
+    #[test]
+    fn the_context_is_made_once() {
+        let mut slot = None;
+        let mut made = 0;
+
+        for _ in 0..2 {
+            api_in(&mut slot, || {
+                made += 1;
+                Ok(made)
+            })
+            .unwrap();
+        }
+
+        assert_eq!(made, 1);
+    }
+
+    #[test]
+    fn a_context_that_failed_is_made_again() {
+        let mut slot: Option<u8> = None;
+
+        assert!(api_in(&mut slot, || Err(io::Error::other("no HID"))).is_err());
+        assert_eq!(*api_in(&mut slot, || Ok(7)).unwrap(), 7);
     }
 
     #[test]
