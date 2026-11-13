@@ -30,6 +30,20 @@ fn a_send_cut_partway_drops_the_fan_targets_due() {
 }
 
 #[test]
+fn a_quit_whose_first_send_fails_drops_the_fan_targets_due() {
+    let (mut app, _dir, _) = app_with(manual_fan_saved());
+    app.take_on_battery(Some(false));
+    app.on_performance(PerformanceCommand::SetPreset(Preset::Custom))
+        .unwrap();
+    assert!(app.fan_targets_due().is_some());
+    app.machine_mut().controller.inner.fails = true;
+
+    assert!(app.quit_preset().is_err());
+
+    assert_eq!(app.fan_targets_due(), None);
+}
+
+#[test]
 fn a_change_refused_before_any_send_keeps_the_fan_targets_due() {
     let (mut app, _dir, _) = app_with(manual_fan_saved());
     app.take_on_battery(Some(false));

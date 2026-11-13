@@ -297,12 +297,16 @@ where
     /// boosts when Custom is not what should run), the known way to end a
     /// manual fan; whether the preset's own mode write ends it too is not
     /// checked on the laptop. The saved preset is kept, so the next start
-    /// sends it again.
+    /// sends it again. Any fan targets due are dropped first, so none go
+    /// after the quit.
     ///
     /// # Errors
     ///
     /// See [`AppError`]. A failure stops the sends after it.
     pub fn quit_preset(&mut self) -> Result<(), AppError> {
+        // No manual fan targets may go after the quit's sends, even when
+        // the first one fails (ticket 182).
+        self.forget_fan_targets();
         let running = self.running(self.config);
         let manual_saved =
             self.config.preset == Preset::Custom && self.config.custom.fan_rpm.is_some();
