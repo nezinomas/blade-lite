@@ -15,7 +15,7 @@ use windows_sys::Win32::Devices::DeviceAndDriverInstallation::{
 };
 use windows_sys::Win32::Devices::HumanInterfaceDevice::{
     HIDD_ATTRIBUTES, HIDP_CAPS, HIDP_STATUS_SUCCESS, HidD_FreePreparsedData, HidD_GetAttributes,
-    HidD_GetHidGuid, HidD_GetPreparsedData, HidD_SetFeature, HidD_SetNumInputBuffers, HidP_GetCaps,
+    HidD_GetHidGuid, HidD_GetPreparsedData, HidD_SetNumInputBuffers, HidP_GetCaps,
 };
 use windows_sys::Win32::Devices::Properties::{DEVPKEY_Device_InstanceId, DEVPROP_TYPE_STRING};
 use windows_sys::Win32::Foundation::{
@@ -39,17 +39,22 @@ use crate::wide;
 /// direct, any access. Not in `windows-sys`; hidapi uses the same value.
 const IOCTL_HID_GET_FEATURE: u32 = (0x0B << 16) | (100 << 2) | 2;
 
+/// `IOCTL_HID_SET_FEATURE`: keyboard device type, function 100, in
+/// direct, any access; the code `HidD_SetFeature` sends. The report goes
+/// in the input buffer, with no output buffer (hidclass.h docs).
+const IOCTL_HID_SET_FEATURE: u32 = (0x0B << 16) | (100 << 2) | 1;
+
 /// How many times the HID list is read when it grows while it is read.
 const LIST_TRIES: usize = 3;
 
 /// How many input reports Windows keeps for a collection, as hidapi set.
 const INPUT_BUFFERS: u32 = 64;
 
-/// The longest wait for a feature report (ticket 197), then the read is
-/// cancelled. The controller answers in milliseconds (not measured after
-/// a resume); one that never answers no longer stalls the event-loop
-/// thread for good, as hidapi's wait with no limit could, unless its
-/// driver ignores the cancel too (ticket 201).
+/// The longest wait for a feature read (ticket 197) or send (ticket 200),
+/// then the request is cancelled. The controller answers in milliseconds
+/// (not measured after a resume); one that never answers no longer stalls
+/// the event-loop thread for good, as hidapi's wait with no limit could,
+/// unless its driver ignores the cancel too (ticket 201).
 const FEATURE_WAIT: Duration = Duration::from_secs(3);
 
 /// The paths of the HID interfaces that are present. Read from Windows'
@@ -214,14 +219,16 @@ impl HidDevice {
         })
     }
 
-    /// Sends a feature report, its ID first. A shorter report is padded
-    /// with zeros to the collection's feature length; a longer one is
-    /// refused, not cut.
+    /// Sends a feature report, its ID first, and waits for it up to
+    /// [`FEATURE_WAIT`]. A shorter report is padded with zeros to the
+    /// collection's feature length; a longer one is refused, not cut.
     ///
     /// # Errors
     ///
     /// [`io::ErrorKind::InvalidInput`] for a report longer than the
-    /// collection's, else the Windows error.
+    /// collection's. [`io::ErrorKind::TimedOut`] if the controller did not
+    /// take it in time: the send is then cancelled, not tried again (the
+    /// controller may have acted on it). Else the Windows error.
     pub fn send_feature(&self, report: &[u8]) -> io::Result<()> {
         refuse_empty(report)?;
         if report.len() > self.feature_len {
@@ -237,12 +244,22 @@ impl HidDevice {
         let mut buffer = vec![0; self.feature_len];
         buffer[..report.len()].copy_from_slice(report);
         let length = u32::try_from(buffer.len()).map_err(io::Error::other)?;
-        // SAFETY: the buffer is `length` bytes long and outlives the call.
-        if unsafe { HidD_SetFeature(self.handle.0, buffer.as_ptr().cast(), length) } {
-            Ok(())
-        } else {
-            Err(io::Error::last_os_error())
-        }
+        let mut overlapped = self.overlapped();
+        // SAFETY: the buffer is `length` bytes long; it and the overlapped
+        // outlive the request, which `finish` waits for or cancels.
+        let ok = unsafe {
+            DeviceIoControl(
+                self.handle.0,
+                IOCTL_HID_SET_FEATURE,
+                buffer.as_ptr().cast(),
+                length,
+                ptr::null_mut(),
+                0,
+                ptr::null_mut(),
+                &raw mut overlapped,
+            )
+        };
+        feature_sent(finish(&self.handle, ok != 0, &overlapped, FEATURE_WAIT)?)
     }
 
     /// Reads a feature report into `buffer`, whose first byte is the
@@ -401,6 +418,21 @@ fn feature_count(ended: Option<u32>) -> io::Result<u32> {
     })
 }
 
+/// A feature send that ended, or a time-out for one cut off at
+/// [`FEATURE_WAIT`]: the controller may have taken it, so it is not sent
+/// again.
+fn feature_sent(ended: Option<u32>) -> io::Result<()> {
+    ended.map(drop).ok_or_else(|| {
+        io::Error::new(
+            io::ErrorKind::TimedOut,
+            format!(
+                "a feature send did not end within {FEATURE_WAIT:?} and was cancelled; \
+                 the controller may have acted on it"
+            ),
+        )
+    })
+}
+
 /// An empty report or buffer is refused, as hidapi did: a send would
 /// otherwise go out as a report of zeros.
 fn refuse_empty(bytes: &[u8]) -> io::Result<()> {
@@ -491,6 +523,26 @@ mod tests {
     fn a_feature_read_cut_off_at_its_limit_is_timed_out() {
         let error = feature_count(None).unwrap_err();
         assert_eq!(error.kind(), io::ErrorKind::TimedOut);
+        assert!(error.to_string().starts_with("no feature report within"));
+    }
+
+    #[test]
+    fn a_feature_send_that_ended_is_sent() {
+        feature_sent(Some(0)).unwrap();
+    }
+
+    #[test]
+    fn a_feature_send_cut_off_at_its_limit_is_timed_out() {
+        let error = feature_sent(None).unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::TimedOut);
+    }
+
+    /// `HID_IN_CTL_CODE(100)` in hidclass.h, the code `HidD_SetFeature`
+    /// sends.
+    #[test]
+    fn the_feature_send_code_is_hidclass_s() {
+        assert_eq!(IOCTL_HID_SET_FEATURE, 0x000B_0191);
+        assert_eq!(IOCTL_HID_GET_FEATURE, 0x000B_0192);
     }
 
     /// A request on one end of a new overlapped named pipe, as a HID
@@ -558,6 +610,41 @@ mod tests {
             None
         );
         // A Windows wait can end up to a timer tick (about 16 ms) early.
+        let took = started.elapsed();
+        assert!(took >= Duration::from_millis(150), "{took:?}");
+        assert!(took < Duration::from_secs(3), "{took:?}");
+    }
+
+    /// A write the pipe's other end never reads, as a feature send the
+    /// controller never takes: it waits until `finish` cancels it. A pipe
+    /// can't take `IOCTL_HID_SET_FEATURE`, so this covers `finish` on a
+    /// send; `send_feature`'s own call is covered by `cargo hw` only.
+    #[test]
+    fn a_send_never_taken_is_cancelled_at_its_limit() {
+        use windows_sys::Win32::Storage::FileSystem::WriteFile;
+        let (_server, client) = pipe("untaken");
+        // SAFETY: no name or security; a manual-reset event, not set.
+        let event = Handle::new(unsafe { CreateEventW(ptr::null(), 1, 0, ptr::null()) }).unwrap();
+        // Far more than the pipe's 64-byte buffer holds.
+        let bytes = vec![0u8; 64 * 1024];
+        let mut overlapped = OVERLAPPED {
+            hEvent: event.0,
+            ..OVERLAPPED::default()
+        };
+        let started = std::time::Instant::now();
+        // SAFETY: the bytes and overlapped outlive the request, which
+        // `finish` waits for or cancels.
+        let ok = unsafe {
+            WriteFile(
+                client.0,
+                bytes.as_ptr(),
+                u32::try_from(bytes.len()).unwrap(),
+                ptr::null_mut(),
+                &raw mut overlapped,
+            )
+        };
+        let sent = finish(&client, ok != 0, &overlapped, Duration::from_millis(200)).unwrap();
+        assert_eq!(sent, None);
         let took = started.elapsed();
         assert!(took >= Duration::from_millis(150), "{took:?}");
         assert!(took < Duration::from_secs(3), "{took:?}");
