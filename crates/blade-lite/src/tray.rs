@@ -1,5 +1,5 @@
-//! The tray icon: a click opens the flyout, the menu opens the window,
-//! turns autostart on or off, or quits.
+//! The tray icon: a click opens the flyout, a double click or the menu
+//! opens the window; the menu also turns autostart on or off, or quits.
 
 use std::panic::AssertUnwindSafe;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -20,6 +20,7 @@ pub enum TrayAction {
     Clicked(Rect),
     /// A right click on the icon, just before the menu opens.
     MenuOpening,
+    /// "Open window" in the menu, or a left double click on the icon.
     OpenWindow,
     /// A click on "Start with Windows", which has already flipped its tick.
     Autostart,

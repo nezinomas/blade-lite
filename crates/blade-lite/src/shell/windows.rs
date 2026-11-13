@@ -151,6 +151,11 @@ impl<P: Parts> Shell<P> {
         self.once_shown(
             |shell| shell.flyout.window(),
             move |shell, hwnd| {
+                // Hidden before it got its handle (a tray double click
+                // shows the window): leave it, or it takes the focus.
+                if !shell.flyout_open.get() {
+                    return;
+                }
                 shell.flyout_placed_first(icon);
                 put_backdrop(hwnd, true);
                 shell
