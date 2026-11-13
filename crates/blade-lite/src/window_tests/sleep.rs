@@ -690,7 +690,8 @@ fn hot_after_an_hour_asleep(f: &Fixture) -> (std::time::Instant, SystemTime) {
     let now = std::time::Instant::now();
     let wall = SystemTime::now();
     f.shell.tick_at(now, wall);
-    power(f, &[PowerEvent::Suspending, PowerEvent::Resumed]);
+    power(f, &[PowerEvent::Suspending]);
+    power(f, &[PowerEvent::Resumed]);
     f.shell.app().machine_mut().controller.inner.cpu_celsius = Some(96);
     (now, wall + Duration::from_secs(3600))
 }
@@ -710,7 +711,7 @@ fn the_fan_guard_reads_at_the_first_tick_after_the_wake_pause() {
 }
 
 #[test]
-fn a_sleep_in_the_wake_pause_makes_no_heat_read_due() {
+fn nothing_is_read_in_a_sleep_begun_in_the_wake_pause_and_the_next_wake_reads_at_once() {
     let f = fixture(manual_fan());
     let (now, wall) = hot_after_an_hour_asleep(&f);
     power(&f, &[PowerEvent::Suspending]);
@@ -728,4 +729,27 @@ fn a_sleep_in_the_wake_pause_makes_no_heat_read_due() {
         sends_full_speed(&sent_since(&f, before)),
         "the next wake reads"
     );
+}
+
+#[test]
+fn the_fan_guard_reads_at_the_first_tick_after_an_updater_s_pause() {
+    // No read while the updater runs, so the last one is minutes old.
+    let f = fixture(manual_fan());
+    let now = std::time::Instant::now();
+    let wall = SystemTime::now();
+    f.shell.tick_at(now, wall);
+    f.shell.programs().set(&[UPDATER]);
+    f.shell.look_for_razer();
+    f.shell.programs().set(&[]);
+    f.shell.look_for_razer();
+    let later = Duration::from_secs(300);
+    f.shell.tick_at(now + later, wall + later);
+    pause_ends();
+    f.shell.app().machine_mut().controller.inner.cpu_celsius = Some(96);
+    let before = sent_count(&f);
+
+    let later = later + Duration::from_secs(3);
+    f.shell.tick_at(now + later, wall + later);
+
+    assert!(sends_full_speed(&sent_since(&f, before)));
 }
