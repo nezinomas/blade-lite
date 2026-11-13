@@ -172,11 +172,10 @@ fn shared_api() -> MutexGuard<'static, Option<HidApi>> {
 
 /// The context in `slot`, made on first use.
 fn api_in(slot: &mut Option<HidApi>) -> io::Result<&mut HidApi> {
-    if slot.is_none() {
-        *slot = Some(HidApi::new().map_err(io::Error::other)?);
+    match slot {
+        Some(api) => Ok(api),
+        None => Ok(slot.insert(HidApi::new().map_err(io::Error::other)?)),
     }
-    slot.as_mut()
-        .ok_or_else(|| io::Error::other("no hidapi context"))
 }
 
 /// The HID device list: hidapi's, or a fake in the tests.
@@ -205,8 +204,15 @@ impl DeviceList for HidApi {
     }
 }
 
-/// The HID collections with the model's VID and PID, listed again.
+/// The HID collections with the model's VID and PID, listed again. A VID
+/// or PID of 0 is refused: hidapi takes 0 as any, which lists every device.
 fn model_devices(list: &mut impl DeviceList, usb: &UsbId) -> io::Result<Vec<HidInfo>> {
+    if usb.vendor_id == 0 || usb.product_id == 0 {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "a VID or PID of 0 would list every HID device",
+        ));
+    }
     list.reset();
     list.add(usb.vendor_id, usb.product_id)?;
     Ok(list.infos())
@@ -460,6 +466,28 @@ mod tests {
 
         assert_eq!(list.asked, [(usb.vendor_id, usb.product_id)]);
         assert_eq!(infos, [entry(usb.vendor_id, usb.product_id)]);
+    }
+
+    #[test]
+    fn a_vid_or_pid_of_0_is_refused_and_nothing_is_listed() {
+        let usb = razer_proto::BLADE_18.usb;
+        for zero in [
+            UsbId {
+                vendor_id: 0,
+                ..usb
+            },
+            UsbId {
+                product_id: 0,
+                ..usb
+            },
+        ] {
+            let mut list = FakeList::default();
+
+            let error = model_devices(&mut list, &zero).unwrap_err();
+
+            assert_eq!(error.kind(), io::ErrorKind::InvalidInput);
+            assert_eq!(list.asked, []);
+        }
     }
 
     #[test]
