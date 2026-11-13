@@ -9,7 +9,9 @@ use std::time::{Duration, Instant};
 use blade_core::PowerKeyPresses;
 use razer_device::HidKeyReports;
 
-/// How long one read waits for a key report.
+/// How long one read waits for a key report while more than one key
+/// collection is read in turn (before one sends), so a press on another
+/// collection is not held back long.
 pub const KEY_READ_WAIT: Duration = Duration::from_millis(100);
 
 /// How long one read waits while Fn is held, so Enter is read often. A
@@ -17,10 +19,12 @@ pub const KEY_READ_WAIT: Duration = Duration::from_millis(100);
 /// short reads last at most [`blade_core::FN_HOLD_LIMIT`] per Fn press.
 pub const ENTER_READ_WAIT: Duration = Duration::from_millis(5);
 
-/// Quiet reads in a row after which the reports are opened again, about a
-/// minute. A handle that went stale over a sleep may never fail, so this
-/// keeps the key from dying without a word.
-pub const KEY_IDLE_READS: u32 = 600;
+/// How long the reports may be quiet before they are opened again. A
+/// handle that went stale over a sleep may never fail, so this keeps the
+/// key from dying without a word. With one collection read, one read
+/// waits it all, so the thread does not wake to count quiet reads (a
+/// report ends the wait at once; ticket 188).
+pub const KEY_QUIET_SPELL: Duration = Duration::from_secs(120);
 
 /// Somewhere key reports come from.
 pub trait KeyReportSource {
@@ -30,11 +34,19 @@ pub trait KeyReportSource {
     ///
     /// Any I/O error, such as the keyboard going away.
     fn read(&mut self, wait: Duration) -> io::Result<Option<Vec<u8>>>;
+
+    /// Whether only one collection is read, so a long wait holds no other
+    /// one's report back.
+    fn single(&self) -> bool;
 }
 
 impl KeyReportSource for HidKeyReports {
     fn read(&mut self, wait: Duration) -> io::Result<Option<Vec<u8>>> {
         HidKeyReports::read(self, wait)
+    }
+
+    fn single(&self) -> bool {
+        HidKeyReports::single(self)
     }
 }
 
@@ -120,8 +132,7 @@ impl ReaderEnd {
     /// key counts once (ticket 174).
     #[must_use]
     pub fn keeps_key_state(&self, ran: Duration) -> bool {
-        let full_spell = KEY_READ_WAIT * KEY_IDLE_READS;
-        *self == Self::Reopen && ran >= full_spell / 2
+        *self == Self::Reopen && ran >= KEY_QUIET_SPELL / 2
     }
 
     /// The key state for the next open, after a reader that ran for `ran`
@@ -147,24 +158,26 @@ pub fn step_on_presses(
     presses: &mut PowerKeyPresses,
     mut on_key: impl FnMut(KeyEvent) -> bool,
 ) -> ReaderEnd {
-    let mut quiet = 0;
-    while quiet < KEY_IDLE_READS {
+    // The quiet spell so far: the sum of the quiet reads' waits.
+    let mut quiet = Duration::ZERO;
+    while quiet < KEY_QUIET_SPELL {
         let watching = presses.watching_enter(Instant::now());
-        let wait = if watching {
-            ENTER_READ_WAIT
-        } else {
-            KEY_READ_WAIT
-        };
+        let wait = read_wait(
+            watching,
+            presses.following_brightness(Instant::now()),
+            source.single(),
+            KEY_QUIET_SPELL.saturating_sub(quiet),
+        );
         let (key_pressed, fn_up) = match source.read(wait) {
             Ok(Some(report)) => {
-                quiet = 0;
+                quiet = Duration::ZERO;
                 let stepped = presses.on_report(&report, Instant::now());
                 (stepped, presses.fn_came_up())
             }
             Ok(None) => {
                 // Short reads while Fn is held are not a quiet spell.
                 if !watching {
-                    quiet += 1;
+                    quiet += wait;
                 }
                 (false, false)
             }
@@ -188,4 +201,41 @@ pub fn step_on_presses(
         }
     }
     ReaderEnd::Reopen
+}
+
+/// How long the next read waits: very short while Enter is watched, the
+/// rest of the quiet spell `left` with one collection and the brightness
+/// not followed, else [`KEY_READ_WAIT`] at most (under
+/// [`blade_core::BRIGHTNESS_READ_GAP`], so the follow keeps its pace).
+fn read_wait(watching: bool, following: bool, single: bool, left: Duration) -> Duration {
+    if watching {
+        ENTER_READ_WAIT
+    } else if single && !following {
+        left
+    } else {
+        KEY_READ_WAIT.min(left)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const LEFT: Duration = Duration::from_secs(50);
+
+    #[test]
+    fn a_single_collection_waits_out_the_spell_only_with_no_fn_held() {
+        assert_eq!(read_wait(true, true, true, LEFT), ENTER_READ_WAIT);
+        // Fn held past the Enter limit: the brightness follow still reads
+        // each gap (ticket 188 review).
+        assert_eq!(read_wait(false, true, true, LEFT), KEY_READ_WAIT);
+        assert_eq!(read_wait(false, false, true, LEFT), LEFT);
+    }
+
+    #[test]
+    fn more_than_one_collection_waits_a_short_read_at_most() {
+        assert_eq!(read_wait(false, false, false, LEFT), KEY_READ_WAIT);
+        let short = Duration::from_millis(30);
+        assert_eq!(read_wait(false, false, false, short), short);
+    }
 }

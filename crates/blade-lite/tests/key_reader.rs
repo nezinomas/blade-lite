@@ -6,14 +6,15 @@ use std::time::Duration;
 
 use blade_core::{BRIGHTNESS_READ_GAP, PowerKeyPresses};
 use blade_lite::{
-    ENTER_READ_WAIT, FnKeys, KEY_IDLE_READS, KEY_READ_WAIT, KEY_REOPEN_PAUSE, KeyEvent,
+    ENTER_READ_WAIT, FnKeys, KEY_QUIET_SPELL, KEY_READ_WAIT, KEY_REOPEN_PAUSE, KeyEvent,
     KeyReportSource, ReaderEnd, step_on_presses,
 };
 use razer_proto::BLADE_18;
 
 /// Gives its reads in order (`None` is a quiet read), then fails once
-/// they run out. Keeps each wait it was given.
-struct FakeSource(VecDeque<Option<Vec<u8>>>, Vec<Duration>);
+/// they run out. Keeps each wait it was given. Reads more than one
+/// collection unless made `single`.
+struct FakeSource(VecDeque<Option<Vec<u8>>>, Vec<Duration>, bool);
 
 impl KeyReportSource for FakeSource {
     fn read(&mut self, wait: Duration) -> io::Result<Option<Vec<u8>>> {
@@ -22,6 +23,15 @@ impl KeyReportSource for FakeSource {
             .pop_front()
             .ok_or_else(|| io::Error::other("no more reads"))
     }
+
+    fn single(&self) -> bool {
+        self.2
+    }
+}
+
+/// Quiet reads of [`KEY_READ_WAIT`] that make up a quiet spell.
+fn idle_reads() -> u32 {
+    u32::try_from(KEY_QUIET_SPELL.as_millis() / KEY_READ_WAIT.as_millis()).unwrap()
 }
 
 /// Gives its Enter states in order, then up, and counts its Enter reads.
@@ -60,7 +70,11 @@ fn presses() -> PowerKeyPresses {
 }
 
 fn source(reads: Vec<Option<Vec<u8>>>) -> FakeSource {
-    FakeSource(reads.into(), Vec::new())
+    FakeSource(reads.into(), Vec::new(), false)
+}
+
+fn single_source(reads: Vec<Option<Vec<u8>>>) -> FakeSource {
+    FakeSource(reads.into(), Vec::new(), true)
 }
 
 #[test]
@@ -103,7 +117,7 @@ fn the_loop_ends_when_the_app_is_quitting() {
 
 #[test]
 fn a_long_quiet_spell_reopens_the_reports() {
-    let quiet = (0..KEY_IDLE_READS).map(|_| None).collect();
+    let quiet = (0..idle_reads()).map(|_| None).collect();
     let mut source = source(quiet);
     let mut calls = 0;
 
@@ -125,7 +139,7 @@ fn a_long_quiet_spell_reopens_the_reports() {
 
 #[test]
 fn only_a_quiet_spell_of_full_length_opens_again_at_once() {
-    let spell = KEY_READ_WAIT * KEY_IDLE_READS;
+    let spell = KEY_QUIET_SPELL;
     assert_eq!(ReaderEnd::Reopen.pause_before_open(spell), Duration::ZERO);
     assert_eq!(
         ReaderEnd::Reopen.pause_before_open(spell / 2),
@@ -148,9 +162,9 @@ fn only_a_quiet_spell_of_full_length_opens_again_at_once() {
 
 #[test]
 fn a_report_resets_the_quiet_count() {
-    let mut reads: Vec<_> = (1..KEY_IDLE_READS).map(|_| None).collect();
+    let mut reads: Vec<_> = (1..idle_reads()).map(|_| None).collect();
     reads.push(Some(report(&[0x04])));
-    reads.extend((1..KEY_IDLE_READS).map(|_| None));
+    reads.extend((1..idle_reads()).map(|_| None));
     let mut source = source(reads);
 
     // The source fails after its reads, so the loop reached the end.
@@ -288,7 +302,7 @@ fn reads_wait_less_while_fn_is_held() {
 fn quiet_reads_while_fn_is_held_do_not_reopen() {
     // Short reads while Fn is held must not end the quiet spell early.
     let mut reads = vec![Some(report(&[0x04])), Some(report(&[0x04, 0x0A]))];
-    reads.extend((0..KEY_IDLE_READS).map(|_| None));
+    reads.extend((0..idle_reads()).map(|_| None));
     let mut source = source(reads);
 
     let end = step_on_presses(
@@ -412,6 +426,10 @@ impl KeyReportSource for HeldFn {
         std::thread::sleep(wait);
         Ok(None)
     }
+
+    fn single(&self) -> bool {
+        false
+    }
 }
 
 #[test]
@@ -443,7 +461,7 @@ fn the_brightness_is_read_while_fn_is_held_then_once_more_on_brightness_keys() {
 
 #[test]
 fn only_a_full_quiet_spell_keeps_the_key_state() {
-    let spell = KEY_READ_WAIT * KEY_IDLE_READS;
+    let spell = KEY_QUIET_SPELL;
     assert!(ReaderEnd::Reopen.keeps_key_state(spell));
     assert!(ReaderEnd::Reopen.keeps_key_state(spell / 2));
     // Quiet reads that did not wait: a broken handle, as a failure.
@@ -487,7 +505,7 @@ fn power_key_calls_after_seeing(last: &[u8], end: &ReaderEnd, ran: Duration) -> 
 fn the_first_press_after_any_reopen_counts() {
     // A first report listing the key counts even when the key's earlier
     // state is unknown, as after a broken handle or a failure (ticket 174).
-    let spell = KEY_READ_WAIT * KEY_IDLE_READS;
+    let spell = KEY_QUIET_SPELL;
     assert_eq!(power_key_calls_after(&ReaderEnd::Reopen, spell), 1);
     assert_eq!(power_key_calls_after(&ReaderEnd::Reopen, Duration::ZERO), 1);
     assert_eq!(
@@ -498,7 +516,7 @@ fn the_first_press_after_any_reopen_counts() {
 
 #[test]
 fn a_key_stuck_down_does_not_step_again_after_a_quiet_spell() {
-    let spell = KEY_READ_WAIT * KEY_IDLE_READS;
+    let spell = KEY_QUIET_SPELL;
     let held = [0x04, 0xD3];
     let reopen = power_key_calls_after_seeing(&held, &ReaderEnd::Reopen, spell);
     assert_eq!(reopen, 0);
@@ -523,4 +541,48 @@ fn the_first_press_after_the_app_starts_counts_once() {
         );
         assert_eq!(calls, 1, "{first:02X?}");
     }
+}
+
+#[test]
+fn a_single_collection_waits_out_the_quiet_spell_in_one_read() {
+    // One read waits it all: no wake to count quiet reads (ticket 188).
+    let mut source = single_source(vec![None]);
+
+    let end = step_on_presses(
+        &mut source,
+        &mut FakeEnter::default(),
+        &mut presses(),
+        |_| true,
+    );
+
+    assert_eq!(end, ReaderEnd::Reopen);
+    assert_eq!(source.1, [KEY_QUIET_SPELL]);
+}
+
+#[test]
+fn a_single_collection_waits_less_while_fn_is_held_and_the_spell_starts_again() {
+    let mut source = single_source(vec![
+        Some(report(&[0x04])),
+        Some(report(&[0x04, 0x0A])),
+        Some(report(&[0x04])),
+        None,
+    ]);
+
+    let end = step_on_presses(
+        &mut source,
+        &mut FakeEnter::default(),
+        &mut presses(),
+        |_| true,
+    );
+
+    assert_eq!(end, ReaderEnd::Reopen);
+    assert_eq!(
+        source.1,
+        [
+            KEY_QUIET_SPELL,
+            KEY_QUIET_SPELL,
+            ENTER_READ_WAIT,
+            KEY_QUIET_SPELL
+        ]
+    );
 }

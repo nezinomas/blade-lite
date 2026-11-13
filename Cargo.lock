@@ -3918,6 +3918,7 @@ version = "0.1.0"
 dependencies = [
  "nvml-wrapper",
  "windows",
+ "windows-core",
  "windows-sys 0.61.2",
 ]
 

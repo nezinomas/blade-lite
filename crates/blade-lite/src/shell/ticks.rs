@@ -9,7 +9,7 @@ use blade_core::{GUARD_HEAT_INTERVAL, HEAT_INTERVAL, RESUME_PAUSE, Readings};
 use blade_lite::{AppError, report};
 use platform::{PowerEvent, num_lock_on};
 use razer_device::{CONTROLLER_CLOSED, CONTROLLER_OPENED_AGAIN};
-use slint::Timer;
+use slint::{ComponentHandle, Timer};
 use ui::{DisplayView, FAN_GUARD_WAKE_HOLD, Header, HeatWatch};
 
 use super::popup::{POPUP_HOLD, TOUCHPAD};
@@ -117,6 +117,7 @@ impl<P: Parts> Shell<P> {
         if let Some(muted) = P::mic_muted() {
             self.follow_mic(Some(muted));
         }
+        self.follow_views_in_sight(now);
         // The controller may not be ready while a resume waits. A poll due
         // then stays due, so the first tick after the pause reads it.
         if self.resuming.get() == 0 && self.schedule.borrow_mut().poll_due(now) {
@@ -132,6 +133,16 @@ impl<P: Parts> Shell<P> {
             self.after_reads();
         }
         self.preset_failures_seen.set(failures);
+    }
+
+    /// Tells the poll schedule whether the screen is off (Windows' notice;
+    /// unknown counts as on) and the window minimised: a view out of sight
+    /// reads as with no view, so the fan guard's reads go on (ticket 188).
+    fn follow_views_in_sight(&self, now: Instant) {
+        let minimized = self.window.window().is_minimized();
+        let mut schedule = self.schedule.borrow_mut();
+        schedule.set_screen_off(P::screen_on() == Some(false), now);
+        schedule.set_window_minimized(minimized, now);
     }
 
     /// Sends the fan targets of a manual Custom once more, on the first
@@ -682,6 +693,8 @@ impl<P: Parts> Shell<P> {
         {
             let mut app = self.app.borrow_mut();
             app.set_num_lock(num_lock_on());
+            // The mic is read again at the next tick, not only on notices.
+            P::mic_read_again();
             // The charger may have been pulled in the sleep, and the
             // power event may come after this resume.
             app.take_on_battery(P::on_battery());

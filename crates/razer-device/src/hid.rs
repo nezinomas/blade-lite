@@ -1,6 +1,7 @@
 //! The real [`Transport`]: feature reports through hidapi. Also the key
 //! reports the keyboard sends on its own.
 
+use std::ffi::{CStr, CString};
 use std::io;
 use std::sync::{Mutex, MutexGuard, PoisonError};
 use std::time::Duration;
@@ -55,6 +56,8 @@ const KEY_REPORT_ROOM: usize = 64;
 /// hidapi. They are only read: nothing is sent to them.
 pub struct HidKeyReports {
     sources: KeySources<HidDevice>,
+    /// The path of each collection in `sources`, in the same order.
+    paths: Vec<CString>,
 }
 
 impl HidKeyReports {
@@ -66,6 +69,18 @@ impl HidKeyReports {
     /// [`io::ErrorKind::NotFound`] if the model has no power key or none
     /// of its collections opens, or any hidapi error.
     pub fn open(model: &ModelProfile) -> io::Result<Self> {
+        Self::open_preferring(model, None)
+    }
+
+    /// As [`open`](Self::open), but only the collection at `sender` (the
+    /// one that sent last, see [`sender`](Self::sender)) when it is still
+    /// one of the model's key collections and opens; else all of them,
+    /// from the same device list.
+    ///
+    /// # Errors
+    ///
+    /// As [`open`](Self::open).
+    pub fn open_preferring(model: &ModelProfile, sender: Option<&CStr>) -> io::Result<Self> {
         let not_found = || {
             io::Error::new(
                 io::ErrorKind::NotFound,
@@ -76,16 +91,42 @@ impl HidKeyReports {
         let mut api = shared_api();
         let api = api_in(&mut api, new_api)?;
         let infos = model_devices(api, &model.usb)?;
-        let devices: Vec<HidDevice> = find_key_collections(&infos, &model.usb, &key)
-            .into_iter()
-            .filter_map(|info| api.open_path(&info.path).ok())
-            .collect();
+        let found = find_key_collections(&infos, &model.usb, &key);
+        let picked = pick_key_collections(found.clone(), sender);
+        let open_each = |infos: &[&HidInfo]| -> (Vec<CString>, Vec<HidDevice>) {
+            infos
+                .iter()
+                .filter_map(|info| {
+                    let device = api.open_path(&info.path).ok()?;
+                    Some((info.path.clone(), device))
+                })
+                .unzip()
+        };
+        let (mut paths, mut devices) = open_each(&picked);
+        if devices.is_empty() && picked.len() < found.len() {
+            (paths, devices) = open_each(&found);
+        }
         if devices.is_empty() {
             return Err(not_found());
         }
         Ok(Self {
             sources: KeySources::new(devices),
+            paths,
         })
+    }
+
+    /// Whether only one collection is read: one was opened, or one has
+    /// sent. A long wait then holds no other collection's report back.
+    #[must_use]
+    pub fn single(&self) -> bool {
+        self.sources.single()
+    }
+
+    /// The path of the collection that sent, once one has.
+    #[must_use]
+    pub fn sender(&self) -> Option<&CStr> {
+        let index = self.sources.source?;
+        self.paths.get(index).map(CString::as_c_str)
     }
 
     /// Waits up to `wait` for a report on each collection in turn until one
@@ -99,6 +140,16 @@ impl HidKeyReports {
     /// never changes after `open`).
     pub fn read(&mut self, wait: Duration) -> io::Result<Option<Vec<u8>>> {
         self.sources.read(wait)
+    }
+}
+
+/// Only the collection at `sender` when it is in `found`, else all of
+/// `found`.
+fn pick_key_collections<'a>(found: Vec<&'a HidInfo>, sender: Option<&CStr>) -> Vec<&'a HidInfo> {
+    let picked = sender.and_then(|path| found.iter().find(|info| info.path.as_c_str() == path));
+    match picked {
+        Some(&info) => vec![info],
+        None => found,
     }
 }
 
@@ -129,6 +180,11 @@ impl<D: ReadTimeout> KeySources<D> {
             devices,
             source: None,
         }
+    }
+
+    /// Whether only one collection is read: there is one, or one sent.
+    fn single(&self) -> bool {
+        self.devices.len() == 1 || self.source.is_some()
     }
 
     /// See [`HidKeyReports::read`].
@@ -413,6 +469,43 @@ mod tests {
         let (mut sources, _) = sources(vec![vec![Err(error)]]);
 
         assert!(sources.read(WAIT).is_err());
+    }
+
+    #[test]
+    fn one_collection_is_a_single_source() {
+        let (sources, _) = sources(vec![vec![]]);
+
+        assert!(sources.single());
+    }
+
+    #[test]
+    fn two_collections_are_a_single_source_only_once_one_sent() {
+        let (mut sources, _) = sources(vec![vec![], vec![Ok(POWER_KEY.to_vec())]]);
+        assert!(!sources.single());
+
+        sources.read(WAIT).unwrap();
+
+        assert!(sources.single());
+    }
+
+    fn key_entry(path: &CStr) -> HidInfo {
+        HidInfo {
+            path: path.to_owned(),
+            ..entry(0x1532, 0x02C7)
+        }
+    }
+
+    #[test]
+    fn the_last_sender_is_the_only_collection_opened() {
+        let found = [key_entry(c"a"), key_entry(c"b")];
+        let found: Vec<&HidInfo> = found.iter().collect();
+
+        let picked = pick_key_collections(found.clone(), Some(c"b"));
+        assert_eq!(picked.len(), 1);
+        assert_eq!(picked[0].path.as_c_str(), c"b");
+        assert_eq!(pick_key_collections(found.clone(), None).len(), 2);
+        // A sender no longer listed (its path changed): all of them.
+        assert_eq!(pick_key_collections(found, Some(c"gone")).len(), 2);
     }
 
     #[test]

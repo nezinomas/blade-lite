@@ -138,10 +138,7 @@ impl PowerKeyPresses {
     /// not past [`BRIGHTNESS_HOLD_LIMIT`], and [`BRIGHTNESS_READ_GAP`] has
     /// passed since Fn went down or since the last read. Noted when true.
     pub fn brightness_due(&mut self, now: Instant) -> bool {
-        let held = self
-            .fn_since
-            .is_some_and(|since| now.saturating_duration_since(since) < BRIGHTNESS_HOLD_LIMIT);
-        if !held {
+        if !self.following_brightness(now) {
             return false;
         }
         let since = self.brightness_at.or(self.fn_since);
@@ -150,6 +147,15 @@ impl PowerKeyPresses {
             self.brightness_at = Some(now);
         }
         due
+    }
+
+    /// Whether the keyboard brightness is followed now: Fn is held, not
+    /// past [`BRIGHTNESS_HOLD_LIMIT`]. Reads of the key reports must then
+    /// come back within [`BRIGHTNESS_READ_GAP`].
+    #[must_use]
+    pub fn following_brightness(&self, now: Instant) -> bool {
+        self.fn_since
+            .is_some_and(|since| now.saturating_duration_since(since) < BRIGHTNESS_HOLD_LIMIT)
     }
 
     /// Whether Enter should be read now: Fn is held, and not for longer
