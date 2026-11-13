@@ -41,6 +41,18 @@ const TICK_GAP: Duration = Duration::from_secs(5);
 /// let input from before the notice in.
 const INPUT_GRACE: Duration = Duration::from_secs(30);
 
+/// A sleep at least this long by the wall clock lets the fan guard end its
+/// full speed after a short cool hold (ticket 172): the chips cooled in it.
+const LONG_SLEEP: Duration = Duration::from_mins(5);
+
+/// How a change run through `act`, or a charger change, sent the guard's
+/// failed full speed, for its log line (ticket 180).
+pub(crate) const WITH_THE_PRESET: &str = "with the preset";
+
+/// How a poll's resend sent the guard's failed full speed, for its log
+/// line (ticket 163).
+pub(crate) const BY_A_POLL: &str = "by a poll";
+
 /// What Windows last said of the lid and the screen, for the log (ticket
 /// 184).
 fn lid_and_screen<P: Parts>() -> String {
@@ -61,24 +73,14 @@ fn said(state: Option<bool>, yes: &'static str, no: &'static str) -> &'static st
     }
 }
 
-/// A sleep at least this long by the wall clock lets the fan guard end its
-/// full speed after a short cool hold (ticket 172): the chips cooled in it.
-const LONG_SLEEP: Duration = Duration::from_mins(5);
-
-/// How a change run through `act`, or a charger change, sent the guard's
-/// failed full speed, for its log line (ticket 180).
-pub(crate) const WITH_THE_PRESET: &str = "with the preset";
-
-/// How a poll's resend sent the guard's failed full speed, for its log
-/// line (ticket 163).
-pub(crate) const BY_A_POLL: &str = "by a poll";
-
 #[cfg(test)]
 thread_local! {
     /// How each `Full speed, sent again` line this test's thread logged
     /// says the send went: the window tests share one log.
     pub static FULL_SPEED_SENT_AGAIN: std::cell::RefCell<Vec<&'static str>> =
         const { std::cell::RefCell::new(Vec::new()) };
+    /// How many missed wakes this test's thread logged as held (ticket 184).
+    pub static MISSED_WAKES_HELD: std::cell::Cell<u32> = const { std::cell::Cell::new(0) };
 }
 
 impl<P: Parts> Shell<P> {
@@ -559,9 +561,12 @@ impl<P: Parts> Shell<P> {
     /// preset runs and nothing is sent, the safe side. A clock set back or
     /// an unknown input time does the same. Input another program injects
     /// counts too (Windows' last-input time can't tell it apart), as does
-    /// an external mouse or keyboard, so the lid must also be open or the
-    /// screen on, by Windows' last notices (ticket 184): with the lid shut
-    /// and the screen off, or neither known, the sleep goes on, logged once
+    /// an external mouse or keyboard, so Windows must also have said the
+    /// screen is on since the notice, and not that the lid is shut (ticket
+    /// 184, stricter than its brief's "lid open or screen on" after review:
+    /// a screen on from before the sleep may be stale, a shut lid can light
+    /// the screen in a failed hibernate, and a lid open with the screen off
+    /// is a power-button standby). Otherwise the sleep goes on, logged once
     /// per sleep notice.
     fn follow_missed_wake(self: &Rc<Self>, wall: SystemTime) {
         if !self.asleep.get() {
@@ -583,11 +588,13 @@ impl<P: Parts> Shell<P> {
             return;
         }
         let seen = lid_and_screen::<P>();
-        if P::lid_open() != Some(true) && P::screen_on() != Some(true) {
+        if P::screen_on() != Some(true) || P::lid_open() == Some(false) {
             if !self.missed_wake_held.replace(true) {
                 report(&format!(
-                    "the app has run for a minute since Windows said the laptop sleeps, with input from the user and no wake notice, but not with the lid open or the screen on ({seen}), so the sleep goes on: nothing is sent"
+                    "the app has run for a minute since Windows said the laptop sleeps, with input from the user and no wake notice, but not with the screen on since the notice and the lid not shut ({seen}), so the sleep goes on: nothing is sent"
                 ));
+                #[cfg(test)]
+                MISSED_WAKES_HELD.set(MISSED_WAKES_HELD.get() + 1);
             }
             return;
         }

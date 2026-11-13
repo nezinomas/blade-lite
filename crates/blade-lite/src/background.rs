@@ -284,6 +284,11 @@ pub fn power_events() -> Receiver<PowerEvent> {
             // Only one registration per run: a second keeps the first.
             let _ = SLEEP_NOTICE.set(handled.clone());
             let _ = LID_AND_SCREEN.set(events.lid_and_screen());
+            for (which, error) in events.lid_and_screen_refused() {
+                report(&format!(
+                    "no {which} notices, so a sleep with no wake notice is not ended by input: {error}"
+                ));
+            }
             spawn_part("power events", move || {
                 while let Some(event) = events.next_event() {
                     if sender.send(event).is_err() {

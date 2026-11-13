@@ -845,20 +845,33 @@ fn a_wake_notice_logs_the_lid_and_the_screen() {
 }
 
 #[test]
-fn the_lid_open_with_the_screen_off_lets_input_count() {
-    assert!(a_missed_wake_with(Some(true), Some(false)));
-    assert!(logged(&["lid open, screen off", "counts as a wake"]));
+fn the_screen_on_with_the_lid_open_lets_input_count() {
+    assert!(a_missed_wake_with(Some(true), Some(true)));
+    assert!(logged(&["lid open, screen on", "counts as a wake"]));
 }
 
 #[test]
-fn the_screen_on_with_the_lid_shut_lets_input_count() {
-    // Such as an external screen.
-    assert!(a_missed_wake_with(Some(false), Some(true)));
+fn the_screen_on_with_the_lid_not_known_lets_input_count() {
+    assert!(a_missed_wake_with(None, Some(true)));
 }
 
 #[test]
-fn the_lid_open_with_the_screen_not_known_lets_input_count() {
-    assert!(a_missed_wake_with(Some(true), None));
+fn the_screen_on_with_the_lid_shut_does_not_let_input_count() {
+    // A failed hibernate may light the screen with the lid shut. An
+    // external screen then needs Windows' wake notice.
+    assert!(!a_missed_wake_with(Some(false), Some(true)));
+}
+
+#[test]
+fn the_lid_open_with_the_screen_off_does_not_let_input_count() {
+    // A power-button standby, with a program that injects input.
+    assert!(!a_missed_wake_with(Some(true), Some(false)));
+}
+
+#[test]
+fn the_lid_open_with_the_screen_not_known_does_not_let_input_count() {
+    // Such as no screen notice since the sleep notice.
+    assert!(!a_missed_wake_with(Some(true), None));
 }
 
 #[test]
@@ -867,13 +880,38 @@ fn neither_known_does_not_let_input_count() {
 }
 
 #[test]
-fn the_lid_shut_with_the_screen_not_known_does_not_let_input_count() {
-    assert!(!a_missed_wake_with(Some(false), None));
+fn a_held_wake_is_logged_once_and_goes_once_the_screen_comes_on() {
+    let f = fixture(manual_fan());
+    asleep_with_input(&f);
+    FAKE_SCREEN_ON.set(Some(false));
+    let before = sent_count(&f);
+    let wall = SystemTime::now();
+    tick_for(&f, wall, 90);
+    pause_ends();
+    assert_eq!(sent_since(&f, before), []);
+    assert_eq!(crate::shell::MISSED_WAKES_HELD.get(), 1);
+
+    FAKE_SCREEN_ON.set(Some(true));
+    tick_for(&f, wall + Duration::from_secs(91), 0);
+    assert_eq!(sent_since(&f, before), [], "not in the wake's pause");
+    pause_ends();
+
+    assert!(sets_a_manual_fan(&sent_since(&f, before)));
+    assert_eq!(crate::shell::MISSED_WAKES_HELD.get(), 1);
 }
 
 #[test]
-fn the_screen_off_with_the_lid_not_known_does_not_let_input_count() {
-    assert!(!a_missed_wake_with(None, Some(false)));
+fn a_new_sleep_notice_logs_a_held_wake_again() {
+    let f = fixture(manual_fan());
+    asleep_with_input(&f);
+    FAKE_SCREEN_ON.set(Some(false));
+    let wall = SystemTime::now();
+    tick_for(&f, wall, 60);
+
+    power(&f, &[PowerEvent::Suspending]);
+    tick_for(&f, wall + Duration::from_secs(61), 60);
+
+    assert_eq!(crate::shell::MISSED_WAKES_HELD.get(), 2);
 }
 
 #[test]
