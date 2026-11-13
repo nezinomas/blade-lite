@@ -9,13 +9,15 @@ use std::ptr;
 use std::time::Duration;
 
 use windows_sys::Win32::Devices::DeviceAndDriverInstallation::{
-    CM_GET_DEVICE_INTERFACE_LIST_PRESENT, CM_Get_Device_Interface_List_SizeW,
-    CM_Get_Device_Interface_ListW, CR_BUFFER_SMALL,
+    CM_GET_DEVICE_INTERFACE_LIST_PRESENT, CM_Get_Device_IDW, CM_Get_Device_Interface_List_SizeW,
+    CM_Get_Device_Interface_ListW, CM_Get_Device_Interface_PropertyW, CM_Get_Parent,
+    CM_LOCATE_DEVNODE_NORMAL, CM_Locate_DevNodeW, CR_BUFFER_SMALL,
 };
 use windows_sys::Win32::Devices::HumanInterfaceDevice::{
     HIDD_ATTRIBUTES, HIDP_CAPS, HIDP_STATUS_SUCCESS, HidD_FreePreparsedData, HidD_GetAttributes,
     HidD_GetHidGuid, HidD_GetPreparsedData, HidD_SetFeature, HidD_SetNumInputBuffers, HidP_GetCaps,
 };
+use windows_sys::Win32::Devices::Properties::{DEVPKEY_Device_InstanceId, DEVPROP_TYPE_STRING};
 use windows_sys::Win32::Foundation::{
     ERROR_IO_INCOMPLETE, ERROR_IO_PENDING, ERROR_OPERATION_ABORTED, GENERIC_READ, GENERIC_WRITE,
     INVALID_HANDLE_VALUE, WAIT_TIMEOUT,
@@ -82,6 +84,52 @@ pub fn hid_paths() -> io::Result<Vec<String>> {
     Err(io::Error::other(
         "the HID list kept growing while it was read",
     ))
+}
+
+/// The longest device ID Windows makes is 200 characters; room for more.
+const ID_ROOM: usize = 512;
+
+/// The device ID of the parent of the HID interface at `path`, such as
+/// `USB\VID_1532&PID_02C7&MI_02\...` for a collection of a USB device.
+/// Read from Windows' device tree: no device is opened or asked anything.
+///
+/// # Errors
+///
+/// The Configuration Manager's error if the tree could not be read.
+pub fn hid_parent_id(path: &str) -> io::Result<String> {
+    let path = wide(path);
+    let mut id = [0_u16; ID_ROOM];
+    let mut size = u32::try_from(size_of_val(&id)).map_err(io::Error::other)?;
+    let mut kind = 0;
+    // SAFETY: the path ends in a nul; the buffer is `size` bytes long.
+    check(unsafe {
+        CM_Get_Device_Interface_PropertyW(
+            path.as_ptr(),
+            &DEVPKEY_Device_InstanceId,
+            &raw mut kind,
+            id.as_mut_ptr().cast(),
+            &raw mut size,
+            0,
+        )
+    })?;
+    if kind != DEVPROP_TYPE_STRING {
+        return Err(io::Error::other(format!(
+            "the interface's device ID has type {kind}"
+        )));
+    }
+    let mut node = 0;
+    // SAFETY: Windows wrote a nul-ended ID into the zeroed buffer, which
+    // keeps a nul at its end; Windows writes only the node.
+    check(unsafe { CM_Locate_DevNodeW(&raw mut node, id.as_ptr(), CM_LOCATE_DEVNODE_NORMAL) })?;
+    let mut parent = 0;
+    // SAFETY: Windows writes only the parent node.
+    check(unsafe { CM_Get_Parent(&raw mut parent, node, 0) })?;
+    let mut parent_id = [0_u16; ID_ROOM];
+    let room = u32::try_from(ID_ROOM - 1).map_err(io::Error::other)?;
+    // SAFETY: the buffer is one more than `room` wide characters long, so
+    // the ID always ends in a nul.
+    check(unsafe { CM_Get_Device_IDW(parent, parent_id.as_mut_ptr(), room, 0) })?;
+    Ok(split_ids(&parent_id).into_iter().next().unwrap_or_default())
 }
 
 /// The HID interface class.
@@ -168,6 +216,7 @@ impl HidDevice {
     /// [`io::ErrorKind::InvalidInput`] for a report longer than the
     /// collection's, else the Windows error.
     pub fn send_feature(&self, report: &[u8]) -> io::Result<()> {
+        refuse_empty(report)?;
         if report.len() > self.feature_len {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidInput,
@@ -198,6 +247,7 @@ impl HidDevice {
     ///
     /// The Windows error.
     pub fn get_feature(&self, buffer: &mut [u8]) -> io::Result<usize> {
+        refuse_empty(buffer)?;
         let length = u32::try_from(buffer.len()).map_err(io::Error::other)?;
         let mut overlapped = self.overlapped();
         // SAFETY: the buffer is `length` bytes long; it and the overlapped
@@ -232,6 +282,7 @@ impl HidDevice {
     ///
     /// The Windows error, such as the device going away.
     pub fn read(&self, buffer: &mut [u8], wait: Duration) -> io::Result<usize> {
+        refuse_empty(buffer)?;
         let mut report = vec![0; self.input_len];
         let length = u32::try_from(report.len()).map_err(io::Error::other)?;
         let mut overlapped = self.overlapped();
@@ -301,6 +352,10 @@ impl HidDevice {
         // A wait of 0 ms says "incomplete" where a longer one says "timed out".
         let still_running = [code(WAIT_TIMEOUT), code(ERROR_IO_INCOMPLETE)];
         if !still_running.contains(&error.raw_os_error().unwrap_or(0)) {
+            // Most such errors are the request's own, so it has ended; but
+            // a failed wait leaves it running, and its buffer must not be
+            // freed under it. Cancel and wait to be sure.
+            let _ = self.cancel(overlapped);
             return Err(error);
         }
         self.cancel(overlapped)
@@ -326,6 +381,18 @@ impl HidDevice {
             Err(error)
         }
     }
+}
+
+/// An empty report or buffer is refused, as hidapi did: a send would
+/// otherwise go out as a report of zeros.
+fn refuse_empty(bytes: &[u8]) -> io::Result<()> {
+    if bytes.is_empty() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "an empty HID report or buffer",
+        ));
+    }
+    Ok(())
 }
 
 /// A Windows error code as `io::Error` holds it.

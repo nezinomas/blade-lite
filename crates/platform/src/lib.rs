@@ -26,7 +26,7 @@ use std::io;
 pub use backdrop::{hide_caption_buttons, round_corners, set_mica};
 pub use display::WindowsDisplays;
 pub use files::{FileDialog, pick_file};
-pub use hid::{HidDetails, HidDevice, hid_details, hid_paths};
+pub use hid::{HidDetails, HidDevice, hid_details, hid_parent_id, hid_paths};
 pub use instance::{WakeListener, WindowsInstance};
 pub use keys::{WindowsKeys, enter_down, input_age, mic_keys_down, num_lock_on};
 pub use message::{ask_yes_no, show_error};

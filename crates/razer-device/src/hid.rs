@@ -214,6 +214,8 @@ impl<D: ReadTimeout> KeySources<D> {
 trait HidSystem {
     /// The paths of the HID interfaces present, read with no open.
     fn paths(&self) -> io::Result<Vec<String>>;
+    /// The device ID of the interface's parent, read with no open.
+    fn parent_id(&self, path: &str) -> io::Result<String>;
     /// The details of the collection at `path`. This opens it, and so
     /// wakes its device if it sleeps.
     fn details(&self, path: &str) -> io::Result<HidDetails>;
@@ -227,22 +229,31 @@ impl HidSystem for WindowsHid {
         platform::hid_paths()
     }
 
+    fn parent_id(&self, path: &str) -> io::Result<String> {
+        platform::hid_parent_id(path)
+    }
+
     fn details(&self, path: &str) -> io::Result<HidDetails> {
         platform::hid_details(path)
     }
 }
 
 /// The HID collections of the model's device. Only paths that name the
-/// model's VID and PID are opened (for their usages), so no other device
-/// is opened or asked anything: an open wakes a sleeping USB device
-/// (ticket 194). A collection that can't be read, or whose VID and PID
-/// are not its path's, is left out.
+/// model's VID and PID and sit on a USB device are opened (for their
+/// usages), so no other device is opened or asked anything: an open wakes
+/// a sleeping USB device (ticket 194). A path on another bus, such as a
+/// Razer driver's virtual device named after the real one, is left out,
+/// as hidapi left it out (its interface number stayed -1). So is a
+/// collection that can't be read, or whose VID and PID are not its path's.
 fn model_devices(system: &impl HidSystem, usb: &UsbId) -> io::Result<Vec<HidInfo>> {
     let infos = system
         .paths()?
         .into_iter()
         .filter_map(|path| {
             let interface_number = model_interface(&path, usb)?;
+            if !on_usb(&system.parent_id(&path).ok()?) {
+                return None;
+            }
             let details = system.details(&path).ok()?;
             let same = details.vendor_id == usb.vendor_id && details.product_id == usb.product_id;
             same.then_some(HidInfo {
@@ -256,6 +267,13 @@ fn model_devices(system: &impl HidSystem, usb: &UsbId) -> io::Result<Vec<HidInfo
         })
         .collect();
     Ok(infos)
+}
+
+/// Whether a parent device ID is a USB device's, as `USB\VID_1532&...`.
+fn on_usb(parent_id: &str) -> bool {
+    parent_id
+        .get(..4)
+        .is_some_and(|bus| bus.eq_ignore_ascii_case("USB\\"))
 }
 
 impl Transport for HidTransport {
@@ -492,6 +510,8 @@ mod tests {
     /// A HID layer with these collections, that logs each path it opens.
     struct FakeHid {
         collections: Vec<(String, io::Result<HidDetails>)>,
+        /// The paths whose parent is not a USB device; the rest are.
+        not_usb: Vec<String>,
         opened: RefCell<Vec<String>>,
     }
 
@@ -499,6 +519,7 @@ mod tests {
         fn new(collections: Vec<(String, io::Result<HidDetails>)>) -> Self {
             Self {
                 collections,
+                not_usb: Vec::new(),
                 opened: RefCell::default(),
             }
         }
@@ -511,6 +532,14 @@ mod tests {
                 .iter()
                 .map(|(path, _)| path.clone())
                 .collect())
+        }
+
+        fn parent_id(&self, path: &str) -> io::Result<String> {
+            Ok(if self.not_usb.iter().any(|known| known == path) {
+                r"RZVIRTUAL\VID_1532&PID_02C7&MI_02".to_owned()
+            } else {
+                r"USB\VID_1532&PID_02C7&MI_02&2a1f".to_owned()
+            })
         }
 
         fn details(&self, path: &str) -> io::Result<HidDetails> {
@@ -593,6 +622,24 @@ mod tests {
 
         assert_eq!(model_devices(&hid, usb).unwrap(), []);
         assert_eq!(hid.opened.borrow().len(), 2);
+    }
+
+    #[test]
+    fn a_model_path_not_on_usb_is_not_opened() {
+        let usb = &razer_proto::BLADE_18.usb;
+        let virtual_one = path("VID_1532&PID_02C7&MI_02&COL01");
+        let real = path("VID_1532&PID_02C7&MI_02");
+        let mut hid = FakeHid::new(vec![
+            (virtual_one.clone(), Ok(details(0x1532, 0x02C7, 1, 2))),
+            (real.clone(), Ok(details(0x1532, 0x02C7, 1, 2))),
+        ]);
+        hid.not_usb = vec![virtual_one];
+
+        let infos = model_devices(&hid, usb).unwrap();
+
+        assert_eq!(*hid.opened.borrow(), std::slice::from_ref(&real));
+        assert_eq!(infos.len(), 1);
+        assert_eq!(infos[0].path, real);
     }
 
     #[test]
