@@ -58,6 +58,8 @@ effect read `0F82 [01, 05, ...]` said Spectrum (`03`) before, during and after
 the red frame, and `038A` said `[04, 00]` each time. So no read shows the
 frame: only the eyes can check the colour. Sending the `0F82` args back with
 `0F02` puts the old effect back.
+The `0F82` reply has a data size of 12, the same as the query: it read
+`[01, 05, 03, 00 ...]` (Spectrum) on 2026-11-13 (ticket 189).
 
 ### Fn keys
 

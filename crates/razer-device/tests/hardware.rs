@@ -170,22 +170,41 @@ fn static_colour_is_painted_and_the_effect_restored() {
     let mut query = [0; EFFECT_ARGS];
     query[..2].copy_from_slice(&[1, 5]);
     let before = device.send(GET_EFFECT, &query).unwrap().args().to_vec();
+    refuse_unknown_effect(&before);
 
     let painted = device.run(&razer_proto::static_colour(
         razer_proto::Rgb::new(0xFF, 0, 0),
         &razer_proto::BLADE_18,
     ));
-    let during = device.send(GET_EFFECT, &query).unwrap().args().to_vec();
+    // From here on every step keeps its result, and the effect is put back
+    // before any unwrap.
+    let during = device
+        .send(GET_EFFECT, &query)
+        .map(|reply| reply.args().to_vec());
     std::thread::sleep(Duration::from_secs(5));
 
     let restored = device.send(SET_EFFECT, &before).map(|_| ());
-    let after = device.send(GET_EFFECT, &query).unwrap().args().to_vec();
+    let after = device
+        .send(GET_EFFECT, &query)
+        .map(|reply| reply.args().to_vec());
     eprintln!(
         "effect before {before:02X?}, painted {painted:?}, during {during:02X?}, restored {restored:?}, after {after:02X?}"
     );
-    painted.unwrap();
     restored.unwrap();
-    assert_eq!(after, before);
+    assert_eq!(after.unwrap(), before);
+    painted.unwrap();
+    during.unwrap();
+}
+
+/// Refuses to run when the effect reply read before the colour test is not
+/// one the put-back can safely send as `0F02`: it must echo storage 1 and
+/// the keyboard LED, with as many args as the query. The effect bytes after
+/// them are the controller's own, sent back to the same LED unchecked.
+fn refuse_unknown_effect(args: &[u8]) {
+    assert!(
+        args.len() == EFFECT_ARGS && args.starts_with(&[1, 5]),
+        "effect reply {args:02X?} not understood: not run"
+    );
 }
 
 /// Reads each zone's preset args, as the controller sends them back.
@@ -1251,4 +1270,50 @@ fn the_preset_test_refuses_an_unknown_mode() {
 #[should_panic(expected = "not run")]
 fn the_preset_test_refuses_a_missing_zone() {
     refuse_unknown_modes(&sane_state()[..3]);
+}
+
+/// An effect reply as the colour test could read it: storage 1, keyboard
+/// LED 5, then the effect bytes.
+fn effect_with(start: &[u8]) -> Vec<u8> {
+    let mut args = vec![0; EFFECT_ARGS];
+    args[..2].copy_from_slice(&[1, 5]);
+    args[..start.len()].copy_from_slice(start);
+    args
+}
+
+#[test]
+fn a_keyboard_effect_reply_is_not_refused() {
+    refuse_unknown_effect(&effect_with(&[]));
+}
+
+#[test]
+#[should_panic(expected = "effect reply")]
+fn an_effect_reply_of_another_storage_is_refused() {
+    refuse_unknown_effect(&effect_with(&[0, 5]));
+}
+
+#[test]
+#[should_panic(expected = "effect reply")]
+fn an_effect_reply_for_another_led_is_refused() {
+    refuse_unknown_effect(&effect_with(&[1, 4]));
+}
+
+#[test]
+#[should_panic(expected = "effect reply")]
+fn a_short_effect_reply_is_refused() {
+    refuse_unknown_effect(&effect_with(&[])[..EFFECT_ARGS - 1]);
+}
+
+#[test]
+#[should_panic(expected = "effect reply")]
+fn a_long_effect_reply_is_refused() {
+    let mut args = effect_with(&[]);
+    args.push(0);
+    refuse_unknown_effect(&args);
+}
+
+#[test]
+#[should_panic(expected = "effect reply")]
+fn an_empty_effect_reply_is_refused() {
+    refuse_unknown_effect(&[]);
 }
