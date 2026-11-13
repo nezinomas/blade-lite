@@ -344,6 +344,59 @@ fn both_fans_and_the_cpu_temperature_are_read() {
     assert!((20..=105).contains(&cpu.0), "{cpu:?}");
 }
 
+/// One line of the GPU temperature probe: the GPU's power state (a read
+/// that does not wake it), the raw `0D85` reply args and NVML's reading.
+fn probe_gpu_line<C: Clock>(
+    device: &mut Device<HidTransport, C>,
+    sensors: &mut platform::WindowsSensors,
+    started: std::time::Instant,
+    with_nvml: bool,
+) -> String {
+    use platform::Sensors;
+    use razer_proto::Celsius;
+
+    let awake = sensors.gpu_awake();
+    let query = Celsius::query();
+    let reply = device
+        .send(query.id, &query.args)
+        .map(|reply| reply.args().iter().take(4).copied().collect::<Vec<_>>());
+    let nvml = with_nvml.then(|| sensors.gpu());
+    format!(
+        "{:>5.1} s  awake {awake:?}  0D85 {reply:02X?}  nvml {nvml:?}",
+        started.elapsed().as_secs_f32()
+    )
+}
+
+/// Ticket 193: does the second field of the `0D85` reply follow the NVIDIA
+/// GPU? Only reads: no command here changes the controller. 20 s with the
+/// GPU left alone (no NVML), 20 s with NVML open and read each second (its
+/// start wakes the GPU), then NVML closed and 40 s more with no NVML, while
+/// the GPU falls asleep again.
+#[test]
+#[ignore = "needs the Blade 18; wakes the GPU for about 25 s; about 80 s"]
+fn the_second_temperature_field_follows_the_gpu() {
+    let mut device = Device::new(open(), SystemClock);
+    let started = std::time::Instant::now();
+    let phases = [("left alone", 20, false), ("NVML open", 20, true)];
+    let mut sensors = platform::WindowsSensors::default();
+    for (name, seconds, with_nvml) in phases {
+        eprintln!("-- {name}");
+        for _ in 0..seconds {
+            let line = probe_gpu_line(&mut device, &mut sensors, started, with_nvml);
+            eprintln!("{line}");
+            std::thread::sleep(Duration::from_secs(1));
+        }
+    }
+    drop(sensors);
+    eprintln!("-- NVML closed");
+    let mut sensors = platform::WindowsSensors::default();
+    for _ in 0..40 {
+        let line = probe_gpu_line(&mut device, &mut sensors, started, false);
+        eprintln!("{line}");
+        std::thread::sleep(Duration::from_secs(1));
+    }
+}
+
 #[test]
 #[ignore = "needs the Blade 18"]
 fn the_key_reports_open_and_wait_quietly() {
