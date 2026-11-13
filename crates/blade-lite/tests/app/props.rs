@@ -1,9 +1,10 @@
 //! Property tests (ticket 165): the app over a controller that answers at
 //! random. Each run is taken, refused, cut partway or finds the handle
 //! closed; each read fails or gets random bytes. Whatever the answers, the
-//! app does not panic, sends no Performance, manual fan or boost on
-//! battery or a weak charge, sends every value in the model's range, and
-//! never shows a failed preset change as done.
+//! app does not panic; sends every value in the model's range, a boost
+//! only under Custom and a fan target only under a manual Custom; on
+//! battery or a weak charge sends no Performance, manual fan or boost and
+//! leaves none running; and never shows a failed preset change as done.
 
 use blade_core::{Config, Controller, Preset, Query};
 use blade_lite::{App, Machine, took_effect};
@@ -20,29 +21,37 @@ use crate::rules::{Zones, assert_battery_safe, assert_in_range};
 #[derive(Debug, Clone, Copy)]
 enum RunAnswer {
     Takes,
-    /// Busy before anything is sent.
+    /// Busy for the first command, which may or may not have run.
     Busy,
-    /// A held or closed handle.
+    /// A held or closed handle: nothing is sent.
     Closed,
-    /// Takes this many commands, then Busy, as a reply to one it still ran.
+    /// Takes this many commands, then Busy for the next, which may or may
+    /// not have run.
     CutAfter(usize),
 }
 
 /// What the controller replies to a read: `None` fails it (Busy).
 type ReadAnswer = Option<Vec<u8>>;
 
+/// What a charger read told the app: `None` if it failed, else whether the
+/// reply was the full charger's (`None` if not understood).
+type ChargerRead = Option<Option<bool>>;
+
 /// Answers each run and read with the next answer of its list, round and
-/// round. Keeps what a run sent, and what the charger reads said.
+/// round. Keeps every command a run was given, what the controller ran,
+/// and what each charger read said.
 struct RandomController {
     runs: Vec<RunAnswer>,
     reads: Vec<ReadAnswer>,
     next_run: usize,
     next_read: usize,
-    sent: Vec<Command>,
+    /// Every command of every run, failed ones too.
+    tried: Vec<Command>,
+    /// Each command the controller ran (`true`) or may have run (`false`),
+    /// in order.
+    ran: Vec<(Command, bool)>,
     failed_runs: usize,
-    /// Whether the last charger read that worked found the full charger.
-    /// A failed read leaves it: the app may keep the full charger then.
-    full_charger_read: bool,
+    charger_reads: Vec<ChargerRead>,
 }
 
 impl RandomController {
@@ -52,9 +61,10 @@ impl RandomController {
             reads,
             next_run: 0,
             next_read: 0,
-            sent: Vec::new(),
+            tried: Vec::new(),
+            ran: Vec::new(),
             failed_runs: 0,
-            full_charger_read: false,
+            charger_reads: Vec::new(),
         }
     }
 }
@@ -68,20 +78,23 @@ fn next<T: Clone>(answers: &[T], at: &mut usize) -> T {
 
 impl Controller for RandomController {
     fn run(&mut self, commands: &[Command]) -> Result<(), DeviceError> {
+        self.tried.extend_from_slice(commands);
         let taken = match next(&self.runs, &mut self.next_run) {
-            RunAnswer::Takes => {
-                self.sent.extend_from_slice(commands);
-                return Ok(());
-            }
+            RunAnswer::Takes => commands.len(),
             RunAnswer::Busy => 0,
             RunAnswer::Closed => {
                 self.failed_runs += 1;
                 let closed = std::io::Error::new(std::io::ErrorKind::NotConnected, "held");
                 return Err(DeviceError::Io(closed));
             }
-            RunAnswer::CutAfter(n) => n.min(commands.len()),
+            RunAnswer::CutAfter(n) => n,
         };
-        self.sent.extend_from_slice(&commands[..taken]);
+        let sure = commands.iter().take(taken).map(|c| (c.clone(), true));
+        self.ran.extend(sure);
+        let Some(unsure) = commands.get(taken) else {
+            return Ok(());
+        };
+        self.ran.push((unsure.clone(), false));
         self.failed_runs += 1;
         Err(DeviceError::Busy)
     }
@@ -89,12 +102,13 @@ impl Controller for RandomController {
 
 impl Query for RandomController {
     fn query(&mut self, command: &Command) -> Result<Vec<u8>, DeviceError> {
-        let reply = next(&self.reads, &mut self.next_read).ok_or(DeviceError::Busy)?;
+        let reply = next(&self.reads, &mut self.next_read);
         if *command == Charger::query() {
             let charger = BLADE_18.charger.expect("the Blade 18 reads its charger");
-            self.full_charger_read = charger.full_power(&reply) == Some(true);
+            let read = reply.as_ref().map(|args| charger.full_power(args));
+            self.charger_reads.push(read);
         }
-        Ok(reply)
+        reply.ok_or(DeviceError::Busy)
     }
 }
 
@@ -110,6 +124,61 @@ enum Step {
     FanTargetsAgain,
     Click(PerformanceCommand),
     PowerKey,
+    /// The reads that send nothing, or only lighting.
+    Firmware,
+    CpuTemperature,
+    DisplayView,
+    BrightnessKeys,
+}
+
+impl Step {
+    /// How the app takes a charger read in this step (ticket 136).
+    fn read_kind(self) -> ReadKind {
+        match self {
+            Self::Poll => ReadKind::Poll,
+            Self::Click(_) | Self::PowerKey => ReadKind::Click,
+            _ => ReadKind::Switch,
+        }
+    }
+}
+
+/// When the app reads the charger.
+#[derive(Debug, Clone, Copy)]
+enum ReadKind {
+    /// At start, a wake or a power event: the source just changed.
+    Switch,
+    /// Before a click or key press.
+    Click,
+    Poll,
+}
+
+/// The weak charge the app should know, from its charger reads (ticket
+/// 136): a weak, failed or not understood read counts at once (a failed
+/// poll read keeps the last state); a full read brings the full charger
+/// back at a switch, never before a click, and on the polls only on the
+/// second in a row.
+#[derive(Debug, Default)]
+struct Charge {
+    weak: bool,
+    full_once: bool,
+}
+
+impl Charge {
+    fn after(&mut self, kind: ReadKind, read: ChargerRead) {
+        match (kind, read) {
+            (ReadKind::Poll, None) | (ReadKind::Click, Some(Some(true))) => {}
+            (_, None | Some(None | Some(false))) => {
+                *self = Self {
+                    weak: true,
+                    full_once: false,
+                }
+            }
+            (ReadKind::Poll, Some(Some(true))) if self.weak && !self.full_once => {
+                self.full_once = true;
+            }
+            (ReadKind::Switch | ReadKind::Poll, Some(Some(true))) => *self = Self::default(),
+        }
+    }
 }
 
 fn preset() -> impl Strategy<Value = Preset> {
@@ -159,6 +228,12 @@ fn step() -> impl Strategy<Value = Step> {
         1 => Just(Step::FanTargetsAgain),
         4 => click().prop_map(Step::Click),
         1 => Just(Step::PowerKey),
+        1 => prop_oneof![
+            Just(Step::Firmware),
+            Just(Step::CpuTemperature),
+            Just(Step::DisplayView),
+            Just(Step::BrightnessKeys),
+        ],
     ]
 }
 
@@ -207,17 +282,85 @@ fn take(app: &mut RandomApp, step: Step) -> Option<bool> {
         Step::FanTargetsAgain => drop(app.send_fan_targets_again()),
         Step::Click(command) => return Some(took_effect(&app.on_performance(command))),
         Step::PowerKey => return Some(took_effect(&app.on_power_key())),
+        Step::Firmware => app.check_firmware(),
+        Step::CpuTemperature => app.read_cpu_temperature(),
+        Step::DisplayView => drop(app.display_view()),
+        Step::BrightnessKeys => drop(app.on_brightness_keys()),
     }
     None
 }
 
-/// Whether the app should take the laptop to run on its battery after
-/// `step`, from the power events alone.
-fn on_battery_after(step: Step, before: bool) -> bool {
-    match step {
-        Step::Power(PowerEvent::OnBattery) => true,
-        Step::Power(PowerEvent::OnAc) => false,
-        _ => before,
+/// The app over the random controller, and what the test knows of the
+/// world around it.
+struct World {
+    app: RandomApp,
+    /// From the power events alone.
+    on_battery: bool,
+    /// From the charger reads.
+    charge: Charge,
+    /// What each zone of the controller runs.
+    zones: Zones,
+    /// Between a sleep notice and the wake: the shell passes on only the
+    /// wake then.
+    asleep: bool,
+}
+
+impl World {
+    fn controller(&mut self) -> &mut RandomController {
+        &mut self.app.machine_mut().controller.inner
+    }
+
+    /// Does `step` and checks the rules for it, as the shell would pass it
+    /// on: nothing but the wake after a sleep notice.
+    fn step(&mut self, step: Step) {
+        if self.asleep && !matches!(step, Step::Power(PowerEvent::Resumed)) {
+            return;
+        }
+        let before = *self.app.config();
+        let failed_before = self.controller().failed_runs;
+        let took = take(&mut self.app, step);
+        let failed_runs = self.controller().failed_runs - failed_before;
+        match step {
+            Step::Power(PowerEvent::OnBattery) => self.on_battery = true,
+            Step::Power(PowerEvent::OnAc) => self.on_battery = false,
+            Step::Power(PowerEvent::Suspending) => self.asleep = true,
+            Step::Power(PowerEvent::Resumed) => self.asleep = false,
+            _ => {}
+        }
+        if let (Some(took), true) = (took, failed_runs > 0) {
+            // A click sends once: a failed send is never shown as done.
+            assert!(!took, "{step:?}");
+            assert_eq!(*self.app.config(), before, "{step:?}");
+        }
+        self.check(step.read_kind(), failed_runs > 0);
+    }
+
+    /// The rules of ticket 146 for what the last step tried to send, and
+    /// for what the controller runs after it.
+    fn check(&mut self, kind: ReadKind, may_cut: bool) {
+        let controller = self.controller();
+        let tried = std::mem::take(&mut controller.tried);
+        let ran = std::mem::take(&mut controller.ran);
+        let reads = std::mem::take(&mut controller.charger_reads);
+        for read in reads {
+            self.charge.after(kind, read);
+        }
+        tried.iter().for_each(assert_in_range);
+        for (command, sure) in ran {
+            if sure {
+                self.zones
+                    .check_custom_writes(std::slice::from_ref(&command));
+            } else {
+                self.zones.forget(std::slice::from_ref(&command));
+            }
+        }
+        if self.on_battery || self.charge.weak {
+            assert_battery_safe(&tried, may_cut);
+            // A failed send leaves the resends of the polls to put it right.
+            if !self.app.preset_unsure() && !self.asleep {
+                self.zones.assert_battery_safe();
+            }
+        }
     }
 }
 
@@ -239,42 +382,25 @@ proptest! {
         };
         let mut app = App::new(&BLADE_18, config, dir.path().join("config.toml"), machine);
         app.take_on_battery(source);
-        let mut on_battery = source.unwrap_or(true);
-        let mut zones = Zones::default();
-        drop(app.start());
-        check(&mut app, &mut zones, on_battery, 0);
+        let mut world = World {
+            app,
+            on_battery: source.unwrap_or(true),
+            charge: Charge::default(),
+            zones: Zones::default(),
+            asleep: false,
+        };
+        let failed_before = world.controller().failed_runs;
+        drop(world.app.start());
+        let failed = world.controller().failed_runs > failed_before;
+        world.check(ReadKind::Switch, failed);
         for step in steps {
-            let before = *app.config();
-            let failed_before = controller(&app).failed_runs;
-            let took = take(&mut app, step);
-            on_battery = on_battery_after(step, on_battery);
-            let failed_runs = controller(&app).failed_runs - failed_before;
-            if let (Some(took), true) = (took, failed_runs > 0) {
-                // A click sends once: a failed send is never shown as done.
-                prop_assert!(!took, "{:?}", step);
-                prop_assert_eq!(*app.config(), before, "{:?}", step);
-            }
-            check(&mut app, &mut zones, on_battery, failed_runs);
+            world.step(step);
         }
-        let failed_before = controller(&app).failed_runs;
-        drop(app.quit_preset());
-        let failed_runs = controller(&app).failed_runs - failed_before;
-        check(&mut app, &mut zones, on_battery, failed_runs);
-    }
-}
-
-fn controller(app: &RandomApp) -> &RandomController {
-    &app.machine().controller.inner
-}
-
-/// The rules of ticket 146 for what the last step sent. A weak charge is
-/// any charger read but the full charger's since the last one that worked.
-fn check(app: &mut RandomApp, zones: &mut Zones, on_battery: bool, failed_runs: usize) {
-    let controller = &mut app.machine_mut().controller.inner;
-    let sent = std::mem::take(&mut controller.sent);
-    sent.iter().for_each(assert_in_range);
-    zones.check_fan_targets(&sent);
-    if on_battery || !controller.full_charger_read {
-        assert_battery_safe(&sent, failed_runs > 0);
+        // The quit: no state is checked after it, as no app is left.
+        world.asleep = true;
+        let failed_before = world.controller().failed_runs;
+        drop(world.app.quit_preset());
+        let failed = world.controller().failed_runs > failed_before;
+        world.check(ReadKind::Switch, failed);
     }
 }

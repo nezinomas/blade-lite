@@ -19,13 +19,18 @@ const FAN_AUTO: u8 = 0;
 /// The storage byte `OpenRazer` calls the stored one.
 pub const VARIABLE_STORAGE: u8 = 0x01;
 
-/// Each preset write has a mode byte of the model, and a manual fan only
-/// with Custom's; each boost is in the model's range for its cluster.
+/// Each preset write goes to a zone of the model, with a mode byte of the
+/// model, and a manual fan only with Custom's; each boost is in the
+/// model's range for its cluster. Both are stored writes.
 pub fn assert_in_range(command: &Command) {
     let (bytes, custom) = (BLADE_18.mode_bytes, BLADE_18.custom);
+    if [SET_PRESET, SET_BOOST].contains(&command.id) {
+        assert_eq!(command.args[0], VARIABLE_STORAGE, "{command:?}");
+    }
     match command.id {
         SET_PRESET => {
-            let (mode, fan) = (command.args[2], command.args[3]);
+            let (zone, mode, fan) = (command.args[1], command.args[2], command.args[3]);
+            assert!(BLADE_18.perf_zones.contains(&zone), "{command:?}");
             let modes = [bytes.silent, bytes.balanced, bytes.performance, custom.mode];
             assert!(modes.contains(&mode), "{command:?}");
             assert!(fan == FAN_AUTO || mode == custom.mode, "{command:?}");
@@ -73,31 +78,42 @@ pub fn assert_battery_safe(sent: &[Command], may_cut: bool) {
     }
 }
 
-/// The last mode and fan byte written to each zone, so each fan target can
-/// be checked against what the controller runs.
+/// The last mode and fan byte written to each zone, so each Custom write
+/// can be checked against what the controller runs. A zone missing is not
+/// known: a failed run may or may not have written it.
 #[derive(Debug, Default)]
 pub struct Zones(HashMap<u8, (u8, u8)>);
 
 impl Zones {
-    /// Each fan target goes only while every zone was last set to Custom
-    /// with a manual fan (a mode write after it resets it), to a fan of
-    /// the model, in the profile's range.
-    pub fn check_fan_targets(&mut self, sent: &[Command]) {
+    /// Each boost goes only while every zone was last set to Custom, and
+    /// each fan target only while every zone was last set to Custom with a
+    /// manual fan (a mode write after it resets it), to a fan of the model,
+    /// in the profile's range.
+    pub fn check_custom_writes(&mut self, sent: &[Command]) {
         let custom = BLADE_18.custom;
+        let all_custom = |zones: &Self, manual: bool| {
+            BLADE_18.perf_zones.iter().all(|zone| {
+                zones
+                    .0
+                    .get(zone)
+                    .is_some_and(|&(mode, fan)| mode == custom.mode && (!manual || fan != FAN_AUTO))
+            })
+        };
         for command in sent {
             if command.id == SET_PRESET {
                 let (zone, mode, fan) = (command.args[1], command.args[2], command.args[3]);
                 self.0.insert(zone, (mode, fan));
             }
+            if command.id == SET_BOOST {
+                assert!(all_custom(self, false), "a boost with no Custom: {sent:?}");
+            }
             if command.id != SET_FAN {
                 continue;
             }
-            let manual = BLADE_18.perf_zones.iter().all(|zone| {
-                self.0
-                    .get(zone)
-                    .is_some_and(|&(mode, fan)| mode == custom.mode && fan != FAN_AUTO)
-            });
-            assert!(manual, "a fan target with no manual Custom: {sent:?}");
+            assert!(
+                all_custom(self, true),
+                "a fan target with no manual Custom: {sent:?}"
+            );
             let [storage, fan, speed] = command.args[..] else {
                 panic!("{command:?}");
             };
@@ -107,6 +123,27 @@ impl Zones {
             assert!(
                 (custom.fan_rpm.min..=custom.fan_rpm.max).contains(&rpm),
                 "{command:?}"
+            );
+        }
+    }
+
+    /// Forgets the zones of the mode writes in `unsure`: commands of a
+    /// failed run that the controller may or may not have run.
+    pub fn forget(&mut self, unsure: &[Command]) {
+        for command in unsure.iter().filter(|c| c.id == SET_PRESET) {
+            self.0.remove(&command.args[1]);
+        }
+    }
+
+    /// On battery or a weak charge, no known zone runs Performance or
+    /// Custom with a manual fan.
+    pub fn assert_battery_safe(&self) {
+        let custom = BLADE_18.custom;
+        for (zone, &(mode, fan)) in &self.0 {
+            assert!(
+                mode != BLADE_18.mode_bytes.performance
+                    && !(mode == custom.mode && fan != FAN_AUTO),
+                "zone {zone} runs {mode:#x} with fan {fan} on battery"
             );
         }
     }

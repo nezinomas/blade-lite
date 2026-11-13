@@ -323,7 +323,7 @@ impl Soak {
             (std::mem::take(&mut c.sent), std::mem::take(&mut c.asked))
         });
         sent.iter().for_each(assert_in_range);
-        self.zones.check_fan_targets(&sent);
+        self.zones.check_custom_writes(&sent);
         // A weak charge counts from the step after the first read of it:
         // only a read tells the app (ticket 136).
         let battery_presets = FAKE_ON_BATTERY.get() || self.weak == Weak::Read;
