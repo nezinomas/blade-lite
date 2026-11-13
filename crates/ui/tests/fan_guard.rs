@@ -3,7 +3,7 @@
 
 use std::time::{Duration, Instant};
 
-use ui::{FAN_GUARD_COOL_HOLD, FAN_GUARD_WAKE_HOLD, FanGuard};
+use ui::{FAN_GUARD_COOL_HOLD, FAN_GUARD_WAKE_HOLD, FanGuard, Sensor};
 
 const SECOND: Duration = Duration::from_secs(1);
 /// A hot spell long enough for any test.
@@ -62,7 +62,7 @@ fn the_guard_goes_off_only_after_both_cool_for_the_cool_hold() {
     let mut guard = FanGuard::default();
     let (now, _) = feed(&mut guard, Instant::now(), HOT_TIME, Some(96), Some(80));
     assert!(guard.on());
-    // Under the limit but not cool yet (10 °C margin): stays on.
+    // Under the limit but not cool yet (the cool lines): stays on.
     let (now, changes) = feed(&mut guard, now, FAN_GUARD_COOL_HOLD * 2, Some(90), Some(70));
     assert!(changes.is_empty(), "{changes:?}");
     // Cool, but not for long enough.
@@ -71,10 +71,10 @@ fn the_guard_goes_off_only_after_both_cool_for_the_cool_hold() {
         now,
         FAN_GUARD_COOL_HOLD.saturating_sub(2 * SECOND),
         Some(80),
-        Some(70),
+        Some(60),
     );
     assert!(changes.is_empty(), "{changes:?}");
-    let (_, changes) = feed(&mut guard, now, 3 * SECOND, Some(80), Some(70));
+    let (_, changes) = feed(&mut guard, now, 3 * SECOND, Some(80), Some(60));
     assert_eq!(changes, [false]);
 }
 
@@ -85,6 +85,44 @@ fn a_warm_gpu_keeps_the_guard_on() {
     let (_, changes) = feed(&mut guard, now, FAN_GUARD_COOL_HOLD * 2, Some(70), Some(80));
     assert!(changes.is_empty(), "{changes:?}");
     assert!(guard.on());
+}
+
+/// Laptop check 19B (ticket 175): at full fans a steady GPU load settled at
+/// 74 to 76 °C, under the old 77 °C cool line, and the guard went off
+/// mid-load.
+#[test]
+fn a_gpu_under_load_at_full_fans_keeps_the_guard_on() {
+    let mut guard = FanGuard::default();
+    let (now, _) = feed(&mut guard, Instant::now(), HOT_TIME, Some(70), Some(87));
+    let (_, changes) = feed(&mut guard, now, FAN_GUARD_COOL_HOLD * 5, Some(70), Some(74));
+    assert!(changes.is_empty(), "{changes:?}");
+    assert!(guard.on());
+}
+
+#[test]
+fn the_gpu_is_cool_20_degrees_under_its_limit() {
+    let mut guard = FanGuard::default();
+    let (now, _) = feed(&mut guard, Instant::now(), HOT_TIME, Some(70), Some(87));
+    let (now, changes) = feed(&mut guard, now, FAN_GUARD_COOL_HOLD * 2, Some(70), Some(67));
+    assert!(changes.is_empty(), "{changes:?}");
+    let (_, changes) = feed(
+        &mut guard,
+        now,
+        FAN_GUARD_COOL_HOLD + SECOND,
+        Some(70),
+        Some(66),
+    );
+    assert_eq!(changes, [false]);
+}
+
+#[test]
+fn each_cool_line_is_under_its_guard_limit() {
+    for sensor in [Sensor::Cpu, Sensor::Gpu] {
+        assert!(
+            sensor.guard_cool_line() < sensor.guard_limit(),
+            "{sensor:?}"
+        );
+    }
 }
 
 #[test]
@@ -292,6 +330,11 @@ fn a_warm_cpu_after_a_long_sleep_keeps_the_usual_hold() {
 #[test]
 fn a_warm_gpu_after_a_long_sleep_keeps_the_usual_hold() {
     usual_hold_after(Some(70), Some(77), false);
+}
+
+#[test]
+fn a_gpu_under_load_after_a_long_sleep_keeps_the_usual_hold() {
+    usual_hold_after(Some(70), Some(74), false);
 }
 
 #[test]
