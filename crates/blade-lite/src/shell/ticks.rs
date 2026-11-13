@@ -728,6 +728,12 @@ impl<P: Parts> Shell<P> {
     /// woken. Both are rare (a sleep within 2 s of such an event, or an
     /// event loop busy for over 1 s), and logged. No retry: Windows freezes
     /// the app a few seconds later.
+    ///
+    /// A failed quit preset does not mark the preset unsure (ticket 191):
+    /// nothing is sent while asleep, and the wake, a missed one too, sends
+    /// the whole saved preset again. The power source is not followed while
+    /// asleep, so a quit then still sends the fans on auto first if a
+    /// manual Custom ran on AC before the sleep.
     fn suspend(&self) {
         // A notice while asleep (the last sleep had no wake notice) starts
         // the minute to a missed wake again; nothing was sent since the last.

@@ -14,7 +14,6 @@ use super::{
     FAKE_REOPENED, FAKE_SCREEN_ON, FAKE_SLEEP_NOTICE_LATE, Fixture, click, fixture,
     fixture_with_programs, log_path,
 };
-use crate::fakes::FakeController;
 use crate::shell::Reopened;
 
 const SET_FAN_TARGET: u16 = 0x0D01;
@@ -127,27 +126,56 @@ fn the_wake_sends_the_manual_fan_again_after_its_pause() {
     assert!(sets_a_manual_fan(&sent_since(&f, before)));
 }
 
-/// Sleeps from a manual fan with the quit preset failing as `cut` makes it
-/// (ticket 191), then wakes; with `missed`, by a minute of input with no
-/// wake notice. The wake sends the whole saved preset again, what the start
-/// sent, however the sleep's send failed: a cut quit preset needs no unsure
-/// mark.
-fn the_wake_sends_the_whole_preset_again(cut: fn(&mut FakeController), missed: bool) {
-    let f = fixture(manual_fan());
-    let started = sent_since(&f, 0);
-    assert!(sets_a_manual_fan(&started), "{started:?}");
-    cut(&mut f.shell.app().machine_mut().controller.inner);
-    asleep_with_input(&f);
+/// Where a sleep's quit preset fails (ticket 191).
+#[derive(Clone, Copy)]
+enum Cut {
+    /// After the first command of the fans-on-auto step.
+    InAutoFans,
+    /// The fans-on-auto step sent, the Balanced after it refused.
+    InBalanced,
+}
+
+/// Whether `command` sets a mode with the fans on auto.
+fn auto_fan_mode(command: &Command) -> bool {
+    command.id == SET_MODE && command.args[3] == 0
+}
+
+/// A sleep from a manual fan with its quit preset failing at `cut`, with
+/// input from the user since. Checks that the sleep sent just what the cut
+/// let through, then lets the controller take every run again.
+fn asleep_after_a_cut(f: &Fixture, cut: Cut) {
     {
         let mut app = f.shell.app();
         let c = &mut app.machine_mut().controller.inner;
-        // `ok_runs` at 0: a run failed for want of one.
-        assert!(
-            c.fails_after.is_some() || c.ok_runs == Some(0),
-            "the sleep's send failed"
-        );
-        (c.fails_after, c.ok_runs) = (None, None);
+        match cut {
+            Cut::InAutoFans => c.fails_after = Some(1),
+            Cut::InBalanced => c.ok_runs = Some(1),
+        }
     }
+    let before = sent_count(f);
+    asleep_with_input(f);
+    let sent = sent_since(f, before);
+    let balanced = PerfMode::Balanced.commands(&BLADE_18).unwrap();
+    assert!(!sent.is_empty() && auto_fan_mode(&sent[0]), "{sent:?}");
+    assert!(!sets_a_manual_fan(&sent), "{sent:?}");
+    assert!(!sent.iter().any(|c| balanced.contains(c)), "{sent:?}");
+    if let Cut::InAutoFans = cut {
+        assert_eq!(sent.len(), 1, "{sent:?}");
+    }
+    let mut app = f.shell.app();
+    let c = &mut app.machine_mut().controller.inner;
+    (c.fails_after, c.ok_runs) = (None, None);
+}
+
+/// After a sleep send failed at `cut`, the wake sends the whole saved
+/// preset again, what the start sent, and nothing before it; with
+/// `missed`, a wake found by a minute of input with no wake notice. So a
+/// failed quit preset needs no unsure mark.
+fn the_wake_sends_the_whole_preset_again(cut: Cut, missed: bool) {
+    let f = fixture(manual_fan());
+    let started = sent_since(&f, 0);
+    assert!(sets_a_manual_fan(&started), "{started:?}");
+    asleep_after_a_cut(&f, cut);
     let before = sent_count(&f);
 
     if missed {
@@ -160,34 +188,50 @@ fn the_wake_sends_the_whole_preset_again(cut: fn(&mut FakeController), missed: b
     assert_eq!(sent_since(&f, before), started);
 }
 
-/// Cut in the quit preset's fans-on-auto step.
-fn cut_in_auto_fans(c: &mut FakeController) {
-    c.fails_after = Some(1);
-}
-
-/// The fans-on-auto step sent, the Balanced after it failed.
-fn cut_in_balanced(c: &mut FakeController) {
-    c.ok_runs = Some(1);
-}
-
 #[test]
 fn the_wake_after_a_sleep_send_cut_in_the_auto_fans_sends_the_whole_preset() {
-    the_wake_sends_the_whole_preset_again(cut_in_auto_fans, false);
+    the_wake_sends_the_whole_preset_again(Cut::InAutoFans, false);
 }
 
 #[test]
 fn the_wake_after_a_sleep_send_cut_in_balanced_sends_the_whole_preset() {
-    the_wake_sends_the_whole_preset_again(cut_in_balanced, false);
+    the_wake_sends_the_whole_preset_again(Cut::InBalanced, false);
 }
 
 #[test]
 fn a_missed_wake_after_a_sleep_send_cut_in_the_auto_fans_sends_the_whole_preset() {
-    the_wake_sends_the_whole_preset_again(cut_in_auto_fans, true);
+    the_wake_sends_the_whole_preset_again(Cut::InAutoFans, true);
 }
 
 #[test]
 fn a_missed_wake_after_a_sleep_send_cut_in_balanced_sends_the_whole_preset() {
-    the_wake_sends_the_whole_preset_again(cut_in_balanced, true);
+    the_wake_sends_the_whole_preset_again(Cut::InBalanced, true);
+}
+
+/// After a sleep send failed at `cut`, a quit with no wake sends the fans
+/// on auto, then Balanced.
+fn a_quit_while_asleep_ends_the_manual_fan(cut: Cut) {
+    let f = fixture(manual_fan());
+    asleep_after_a_cut(&f, cut);
+    let before = sent_count(&f);
+
+    f.shell.quit();
+
+    let sent = sent_since(&f, before);
+    let balanced = PerfMode::Balanced.commands(&BLADE_18).unwrap();
+    assert!(auto_fan_mode(&sent[0]), "{sent:?}");
+    assert!(sent.ends_with(&balanced), "{sent:?}");
+    assert!(!sets_a_manual_fan(&sent), "{sent:?}");
+}
+
+#[test]
+fn a_quit_while_asleep_after_a_sleep_send_cut_in_the_auto_fans_sends_them_first() {
+    a_quit_while_asleep_ends_the_manual_fan(Cut::InAutoFans);
+}
+
+#[test]
+fn a_quit_while_asleep_after_a_sleep_send_cut_in_balanced_sends_the_auto_fans_first() {
+    a_quit_while_asleep_ends_the_manual_fan(Cut::InBalanced);
 }
 
 #[test]
