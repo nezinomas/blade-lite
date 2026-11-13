@@ -341,6 +341,24 @@ where
         Ok(self.send_preset(&last)?)
     }
 
+    /// Follows battery at a quit when a read says so, but no power event
+    /// was read for it (dropped in a sleep or just before the quit; ticket
+    /// 196), so the quit preset ends a manual fan with the lowest boosts.
+    /// Nothing is sent. The controller still runs what was sent for the
+    /// charger, so a change of the preset that runs marks it unsure. Never
+    /// toward the charger: a weak charge would be missed.
+    pub fn battery_at_quit(&mut self) {
+        if self.on_battery() {
+            return;
+        }
+        let before = self.running(self.config).preset;
+        self.power = Power::Battery;
+        self.source_known = true;
+        if self.running(self.config).preset != before {
+            self.preset_unsure = true;
+        }
+    }
+
     /// At the app's start on AC, follows AC, so the rate a crash on
     /// battery left at 60 Hz is put back (see
     /// [`blade_core::BatteryRate::on_event`]). On battery or an unknown

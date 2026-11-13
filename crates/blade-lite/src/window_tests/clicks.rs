@@ -502,18 +502,7 @@ fn quitting_after_a_failed_switch_from_a_manual_fan_sends_the_fans_on_auto() {
 
     f.shell.quit();
 
-    let sent = sent_since(&f, before);
-    let balanced = PerfMode::Balanced.commands(&BLADE_18).unwrap();
-    let (auto_fans, last) = sent.split_at(sent.len() - balanced.len());
-    assert_eq!(last, balanced);
-    let modes = auto_fans.iter().filter(|c| c.id == 0x0D02);
-    assert!(modes.clone().count() > 0, "{sent:?}");
-    assert!(modes.clone().all(|c| c.args[3] == 0), "{auto_fans:?}");
-    assert!(auto_fans.iter().all(|c| c.id != 0x0D01), "{auto_fans:?}");
-    // On battery: the lowest boosts.
-    let boosts = auto_fans.iter().filter(|c| c.id == 0x0D07);
-    assert_eq!(boosts.clone().count(), 2, "{auto_fans:?}");
-    assert!(boosts.clone().all(|c| c.args[2] == 0), "{auto_fans:?}");
+    assert_the_battery_quit_preset(&sent_since(&f, before));
 }
 
 /// Checks that `sent` is the quit preset from a manual fan on battery:
@@ -546,6 +535,19 @@ fn manual_fan_with_boosts() -> Config {
 fn a_charger_pulled_just_before_a_quit_gets_the_lowest_boosts() {
     let f = fixture(manual_fan_with_boosts());
     // Pulled, but no power event or poll has read it yet (ticket 196).
+    FAKE_ON_BATTERY.set(true);
+    let before = sent_count(&f);
+
+    f.shell.quit();
+
+    assert_the_battery_quit_preset(&sent_since(&f, before));
+}
+
+#[test]
+fn a_charger_pulled_in_a_sleep_before_a_quit_gets_the_lowest_boosts() {
+    let f = fixture(manual_fan_with_boosts());
+    super::sleep::power(&f, &[PowerEvent::Suspending]);
+    // No wake notice, and no power event in the sleep.
     FAKE_ON_BATTERY.set(true);
     let before = sent_count(&f);
 
