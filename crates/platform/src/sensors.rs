@@ -48,10 +48,11 @@ const MAX_HEALTH_PERCENT: u32 = 150;
 /// (ticket 185). The GPU is unread for this long after a close, so keep it
 /// well under the heat warning's 30 s gap (`HEAT_GAP` in `ui`), after
 /// which a reading no longer counts as recent.
-const NVML_START_PAUSE: Duration = Duration::from_secs(10);
-/// Failed reads in a row, with the GPU awake, that close NVML. One failure
-/// may be a GPU on its way to sleep; a stale handle fails at every read.
-const NVML_FAILS_TO_CLOSE: u8 = 2;
+const NVML_START_PAUSE: Duration = Duration::from_secs(5);
+/// How close a failed read must come after another one to close NVML. One
+/// failure may be a GPU on its way to sleep; a stale handle fails at every
+/// read, and the slowest reads come each 10 s (the heat warning's).
+const NVML_FAIL_WINDOW: Duration = Duration::from_secs(15);
 
 /// The sensors of this PC. NVML is loaded on the first GPU read, and kept:
 /// its start and its close each wake a sleeping GPU (probe 2026-11-13).
@@ -66,8 +67,9 @@ struct NvmlSlot<N> {
     nvml: Option<N>,
     /// When NVML was last closed, or failed to start.
     closed: Option<Instant>,
-    /// Failed reads in a row since the last start.
-    failures: u8,
+    /// When the last read failed, if no good read came after it and the
+    /// GPU did not read asleep after it.
+    failed: Option<Instant>,
 }
 
 impl<N> Default for NvmlSlot<N> {
@@ -75,7 +77,7 @@ impl<N> Default for NvmlSlot<N> {
         Self {
             nvml: None,
             closed: None,
-            failures: 0,
+            failed: None,
         }
     }
 }
@@ -137,9 +139,9 @@ impl<N> NvmlSlot<N> {
     /// Reads the GPU through NVML, started on the first read. Failed reads
     /// close it, so a later read starts it again: an old handle can keep
     /// failing after a driver reset (ticket 156). But a start and a close
-    /// each wake a sleeping GPU (ticket 185), so it closes only after
-    /// [`NVML_FAILS_TO_CLOSE`] failed reads in a row and while the GPU still
-    /// reads `awake`, and no start comes within [`NVML_START_PAUSE`] of a
+    /// each wake a sleeping GPU (ticket 185), so it closes only on a failed
+    /// read within [`NVML_FAIL_WINDOW`] of another, with no good read and no
+    /// GPU read asleep between, and while the GPU still reads `awake`, and no start comes within [`NVML_START_PAUSE`] of a
     /// close or a failed start. A read in that pause fails and leaves the
     /// pause as it is.
     fn read(
@@ -155,16 +157,22 @@ impl<N> NvmlSlot<N> {
         };
         let error = match read(&nvml) {
             Ok(reading) => {
-                self.failures = 0;
+                self.failed = None;
                 self.nvml = Some(nvml);
                 return Ok(reading);
             }
             Err(error) => error,
         };
-        self.failures = self.failures.saturating_add(1);
-        if self.failures >= NVML_FAILS_TO_CLOSE && matches!(awake(), Ok(true)) {
+        let now = now();
+        let again = self
+            .failed
+            .is_some_and(|at| now.saturating_duration_since(at) <= NVML_FAIL_WINDOW);
+        let awake = awake();
+        // A GPU gone to sleep shows no stale handle, so the count starts again.
+        self.failed = (!matches!(awake, Ok(false))).then_some(now);
+        if again && matches!(awake, Ok(true)) {
             drop(nvml);
-            self.closed = Some(now());
+            self.closed = Some(now);
             return Err(io::Error::other(format!("{error} (NVML closed)")));
         }
         self.nvml = Some(nvml);
@@ -182,11 +190,12 @@ impl<N> NvmlSlot<N> {
             .closed
             .is_some_and(|at| now().saturating_duration_since(at) < NVML_START_PAUSE)
         {
-            return Err(io::Error::other(
-                "NVML waits 10 s after a close or a failed start, as each may wake the GPU",
-            ));
+            return Err(io::Error::other(format!(
+                "NVML waits {} s after a close or a failed start, as each may wake the GPU",
+                NVML_START_PAUSE.as_secs()
+            )));
         }
-        self.failures = 0;
+        self.failed = None;
         start().inspect_err(|_| self.closed = Some(now()))
     }
 }
@@ -678,7 +687,7 @@ mod tests {
         assert!(error.to_string().ends_with("(NVML closed)"), "{error}");
         assert_eq!((fake.open(), fake.slot.closed), (None, Some(closed)));
         // Reads in the pause neither start NVML nor move the pause on.
-        for _ in 0..9 {
+        for _ in 0..4 {
             fake.wait(SECOND);
             assert!(fake.read(Some(1), Ok(true)).is_err());
         }
@@ -702,6 +711,31 @@ mod tests {
         fake.slot.nvml = Some(0);
 
         assert!(fake.read(Some(1), Ok(true)).is_err());
+
+        assert_eq!((fake.open(), fake.slot.closed), (Some(0), None));
+    }
+
+    #[test]
+    fn failed_reads_far_apart_keep_nvml() {
+        let mut fake = FakeNvml::new();
+
+        assert!(fake.read(Some(0), Ok(true)).is_err());
+        fake.wait(NVML_FAIL_WINDOW + Duration::from_millis(1));
+        assert!(fake.read(Some(0), Ok(true)).is_err());
+        assert_eq!(fake.open(), Some(0));
+
+        fake.wait(NVML_FAIL_WINDOW);
+        assert!(fake.read(Some(0), Ok(true)).is_err());
+        assert_eq!(fake.open(), None);
+    }
+
+    #[test]
+    fn a_failure_then_a_sleep_then_a_failure_keeps_nvml() {
+        let mut fake = FakeNvml::new();
+
+        assert!(fake.read(Some(0), Ok(true)).is_err());
+        assert!(fake.read(Some(0), Ok(false)).is_err());
+        assert!(fake.read(Some(0), Ok(true)).is_err());
 
         assert_eq!((fake.open(), fake.slot.closed), (Some(0), None));
     }
