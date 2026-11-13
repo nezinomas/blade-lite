@@ -516,6 +516,9 @@ impl<P: Parts> Shell<P> {
         self.quit_sent.set(true);
         self.note_pending_wake();
         self.wait_out_the_pause();
+        if P::on_battery() == Some(true) {
+            app.battery_at_quit();
+        }
         // Closed however the sends end, a panic too.
         let sent = std::panic::catch_unwind(AssertUnwindSafe(|| {
             // First: the fans matter more than the rate.

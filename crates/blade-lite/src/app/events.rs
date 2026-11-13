@@ -292,8 +292,8 @@ where
     /// Sends Balanced (Silent if Silent runs) as the app quits: no app is
     /// left to watch a manual fan or a charger pulled. Always sent, as what
     /// the controller runs may differ from the config after a failed send.
-    /// If a manual fan is saved and Custom runs or the last preset send
-    /// failed, Custom with the fans on auto goes first (with the lowest
+    /// If a manual fan is saved and Custom runs, the last preset send
+    /// failed or the source changed at the quit (`battery_at_quit`), Custom with the fans on auto goes first (with the lowest
     /// boosts when Custom is not what should run), the known way to end a
     /// manual fan; whether the preset's own mode write ends it too is not
     /// checked on the laptop. The saved preset is kept, so the next start
@@ -339,6 +339,24 @@ where
         };
         let last = Config { preset, ..running };
         Ok(self.send_preset(&last)?)
+    }
+
+    /// Follows battery at a quit when a read says so, but no power event
+    /// was read for it (dropped in a sleep or just before the quit; ticket
+    /// 196), so the quit preset ends a manual fan with the lowest boosts.
+    /// Nothing is sent. The controller still runs what was sent for the
+    /// charger, so a change of the preset that runs marks it unsure. Never
+    /// toward the charger: a weak charge would be missed.
+    pub fn battery_at_quit(&mut self) {
+        if self.on_battery() {
+            return;
+        }
+        let before = self.running(self.config).preset;
+        self.power = Power::Battery;
+        if self.running(self.config).preset != before {
+            report("the charger is gone at the quit, so the battery quit preset is sent");
+            self.preset_unsure = true;
+        }
     }
 
     /// At the app's start on AC, follows AC, so the rate a crash on
