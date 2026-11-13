@@ -24,6 +24,23 @@ const GONE_KEY: &str = "controller closed or held";
 /// (ticket 173; on the laptop 2 s worked).
 const FAN_TARGETS_AGAIN: Duration = Duration::from_secs(2);
 
+/// How long the app runs on after a sleep notice with no wake notice,
+/// with input from the user in that time, before that counts as a wake
+/// (ticket 170). Windows freezes the app a few seconds after the notice,
+/// so a minute of ticks means it is likely not asleep; the input makes
+/// sure.
+const MISSED_WAKE_AFTER: Duration = Duration::from_secs(60);
+
+/// The longest wall-clock gap between two ticks that still counts as one
+/// run: a longer one may be a freeze in the sleep.
+const TICK_GAP: Duration = Duration::from_secs(5);
+
+/// How far into a run after a sleep notice input must come to count for a
+/// missed wake: a touch while the screen goes dark comes before Windows
+/// freezes the app. Longer than [`TICK_GAP`], so a small clock step can't
+/// let input from before the notice in.
+const INPUT_GRACE: Duration = Duration::from_secs(30);
+
 #[cfg(test)]
 thread_local! {
     /// The `sent again by a poll` lines this test's thread logged: the
@@ -48,6 +65,7 @@ impl<P: Parts> Shell<P> {
         let failures = self.app.borrow().preset_failures();
         let looked = self.look_for_razer_now_and_then(now);
         self.follow_own_power();
+        self.follow_missed_wake(wall);
         self.start_after_updater();
         self.send_fan_targets_again(now);
         if looked {
@@ -475,34 +493,73 @@ impl<P: Parts> Shell<P> {
             self.suspend();
             return;
         }
-        self.forget_charging();
-        if event != PowerEvent::Resumed && self.resuming.get() > 0 {
-            return;
-        }
         if event == PowerEvent::Resumed {
             report("Windows says the laptop woke, so the settings go again after the pause");
-            // The sleep's pause ends: the wake's own begins.
-            if self.asleep.replace(false) {
-                self.resuming.set(self.resuming.get().saturating_sub(1));
-            }
-            // The last pause sends the wake's settings.
-            self.wake_due.set(true);
-            // The time asleep may not count in `Instant`, so a spell before
-            // the sleep is not carried over.
-            self.heat_watch.set(HeatWatch::default());
-            // The controller needs a moment after the wake.
-            let pause = self.begin_pause();
-            let shell = Rc::clone(self);
-            Timer::single_shot(RESUME_PAUSE, move || {
-                shell.resuming.set(shell.resuming.get().saturating_sub(1));
-                // A sleep or a newer pause since: the last pause sends them.
-                if !shell.superseded(pause) {
-                    shell.end_wake_pause();
-                }
-            });
-        } else {
+            self.wake();
+            return;
+        }
+        self.forget_charging();
+        if self.resuming.get() == 0 {
             self.act(|app| app.on_power(event));
         }
+    }
+
+    /// After a sleep notice, counts a run of ticks of
+    /// [`MISSED_WAKE_AFTER`] with no gap over [`TICK_GAP`] (wall clock,
+    /// which counts a freeze), with input at least [`INPUT_GRACE`] into the
+    /// run, as a wake: a failed or cancelled sleep may bring no wake notice (not
+    /// documented, a safety net). With no input, such as with the lid shut
+    /// on a game whose hibernate failed, the sleep goes on: the quit
+    /// preset runs and nothing is sent, the safe side. A clock set back or
+    /// an unknown input time does the same. Input another program injects
+    /// counts too (Windows' last-input time can't tell it apart).
+    fn follow_missed_wake(self: &Rc<Self>, wall: SystemTime) {
+        if !self.asleep.get() {
+            return;
+        }
+        let began = match self.awake_run.get() {
+            Some((began, last)) if wall.duration_since(last).is_ok_and(|gap| gap <= TICK_GAP) => {
+                began
+            }
+            _ => wall,
+        };
+        self.awake_run.set(Some((began, wall)));
+        let Ok(ran) = wall.duration_since(began) else {
+            return;
+        };
+        if ran >= MISSED_WAKE_AFTER
+            && P::input_age().is_some_and(|age| age.saturating_add(INPUT_GRACE) < ran)
+        {
+            report(
+                "the app has run for a minute since Windows said the laptop sleeps, with input from the user and no wake notice, so this counts as a wake: the settings go again after the pause",
+            );
+            self.wake();
+        }
+    }
+
+    /// Ends a sleep, if any, and sends the saved settings after the wake's
+    /// pause.
+    fn wake(self: &Rc<Self>) {
+        self.forget_charging();
+        // The sleep's pause ends: the wake's own begins.
+        if self.asleep.replace(false) {
+            self.resuming.set(self.resuming.get().saturating_sub(1));
+        }
+        // The last pause sends the wake's settings.
+        self.wake_due.set(true);
+        // The time asleep may not count in `Instant`, so a spell before
+        // the sleep is not carried over.
+        self.heat_watch.set(HeatWatch::default());
+        // The controller needs a moment after the wake.
+        let pause = self.begin_pause();
+        let shell = Rc::clone(self);
+        Timer::single_shot(RESUME_PAUSE, move || {
+            shell.resuming.set(shell.resuming.get().saturating_sub(1));
+            // A sleep or a newer pause since: the last pause sends them.
+            if !shell.superseded(pause) {
+                shell.end_wake_pause();
+            }
+        });
     }
 
     /// The end of the last pause after a wake (the wake's own, or an open
@@ -549,6 +606,9 @@ impl<P: Parts> Shell<P> {
     /// event loop busy for over 1 s), and logged. No retry: Windows freezes
     /// the app a few seconds later.
     fn suspend(&self) {
+        // A notice while asleep (the last sleep had no wake notice) starts
+        // the minute to a missed wake again; nothing was sent since the last.
+        self.awake_run.set(None);
         if self.asleep.get() || self.quit_sent.get() {
             return;
         }

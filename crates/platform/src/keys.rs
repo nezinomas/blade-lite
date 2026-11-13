@@ -1,15 +1,39 @@
 //! Key presses sent to Windows with `SendInput`, the Num Lock state, and
-//! whether Enter or the mic keys are down.
+//! whether Enter or the mic keys are down, and when the user last gave
+//! input.
 
 use std::io;
+use std::time::Duration;
 
+use windows_sys::Win32::System::SystemInformation::GetTickCount;
 use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
-    GetAsyncKeyState, GetKeyState, INPUT, INPUT_0, INPUT_KEYBOARD, KEYBD_EVENT_FLAGS, KEYBDINPUT,
-    KEYEVENTF_KEYUP, SendInput, VIRTUAL_KEY, VK_CONTROL, VK_F24, VK_K, VK_LWIN, VK_MENU,
-    VK_NUMLOCK, VK_RETURN, VK_RWIN,
+    GetAsyncKeyState, GetKeyState, GetLastInputInfo, INPUT, INPUT_0, INPUT_KEYBOARD,
+    KEYBD_EVENT_FLAGS, KEYBDINPUT, KEYEVENTF_KEYUP, LASTINPUTINFO, SendInput, VIRTUAL_KEY,
+    VK_CONTROL, VK_F24, VK_K, VK_LWIN, VK_MENU, VK_NUMLOCK, VK_RETURN, VK_RWIN,
 };
 
 use crate::{Key, KeyInjector};
+
+/// How long ago the user last gave input in this session (keyboard, mouse,
+/// touchpad, touch), by Windows' tick count, which wraps after 49 days.
+/// `None` if Windows can't tell.
+#[must_use]
+pub fn input_age() -> Option<Duration> {
+    let mut info = LASTINPUTINFO {
+        cbSize: u32::try_from(size_of::<LASTINPUTINFO>()).ok()?,
+        dwTime: 0,
+    };
+    // SAFETY: `info` is a live LASTINPUTINFO with its size set, as the
+    // call asks.
+    if unsafe { GetLastInputInfo(&raw mut info) } == 0 {
+        return None;
+    }
+    // SAFETY: GetTickCount takes nothing and touches no memory of ours.
+    let now = unsafe { GetTickCount() };
+    Some(Duration::from_millis(u64::from(
+        now.wrapping_sub(info.dwTime),
+    )))
+}
 
 /// Whether Num Lock is on now, as the calling thread sees it. Call it from
 /// a thread that runs a message loop, such as the UI thread's poll. A

@@ -14,7 +14,7 @@ use std::path::PathBuf;
 use std::rc::Rc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::Receiver;
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime};
 
 use blade_core::{
     ApplyError, Controller, PollSchedule, Query, RESUME_PAUSE, Readings, ReadingsSampler,
@@ -66,6 +66,8 @@ pub trait Parts: 'static {
     /// notice. If not, the app may have been frozen and thawed since, so a
     /// send for it could reach a controller that just woke (ticket 169).
     fn sleep_notice_waits() -> bool;
+    /// How long ago the user last gave input. `None` if it can't be told.
+    fn input_age() -> Option<Duration>;
 }
 
 /// What [`Parts::pick_file`] calls with the user's answer.
@@ -170,6 +172,10 @@ impl Parts for Laptop {
 
     fn sleep_notice_waits() -> bool {
         crate::background::sleep_notice_waits()
+    }
+
+    fn input_age() -> Option<Duration> {
+        platform::input_age()
     }
 
     fn toggle_mic_mute() -> Option<bool> {
@@ -325,6 +331,9 @@ pub struct Shell<P: Parts = Laptop> {
     /// It counts as one more pause in `resuming`, so nothing is sent until
     /// the wake, which ends it.
     asleep: Cell<bool>,
+    /// Since a sleep notice: when the ticks' run with no gap began, and
+    /// the last tick, by the wall clock (ticket 170).
+    awake_run: Cell<Option<(SystemTime, SystemTime)>>,
     /// Whether the pause of an open again or an updater ended in a sleep
     /// or a newer pause, so the last pause's end releases the handle and
     /// reads the firmware again too.
@@ -383,6 +392,7 @@ impl<P: Parts> Shell<P> {
             stopped_parts: RefCell::new(Vec::new()),
             quit_sent: Cell::new(false),
             asleep: Cell::new(false),
+            awake_run: Cell::new(None),
             redo_at_wake: Cell::new(false),
             wake_due: Cell::new(false),
             pauses: Cell::new(0),
