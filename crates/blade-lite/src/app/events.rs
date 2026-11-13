@@ -355,6 +355,7 @@ where
         self.power = Power::Battery;
         self.source_known = true;
         if self.running(self.config).preset != before {
+            report("the charger is gone at the quit, so the battery quit preset is sent");
             self.preset_unsure = true;
         }
     }

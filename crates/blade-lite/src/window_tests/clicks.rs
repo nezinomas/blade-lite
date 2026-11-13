@@ -583,7 +583,9 @@ fn a_quit_with_the_source_unknown_keeps_the_one_followed() {
 
     let sent = sent_since(&f, before);
     let boosts = sent.iter().filter(|c| c.id == 0x0D07);
+    assert_eq!(boosts.clone().count(), 2, "{sent:?}");
     assert!(boosts.clone().all(|c| c.args[2] == 2), "{sent:?}");
+    assert!(sent.ends_with(&PerfMode::Balanced.commands(&BLADE_18).unwrap()));
     assert!(!sent.iter().any(|c| c.id == 0x0D01), "{sent:?}");
 }
 
