@@ -8,8 +8,8 @@ use windows_sys::Win32::Graphics::Gdi::{
     GetMonitorInfoW, MONITOR_DEFAULTTONEAREST, MONITORINFO, MonitorFromPoint,
 };
 use windows_sys::Win32::UI::WindowsAndMessaging::{
-    HWND_TOPMOST, SPI_GETWORKAREA, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SetWindowPos,
-    SystemParametersInfoW,
+    GWL_EXSTYLE, GetWindowLongPtrW, HWND_TOPMOST, SPI_GETWORKAREA, SWP_NOACTIVATE, SWP_NOMOVE,
+    SWP_NOSIZE, SetWindowPos, SystemParametersInfoW, WS_EX_TOPMOST,
 };
 
 const NO_RECT: RECT = RECT {
@@ -71,15 +71,33 @@ pub fn work_area_at((x, y): (i32, i32)) -> io::Result<(i32, i32, i32, i32)> {
 /// # Errors
 ///
 /// The Windows error if the call fails, such as for a handle that is not a
-/// live window.
+/// live window, or an error if the call says it worked but the window is
+/// still not topmost (ticket 181 saw that once).
 pub fn raise_topmost(hwnd: isize) -> io::Result<()> {
     let flags = SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE;
     // SAFETY: a plain call on a handle; a bad handle only makes it fail.
     let done = unsafe { SetWindowPos(hwnd as HWND, HWND_TOPMOST, 0, 0, 0, 0, flags) };
+    raised(done, done != 0 && is_topmost(hwnd))
+}
+
+/// The raise's result from what `SetWindowPos` returned and whether the
+/// window is topmost after it.
+fn raised(done: i32, topmost: bool) -> io::Result<()> {
     if done == 0 {
         return Err(io::Error::last_os_error());
     }
+    if !topmost {
+        return Err(io::Error::other("the window is still not topmost"));
+    }
     Ok(())
+}
+
+/// Whether the window has `WS_EX_TOPMOST`. A window Windows can't read
+/// counts as not topmost.
+fn is_topmost(hwnd: isize) -> bool {
+    // SAFETY: a plain call on a handle; a bad handle only returns 0.
+    let ex_style = unsafe { GetWindowLongPtrW(hwnd as HWND, GWL_EXSTYLE) };
+    isize::try_from(WS_EX_TOPMOST).is_ok_and(|bit| ex_style & bit != 0)
 }
 
 /// A Windows rect as `(x, y, width, height)`.
@@ -98,11 +116,11 @@ mod tests {
 
     use windows_sys::Win32::Foundation::HWND;
     use windows_sys::Win32::UI::WindowsAndMessaging::{
-        CreateWindowExW, DestroyWindow, GW_HWNDNEXT, GWL_EXSTYLE, GetWindow, GetWindowLongPtrW,
-        SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SetWindowPos, WS_EX_TOPMOST, WS_POPUP,
+        CreateWindowExW, DestroyWindow, GW_HWNDNEXT, GetWindow, SWP_NOACTIVATE, SWP_NOMOVE,
+        SWP_NOSIZE, SetWindowPos, WS_EX_TOPMOST, WS_POPUP,
     };
 
-    use super::raise_topmost;
+    use super::{is_topmost, raise_topmost, raised};
     use crate::wide;
 
     /// A hidden popup, topmost or not.
@@ -171,35 +189,41 @@ mod tests {
         assert!(after);
     }
 
-    fn is_topmost(hwnd: isize) -> bool {
-        // SAFETY: a live window this thread made.
-        let ex_style = unsafe { GetWindowLongPtrW(hwnd as _, GWL_EXSTYLE) };
-        ex_style & isize::try_from(WS_EX_TOPMOST).unwrap() != 0
-    }
-
     #[test]
     fn a_plain_window_becomes_topmost() {
         // Topmost is desktop-wide. This failed twice in full workspace runs;
         // the failure seen was a call that reported success but left the
-        // window plain (ticket 181; not seen in 830 runs alone), so the test
-        // gives it a few tries. Ticket 190 revisits this retry.
+        // window plain (ticket 181; not seen in 830 runs alone). The raise
+        // now says so with an error (ticket 190), so the test tries again on
+        // an error and names the tries if every one missed.
         const TRIES: u32 = 5;
         let popup = window(0);
 
-        let mut tries = 0;
-        let result = loop {
-            tries += 1;
-            let result = raise_topmost(popup);
-            if result.is_err() || is_topmost(popup) || tries == TRIES {
-                break result;
+        let mut errors = Vec::new();
+        while let Err(error) = raise_topmost(popup) {
+            errors.push(error.to_string());
+            if errors.len() == TRIES as usize {
+                break;
             }
             std::thread::sleep(std::time::Duration::from_millis(50));
-        };
+        }
 
         let topmost = is_topmost(popup);
         destroy(popup);
-        result.unwrap();
-        assert!(topmost, "still not topmost after {tries} tries");
+        assert!(topmost, "not topmost after {TRIES} tries: {errors:?}");
+    }
+
+    #[test]
+    fn a_raise_that_leaves_the_window_plain_is_an_error() {
+        // Windows can say the call worked yet leave the window plain
+        // (ticket 181).
+        let error = raised(1, false).unwrap_err();
+        assert!(error.to_string().contains("not topmost"), "{error}");
+    }
+
+    #[test]
+    fn a_raise_that_made_the_window_topmost_is_ok() {
+        assert!(raised(1, true).is_ok());
     }
 
     #[test]
