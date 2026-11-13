@@ -45,6 +45,11 @@ const LIST_TRIES: usize = 3;
 /// How many input reports Windows keeps for a collection, as hidapi set.
 const INPUT_BUFFERS: u32 = 64;
 
+/// The longest wait for a feature report (ticket 197). The controller
+/// answers in milliseconds; one that never answers must not stall the
+/// event-loop thread for good, as hidapi's wait with no limit could.
+const FEATURE_WAIT: Duration = Duration::from_secs(3);
+
 /// The paths of the HID interfaces that are present. Read from Windows'
 /// device list: no device is opened or asked anything.
 ///
@@ -239,13 +244,14 @@ impl HidDevice {
     }
 
     /// Reads a feature report into `buffer`, whose first byte is the
-    /// report ID, and waits for it with no time limit. The count is the
+    /// report ID, and waits for it up to [`FEATURE_WAIT`]. The count is the
     /// bytes read; for report ID 0 Windows leaves the ID out of its
     /// count, so one is added, as hidapi did.
     ///
     /// # Errors
     ///
-    /// The Windows error.
+    /// [`io::ErrorKind::TimedOut`] if no reply came in time: the read is
+    /// then cancelled, not tried again. Else the Windows error.
     pub fn get_feature(&self, buffer: &mut [u8]) -> io::Result<usize> {
         refuse_empty(buffer)?;
         let length = u32::try_from(buffer.len()).map_err(io::Error::other)?;
@@ -264,7 +270,7 @@ impl HidDevice {
                 &raw mut overlapped,
             )
         };
-        let read = self.finish(ok != 0, &overlapped, None)?.unwrap_or(0);
+        let read = feature_count(self.finish(ok != 0, &overlapped, Some(FEATURE_WAIT))?)?;
         let read = usize::try_from(read).map_err(io::Error::other)?;
         Ok(if buffer.first() == Some(&0) {
             read + 1
@@ -383,6 +389,18 @@ impl HidDevice {
     }
 }
 
+/// The byte count of a feature read that ended, or a time-out for one
+/// cut off at [`FEATURE_WAIT`]. Never a guessed count: a guess would be
+/// parsed as a reply.
+fn feature_count(ended: Option<u32>) -> io::Result<u32> {
+    ended.ok_or_else(|| {
+        io::Error::new(
+            io::ErrorKind::TimedOut,
+            format!("no feature report within {FEATURE_WAIT:?}"),
+        )
+    })
+}
+
 /// An empty report or buffer is refused, as hidapi did: a send would
 /// otherwise go out as a report of zeros.
 fn refuse_empty(bytes: &[u8]) -> io::Result<()> {
@@ -457,5 +475,26 @@ fn caps(handle: &Handle) -> io::Result<HIDP_CAPS> {
         Err(io::Error::other(format!(
             "HidP_GetCaps returned {status:#x}"
         )))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_feature_read_that_ended_gives_its_count() {
+        assert_eq!(feature_count(Some(91)).unwrap(), 91);
+    }
+
+    #[test]
+    fn a_feature_read_cut_off_at_its_limit_is_timed_out() {
+        let error = feature_count(None).unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::TimedOut);
+    }
+
+    #[test]
+    fn the_feature_read_limit_is_a_few_seconds() {
+        assert!((Duration::from_secs(1)..=Duration::from_secs(5)).contains(&FEATURE_WAIT));
     }
 }
