@@ -2762,12 +2762,9 @@ fn press_key(f: &Fixture, key: slint::platform::Key) {
     window.dispatch_event(WindowEvent::KeyReleased { text });
 }
 
-#[test]
-fn a_custom_slider_keeps_the_focus_after_each_arrow_key() {
-    let f = custom_fixture();
-    let fan = razer_proto::FanMode::Auto;
-    // A click on the handle at level 1 of 0 to 3 focuses the slider and
-    // changes nothing.
+/// Clicks the CPU boost handle at level 1 of 0 to 3, which focuses the
+/// slider and changes nothing.
+fn focus_cpu_boost(f: &Fixture) -> ElementHandle {
     let slider = control(f.shell.window(), Slider, "CPU boost");
     let start = slider.absolute_position();
     let size = slider.size();
@@ -2782,6 +2779,14 @@ fn a_custom_slider_keeps_the_focus_after_each_arrow_key() {
         position: handle,
         button,
     });
+    slider
+}
+
+#[test]
+fn a_custom_slider_keeps_the_focus_after_each_arrow_key() {
+    let f = custom_fixture();
+    let fan = razer_proto::FanMode::Auto;
+    let slider = focus_cpu_boost(&f);
     let before = sent_count(&f);
 
     press_key(&f, slint::platform::Key::RightArrow);
@@ -2794,6 +2799,23 @@ fn a_custom_slider_keeps_the_focus_after_each_arrow_key() {
     );
     shows_cpu_boost(&f, 3);
     assert!(slider.is_valid(), "the rows were made again");
+}
+
+#[test]
+fn a_custom_slider_keeps_the_focus_when_the_window_is_focused_again() {
+    let f = custom_fixture();
+    let slider = focus_cpu_boost(&f);
+    let before = sent_count(&f);
+
+    f.shell.on_window_event(&WinitEvent::Focused(true));
+    press_key(&f, slint::platform::Key::RightArrow);
+
+    assert!(slider.is_valid(), "the rows were made again");
+    assert_eq!(
+        sent_since(&f, before),
+        custom_commands(2, razer_proto::FanMode::Auto)
+    );
+    shows_cpu_boost(&f, 2);
 }
 
 #[test]
@@ -2846,6 +2868,9 @@ fn custom_drag_cut_short_is_put_back(come_back: impl FnOnce(&Fixture)) {
     let before = sent_count(&f);
 
     come_back(&f);
+    // At once, the same row: no change handler has run.
+    assert!(slider.is_valid(), "the rows were made again");
+    assert_eq!(slider.accessible_value().unwrap(), "1");
     // Back again: a press elsewhere, let go over the slider.
     f.shell
         .window()
