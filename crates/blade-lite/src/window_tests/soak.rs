@@ -4,7 +4,6 @@
 //! for what was sent, and the lists the shell keeps stay small. A usual
 //! day's set commands are counted too, for the flash wear question.
 
-use std::collections::HashMap;
 use std::sync::mpsc::{Sender, channel};
 use std::time::{Duration, Instant, SystemTime};
 
@@ -12,7 +11,7 @@ use blade_core::{Config, Lighting, Preset};
 use i_slint_backend_testing::AccessibleRole::{self, Button, Switch};
 use i_slint_backend_testing::ElementHandle;
 use platform::PowerEvent;
-use razer_proto::{BLADE_18, Charger, Command, Rgb};
+use razer_proto::{Charger, Command, Rgb};
 use slint::platform::PointerEventButton;
 
 use super::{
@@ -20,21 +19,13 @@ use super::{
     selected_preset,
 };
 use crate::fakes::{FakeCharger, FakeController};
+use crate::rules::{
+    SET_BOOST, SET_FAN, SET_PRESET, VARIABLE_STORAGE, Zones, assert_battery_safe, assert_in_range,
+};
 use crate::shell::Reopened;
-
-const SET_PRESET: u16 = 0x0D02;
-const SET_FAN: u16 = 0x0D01;
-const SET_BOOST: u16 = 0x0D07;
-const CPU_CLUSTER: u8 = 0x01;
-const GPU_CLUSTER: u8 = 0x02;
-/// The fan byte of a preset write: the controller picks the speed.
-const FAN_AUTO: u8 = 0;
 
 /// The set commands with a storage byte first (the logo's is 0).
 const STORED: [u16; 5] = [SET_PRESET, SET_FAN, SET_BOOST, 0x0303, 0x0300];
-
-/// The storage byte `OpenRazer` calls the stored one.
-const VARIABLE_STORAGE: u8 = 0x01;
 
 const SECOND: Duration = Duration::from_secs(1);
 
@@ -87,8 +78,7 @@ struct Soak {
     failing_left: u32,
     /// Every command sent so far, as the fake's list is emptied each step.
     sent: Vec<Command>,
-    /// The last mode and fan byte written to each zone.
-    zones: HashMap<u8, (u8, u8)>,
+    zones: Zones,
     /// Whether a run may have failed partway since the last check.
     may_cut: bool,
     /// Steps left of a spell of failed reads.
@@ -124,7 +114,7 @@ impl Soak {
             weak: Weak::No,
             failing_left: 0,
             sent: Vec::new(),
-            zones: HashMap::new(),
+            zones: Zones::default(),
             may_cut: false,
             reads_failing_left: 0,
             seen: Seen::default(),
@@ -333,7 +323,7 @@ impl Soak {
             (std::mem::take(&mut c.sent), std::mem::take(&mut c.asked))
         });
         sent.iter().for_each(assert_in_range);
-        self.check_fan_targets(&sent);
+        self.zones.check_fan_targets(&sent);
         // A weak charge counts from the step after the first read of it:
         // only a read tells the app (ticket 136).
         let battery_presets = FAKE_ON_BATTERY.get() || self.weak == Weak::Read;
@@ -362,61 +352,6 @@ impl Soak {
         assert!(kept.pauses <= 3, "{kept:?}");
         self.sent.extend(sent);
     }
-
-    /// Each fan target goes only while every zone was last set to Custom
-    /// with a manual fan (a mode write after it resets it), to a fan of
-    /// the model, in the profile's range.
-    fn check_fan_targets(&mut self, sent: &[Command]) {
-        let custom = BLADE_18.custom;
-        for command in sent {
-            if command.id == SET_PRESET {
-                let (zone, mode, fan) = (command.args[1], command.args[2], command.args[3]);
-                self.zones.insert(zone, (mode, fan));
-            }
-            if command.id != SET_FAN {
-                continue;
-            }
-            let manual = BLADE_18.perf_zones.iter().all(|zone| {
-                self.zones
-                    .get(zone)
-                    .is_some_and(|&(mode, fan)| mode == custom.mode && fan != FAN_AUTO)
-            });
-            assert!(manual, "a fan target with no manual Custom: {sent:?}");
-            let [storage, fan, speed] = command.args[..] else {
-                panic!("{command:?}");
-            };
-            let rpm = u16::from(speed) * 100;
-            assert_eq!(storage, VARIABLE_STORAGE, "{command:?}");
-            assert!(custom.fan_zones.contains(&fan), "{command:?}");
-            assert!(
-                (custom.fan_rpm.min..=custom.fan_rpm.max).contains(&rpm),
-                "{command:?}"
-            );
-        }
-    }
-}
-
-/// Each preset write has a mode byte of the model, and a manual fan only
-/// with Custom's; each boost is in the model's range for its cluster.
-fn assert_in_range(command: &Command) {
-    let (bytes, custom) = (BLADE_18.mode_bytes, BLADE_18.custom);
-    match command.id {
-        SET_PRESET => {
-            let (mode, fan) = (command.args[2], command.args[3]);
-            let modes = [bytes.silent, bytes.balanced, bytes.performance, custom.mode];
-            assert!(modes.contains(&mode), "{command:?}");
-            assert!(fan == FAN_AUTO || mode == custom.mode, "{command:?}");
-        }
-        SET_BOOST => {
-            let max = match command.args[1] {
-                CPU_CLUSTER => custom.cpu_max,
-                GPU_CLUSTER => custom.gpu_max,
-                _ => panic!("no such cluster: {command:?}"),
-            };
-            assert!(command.args[2] <= max, "{command:?}");
-        }
-        _ => {}
-    }
 }
 
 /// Clicks the one control with `label` in the window; it must show.
@@ -439,37 +374,6 @@ fn click_if_there(f: &Fixture, role: AccessibleRole, label: &str) -> bool {
     };
     control.mock_single_click(PointerEventButton::Left);
     true
-}
-
-/// On battery or a weak charge, no Performance, no manual fan and no boost
-/// goes. Custom with the fans on auto goes only as the first part of the
-/// quit preset, so a Silent or Balanced write comes after it, unless a run
-/// may have failed partway (`may_cut`): the app then stops, as it should.
-fn assert_battery_safe(sent: &[Command], may_cut: bool) {
-    let bytes = BLADE_18.mode_bytes;
-    let quiet = |c: &Command| {
-        c.id == SET_PRESET && (c.args[2] == bytes.silent || c.args[2] == bytes.balanced)
-    };
-    for (at, command) in sent.iter().enumerate() {
-        assert_ne!(command.id, SET_FAN, "a fan target on battery: {sent:?}");
-        if command.id == SET_BOOST {
-            assert_eq!(command.args[2], 0, "a boost on battery: {sent:?}");
-        }
-        if command.id != SET_PRESET {
-            continue;
-        }
-        let (mode, fan) = (command.args[2], command.args[3]);
-        assert!(
-            mode != bytes.performance && fan == 0,
-            "on battery: {sent:?}"
-        );
-        if mode == BLADE_18.custom.mode && !may_cut {
-            assert!(
-                sent[at..].iter().any(quiet),
-                "Custom left on battery: {sent:?}"
-            );
-        }
-    }
 }
 
 fn manual_fan(preset: Preset) -> Config {

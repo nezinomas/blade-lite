@@ -19,6 +19,10 @@ mod tray_menu;
 #[allow(dead_code)]
 #[path = "../tests/app/fakes.rs"]
 mod fakes;
+// The rules of ticket 146 for what is sent, shared with the app tests.
+#[cfg(test)]
+#[path = "../tests/app/rules.rs"]
+mod rules;
 #[cfg(test)]
 mod window_tests;
 
