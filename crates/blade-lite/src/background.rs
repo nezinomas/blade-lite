@@ -160,38 +160,40 @@ pub fn follow_the_power_key() {
         // unknown. A first report listing the key counts (ticket 174).
         let mut presses = PowerKeyPresses::new(key);
         // The collection that sent last: the next open reads it alone, so
-        // its reads can wait long (ticket 188). Forgotten after a failure.
+        // its reads can wait long (ticket 188). Forgotten as the key state
+        // is, as the gap is unknown.
         let mut sender: Option<CString> = None;
         loop {
-            let (problem, pause) =
-                match HidKeyReports::open_preferring(&BLADE_18, sender.as_deref()) {
-                    Ok(mut reports) => {
-                        let started = Instant::now();
-                        let end =
-                            step_on_presses(&mut reports, &mut WindowsFnKeys, &mut presses, on_key);
-                        let ran = started.elapsed();
-                        presses = end.next_presses(ran, &presses);
-                        sender = match end {
-                            ReaderEnd::Reopen => reports.sender().map(CStr::to_owned).or(sender),
-                            _ => None,
-                        };
-                        let pause = end.pause_before_open(ran);
-                        let problem = match end {
-                            ReaderEnd::Quit => return,
-                            ReaderEnd::Reopen => String::new(),
-                            ReaderEnd::Failed(error) => format!("the key reports stopped: {error}"),
-                        };
-                        (problem, pause)
-                    }
-                    Err(error) => {
-                        presses = presses.fresh();
-                        sender = None;
-                        (
-                            format!("no power-mode key for now: {error}"),
-                            KEY_REOPEN_PAUSE,
-                        )
-                    }
-                };
+            let opened = HidKeyReports::open_preferring(&BLADE_18, sender.as_deref());
+            let (problem, pause) = match opened {
+                Ok(mut reports) => {
+                    let started = Instant::now();
+                    let end =
+                        step_on_presses(&mut reports, &mut WindowsFnKeys, &mut presses, on_key);
+                    let ran = started.elapsed();
+                    presses = end.next_presses(ran, &presses);
+                    sender = if end.keeps_key_state(ran) {
+                        reports.sender().map(CStr::to_owned).or(sender)
+                    } else {
+                        None
+                    };
+                    let pause = end.pause_before_open(ran);
+                    let problem = match end {
+                        ReaderEnd::Quit => return,
+                        ReaderEnd::Reopen => String::new(),
+                        ReaderEnd::Failed(error) => format!("the key reports stopped: {error}"),
+                    };
+                    (problem, pause)
+                }
+                Err(error) => {
+                    presses = presses.fresh();
+                    sender = None;
+                    (
+                        format!("no power-mode key for now: {error}"),
+                        KEY_REOPEN_PAUSE,
+                    )
+                }
+            };
             if let Some(text) = said.new_text(&problem) {
                 report(text);
             }
