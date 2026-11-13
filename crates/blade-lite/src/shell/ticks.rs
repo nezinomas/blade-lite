@@ -584,6 +584,9 @@ impl<P: Parts> Shell<P> {
             self.app.borrow_mut().check_firmware();
         }
         self.act(|app| app.on_power(PowerEvent::Resumed));
+        // The wake is known now: the fan guard reads at the next tick, not
+        // one skipped as late by the sleep and 10 s more (ticket 171).
+        self.schedule.borrow_mut().read_heat_now();
         if first {
             self.show_window();
         }
