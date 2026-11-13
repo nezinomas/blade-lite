@@ -171,17 +171,34 @@ mod tests {
         assert!(after);
     }
 
+    fn is_topmost(hwnd: isize) -> bool {
+        // SAFETY: a live window this thread made.
+        let ex_style = unsafe { GetWindowLongPtrW(hwnd as _, GWL_EXSTYLE) };
+        ex_style & isize::try_from(WS_EX_TOPMOST).unwrap() != 0
+    }
+
     #[test]
     fn a_plain_window_becomes_topmost() {
+        // Topmost is desktop-wide. In a full workspace run, Windows twice
+        // reported success but left the window plain (ticket 181; not seen in
+        // 830 runs alone), so the test gives it a few tries.
+        const TRIES: u32 = 5;
         let popup = window(0);
 
-        let result = raise_topmost(popup);
+        let mut tries = 0;
+        let result = loop {
+            tries += 1;
+            let result = raise_topmost(popup);
+            if result.is_err() || is_topmost(popup) || tries == TRIES {
+                break result;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(50));
+        };
 
-        // SAFETY: a live window this thread made.
-        let ex_style = unsafe { GetWindowLongPtrW(popup as _, GWL_EXSTYLE) };
+        let topmost = is_topmost(popup);
         destroy(popup);
         result.unwrap();
-        assert_ne!(ex_style & isize::try_from(WS_EX_TOPMOST).unwrap(), 0);
+        assert!(topmost, "still not topmost after {tries} tries");
     }
 
     #[test]
