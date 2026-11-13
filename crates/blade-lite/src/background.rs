@@ -163,6 +163,9 @@ pub fn follow_the_power_key() {
         // its reads can wait long (ticket 188). Forgotten as the key state
         // is, as the gap is unknown.
         let mut sender: Option<CString> = None;
+        // The last sender logged, so a new one is logged once: a dead key
+        // can then be traced to the collection read.
+        let mut logged: Option<CString> = None;
         loop {
             let opened = HidKeyReports::open_preferring(&BLADE_18, sender.as_deref());
             let (problem, pause) = match opened {
@@ -172,6 +175,15 @@ pub fn follow_the_power_key() {
                         step_on_presses(&mut reports, &mut WindowsFnKeys, &mut presses, on_key);
                     let ran = started.elapsed();
                     presses = end.next_presses(ran, &presses);
+                    if let Some(path) = reports.sender()
+                        && logged.as_deref() != Some(path)
+                    {
+                        report(&format!(
+                            "the power-mode key is read on {}",
+                            path.to_string_lossy()
+                        ));
+                        logged = Some(path.to_owned());
+                    }
                     sender = if end.keeps_key_state(ran) {
                         reports.sender().map(CStr::to_owned).or(sender)
                     } else {
