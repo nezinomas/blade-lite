@@ -10,7 +10,7 @@ use blade_lite::{AppError, report};
 use platform::{PowerEvent, num_lock_on};
 use razer_device::{CONTROLLER_CLOSED, CONTROLLER_OPENED_AGAIN};
 use slint::Timer;
-use ui::{DisplayView, Header, HeatWatch};
+use ui::{DisplayView, FAN_GUARD_WAKE_HOLD, Header, HeatWatch};
 
 use super::popup::{POPUP_HOLD, TOUCHPAD};
 use super::{AppOn, Parts, Reopened, Shell};
@@ -41,6 +41,10 @@ const TICK_GAP: Duration = Duration::from_secs(5);
 /// let input from before the notice in.
 const INPUT_GRACE: Duration = Duration::from_secs(30);
 
+/// A sleep at least this long by the wall clock lets the fan guard end its
+/// full speed after a short cool hold (ticket 172): the chips cooled in it.
+const LONG_SLEEP: Duration = Duration::from_secs(5 * 60);
+
 #[cfg(test)]
 thread_local! {
     /// The `sent again by a poll` lines this test's thread logged: the
@@ -66,6 +70,7 @@ impl<P: Parts> Shell<P> {
         let looked = self.look_for_razer_now_and_then(now);
         self.follow_own_power();
         self.follow_missed_wake(wall);
+        self.follow_long_sleep(wall);
         self.start_after_updater();
         self.send_fan_targets_again(now);
         if looked {
@@ -537,6 +542,35 @@ impl<P: Parts> Shell<P> {
         }
     }
 
+    /// At the first tick after a wake's pause, measures the sleep by the
+    /// wall clock (`Instant` may not count it): after a
+    /// [`LONG_SLEEP`], a fan guard at full speed ends after a short cool
+    /// hold (ticket 172), which is logged. A sleep not measured (its notice
+    /// came with the wake, or the clock was set back) keeps the usual hold.
+    fn follow_long_sleep(&self, wall: SystemTime) {
+        if !self.woke.take() {
+            return;
+        }
+        let Some(slept) = self
+            .slept_at
+            .take()
+            .and_then(|at| wall.duration_since(at).ok())
+            .filter(|&slept| slept >= LONG_SLEEP)
+        else {
+            return;
+        };
+        let mut guard = self.fan_guard.get();
+        let on = guard.woke();
+        self.fan_guard.set(guard);
+        if on && self.app.borrow().manual_fan_runs() {
+            report(&format!(
+                "fan guard: the laptop slept {} min, so {} s of cool readings end full speed",
+                slept.as_secs() / 60,
+                FAN_GUARD_WAKE_HOLD.as_secs()
+            ));
+        }
+    }
+
     /// Ends a sleep, if any, and sends the saved settings after the wake's
     /// pause.
     fn wake(self: &Rc<Self>) {
@@ -566,6 +600,7 @@ impl<P: Parts> Shell<P> {
     /// again begun in it): sends the saved settings.
     fn end_wake_pause(self: &Rc<Self>) {
         self.wake_due.set(false);
+        self.woke.set(true);
         {
             let mut app = self.app.borrow_mut();
             app.set_num_lock(num_lock_on());
@@ -615,6 +650,8 @@ impl<P: Parts> Shell<P> {
         if self.asleep.get() || self.quit_sent.get() {
             return;
         }
+        self.slept_at.set(Some(SystemTime::now()));
+        self.woke.set(false);
         if self.resuming.get() > 0 {
             report(
                 "the laptop goes to sleep in the pause after a wake, an open again or an updater, so the quit preset was not sent: a manual fan or Performance may keep running in the sleep",

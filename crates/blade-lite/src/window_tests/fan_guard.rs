@@ -9,6 +9,9 @@ use ui::PerformanceCommand;
 
 use crate::shell::FULL_SPEED_RESENT_LINES;
 
+use platform::PowerEvent;
+
+use super::sleep::{pause_ends, power};
 use super::{FAKE_GPU, FakeGpu, Fixture, fixture, fixture_with_programs, log_path};
 
 const SET_FAN_TARGET: u16 = 0x0D01;
@@ -39,10 +42,15 @@ fn fan_speeds_since(f: &Fixture, before: usize) -> Vec<u16> {
 /// Ticks every second from `from` for `time`, with the CPU at `cpu` °C.
 /// Returns the time after the last tick.
 fn ticks(f: &Fixture, from: Instant, time: Duration, cpu: u8) -> Instant {
+    ticks_later(f, from, time, cpu, Duration::ZERO)
+}
+
+/// [`ticks`] with the wall clock `ahead` of the real one.
+fn ticks_later(f: &Fixture, from: Instant, time: Duration, cpu: u8, ahead: Duration) -> Instant {
     f.shell.app().machine_mut().controller.inner.cpu_celsius = Some(cpu);
     let mut now = from;
     while now <= from + time {
-        f.shell.tick_at(now, SystemTime::now());
+        f.shell.tick_at(now, SystemTime::now() + ahead);
         now += Duration::from_secs(1);
     }
     now
@@ -154,4 +162,57 @@ fn a_poll_that_resends_a_failed_click_says_nothing_of_the_guard() {
 
     assert!(!f.shell.app().preset_unsure(), "resent");
     assert_eq!(FULL_SPEED_RESENT_LINES.get(), 0);
+}
+
+/// A manual fan held at full speed by a hot CPU, then a sleep of `slept`
+/// by the wall clock and its wake's pause. Returns the time after it, and
+/// the sent count before the wake.
+fn hot_then_asleep_for(slept: Duration) -> (Fixture, Instant, usize) {
+    let f = manual_fan();
+    let now = ticks(&f, Instant::now(), Duration::from_secs(3), 96);
+    power(&f, &[PowerEvent::Suspending]);
+    let before = sent_count(&f);
+    power(&f, &[PowerEvent::Resumed]);
+    pause_ends();
+    // The ticks follow at the wall clock after the sleep.
+    let now = ticks_later(&f, now, Duration::ZERO, 60, slept);
+    (f, now, before)
+}
+
+#[test]
+fn cool_reads_after_a_long_sleep_end_full_speed_after_the_short_hold() {
+    let (f, now, before) = hot_then_asleep_for(Duration::from_secs(600));
+
+    ticks_later(
+        &f,
+        now,
+        ui::FAN_GUARD_WAKE_HOLD + Duration::from_secs(4),
+        60,
+        Duration::from_secs(600),
+    );
+
+    // The wake sends full speed first.
+    let top = BLADE_18.custom.fan_rpm.max;
+    assert_eq!(
+        fan_speeds_since(&f, before),
+        [top, top, top, top, 1600, 1600, 1600, 1600]
+    );
+    assert!(log_lines("fan guard: Back to the set speed (CPU 60 °C") >= 1);
+    assert!(log_lines("fan guard: the laptop slept 10 min") >= 1);
+}
+
+#[test]
+fn cool_reads_after_a_short_sleep_keep_the_usual_hold() {
+    let (f, now, before) = hot_then_asleep_for(Duration::from_secs(60));
+
+    ticks_later(
+        &f,
+        now,
+        ui::FAN_GUARD_WAKE_HOLD * 2,
+        60,
+        Duration::from_secs(60),
+    );
+
+    let top = BLADE_18.custom.fan_rpm.max;
+    assert_eq!(fan_speeds_since(&f, before), [top; 4]);
 }

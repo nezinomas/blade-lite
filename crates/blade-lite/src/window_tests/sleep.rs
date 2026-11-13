@@ -55,7 +55,7 @@ fn sent_count(f: &Fixture) -> usize {
 }
 
 /// Passes `events` on as one poll reads them.
-fn power(f: &Fixture, events: &[PowerEvent]) {
+pub(super) fn power(f: &Fixture, events: &[PowerEvent]) {
     let (sender, receiver) = std::sync::mpsc::channel();
     for &event in events {
         sender.send(event).unwrap();
@@ -63,7 +63,7 @@ fn power(f: &Fixture, events: &[PowerEvent]) {
     f.shell.follow_power(&receiver);
 }
 
-fn pause_ends() {
+pub(super) fn pause_ends() {
     i_slint_backend_testing::mock_elapsed_time(RESUME_PAUSE + Duration::from_millis(1));
 }
 
