@@ -3,7 +3,7 @@
 
 use std::time::{Duration, Instant};
 
-use ui::{FAN_GUARD_COOL_HOLD, FanGuard};
+use ui::{FAN_GUARD_COOL_HOLD, FAN_GUARD_WAKE_HOLD, FanGuard};
 
 const SECOND: Duration = Duration::from_secs(1);
 /// A hot spell long enough for any test.
@@ -230,4 +230,122 @@ fn it_is_not_held_by_a_gpu_fault_while_off() {
     feed(&mut guard, Instant::now(), HOT_TIME, Some(60), None);
     assert!(!guard.on());
     assert!(!guard.held_by_gpu_fault());
+}
+
+/// A guard on from a hot CPU, then told of a long sleep (ticket 172).
+fn on_and_woke() -> (FanGuard, Instant) {
+    let mut guard = FanGuard::default();
+    let (now, _) = feed(&mut guard, Instant::now(), HOT_TIME, Some(96), Some(60));
+    assert!(guard.woke());
+    (guard, now)
+}
+
+#[test]
+fn cool_readings_after_a_long_sleep_end_it_after_the_short_hold() {
+    let (mut guard, now) = on_and_woke();
+
+    let (now, changes) = feed(
+        &mut guard,
+        now,
+        FAN_GUARD_WAKE_HOLD.saturating_sub(SECOND),
+        Some(70),
+        Some(60),
+    );
+    assert!(changes.is_empty(), "{changes:?}");
+    let (_, changes) = feed(&mut guard, now, Duration::ZERO, Some(70), Some(60));
+    assert_eq!(changes, [false]);
+}
+
+#[test]
+fn a_sleeping_gpu_counts_as_cool_after_a_long_sleep() {
+    let (mut guard, now) = on_and_woke();
+    let (_, changes) = feed(&mut guard, now, FAN_GUARD_WAKE_HOLD, Some(70), None);
+    assert_eq!(changes, [false]);
+}
+
+/// After the wake, one reading that is not cool, then cool ones: the usual
+/// cool hold.
+fn usual_hold_after(cpu: Option<u32>, gpu: Option<u32>, gpu_failed: bool) {
+    let (mut guard, now) = on_and_woke();
+    guard.gpu_failed(gpu_failed);
+    guard.note(cpu, gpu, now);
+    guard.gpu_failed(false);
+    let now = now + SECOND;
+
+    let (now, changes) = feed(
+        &mut guard,
+        now,
+        FAN_GUARD_COOL_HOLD.saturating_sub(5 * SECOND),
+        Some(70),
+        Some(60),
+    );
+    assert!(changes.is_empty(), "{changes:?}");
+    let (_, changes) = feed(&mut guard, now, 10 * SECOND, Some(70), Some(60));
+    assert_eq!(changes, [false]);
+}
+
+#[test]
+fn a_warm_cpu_after_a_long_sleep_keeps_the_usual_hold() {
+    usual_hold_after(Some(85), Some(60), false);
+}
+
+#[test]
+fn a_warm_gpu_after_a_long_sleep_keeps_the_usual_hold() {
+    usual_hold_after(Some(70), Some(77), false);
+}
+
+#[test]
+fn an_unread_cpu_after_a_long_sleep_keeps_the_usual_hold() {
+    usual_hold_after(None, Some(60), false);
+}
+
+#[test]
+fn a_failed_gpu_read_after_a_long_sleep_keeps_the_usual_hold() {
+    usual_hold_after(Some(70), None, true);
+}
+
+#[test]
+fn a_gpu_reading_past_any_real_heat_after_a_long_sleep_keeps_the_usual_hold() {
+    usual_hold_after(Some(70), Some(255), false);
+}
+
+#[test]
+fn a_gap_in_the_readings_after_a_long_sleep_keeps_the_usual_hold() {
+    let (mut guard, now) = on_and_woke();
+    guard.note(Some(70), Some(60), now);
+
+    // Three reads missed at the 2 s guard interval.
+    let later = now + 7 * SECOND;
+    let (_, changes) = feed(&mut guard, later, FAN_GUARD_WAKE_HOLD, Some(70), Some(60));
+
+    assert!(changes.is_empty(), "{changes:?}");
+    assert!(guard.on());
+}
+
+#[test]
+fn reads_6_s_apart_after_a_long_sleep_keep_the_short_hold() {
+    let (mut guard, now) = on_and_woke();
+    let changes: Vec<bool> = (0..5)
+        .filter_map(|step| guard.note(Some(70), Some(60), now + step * 6 * SECOND))
+        .collect();
+    assert_eq!(changes, [false]);
+}
+
+#[test]
+fn a_long_sleep_does_nothing_to_a_guard_that_is_off() {
+    let mut guard = FanGuard::default();
+    assert!(!guard.woke());
+    let (_, changes) = feed(&mut guard, Instant::now(), HOT_TIME, Some(70), Some(60));
+    assert!(changes.is_empty(), "{changes:?}");
+}
+
+#[test]
+fn a_hot_spell_after_the_short_hold_turns_it_on_again() {
+    let (mut guard, now) = on_and_woke();
+    let (now, _) = feed(&mut guard, now, FAN_GUARD_WAKE_HOLD, Some(70), None);
+    assert!(!guard.on());
+
+    let (_, changes) = feed(&mut guard, now, SECOND, Some(96), None);
+
+    assert_eq!(changes, [true]);
 }

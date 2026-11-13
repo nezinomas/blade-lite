@@ -334,6 +334,11 @@ pub struct Shell<P: Parts = Laptop> {
     /// Since a sleep notice: when the ticks' run with no gap began, and
     /// the last tick, by the wall clock (ticket 170).
     awake_run: Cell<Option<(SystemTime, SystemTime)>>,
+    /// When the last sleep notice came, by the wall clock, and whether its
+    /// wake's pause has ended since: the next tick measures the sleep for
+    /// the fan guard (ticket 172).
+    slept_at: Cell<Option<SystemTime>>,
+    woke: Cell<bool>,
     /// Whether the pause of an open again or an updater ended in a sleep
     /// or a newer pause, so the last pause's end releases the handle and
     /// reads the firmware again too.
@@ -393,6 +398,8 @@ impl<P: Parts> Shell<P> {
             quit_sent: Cell::new(false),
             asleep: Cell::new(false),
             awake_run: Cell::new(None),
+            slept_at: Cell::new(None),
+            woke: Cell::new(false),
             redo_at_wake: Cell::new(false),
             wake_due: Cell::new(false),
             pauses: Cell::new(0),
