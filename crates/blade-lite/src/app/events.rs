@@ -297,7 +297,8 @@ where
     /// boosts when Custom is not what should run), the known way to end a
     /// manual fan; whether the preset's own mode write ends it too is not
     /// checked on the laptop. The saved preset is kept, so the next start
-    /// sends it again.
+    /// sends it again. Any fan targets due are dropped first, so none go
+    /// after the quit.
     ///
     /// # Errors
     ///

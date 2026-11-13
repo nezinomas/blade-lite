@@ -323,7 +323,11 @@ impl World {
         match step {
             Step::Power(PowerEvent::OnBattery) => self.on_battery = true,
             Step::Power(PowerEvent::OnAc) => self.on_battery = false,
-            Step::Power(PowerEvent::Suspending) => self.asleep = true,
+            Step::Power(PowerEvent::Suspending) => {
+                self.asleep = true;
+                // No manual fan targets may go after the sleep's quit (182).
+                assert_eq!(self.app.fan_targets_due(), None);
+            }
             Step::Power(PowerEvent::Resumed) => self.asleep = false,
             _ => {}
         }
@@ -400,6 +404,7 @@ proptest! {
         world.asleep = true;
         let failed_before = world.controller().failed_runs;
         drop(world.app.quit_preset());
+        assert_eq!(world.app.fan_targets_due(), None);
         let failed = world.controller().failed_runs > failed_before;
         world.check(ReadKind::Switch, failed);
     }
