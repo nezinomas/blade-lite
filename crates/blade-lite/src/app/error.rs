@@ -35,7 +35,7 @@ pub enum AppError {
     /// A change asked for after Windows told of a sleep, before it told of
     /// the wake (ticket 169).
     #[error(
-        "Windows said the laptop sleeps and has not said it woke, so nothing is sent: the settings go again about a minute after you use the laptop"
+        "Windows said the laptop sleeps and has not said it woke, so nothing is sent: the settings go again within a minute of using the laptop; if not, quit Blade Lite from the tray and start it again"
     )]
     Asleep,
     #[error("this preset is not offered on battery or a weak charger: {0:?}")]

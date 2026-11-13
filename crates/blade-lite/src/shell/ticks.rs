@@ -35,6 +35,12 @@ const MISSED_WAKE_AFTER: Duration = Duration::from_secs(60);
 /// run: a longer one may be a freeze in the sleep.
 const TICK_GAP: Duration = Duration::from_secs(5);
 
+/// How far into a run after a sleep notice input must come to count for a
+/// missed wake: a touch while the screen goes dark comes before Windows
+/// freezes the app. Longer than [`TICK_GAP`], so a small clock step can't
+/// let input from before the notice in.
+const INPUT_GRACE: Duration = Duration::from_secs(30);
+
 #[cfg(test)]
 thread_local! {
     /// The `sent again by a poll` lines this test's thread logged: the
@@ -487,26 +493,26 @@ impl<P: Parts> Shell<P> {
             self.suspend();
             return;
         }
-        self.forget_charging();
-        if event != PowerEvent::Resumed && self.resuming.get() > 0 {
-            return;
-        }
         if event == PowerEvent::Resumed {
             report("Windows says the laptop woke, so the settings go again after the pause");
             self.wake();
-        } else {
+            return;
+        }
+        self.forget_charging();
+        if self.resuming.get() == 0 {
             self.act(|app| app.on_power(event));
         }
     }
 
     /// After a sleep notice, counts a run of ticks of
     /// [`MISSED_WAKE_AFTER`] with no gap over [`TICK_GAP`] (wall clock,
-    /// which counts a freeze), and input from the user in that run, as a
-    /// wake: a failed or cancelled sleep may bring no wake notice (not
+    /// which counts a freeze), with input at least [`INPUT_GRACE`] into the
+    /// run, as a wake: a failed or cancelled sleep may bring no wake notice (not
     /// documented, a safety net). With no input, such as with the lid shut
     /// on a game whose hibernate failed, the sleep goes on: the quit
     /// preset runs and nothing is sent, the safe side. A clock set back or
-    /// an unknown input time does the same.
+    /// an unknown input time does the same. Input another program injects
+    /// counts too (Windows' last-input time can't tell it apart).
     fn follow_missed_wake(self: &Rc<Self>, wall: SystemTime) {
         if !self.asleep.get() {
             return;
@@ -521,7 +527,9 @@ impl<P: Parts> Shell<P> {
         let Ok(ran) = wall.duration_since(began) else {
             return;
         };
-        if ran >= MISSED_WAKE_AFTER && P::input_age().is_some_and(|age| age < ran) {
+        if ran >= MISSED_WAKE_AFTER
+            && P::input_age().is_some_and(|age| age.saturating_add(INPUT_GRACE) < ran)
+        {
             report(
                 "the app has run for a minute since Windows said the laptop sleeps, with input from the user and no wake notice, so this counts as a wake: the settings go again after the pause",
             );
@@ -532,6 +540,7 @@ impl<P: Parts> Shell<P> {
     /// Ends a sleep, if any, and sends the saved settings after the wake's
     /// pause.
     fn wake(self: &Rc<Self>) {
+        self.forget_charging();
         // The sleep's pause ends: the wake's own begins.
         if self.asleep.replace(false) {
             self.resuming.set(self.resuming.get().saturating_sub(1));

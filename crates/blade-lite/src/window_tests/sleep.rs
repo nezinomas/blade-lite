@@ -617,3 +617,61 @@ fn a_wake_notice_after_the_missed_one_sends_the_settings_once_more() {
 
     assert!(sets_a_manual_fan(&sent_since(&f, before)));
 }
+
+#[test]
+fn input_from_before_the_notice_does_not_count() {
+    let f = fixture(manual_fan());
+    power(&f, &[PowerEvent::Suspending]);
+    let before = sent_count(&f);
+    let wall = SystemTime::now();
+    tick_for(&f, wall, 59);
+
+    // Such as the Start menu's Sleep click, just before the notice.
+    FAKE_INPUT_AGE.set(Some(Duration::from_secs(61)));
+    tick_for(&f, wall + Duration::from_secs(60), 0);
+    pause_ends();
+
+    assert_eq!(sent_since(&f, before), []);
+}
+
+#[test]
+fn input_in_the_first_30_s_after_the_notice_does_not_count() {
+    let f = fixture(manual_fan());
+    power(&f, &[PowerEvent::Suspending]);
+    let before = sent_count(&f);
+    let wall = SystemTime::now();
+    tick_for(&f, wall, 59);
+
+    // A touch 2 s in, as the screen goes dark; then exactly 30 s in.
+    for age in [58, 30] {
+        FAKE_INPUT_AGE.set(Some(Duration::from_secs(age)));
+        tick_for(&f, wall + Duration::from_secs(60), 0);
+    }
+    pause_ends();
+
+    assert_eq!(sent_since(&f, before), []);
+}
+
+#[test]
+fn a_wake_notice_in_the_tick_of_the_minute_wakes_once() {
+    let f = fixture(manual_fan());
+    asleep_with_input(&f);
+    let wall = SystemTime::now();
+    tick_for(&f, wall, 59);
+    let before = sent_count(&f);
+    let (sender, receiver) = std::sync::mpsc::channel();
+    sender.send(PowerEvent::Resumed).unwrap();
+    f.shell.listen_for_power(receiver);
+
+    tick_for(&f, wall + Duration::from_secs(60), 0);
+    pause_ends();
+
+    // As many sends as one wake from the notice alone.
+    let sent = sent_since(&f, before).len();
+    assert!(sent > 0);
+    power(&f, &[PowerEvent::Suspending]);
+    let again = sent_count(&f);
+    power(&f, &[PowerEvent::Resumed]);
+    pause_ends();
+    assert_eq!(sent, sent_since(&f, again).len());
+}
