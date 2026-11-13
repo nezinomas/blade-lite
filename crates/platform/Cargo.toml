@@ -46,5 +46,9 @@ windows-sys = { version = "0.61.2", features = [
     "Win32_UI_WindowsAndMessaging",
 ] }
 
+[dev-dependencies]
+# A named pipe stands in for a HID device in the request time-out tests.
+windows-sys = { version = "0.61.2", features = ["Win32_System_Pipes"] }
+
 [lints]
 workspace = true

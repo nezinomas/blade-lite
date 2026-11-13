@@ -16,9 +16,9 @@ use crate::Transport;
 const DEAD_HANDLE_GAPS: u32 = 6;
 
 /// The controller, opened again after a HID error. Any error but a short
-/// feature report drops the handle: hidapi gives no kind to tell a dead
-/// handle from a one-off, and a new handle on a live controller does no
-/// harm. Nothing is ever sent twice, and nothing goes on a new handle
+/// feature report drops the handle, a timed-out read too (so a stalled
+/// handle is never read again): the error can't tell a dead handle from
+/// a one-off, and a new handle on a live controller does no harm. Nothing is ever sent twice, and nothing goes on a new handle
 /// before the app is ready:
 /// - the send or read that failed is not tried again;
 /// - the next send opens the controller and is not sent;
@@ -297,6 +297,21 @@ mod tests {
             *s.log.borrow(),
             [(0, "send"), (0, "read"), (1, "open"), (1, "send")]
         );
+    }
+
+    #[test]
+    fn a_timed_out_read_is_not_read_again_and_drops_the_handle() {
+        const TIMED_OUT: Option<io::ErrorKind> = Some(io::ErrorKind::TimedOut);
+        let (s, mut controller) = setup(&[None, TIMED_OUT], &[], Duration::ZERO);
+        controller.send_report(&REPORT).unwrap();
+        let error = controller.read_report().unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::TimedOut);
+        // No read again on its own, and none on the stalled handle.
+        assert!(not_connected(controller.read_report()));
+        // The next send opens a new handle, held, and is not sent.
+        assert!(not_connected(controller.send_report(&REPORT)));
+        assert!(s.held.get());
+        assert_eq!(*s.log.borrow(), [(0, "send"), (0, "read"), (1, "open")]);
     }
 
     #[test]
