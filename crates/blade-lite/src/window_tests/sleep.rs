@@ -530,3 +530,19 @@ fn a_new_sleep_notice_starts_the_minute_again() {
 
     assert_eq!(sent_since(&f, before), []);
 }
+
+#[test]
+fn a_sleep_notice_while_asleep_starts_the_minute_again() {
+    let f = fixture(manual_fan());
+    power(&f, &[PowerEvent::Suspending]);
+    let before = sent_count(&f);
+    let wall = std::time::SystemTime::now();
+    tick_for(&f, wall, 55);
+
+    // A real sleep after one that Windows cancelled with no wake notice.
+    power(&f, &[PowerEvent::Suspending]);
+    tick_for(&f, wall + Duration::from_secs(56), 10);
+    pause_ends();
+
+    assert_eq!(sent_since(&f, before), []);
+}

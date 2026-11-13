@@ -594,6 +594,9 @@ impl<P: Parts> Shell<P> {
     /// event loop busy for over 1 s), and logged. No retry: Windows freezes
     /// the app a few seconds later.
     fn suspend(&self) {
+        // A notice while asleep (the last sleep had no wake notice) starts
+        // the minute to a missed wake again; nothing was sent since the last.
+        self.awake_run.set(None);
         if self.asleep.get() || self.quit_sent.get() {
             return;
         }
@@ -609,7 +612,6 @@ impl<P: Parts> Shell<P> {
             self.send_sleep_preset();
         }
         self.asleep.set(true);
-        self.awake_run.set(None);
         self.resuming.set(self.resuming.get().saturating_add(1));
     }
 
