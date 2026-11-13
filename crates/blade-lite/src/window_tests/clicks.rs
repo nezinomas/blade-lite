@@ -14,8 +14,9 @@ use slint::winit_030::winit::event::WindowEvent as WinitEvent;
 use slint::{ComponentHandle, LogicalPosition, Model};
 
 use super::{
-    FAKE_MIC, FAKE_ON_BATTERY, FAKE_RELEASED, FAKE_SCREEN_ON, FAKE_SOURCE_UNKNOWN, Fixture, click,
-    control, fixture, log_path, selected_preset,
+    FAKE_MIC, FAKE_ON_BATTERY, FAKE_RELEASED, FAKE_SCREEN_ON, FAKE_SOURCE_UNKNOWN, Fixture,
+    assert_the_battery_quit_preset, click, control, fixture, log_path, manual_fan_with_boosts,
+    selected_preset,
 };
 use crate::fakes::{FakeCharger, brightness_commands, lighting_commands, logo};
 
@@ -503,32 +504,6 @@ fn quitting_after_a_failed_switch_from_a_manual_fan_sends_the_fans_on_auto() {
     f.shell.quit();
 
     assert_the_battery_quit_preset(&sent_since(&f, before));
-}
-
-/// Checks that `sent` is the quit preset from a manual fan on battery:
-/// the fans on auto with the lowest boosts, then Balanced.
-pub(super) fn assert_the_battery_quit_preset(sent: &[Command]) {
-    let balanced = PerfMode::Balanced.commands(&BLADE_18).unwrap();
-    let (auto_fans, last) = sent.split_at(sent.len() - balanced.len());
-    assert_eq!(last, balanced);
-    let modes = auto_fans.iter().filter(|c| c.id == 0x0D02);
-    assert!(modes.clone().count() > 0, "{sent:?}");
-    assert!(modes.clone().all(|c| c.args[3] == 0), "{auto_fans:?}");
-    assert!(auto_fans.iter().all(|c| c.id != 0x0D01), "{auto_fans:?}");
-    let boosts = auto_fans.iter().filter(|c| c.id == 0x0D07);
-    assert_eq!(boosts.clone().count(), 2, "{auto_fans:?}");
-    assert!(boosts.clone().all(|c| c.args[2] == 0), "{auto_fans:?}");
-}
-
-pub(super) fn manual_fan_with_boosts() -> Config {
-    let mut config = Config {
-        preset: Preset::Custom,
-        ..Config::default()
-    };
-    config.custom.fan_rpm = Some(3500);
-    config.custom.cpu_boost = 2;
-    config.custom.gpu_boost = 2;
-    config
 }
 
 #[test]

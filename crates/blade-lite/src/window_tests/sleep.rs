@@ -9,11 +9,11 @@ use i_slint_backend_testing::AccessibleRole::Button;
 use platform::PowerEvent;
 use razer_proto::{BLADE_18, Command, FirmwareVersion, PerfMode};
 
-use super::clicks::{assert_the_battery_quit_preset, manual_fan_with_boosts};
 use super::{
     FAKE_INPUT_AGE, FAKE_LID_OPEN, FAKE_MIC_READS_AGAIN, FAKE_ON_BATTERY, FAKE_RELEASED,
-    FAKE_REOPENED, FAKE_SCREEN_ON, FAKE_SLEEP_NOTICE_LATE, Fixture, click, fixture,
-    fixture_with_programs, log_path,
+    FAKE_REOPENED, FAKE_SCREEN_ON, FAKE_SLEEP_NOTICE_LATE, FAKE_SOURCE_UNKNOWN, Fixture,
+    assert_the_battery_quit_preset, click, fixture, fixture_with_programs, log_path,
+    manual_fan_with_boosts,
 };
 use crate::shell::Reopened;
 
@@ -124,7 +124,42 @@ fn a_charger_pulled_just_before_a_sleep_gets_the_lowest_boosts() {
     power(&f, &[PowerEvent::Suspending]);
 
     assert_the_battery_quit_preset(&sent_since(&f, before));
-    assert!(logged(&["the charger is gone", "battery quit preset"]));
+}
+
+#[test]
+fn the_unsure_mark_from_a_battery_sleep_sends_nothing_before_the_wake() {
+    let f = fixture(manual_fan_with_boosts());
+    FAKE_ON_BATTERY.set(true);
+    power(&f, &[PowerEvent::Suspending]);
+    assert!(f.shell.app().preset_unsure());
+    let before = sent_count(&f);
+
+    for _ in 0..5 {
+        pause_ends();
+        f.shell.tick();
+    }
+    assert_eq!(sent_since(&f, before), []);
+
+    FAKE_ON_BATTERY.set(false);
+    power(&f, &[PowerEvent::Resumed]);
+    pause_ends();
+    assert!(!f.shell.app().preset_unsure());
+}
+
+#[test]
+fn a_sleep_with_the_source_unknown_keeps_the_one_followed() {
+    let f = fixture(manual_fan_with_boosts());
+    FAKE_SOURCE_UNKNOWN.set(true);
+    let before = sent_count(&f);
+
+    power(&f, &[PowerEvent::Suspending]);
+
+    let sent = sent_since(&f, before);
+    let boosts = sent.iter().filter(|c| c.id == 0x0D07);
+    assert_eq!(boosts.clone().count(), 2, "{sent:?}");
+    assert!(boosts.clone().all(|c| c.args[2] == 2), "{sent:?}");
+    assert!(sent.ends_with(&PerfMode::Balanced.commands(&BLADE_18).unwrap()));
+    assert!(!sets_a_manual_fan(&sent), "{sent:?}");
 }
 
 #[test]

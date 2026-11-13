@@ -18,13 +18,13 @@ use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::sync::OnceLock;
 
-use blade_core::{Config, Log};
+use blade_core::{Config, Log, Preset};
 use blade_lite::open_quiet_log;
 use i_slint_backend_testing::{
     AccessibleRole, ElementHandle, ElementRoot, TestingBackend, TestingBackendOptions,
 };
 use platform::{BatteryHealth, CpuTimes, FileDialog, GpuReading, PowerReading, Programs, Sensors};
-use razer_proto::{BLADE_18, Rgb};
+use razer_proto::{BLADE_18, Command, PerfMode, Rgb};
 use slint::platform::PointerEventButton;
 use slint::{ComponentHandle, LogicalSize};
 use tempfile::TempDir;
@@ -328,4 +328,30 @@ pub fn selected_preset(f: &Fixture) -> String {
     let presets = f.shell.window().get_presets();
     let chosen = presets.iter().find(|choice| choice.selected);
     chosen.expect("one preset is chosen").label.into()
+}
+
+/// Checks that `sent` is the quit preset from a manual fan on battery:
+/// the fans on auto with the lowest boosts, then Balanced.
+fn assert_the_battery_quit_preset(sent: &[Command]) {
+    let balanced = PerfMode::Balanced.commands(&BLADE_18).unwrap();
+    let (auto_fans, last) = sent.split_at(sent.len() - balanced.len());
+    assert_eq!(last, balanced);
+    let modes = auto_fans.iter().filter(|c| c.id == 0x0D02);
+    assert!(modes.clone().count() > 0, "{sent:?}");
+    assert!(modes.clone().all(|c| c.args[3] == 0), "{auto_fans:?}");
+    assert!(auto_fans.iter().all(|c| c.id != 0x0D01), "{auto_fans:?}");
+    let boosts = auto_fans.iter().filter(|c| c.id == 0x0D07);
+    assert_eq!(boosts.clone().count(), 2, "{auto_fans:?}");
+    assert!(boosts.clone().all(|c| c.args[2] == 0), "{auto_fans:?}");
+}
+
+fn manual_fan_with_boosts() -> Config {
+    let mut config = Config {
+        preset: Preset::Custom,
+        ..Config::default()
+    };
+    config.custom.fan_rpm = Some(3500);
+    config.custom.cpu_boost = 2;
+    config.custom.gpu_boost = 2;
+    config
 }
