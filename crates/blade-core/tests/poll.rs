@@ -322,3 +322,105 @@ fn a_heat_read_made_due_after_a_sleep_runs_at_once() {
     clock.now += GUARD_HEAT_INTERVAL;
     assert!(schedule.heat_due(clock.now, clock.wall(), GUARD_HEAT_INTERVAL));
 }
+
+#[test]
+fn the_screen_off_stops_the_polls_and_the_heat_reads_go_on() {
+    // A view left open with the screen off reads as with no view (ticket
+    // 188); the fan guard's heat reads go on.
+    let mut clock = FakeClock::new();
+    let mut schedule = PollSchedule::default();
+    schedule.show(View::Window, clock.now);
+    clock.run(&mut schedule, Duration::from_secs(1));
+
+    schedule.set_screen_off(true, clock.now);
+
+    assert_eq!(schedule.next_poll(), None);
+    assert_eq!(
+        heat_reads(&mut clock, &mut schedule, Duration::from_secs(11)),
+        secs(&[1, 11])
+    );
+}
+
+#[test]
+fn the_screen_back_on_polls_at_once() {
+    let mut clock = FakeClock::new();
+    let mut schedule = PollSchedule::default();
+    schedule.show(View::Flyout, clock.now);
+    schedule.set_screen_off(true, clock.now);
+    clock.run(&mut schedule, Duration::from_secs(3));
+
+    schedule.set_screen_off(false, clock.now);
+
+    assert_eq!(
+        clock.run(&mut schedule, Duration::from_millis(1500)),
+        secs(&[3, 4])
+    );
+}
+
+#[test]
+fn a_view_shown_with_the_screen_off_does_not_poll() {
+    let mut clock = FakeClock::new();
+    let mut schedule = PollSchedule::default();
+    schedule.set_screen_off(true, clock.now);
+
+    schedule.show(View::Window, clock.now);
+
+    assert_eq!(clock.run(&mut schedule, Duration::from_secs(3)), secs(&[]));
+}
+
+#[test]
+fn a_minimised_window_does_not_poll_but_the_flyout_does() {
+    let mut clock = FakeClock::new();
+    let mut schedule = PollSchedule::default();
+    schedule.show(View::Window, clock.now);
+    clock.run(&mut schedule, Duration::from_secs(1));
+
+    schedule.set_window_minimized(true, clock.now);
+    assert_eq!(clock.run(&mut schedule, Duration::from_secs(2)), secs(&[]));
+
+    schedule.show(View::Flyout, clock.now);
+    assert_eq!(
+        clock.run(&mut schedule, Duration::from_millis(1500)),
+        secs(&[3, 4])
+    );
+}
+
+#[test]
+fn a_window_restored_polls_at_once() {
+    let mut clock = FakeClock::new();
+    let mut schedule = PollSchedule::default();
+    schedule.show(View::Window, clock.now);
+    schedule.set_window_minimized(true, clock.now);
+    clock.run(&mut schedule, Duration::from_secs(2));
+
+    schedule.set_window_minimized(false, clock.now);
+
+    assert_eq!(schedule.next_poll(), Some(clock.now));
+}
+
+#[test]
+fn showing_the_window_again_ends_its_minimised_state() {
+    // `show_window` brings a minimised window back.
+    let mut clock = FakeClock::new();
+    let mut schedule = PollSchedule::default();
+    schedule.show(View::Window, clock.now);
+    schedule.set_window_minimized(true, clock.now);
+    clock.run(&mut schedule, Duration::from_secs(2));
+
+    schedule.show(View::Window, clock.now);
+
+    assert_eq!(schedule.next_poll(), Some(clock.now));
+}
+
+#[test]
+fn a_minimised_closed_window_does_not_poll_when_restored() {
+    let clock = FakeClock::new();
+    let mut schedule = PollSchedule::default();
+    schedule.show(View::Window, clock.now);
+    schedule.set_window_minimized(true, clock.now);
+    schedule.hide(View::Window);
+
+    schedule.set_window_minimized(false, clock.now);
+
+    assert_eq!(schedule.next_poll(), None);
+}

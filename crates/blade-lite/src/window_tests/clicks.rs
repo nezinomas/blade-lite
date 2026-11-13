@@ -14,8 +14,8 @@ use slint::winit_030::winit::event::WindowEvent as WinitEvent;
 use slint::{ComponentHandle, LogicalPosition, Model};
 
 use super::{
-    FAKE_MIC, FAKE_ON_BATTERY, FAKE_RELEASED, Fixture, click, control, fixture, log_path,
-    selected_preset,
+    FAKE_MIC, FAKE_ON_BATTERY, FAKE_RELEASED, FAKE_SCREEN_ON, Fixture, click, control, fixture,
+    log_path, selected_preset,
 };
 use crate::fakes::{FakeCharger, brightness_commands, lighting_commands, logo};
 
@@ -3297,4 +3297,63 @@ fn a_failed_resend_waits_out_the_next_poll() {
 
     let balanced = PerfMode::Balanced.commands(&BLADE_18).unwrap();
     assert_eq!(sent_since(&f, sent), balanced);
+}
+
+/// Controller reads since `before` that a heat read does not make (the
+/// temperature and the charger): only a view's poll makes them.
+fn poll_reads_since(f: &Fixture, before: usize) -> usize {
+    let app = f.shell.app();
+    let asked = &app.machine().controller.inner.asked[before..];
+    let heat = [Celsius::query(), Charger::query()];
+    asked.iter().filter(|c| !heat.contains(c)).count()
+}
+
+#[test]
+fn an_open_window_with_the_screen_off_reads_only_the_heat() {
+    // Ticket 188: no full poll while the screen is off.
+    let f = fixture(Config::default());
+    f.shell.show_window();
+    FAKE_SCREEN_ON.set(Some(false));
+    let before = asked_count(&f);
+
+    tick_for(
+        &f,
+        Instant::now(),
+        Duration::from_secs(1),
+        Duration::from_secs(12),
+    );
+
+    assert_eq!(poll_reads_since(&f, before), 0);
+    assert!(temperature_reads_since(&f, before) > 0);
+}
+
+#[test]
+fn the_screen_back_on_polls_the_open_window_again() {
+    let f = fixture(Config::default());
+    f.shell.show_window();
+    FAKE_SCREEN_ON.set(Some(false));
+    f.shell.tick();
+    FAKE_SCREEN_ON.set(Some(true));
+    let before = asked_count(&f);
+
+    f.shell.tick();
+
+    assert!(poll_reads_since(&f, before) > 0);
+}
+
+#[test]
+fn a_minimised_window_reads_only_the_heat() {
+    let f = fixture(Config::default());
+    f.shell.show_window();
+    f.shell.window().window().set_minimized(true);
+    let before = asked_count(&f);
+
+    tick_for(
+        &f,
+        Instant::now(),
+        Duration::from_secs(1),
+        Duration::from_secs(12),
+    );
+
+    assert_eq!(poll_reads_since(&f, before), 0);
 }

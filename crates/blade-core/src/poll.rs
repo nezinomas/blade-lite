@@ -1,5 +1,7 @@
 //! When to read the sensors: once a second while a view is visible, and only
 //! the temperatures, for the heat warning, every ten seconds while none is.
+//! A view is not visible while the screen is off, nor the window while it
+//! is minimised (ticket 188).
 
 use std::time::{Duration, Instant, SystemTime};
 
@@ -20,11 +22,21 @@ pub enum View {
     Flyout,
 }
 
+/// Whether the window is closed, shown, or shown but minimised.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+enum WindowState {
+    #[default]
+    Closed,
+    Shown,
+    Minimized,
+}
+
 /// Tracks the visible views and when the next poll is due.
 #[derive(Debug, Default)]
 pub struct PollSchedule {
-    window: bool,
+    window: WindowState,
     flyout: bool,
+    screen_off: bool,
     /// `None` while no view is visible.
     next: Option<Instant>,
     /// The last temperature read (or skip) while no view is visible.
@@ -43,18 +55,60 @@ struct LastHeat {
 }
 
 impl PollSchedule {
-    /// Marks a view visible. The first visible view makes a poll due at once.
+    /// Marks a view shown, the window as not minimised (showing it brings
+    /// it back). The first visible view makes a poll due at once.
     pub fn show(&mut self, view: View, now: Instant) {
-        if self.next.is_none() {
-            self.next = Some(now);
+        match view {
+            View::Window => self.window = WindowState::Shown,
+            View::Flyout => self.flyout = true,
         }
-        *self.visible(view) = true;
+        self.follow(now);
     }
 
     /// Marks a view hidden. Polling stops when no view is left.
     pub fn hide(&mut self, view: View) {
-        *self.visible(view) = false;
-        if !self.window && !self.flyout {
+        match view {
+            View::Window => self.window = WindowState::Closed,
+            View::Flyout => self.flyout = false,
+        }
+        self.stop_if_unseen();
+    }
+
+    /// Marks the window minimised or not. Nothing for a closed window.
+    pub fn set_window_minimized(&mut self, minimized: bool, now: Instant) {
+        if self.window == WindowState::Closed {
+            return;
+        }
+        self.window = if minimized {
+            WindowState::Minimized
+        } else {
+            WindowState::Shown
+        };
+        self.follow(now);
+    }
+
+    /// Marks the screen off or on. While it is off no view is visible.
+    pub fn set_screen_off(&mut self, off: bool, now: Instant) {
+        self.screen_off = off;
+        self.follow(now);
+    }
+
+    /// Whether a view can be seen now.
+    fn seen(&self) -> bool {
+        !self.screen_off && (self.window == WindowState::Shown || self.flyout)
+    }
+
+    /// Makes a poll due at once if a view just came into sight, or stops
+    /// polling if none is left.
+    fn follow(&mut self, now: Instant) {
+        if self.seen() {
+            self.next.get_or_insert(now);
+        }
+        self.stop_if_unseen();
+    }
+
+    fn stop_if_unseen(&mut self) {
+        if !self.seen() {
             self.next = None;
         }
     }
@@ -122,12 +176,5 @@ impl PollSchedule {
     #[must_use]
     pub fn next_poll(&self) -> Option<Instant> {
         self.next
-    }
-
-    fn visible(&mut self, view: View) -> &mut bool {
-        match view {
-            View::Window => &mut self.window,
-            View::Flyout => &mut self.flyout,
-        }
     }
 }
