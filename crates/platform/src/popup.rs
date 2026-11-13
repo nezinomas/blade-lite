@@ -195,22 +195,27 @@ mod tests {
         // the failure seen was a call that reported success but left the
         // window plain (ticket 181; not seen in 830 runs alone). The raise
         // now says so with an error (ticket 190), so the test tries again on
-        // an error and names the tries if every one missed.
-        const TRIES: u32 = 5;
+        // that miss only. A fail names every miss; a pass after misses stays
+        // quiet (the crate bans prints, and cargo test hides them anyway).
+        const TRIES: usize = 5;
         let popup = window(0);
 
-        let mut errors = Vec::new();
-        while let Err(error) = raise_topmost(popup) {
-            errors.push(error.to_string());
-            if errors.len() == TRIES as usize {
-                break;
+        let mut misses = Vec::new();
+        let result = loop {
+            match raise_topmost(popup) {
+                // A miss is our own error; a Windows error has a code.
+                Err(error) if error.raw_os_error().is_none() && misses.len() + 1 < TRIES => {
+                    misses.push(error.to_string());
+                    std::thread::sleep(std::time::Duration::from_millis(50));
+                }
+                result => break result,
             }
-            std::thread::sleep(std::time::Duration::from_millis(50));
-        }
+        };
 
         let topmost = is_topmost(popup);
         destroy(popup);
-        assert!(topmost, "not topmost after {TRIES} tries: {errors:?}");
+        assert!(result.is_ok(), "{result:?} after misses: {misses:?}");
+        assert!(topmost, "not topmost after misses: {misses:?}");
     }
 
     #[test]
