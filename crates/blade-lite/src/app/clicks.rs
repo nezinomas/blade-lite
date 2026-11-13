@@ -55,7 +55,7 @@ where
         let running = self.running(config);
         let applied = self.send_preset(&running);
         // A failed send may have changed part of it.
-        self.note_preset_send(&applied);
+        self.note_preset_send(&running, &applied);
         // Refused before any send (a saved value out of range): the read
         // may still have changed what runs, such as a full charger found.
         let unsent = matches!(applied, Err(ApplyError::Preset(_) | ApplyError::Custom(_)));
@@ -78,7 +78,7 @@ where
         }
         let running = self.running(self.config);
         let applied = self.send_preset(&running);
-        self.note_preset_send(&applied);
+        self.note_preset_send(&running, &applied);
         if let Err(error) = applied {
             report(&format!("the preset after a charger read failed: {error}"));
         }

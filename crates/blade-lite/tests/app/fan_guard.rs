@@ -135,8 +135,10 @@ fn a_failed_full_speed_send_waits_until_a_resend_takes_it() {
     assert!(!app.boost_unsent());
 }
 
+/// On battery Custom does not run, so the resend does not carry the full
+/// speed (ticket 180).
 #[test]
-fn a_resend_that_shows_a_held_rate_error_still_takes_the_full_speed() {
+fn a_battery_resend_with_a_held_rate_error_leaves_the_full_speed_unsent() {
     let mut config = Config {
         preset: Preset::Custom,
         sixty_hz_on_battery: true,
@@ -161,7 +163,7 @@ fn a_resend_that_shows_a_held_rate_error_still_takes_the_full_speed() {
         matches!(resent, Err(blade_lite::AppError::Display(_))),
         "{resent:?}"
     );
-    assert!(!app.boost_unsent());
+    assert!(app.boost_unsent());
 }
 
 #[test]
@@ -186,6 +188,22 @@ fn a_send_that_works_takes_a_full_speed_left_unsent() {
     app.machine_mut().controller.inner.fails = false;
 
     app.on_performance(PerformanceCommand::SetFanRpm(Some(2000)))
+        .unwrap();
+
+    assert!(!app.boost_unsent());
+}
+
+#[test]
+fn only_a_send_that_carries_it_takes_a_full_speed_left_unsent() {
+    let mut app = custom_app(Some(1600));
+    app.machine_mut().controller.inner.fails = true;
+    assert!(app.set_fan_boost(true).is_err());
+    app.machine_mut().controller.inner.fails = false;
+
+    app.on_performance(PerformanceCommand::SetPreset(Preset::Balanced))
+        .unwrap();
+    assert!(app.boost_unsent(), "Balanced did not carry it");
+    app.on_performance(PerformanceCommand::SetPreset(Preset::Custom))
         .unwrap();
 
     assert!(!app.boost_unsent());

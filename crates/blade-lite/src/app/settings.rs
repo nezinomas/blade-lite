@@ -69,7 +69,7 @@ where
         let red = self.key_should_be_red();
         let applied = apply(&running, self.model, &mut self.machine.controller, red);
         self.key_red = applied.is_ok().then_some(red);
-        self.note_preset_send(&applied);
+        self.note_preset_send(&running, &applied);
         self.check_preset_if_sent(&running, &applied);
         self.note_fan_targets(&running, &applied);
         // The old config is kept, so a new preset the controller took is

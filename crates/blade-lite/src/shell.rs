@@ -30,7 +30,10 @@ use ui::{FanGuard, HeatWatch, ModeWatch, TouchpadWatch};
 
 use popup::{POPUP_HOLD, POWER_MODE};
 #[cfg(test)]
-pub use ticks::FULL_SPEED_RESENT_LINES;
+pub(crate) use ticks::BY_A_POLL;
+#[cfg(test)]
+pub use ticks::FULL_SPEED_SENT_AGAIN;
+pub(crate) use ticks::WITH_THE_PRESET;
 
 use crate::{FlyoutWindow, MainWindow, ModePopup, bind};
 
@@ -641,9 +644,12 @@ impl<P: Parts> Shell<P> {
 
     /// Runs one change, then shows the new state, or the error if it failed.
     /// A new power mode, from any change the laptop took (even one not
-    /// saved), shows the popup.
+    /// saved), shows the popup. A change that takes the guard's failed
+    /// full-speed send says so (ticket 180).
     pub fn act(self: &Rc<Self>, change: impl FnOnce(&mut AppOn<P>) -> Result<(), AppError>) {
+        let unsent = self.app.borrow().boost_unsent();
         let result = change(&mut self.app.borrow_mut());
+        self.say_full_speed_sent_again(unsent, WITH_THE_PRESET);
         let worked = took_effect(&result);
         self.refresh(result.err().as_ref());
         let mut watch = self.mode_watch.get();
