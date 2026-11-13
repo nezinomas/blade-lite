@@ -2,6 +2,7 @@
 //! reports the keyboard sends on its own.
 
 use std::io;
+use std::sync::{Mutex, MutexGuard, PoisonError};
 use std::time::Duration;
 
 use hidapi::{DeviceInfo, HidApi, HidDevice};
@@ -25,8 +26,9 @@ impl HidTransport {
     ///
     /// [`io::ErrorKind::NotFound`] if there is no controller, or any hidapi error.
     pub fn open(model: &ModelProfile) -> io::Result<Self> {
-        let api = HidApi::new().map_err(io::Error::other)?;
-        let devices: Vec<HidInfo> = api.device_list().map(hid_info).collect();
+        let mut api = shared_api();
+        let api = api_in(&mut api)?;
+        let devices = model_devices(api, &model.usb)?;
         let info = find_controller(&devices, &model.usb)
             .cloned()
             .ok_or_else(|| {
@@ -71,8 +73,9 @@ impl HidKeyReports {
             )
         };
         let key = model.power_key.ok_or_else(not_found)?;
-        let api = HidApi::new().map_err(io::Error::other)?;
-        let infos: Vec<HidInfo> = api.device_list().map(hid_info).collect();
+        let mut api = shared_api();
+        let api = api_in(&mut api)?;
+        let infos = model_devices(api, &model.usb)?;
         let devices: Vec<HidDevice> = find_key_collections(&infos, &model.usb, &key)
             .into_iter()
             .filter_map(|info| api.open_path(&info.path).ok())
@@ -154,6 +157,28 @@ impl<D: ReadTimeout> KeySources<D> {
     }
 }
 
+/// The one hidapi context of the run. hidapi 2.6 lists every HID device
+/// on the PC when a context is made, and asks each one for its strings
+/// (requests that go to the device and could wake it), even through
+/// `new_without_enumerate`. So the context is made once, and each open
+/// after lists only the model's VID and PID (ticket 186).
+static API: Mutex<Option<HidApi>> = Mutex::new(None);
+
+/// The shared context's lock. A poisoned lock is taken as it is: the
+/// context holds only a device list, which each open lists again.
+fn shared_api() -> MutexGuard<'static, Option<HidApi>> {
+    API.lock().unwrap_or_else(PoisonError::into_inner)
+}
+
+/// The context in `slot`, made on first use.
+fn api_in(slot: &mut Option<HidApi>) -> io::Result<&mut HidApi> {
+    if slot.is_none() {
+        *slot = Some(HidApi::new().map_err(io::Error::other)?);
+    }
+    slot.as_mut()
+        .ok_or_else(|| io::Error::other("no hidapi context"))
+}
+
 /// The HID device list: hidapi's, or a fake in the tests.
 trait DeviceList {
     /// Empties the list.
@@ -182,7 +207,8 @@ impl DeviceList for HidApi {
 
 /// The HID collections with the model's VID and PID, listed again.
 fn model_devices(list: &mut impl DeviceList, usb: &UsbId) -> io::Result<Vec<HidInfo>> {
-    list.add(0, 0)?;
+    list.reset();
+    list.add(usb.vendor_id, usb.product_id)?;
     Ok(list.infos())
 }
 
