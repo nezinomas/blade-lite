@@ -10,7 +10,7 @@ use std::time::Duration;
 
 use windows_sys::Win32::Devices::DeviceAndDriverInstallation::{
     CM_GET_DEVICE_INTERFACE_LIST_PRESENT, CM_Get_Device_Interface_List_SizeW,
-    CM_Get_Device_Interface_ListW,
+    CM_Get_Device_Interface_ListW, CR_BUFFER_SMALL,
 };
 use windows_sys::Win32::Devices::HumanInterfaceDevice::{
     HIDD_ATTRIBUTES, HIDP_CAPS, HIDP_STATUS_SUCCESS, HidD_FreePreparsedData, HidD_GetAttributes,
@@ -37,6 +37,9 @@ use crate::wide;
 /// direct, any access. Not in `windows-sys`; hidapi uses the same value.
 const IOCTL_HID_GET_FEATURE: u32 = (0x0B << 16) | (100 << 2) | 2;
 
+/// How many times the HID list is read when it grows while it is read.
+const LIST_TRIES: usize = 3;
+
 /// How many input reports Windows keeps for a collection, as hidapi set.
 const INPUT_BUFFERS: u32 = 64;
 
@@ -48,28 +51,37 @@ const INPUT_BUFFERS: u32 = 64;
 /// The Configuration Manager's error if the list could not be read.
 pub fn hid_paths() -> io::Result<Vec<String>> {
     let guid = hid_guid();
-    let mut length = 0;
-    // SAFETY: the GUID is a whole value; Windows writes only the length.
-    check(unsafe {
-        CM_Get_Device_Interface_List_SizeW(
-            &raw mut length,
-            &raw const guid,
-            ptr::null(),
-            CM_GET_DEVICE_INTERFACE_LIST_PRESENT,
-        )
-    })?;
-    let mut buffer = vec![0_u16; length as usize];
-    // SAFETY: the buffer is `length` wide characters long.
-    check(unsafe {
-        CM_Get_Device_Interface_ListW(
-            &raw const guid,
-            ptr::null(),
-            buffer.as_mut_ptr(),
-            length,
-            CM_GET_DEVICE_INTERFACE_LIST_PRESENT,
-        )
-    })?;
-    Ok(split_ids(&buffer))
+    for _ in 0..LIST_TRIES {
+        let mut length = 0;
+        // SAFETY: the GUID is a whole value; Windows writes only the length.
+        check(unsafe {
+            CM_Get_Device_Interface_List_SizeW(
+                &raw mut length,
+                &raw const guid,
+                ptr::null(),
+                CM_GET_DEVICE_INTERFACE_LIST_PRESENT,
+            )
+        })?;
+        let mut buffer = vec![0_u16; length as usize];
+        // SAFETY: the buffer is `length` wide characters long.
+        let result = unsafe {
+            CM_Get_Device_Interface_ListW(
+                &raw const guid,
+                ptr::null(),
+                buffer.as_mut_ptr(),
+                length,
+                CM_GET_DEVICE_INTERFACE_LIST_PRESENT,
+            )
+        };
+        // A device that came between the two calls makes the list longer.
+        if result != CR_BUFFER_SMALL {
+            check(result)?;
+            return Ok(split_ids(&buffer));
+        }
+    }
+    Err(io::Error::other(
+        "the HID list kept growing while it was read",
+    ))
 }
 
 /// The HID interface class.

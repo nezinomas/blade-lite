@@ -87,7 +87,7 @@ mod tests {
 
     /// A HID interface path, as Windows lists it, for this instance ID.
     fn path(id: &str) -> String {
-        format!(r"\?\HID#{id}#7&1c181662&0&0000#{{4d1e55b2-f16f-11cf-88cb-001111000030}}")
+        format!(r"\\?\HID#{id}#7&1c181662&0&0000#{{4d1e55b2-f16f-11cf-88cb-001111000030}}")
     }
 
     #[test]
@@ -139,7 +139,7 @@ mod tests {
     #[test]
     fn the_ids_count_only_in_the_device_part() {
         let other =
-            r"\?\HID#VID_046D&PID_C52B#VID_1532&PID_02C7#{4d1e55b2-f16f-11cf-88cb-001111000030}";
+            r"\\?\HID#VID_046D&PID_C52B#VID_1532&PID_02C7#{4d1e55b2-f16f-11cf-88cb-001111000030}";
 
         assert_eq!(model_interface(other, &BLADE_18.usb), None);
         assert_eq!(model_interface("", &BLADE_18.usb), None);

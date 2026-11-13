@@ -486,7 +486,7 @@ mod tests {
 
     /// A HID path as Windows lists it, for this device part.
     fn path(device: &str) -> String {
-        format!(r"\?\HID#{device}#7&8e7fa24&0&0000#{{4d1e55b2-f16f-11cf-88cb-001111000030}}")
+        format!(r"\\?\HID#{device}#7&8e7fa24&0&0000#{{4d1e55b2-f16f-11cf-88cb-001111000030}}")
     }
 
     /// A HID layer with these collections, that logs each path it opens.
