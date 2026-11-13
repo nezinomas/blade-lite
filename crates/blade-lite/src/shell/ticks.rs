@@ -45,11 +45,16 @@ const INPUT_GRACE: Duration = Duration::from_secs(30);
 /// full speed after a short cool hold (ticket 172): the chips cooled in it.
 const LONG_SLEEP: Duration = Duration::from_mins(5);
 
+/// How a start, wake or click sent the guard's failed full speed, for its
+/// log line (ticket 180).
+pub(super) const WITH_THE_PRESET: &str = "with the preset";
+
 #[cfg(test)]
 thread_local! {
-    /// The `sent again by a poll` lines this test's thread logged: the
-    /// window tests share one log.
-    pub static FULL_SPEED_RESENT_LINES: std::cell::Cell<u32> = const { std::cell::Cell::new(0) };
+    /// How each `Full speed, sent again` line this test's thread logged
+    /// says the send went: the window tests share one log.
+    pub static FULL_SPEED_SENT_AGAIN: std::cell::RefCell<Vec<&'static str>> =
+        const { std::cell::RefCell::new(Vec::new()) };
 }
 
 impl<P: Parts> Shell<P> {
@@ -236,15 +241,22 @@ impl<P: Parts> Shell<P> {
         }
         let unsent = self.app.borrow().boost_unsent();
         let sent = self.app.borrow_mut().resend_preset();
-        let app = self.app.borrow();
-        if unsent && !app.boost_unsent() && self.fan_guard.get().on() && app.manual_fan_runs() {
-            report("fan guard: Full speed, sent again by a poll");
-            #[cfg(test)]
-            FULL_SPEED_RESENT_LINES.set(FULL_SPEED_RESENT_LINES.get() + 1);
-        }
-        drop(app);
+        self.say_full_speed_sent_again(unsent, "by a poll");
         if let Err(error) = sent {
             self.act(|_| Err(error));
+        }
+    }
+
+    /// Logs that the guard's failed full-speed send went `how`, if it was
+    /// `unsent` before a send that took it: its own log line said nothing
+    /// went (tickets 163, 180). Not when the guard is off or no manual fan
+    /// runs: the full speed did not go then.
+    pub(super) fn say_full_speed_sent_again(&self, unsent: bool, how: &'static str) {
+        let app = self.app.borrow();
+        if unsent && !app.boost_unsent() && self.fan_guard.get().on() && app.manual_fan_runs() {
+            report(&format!("fan guard: Full speed, sent again {how}"));
+            #[cfg(test)]
+            FULL_SPEED_SENT_AGAIN.with_borrow_mut(|lines| lines.push(how));
         }
     }
 
