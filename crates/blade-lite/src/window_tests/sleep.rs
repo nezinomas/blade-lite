@@ -456,6 +456,162 @@ fn an_open_again_after_an_updater_leaves_nothing_for_a_later_wake() {
     assert_eq!(firmware_reads(&f), firmware, "nor a firmware read");
 }
 
+/// A Razer updater runs (held) and has quit, not yet looked for.
+fn updater_quit_unseen(f: &Fixture) {
+    f.shell.programs().set(&[UPDATER]);
+    f.shell.look_for_razer();
+    f.shell.programs().set(&[]);
+}
+
+/// Ticket 179: an updater end found at or in the last pause's end gets
+/// its own full pause. Called just after that end: nothing then, one send
+/// and one firmware read (beside the `firmware` reads before) 2 s later.
+fn the_updater_gets_its_own_pause(f: &Fixture, before: usize, firmware: usize) {
+    assert_eq!(
+        sent_since(f, before),
+        [],
+        "nothing at the older pause's end"
+    );
+    assert_eq!(firmware_reads(f), firmware, "nor a read");
+    step(1900);
+    assert_eq!(sent_since(f, before), [], "nor before the updater's 2 s");
+    step(200);
+    let targets = sent_since(f, before)
+        .iter()
+        .filter(|c| c.id == SET_FAN_TARGET)
+        .count();
+    assert_eq!(targets, BLADE_18.custom.fan_zones.len(), "one send");
+    assert_eq!(firmware_reads(f) - firmware, 1, "one firmware read");
+}
+
+#[test]
+fn an_updater_found_ended_at_the_wake_s_end_gets_its_own_pause() {
+    let f = fixture(manual_fan());
+    updater_quit_unseen(&f);
+    let before = sent_count(&f);
+    let firmware = firmware_reads(&f);
+
+    FAKE_RELEASED.set(false);
+
+    power(&f, &[PowerEvent::Resumed]);
+    step(2001);
+
+    assert!(!FAKE_RELEASED.get(), "no release at the wake's end");
+    the_updater_gets_its_own_pause(&f, before, firmware);
+    assert!(FAKE_RELEASED.get(), "the updater's end releases the handle");
+}
+
+#[test]
+fn a_sleep_in_the_updater_s_own_pause_leaves_the_send_to_the_next_wake() {
+    let f = fixture(manual_fan());
+    updater_quit_unseen(&f);
+    power(&f, &[PowerEvent::Resumed]);
+    step(3000);
+    power(&f, &[PowerEvent::Suspending]);
+    let before = sent_count(&f);
+    let firmware = firmware_reads(&f);
+    step(1100);
+    assert_eq!(sent_since(&f, before), [], "nothing at the updater's end");
+
+    power(&f, &[PowerEvent::Resumed]);
+    pause_ends();
+
+    let targets = sent_since(&f, before)
+        .iter()
+        .filter(|c| c.id == SET_FAN_TARGET)
+        .count();
+    assert_eq!(
+        targets,
+        BLADE_18.custom.fan_zones.len(),
+        "the wake sends once"
+    );
+    assert_eq!(firmware_reads(&f) - firmware, 1, "and reads the firmware");
+}
+
+#[test]
+fn an_updater_that_runs_again_and_ends_in_its_own_pause_gets_a_new_pause() {
+    let f = fixture(manual_fan());
+    updater_ends(&f);
+    step(1000);
+    // Two clicks look: the updater runs again, then has ended again.
+    f.shell.programs().set(&[UPDATER]);
+    click(f.shell.window(), Button, "Balanced");
+    f.shell.programs().set(&[]);
+    click(f.shell.window(), Button, "Balanced");
+    let before = sent_count(&f);
+    let firmware = firmware_reads(&f);
+    step(1001);
+
+    the_updater_gets_its_own_pause(&f, before, firmware);
+    let sent = sent_count(&f);
+    f.shell.tick();
+    assert_eq!(sent_count(&f), sent, "the next tick sends nothing more");
+}
+
+#[test]
+fn a_tick_that_finds_an_updater_ended_drops_a_power_event_to_its_pause() {
+    let f = fixture(manual_fan());
+    let (sender, receiver) = std::sync::mpsc::channel();
+    f.shell.listen_for_power(receiver);
+    f.shell.programs().set(&[UPDATER]);
+    let now = std::time::Instant::now();
+    f.shell.tick_at(now, SystemTime::now());
+    f.shell.look_for_razer();
+    f.shell.programs().set(&[]);
+    sender.send(PowerEvent::OnBattery).unwrap();
+    FAKE_ON_BATTERY.set(true);
+    let before = sent_count(&f);
+
+    f.shell
+        .tick_at(now + Duration::from_secs(61), SystemTime::now());
+
+    assert_eq!(sent_since(&f, before), [], "nothing in the tick");
+    pause_ends();
+    assert_ne!(sent_since(&f, before), [], "the pause's end sends");
+}
+
+#[test]
+fn a_click_that_finds_an_updater_ended_sends_after_its_pause_only() {
+    let f = fixture(manual_fan());
+    updater_quit_unseen(&f);
+    let before = sent_count(&f);
+    let firmware = firmware_reads(&f);
+
+    click(f.shell.window(), Button, "Balanced");
+
+    the_updater_gets_its_own_pause(&f, before, firmware);
+}
+
+#[test]
+fn an_updater_found_ended_in_the_wake_pause_gets_its_own_pause() {
+    let f = fixture(manual_fan());
+    updater_quit_unseen(&f);
+    let before = sent_count(&f);
+    let firmware = firmware_reads(&f);
+    power(&f, &[PowerEvent::Resumed]);
+    step(1900);
+
+    // A click looks first: it finds the end 0.1 s before the pause ends.
+    click(f.shell.window(), Button, "Balanced");
+    step(101);
+
+    the_updater_gets_its_own_pause(&f, before, firmware);
+}
+
+#[test]
+fn an_updater_found_ended_at_an_open_again_s_end_gets_its_own_pause() {
+    let f = fixture(manual_fan());
+    updater_quit_unseen(&f);
+    let before = sent_count(&f);
+    let firmware = firmware_reads(&f);
+    opened_again(&f);
+    step(2001);
+    assert!(!FAKE_RELEASED.get(), "the handle is held to the last pause");
+
+    the_updater_gets_its_own_pause(&f, before, firmware);
+    assert!(FAKE_RELEASED.get(), "the updater's end releases it");
+}
+
 #[test]
 fn two_wakes_under_the_pause_apart_send_once() {
     let f = fixture(manual_fan());

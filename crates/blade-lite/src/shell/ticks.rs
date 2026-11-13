@@ -68,10 +68,11 @@ impl<P: Parts> Shell<P> {
     pub(crate) fn tick_at(self: &Rc<Self>, now: Instant, wall: SystemTime) {
         let failures = self.app.borrow().preset_failures();
         let looked = self.look_for_razer_now_and_then(now);
+        // Before any send: an updater end just found waits its pause.
+        self.start_after_updater();
         self.follow_own_power();
         self.follow_missed_wake(wall);
         self.follow_long_sleep(wall);
-        self.start_after_updater();
         self.send_fan_targets_again(now);
         if looked {
             self.read_firmware_if_unread();
@@ -171,6 +172,8 @@ impl<P: Parts> Shell<P> {
                 if self.look_for_razer() {
                     self.show_window();
                 }
+                // An updater end it found waits its pause (ticket 179).
+                self.start_after_updater();
                 false
             }
             Reopened::Opened => {
@@ -191,10 +194,12 @@ impl<P: Parts> Shell<P> {
                         shell.end_wake_pause();
                         return;
                     }
-                    let first = shell.look_for_razer();
-                    // This start covers an updater that just ended, and an
-                    // older pause that left its work to this one.
-                    shell.updater_ended.set(false);
+                    // An updater that just ended: its own pause sends.
+                    if shell.look_then_wait_for_updater() {
+                        return;
+                    }
+                    // This start covers an older pause that left its work
+                    // to this one.
                     shell.redo_at_wake.set(false);
                     P::release_controller();
                     shell.controller_gone.set(false);
@@ -207,9 +212,6 @@ impl<P: Parts> Shell<P> {
                     // As the wake: an unknown source runs the battery presets.
                     shell.app.borrow_mut().take_on_battery(P::on_battery());
                     shell.act(AppOn::<P>::start);
-                    if first {
-                        shell.show_window();
-                    }
                 });
                 true
             }
@@ -605,8 +607,13 @@ impl<P: Parts> Shell<P> {
     }
 
     /// The end of the last pause after a wake (the wake's own, or an open
-    /// again begun in it): sends the saved settings.
-    fn end_wake_pause(self: &Rc<Self>) {
+    /// again or an updater's begun in it): sends the saved settings. An
+    /// updater found ended then gets its own pause first (ticket 179).
+    pub(super) fn end_wake_pause(self: &Rc<Self>) {
+        // An updater that just ended: its own pause sends.
+        if self.look_then_wait_for_updater() {
+            return;
+        }
         self.wake_due.set(false);
         self.woke.set(true);
         {
@@ -616,9 +623,6 @@ impl<P: Parts> Shell<P> {
             // power event may come after this resume.
             app.take_on_battery(P::on_battery());
         }
-        let first = self.look_for_razer();
-        // This send covers an updater that just ended.
-        self.updater_ended.set(false);
         // An open again or an updater whose pause ended in the sleep or
         // a newer pause: what it left for the wake.
         if self.redo_at_wake.take() {
@@ -630,9 +634,6 @@ impl<P: Parts> Shell<P> {
         // The wake is known now: the fan guard reads at the next tick, not
         // one skipped as late by the sleep and 10 s more (ticket 171).
         self.schedule.borrow_mut().read_heat_now();
-        if first {
-            self.show_window();
-        }
     }
 
     /// Windows says the laptop goes to sleep or hibernates (ticket 169).
