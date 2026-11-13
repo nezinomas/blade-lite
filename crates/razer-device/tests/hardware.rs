@@ -367,6 +367,43 @@ fn probe_gpu_line<C: Clock>(
     )
 }
 
+/// Ticket 193: does an NVML read on an open handle wake a sleeping GPU?
+/// Starts NVML (a wake), waits up to 30 s for the GPU to sleep, then for
+/// 60 s reads it through NVML each second and its power state (no wake)
+/// ten times a second. Asserts no awake power state after the first sleep.
+/// The controller is not used, but the lock keeps the app from reading too.
+#[test]
+#[ignore = "needs the Blade 18; wakes the GPU about 2 s; about 95 s"]
+fn an_nvml_read_does_not_wake_a_sleeping_gpu() {
+    use platform::Sensors;
+
+    hold_lock();
+    let mut sensors = platform::WindowsSensors::default();
+    eprintln!("start: {:?}", sensors.gpu());
+    let started = std::time::Instant::now();
+    while sensors.gpu_awake().unwrap() {
+        assert!(
+            started.elapsed() < Duration::from_secs(30),
+            "the GPU stays awake"
+        );
+        std::thread::sleep(Duration::from_millis(100));
+    }
+    eprintln!("asleep after {:?}", started.elapsed());
+    let mut wakes = Vec::new();
+    for second in 0..60 {
+        let read = sensors.gpu();
+        for tenth in 0..10 {
+            let awake = sensors.gpu_awake();
+            if !matches!(awake, Ok(false)) {
+                wakes.push((second, tenth, awake.map_err(|error| error.to_string())));
+            }
+            std::thread::sleep(Duration::from_millis(100));
+        }
+        eprintln!("{second:>2} s  nvml {read:?}");
+    }
+    assert!(wakes.is_empty(), "not asleep at (s, tenth): {wakes:?}");
+}
+
 /// Ticket 193: does the second field of the `0D85` reply follow the NVIDIA
 /// GPU? Only reads: no command here changes the controller. 20 s with the
 /// GPU left alone (no NVML), 20 s with NVML open and read each second (its
