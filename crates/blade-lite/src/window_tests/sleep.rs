@@ -723,5 +723,8 @@ fn a_sleep_in_the_wake_pause_makes_no_heat_read_due() {
     pause_ends();
     let before = sent_count(&f);
     f.shell.tick_at(now + Duration::from_secs(4), wall);
-    assert!(sends_full_speed(&sent_since(&f, before)), "the next wake reads");
+    assert!(
+        sends_full_speed(&sent_since(&f, before)),
+        "the next wake reads"
+    );
 }
