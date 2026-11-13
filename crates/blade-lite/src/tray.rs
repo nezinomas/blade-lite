@@ -2,6 +2,7 @@
 //! turns autostart on or off, or quits.
 
 use std::panic::AssertUnwindSafe;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use razer_proto::Rgb;
 use tray_icon::menu::{CheckMenuItem, Menu, MenuEvent, MenuId, MenuItem};
@@ -68,33 +69,15 @@ impl Tray {
 
     /// Calls `handle` on the event-loop thread for each thing the user does.
     pub fn on_action(&self, handle: fn(TrayAction)) {
+        let after_double = AtomicBool::new(false);
         TrayIconEvent::set_event_handler(Some(move |event| {
-            let TrayIconEvent::Click {
-                rect,
-                button,
-                button_state,
-                ..
-            } = event
-            else {
-                return;
-            };
-            match (button, button_state) {
-                (MouseButton::Left, MouseButtonState::Up) => {
-                    let icon = Rect {
-                        x: round(rect.position.x),
-                        y: round(rect.position.y),
-                        width: px(rect.size.width),
-                        height: px(rect.size.height),
-                    };
-                    post(handle, TrayAction::Clicked(icon));
-                }
+            match action_for(&event, &after_double) {
                 // tray-icon opens the menu right after this call returns,
                 // on this same thread (the event loop's). So the item is
                 // read again now, not posted, or the menu could show first.
-                (MouseButton::Right, MouseButtonState::Up) => {
-                    handle_now(handle, TrayAction::MenuOpening);
-                }
-                _ => {}
+                Some(action @ TrayAction::MenuOpening) => handle_now(handle, action),
+                Some(action) => post(handle, action),
+                None => {}
             }
         }));
         let (open, quit) = (self.open.clone(), self.quit.clone());
@@ -124,6 +107,47 @@ impl Tray {
     }
 }
 
+/// What a tray icon event asks for, if anything. Windows sends a left
+/// double click as down, up, double click, up: the first up opens the
+/// flyout, the double click opens the window (ticket 176), and its own up
+/// is dropped, or it would open the flyout again. `after_double` keeps that
+/// across events; a new press clears it, so a lost up eats no later click.
+fn action_for(event: &TrayIconEvent, after_double: &AtomicBool) -> Option<TrayAction> {
+    match event {
+        TrayIconEvent::Click {
+            rect,
+            button: MouseButton::Left,
+            button_state,
+            ..
+        } => match button_state {
+            MouseButtonState::Down => {
+                after_double.store(false, Ordering::Relaxed);
+                None
+            }
+            MouseButtonState::Up if after_double.swap(false, Ordering::Relaxed) => None,
+            MouseButtonState::Up => Some(TrayAction::Clicked(Rect {
+                x: round(rect.position.x),
+                y: round(rect.position.y),
+                width: px(rect.size.width),
+                height: px(rect.size.height),
+            })),
+        },
+        TrayIconEvent::Click {
+            button: MouseButton::Right,
+            button_state: MouseButtonState::Up,
+            ..
+        } => Some(TrayAction::MenuOpening),
+        TrayIconEvent::DoubleClick {
+            button: MouseButton::Left,
+            ..
+        } => {
+            after_double.store(true, Ordering::Relaxed);
+            Some(TrayAction::OpenWindow)
+        }
+        _ => None,
+    }
+}
+
 /// A screen length in pixels as a coordinate.
 pub fn px(value: u32) -> i32 {
     i32::try_from(value).unwrap_or(i32::MAX)
@@ -150,4 +174,125 @@ fn handle_now(handle: fn(TrayAction), action: TrayAction) {
 fn post(handle: fn(TrayAction), action: TrayAction) {
     // The loop is gone only while the app quits, so the action can go.
     let _ = slint::invoke_from_event_loop(move || handle(action));
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::atomic::AtomicBool;
+
+    use tray_icon::dpi::{PhysicalPosition, PhysicalSize};
+    use tray_icon::{MouseButton, MouseButtonState, TrayIconEvent, TrayIconId};
+
+    use super::{TrayAction, action_for};
+
+    fn rect() -> tray_icon::Rect {
+        tray_icon::Rect {
+            size: PhysicalSize::new(24, 24),
+            position: PhysicalPosition::new(100.4, 200.6),
+        }
+    }
+
+    fn click(button: MouseButton, button_state: MouseButtonState) -> TrayIconEvent {
+        TrayIconEvent::Click {
+            id: TrayIconId::new("tray"),
+            position: PhysicalPosition::new(0.0, 0.0),
+            rect: rect(),
+            button,
+            button_state,
+        }
+    }
+
+    fn double(button: MouseButton) -> TrayIconEvent {
+        TrayIconEvent::DoubleClick {
+            id: TrayIconId::new("tray"),
+            position: PhysicalPosition::new(0.0, 0.0),
+            rect: rect(),
+            button,
+        }
+    }
+
+    /// The actions for `events`, in Windows' order, from a fresh start.
+    fn actions(events: Vec<TrayIconEvent>) -> Vec<Option<TrayAction>> {
+        let after_double = AtomicBool::new(false);
+        events
+            .into_iter()
+            .map(|event| action_for(&event, &after_double))
+            .collect()
+    }
+
+    const DOWN: MouseButtonState = MouseButtonState::Down;
+    const UP: MouseButtonState = MouseButtonState::Up;
+    const LEFT: MouseButton = MouseButton::Left;
+
+    #[test]
+    fn a_left_click_opens_the_flyout_at_the_icon() {
+        let got = actions(vec![click(LEFT, DOWN), click(LEFT, UP)]);
+
+        assert!(got[0].is_none());
+        let Some(TrayAction::Clicked(icon)) = got[1] else {
+            panic!("got {got:?}");
+        };
+        assert_eq!(
+            (icon.x, icon.y, icon.width, icon.height),
+            (100, 201, 24, 24)
+        );
+    }
+
+    #[test]
+    fn a_left_double_click_opens_the_window_and_its_second_release_does_nothing() {
+        // Windows sends down, up, double click, up.
+        let got = actions(vec![
+            click(LEFT, DOWN),
+            click(LEFT, UP),
+            double(LEFT),
+            click(LEFT, UP),
+        ]);
+
+        assert!(matches!(got[1], Some(TrayAction::Clicked(_))));
+        assert!(matches!(got[2], Some(TrayAction::OpenWindow)), "{got:?}");
+        assert!(got[3].is_none(), "{got:?}");
+    }
+
+    #[test]
+    fn a_click_after_a_double_click_opens_the_flyout_again() {
+        let got = actions(vec![
+            click(LEFT, DOWN),
+            click(LEFT, UP),
+            double(LEFT),
+            click(LEFT, UP),
+            click(LEFT, DOWN),
+            click(LEFT, UP),
+        ]);
+
+        assert!(matches!(got[5], Some(TrayAction::Clicked(_))), "{got:?}");
+    }
+
+    #[test]
+    fn a_double_click_with_its_release_lost_does_not_eat_the_next_click() {
+        // The release went elsewhere (the pointer left the icon).
+        let got = actions(vec![double(LEFT), click(LEFT, DOWN), click(LEFT, UP)]);
+
+        assert!(matches!(got[2], Some(TrayAction::Clicked(_))), "{got:?}");
+    }
+
+    #[test]
+    fn a_right_or_middle_double_click_does_nothing() {
+        let got = actions(vec![
+            double(MouseButton::Right),
+            double(MouseButton::Middle),
+        ]);
+
+        assert!(got.iter().all(Option::is_none), "{got:?}");
+    }
+
+    #[test]
+    fn a_right_release_reads_the_menu_before_it_opens() {
+        let got = actions(vec![
+            click(MouseButton::Right, DOWN),
+            click(MouseButton::Right, UP),
+        ]);
+
+        assert!(got[0].is_none());
+        assert!(matches!(got[1], Some(TrayAction::MenuOpening)), "{got:?}");
+    }
 }

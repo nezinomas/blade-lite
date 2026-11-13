@@ -1342,6 +1342,23 @@ fn open_window_hides_the_flyout_and_shows_the_window() {
 }
 
 #[test]
+fn a_tray_double_click_from_the_tray_shows_the_window_not_the_flyout() {
+    let f = fixture(Config::default());
+    f.shell.window().hide().unwrap();
+    f.shell.flyout().hide().unwrap();
+    let before = sent_count(&f);
+
+    // The double click's first release opens the flyout, then the double
+    // click opens the window (ticket 176; `tray::action_for`).
+    f.shell.toggle_flyout(ICON);
+    f.shell.show_window();
+
+    assert!(f.shell.window().window().is_visible());
+    assert!(!f.shell.flyout().window().is_visible());
+    assert_eq!(sent_since(&f, before), []);
+}
+
+#[test]
 fn the_touchpad_switches_show_off_and_greyed_when_the_touchpad_cant_be_read() {
     let f = fixture(Config::default());
     f.shell.app().machine_mut().registry.touchpad = None;
