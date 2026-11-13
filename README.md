@@ -119,6 +119,10 @@ The UI toolkit is [Slint](https://slint.dev) with its Fluent style.
 - Other tools that drive the same controller are not checked beside it:
   r-helper, razer-ctl, OpenRGB, SignalRGB. HWiNFO and MSI Afterburner are not
   checked yet either (laptop check 25). Don't run them at the same time.
+- With Num Lock on, the power-mode key (Fn + numpad Enter) also gives Windows
+  a plain Enter: the keyboard sends it, not the app. It presses whatever has
+  the focus, such as a tile in the Win + A panel or a dialog's default button
+  (ticket 198).
 - Only one Windows user can run it at a time (not checked with two users;
   tickets 148 and 149).
 
