@@ -737,12 +737,17 @@ impl<P: Parts> Shell<P> {
     /// goes with no 2 s pause, though Windows may have just thawed the app
     /// (not checked on the laptop); the replies are checked, so at worst
     /// it fails again. After a lost handle it only opens a new one, held
-    /// until the wake, so nothing goes. It does not mark the preset unsure:
-    /// nothing else is sent while
-    /// asleep, and the wake, a missed one too, sends the whole saved preset
-    /// again. The power source is not followed while asleep, so a quit then
-    /// still sends the fans on auto first if a manual Custom ran on AC
-    /// before the sleep.
+    /// until the wake, so nothing goes. A failure does not mark the preset
+    /// unsure: nothing else is sent while asleep, and the wake, a missed one
+    /// too, sends the whole saved preset again.
+    ///
+    /// Each send reads the source first, as a quit does (ticket 199): a
+    /// charger pulled with no power event read for it moves the app to
+    /// battery and gets the battery quit preset. That read can mark the
+    /// preset unsure, which nothing reads while asleep; the wake's start
+    /// clears it. Otherwise the source is not followed while asleep, so a
+    /// quit then still sends the fans on auto first if a manual Custom ran
+    /// on AC before the sleep.
     fn suspend(&self) {
         // A notice while asleep (the last sleep had no wake notice) starts
         // the minute to a missed wake again; only a quit preset that did
@@ -787,6 +792,7 @@ impl<P: Parts> Shell<P> {
             );
             return;
         };
+        Self::battery_read_for_quit_preset(&mut app);
         let began = Instant::now();
         match app.on_power(PowerEvent::Suspending) {
             Ok(()) => {
