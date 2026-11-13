@@ -302,7 +302,11 @@ where
     ///
     /// # Errors
     ///
-    /// See [`AppError`]. A failure stops the sends after it.
+    /// See [`AppError`]. A failure stops the sends after it. It leaves the
+    /// preset's unsure mark as it was: after a sleep the wake, a missed one
+    /// too, sends the whole saved preset again, and nothing is sent before
+    /// it; a quit while asleep sends the fans on auto first whenever a
+    /// manual Custom runs (ticket 191).
     pub fn quit_preset(&mut self) -> Result<(), AppError> {
         // No manual fan targets may go after the quit's sends, even when
         // the first one fails (ticket 182).

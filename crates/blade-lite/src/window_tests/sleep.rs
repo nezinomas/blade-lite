@@ -14,6 +14,7 @@ use super::{
     FAKE_REOPENED, FAKE_SCREEN_ON, FAKE_SLEEP_NOTICE_LATE, Fixture, click, fixture,
     fixture_with_programs, log_path,
 };
+use crate::fakes::FakeController;
 use crate::shell::Reopened;
 
 const SET_FAN_TARGET: u16 = 0x0D01;
@@ -124,6 +125,69 @@ fn the_wake_sends_the_manual_fan_again_after_its_pause() {
     pause_ends();
 
     assert!(sets_a_manual_fan(&sent_since(&f, before)));
+}
+
+/// Sleeps from a manual fan with the quit preset failing as `cut` makes it
+/// (ticket 191), then wakes; with `missed`, by a minute of input with no
+/// wake notice. The wake sends the whole saved preset again, what the start
+/// sent, however the sleep's send failed: a cut quit preset needs no unsure
+/// mark.
+fn the_wake_sends_the_whole_preset_again(cut: fn(&mut FakeController), missed: bool) {
+    let f = fixture(manual_fan());
+    let started = sent_since(&f, 0);
+    assert!(sets_a_manual_fan(&started), "{started:?}");
+    cut(&mut f.shell.app().machine_mut().controller.inner);
+    asleep_with_input(&f);
+    {
+        let mut app = f.shell.app();
+        let c = &mut app.machine_mut().controller.inner;
+        // `ok_runs` at 0: a run failed for want of one.
+        assert!(
+            c.fails_after.is_some() || c.ok_runs == Some(0),
+            "the sleep's send failed"
+        );
+        (c.fails_after, c.ok_runs) = (None, None);
+    }
+    let before = sent_count(&f);
+
+    if missed {
+        tick_for(&f, SystemTime::now(), 60);
+    } else {
+        power(&f, &[PowerEvent::Resumed]);
+    }
+    pause_ends();
+
+    assert_eq!(sent_since(&f, before), started);
+}
+
+/// Cut in the quit preset's fans-on-auto step.
+fn cut_in_auto_fans(c: &mut FakeController) {
+    c.fails_after = Some(1);
+}
+
+/// The fans-on-auto step sent, the Balanced after it failed.
+fn cut_in_balanced(c: &mut FakeController) {
+    c.ok_runs = Some(1);
+}
+
+#[test]
+fn the_wake_after_a_sleep_send_cut_in_the_auto_fans_sends_the_whole_preset() {
+    the_wake_sends_the_whole_preset_again(cut_in_auto_fans, false);
+}
+
+#[test]
+fn the_wake_after_a_sleep_send_cut_in_balanced_sends_the_whole_preset() {
+    the_wake_sends_the_whole_preset_again(cut_in_balanced, false);
+}
+
+#[test]
+fn a_missed_wake_after_a_sleep_send_cut_in_the_auto_fans_sends_the_whole_preset() {
+    the_wake_sends_the_whole_preset_again(cut_in_auto_fans, true);
+}
+
+#[test]
+fn a_missed_wake_after_a_sleep_send_cut_in_balanced_sends_the_whole_preset() {
+    the_wake_sends_the_whole_preset_again(cut_in_balanced, true);
 }
 
 #[test]
