@@ -40,8 +40,9 @@ impl<P: Parts> Shell<P> {
             } else {
                 "no Razer updater runs now, so the settings are sent again"
             });
-            // A tick sends them after a pause, as the update may have
-            // reset the controller and changed its firmware.
+            // Sent after the updater's own pause (`start_after_updater`),
+            // as the update may have reset the controller and changed its
+            // firmware.
             self.updater_ended.set(!updater);
         }
         self.app.borrow_mut().hold_controller(updater);
@@ -116,7 +117,8 @@ impl<P: Parts> Shell<P> {
     /// that pause or by that look gets its own full pause, as the update may
     /// have reset the controller just now (ticket 179). The updater's end
     /// then does this pause's work too (a wake's send, a release and a
-    /// firmware read). True if it began, so the caller sends nothing.
+    /// firmware read; a release with no new handle held does nothing).
+    /// True if it began, so the caller sends nothing.
     pub(super) fn wait_for_updater(self: &Rc<Self>) -> bool {
         if !self.updater_ended.get() {
             return false;

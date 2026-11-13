@@ -172,6 +172,8 @@ impl<P: Parts> Shell<P> {
                 if self.look_for_razer() {
                     self.show_window();
                 }
+                // An updater end it found waits its pause (ticket 179).
+                self.start_after_updater();
                 false
             }
             Reopened::Opened => {

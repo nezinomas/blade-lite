@@ -549,6 +549,28 @@ fn an_updater_that_runs_again_and_ends_in_its_own_pause_gets_a_new_pause() {
 }
 
 #[test]
+fn a_tick_that_finds_an_updater_ended_drops_a_power_event_to_its_pause() {
+    let f = fixture(manual_fan());
+    let (sender, receiver) = std::sync::mpsc::channel();
+    f.shell.listen_for_power(receiver);
+    f.shell.programs().set(&[UPDATER]);
+    let now = std::time::Instant::now();
+    f.shell.tick_at(now, SystemTime::now());
+    f.shell.look_for_razer();
+    f.shell.programs().set(&[]);
+    sender.send(PowerEvent::OnBattery).unwrap();
+    FAKE_ON_BATTERY.set(true);
+    let before = sent_count(&f);
+
+    f.shell
+        .tick_at(now + Duration::from_secs(61), SystemTime::now());
+
+    assert_eq!(sent_since(&f, before), [], "nothing in the tick");
+    pause_ends();
+    assert_ne!(sent_since(&f, before), [], "the pause's end sends");
+}
+
+#[test]
 fn a_click_that_finds_an_updater_ended_sends_after_its_pause_only() {
     let f = fixture(manual_fan());
     updater_quit_unseen(&f);
