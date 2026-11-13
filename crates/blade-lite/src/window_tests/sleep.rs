@@ -126,6 +126,224 @@ fn the_wake_sends_the_manual_fan_again_after_its_pause() {
     assert!(sets_a_manual_fan(&sent_since(&f, before)));
 }
 
+/// Where a sleep's quit preset fails (ticket 191).
+#[derive(Clone, Copy)]
+enum Cut {
+    /// After the first command of the fans-on-auto step.
+    InAutoFans,
+    /// The fans-on-auto step sent, the Balanced after it refused.
+    InBalanced,
+}
+
+/// Whether `command` sets a mode with the fans on auto.
+fn auto_fan_mode(command: &Command) -> bool {
+    command.id == SET_MODE && command.args[3] == 0
+}
+
+/// A sleep from a manual fan with its quit preset failing at `cut`, with
+/// input from the user since. Checks that the sleep sent just what the cut
+/// let through, then lets the controller take every run again.
+fn asleep_after_a_cut(f: &Fixture, cut: Cut) {
+    {
+        let mut app = f.shell.app();
+        let c = &mut app.machine_mut().controller.inner;
+        match cut {
+            Cut::InAutoFans => c.fails_after = Some(1),
+            Cut::InBalanced => c.ok_runs = Some(1),
+        }
+    }
+    let (before, runs) = (sent_count(f), f.shell.app().machine().controller.inner.runs);
+    asleep_with_input(f);
+    let sent = sent_since(f, before);
+    let balanced = PerfMode::Balanced.commands(&BLADE_18).unwrap();
+    assert!(!sent.is_empty() && auto_fan_mode(&sent[0]), "{sent:?}");
+    assert!(!sets_a_manual_fan(&sent), "{sent:?}");
+    assert!(!sent.iter().any(|c| balanced.contains(c)), "{sent:?}");
+    let mut app = f.shell.app();
+    let c = &mut app.machine_mut().controller.inner;
+    match cut {
+        Cut::InAutoFans => assert_eq!(sent.len(), 1, "{sent:?}"),
+        // Balanced was tried after the auto step, and refused.
+        Cut::InBalanced => assert_eq!((c.runs - runs, c.ok_runs), (2, Some(0))),
+    }
+    (c.fails_after, c.ok_runs) = (None, None);
+}
+
+/// After a sleep send failed at `cut`, the wake sends the whole saved
+/// preset again, what the start sent, and nothing before it; with
+/// `missed`, a wake found by a minute of input with no wake notice. So a
+/// failed quit preset needs no unsure mark.
+fn the_wake_sends_the_whole_preset_again(cut: Cut, missed: bool) {
+    let f = fixture(manual_fan());
+    let started = sent_since(&f, 0);
+    assert!(sets_a_manual_fan(&started), "{started:?}");
+    asleep_after_a_cut(&f, cut);
+    let before = sent_count(&f);
+
+    if missed {
+        tick_for(&f, SystemTime::now(), 60);
+    } else {
+        power(&f, &[PowerEvent::Resumed]);
+    }
+    pause_ends();
+
+    assert_eq!(sent_since(&f, before), started);
+}
+
+#[test]
+fn the_wake_after_a_sleep_send_cut_in_the_auto_fans_sends_the_whole_preset() {
+    the_wake_sends_the_whole_preset_again(Cut::InAutoFans, false);
+}
+
+#[test]
+fn the_wake_after_a_sleep_send_cut_in_balanced_sends_the_whole_preset() {
+    the_wake_sends_the_whole_preset_again(Cut::InBalanced, false);
+}
+
+#[test]
+fn a_missed_wake_after_a_sleep_send_cut_in_the_auto_fans_sends_the_whole_preset() {
+    the_wake_sends_the_whole_preset_again(Cut::InAutoFans, true);
+}
+
+#[test]
+fn a_missed_wake_after_a_sleep_send_cut_in_balanced_sends_the_whole_preset() {
+    the_wake_sends_the_whole_preset_again(Cut::InBalanced, true);
+}
+
+/// After a sleep send failed at `cut`, a quit with no wake sends the fans
+/// on auto, then Balanced.
+fn a_quit_while_asleep_ends_the_manual_fan(cut: Cut) {
+    let f = fixture(manual_fan());
+    asleep_after_a_cut(&f, cut);
+    let before = sent_count(&f);
+
+    f.shell.quit();
+
+    assert_the_quit_preset(&sent_since(&f, before));
+}
+
+#[test]
+fn a_quit_while_asleep_after_a_sleep_send_cut_in_the_auto_fans_sends_them_first() {
+    a_quit_while_asleep_ends_the_manual_fan(Cut::InAutoFans);
+}
+
+#[test]
+fn a_quit_while_asleep_after_a_sleep_send_cut_in_balanced_sends_the_auto_fans_first() {
+    a_quit_while_asleep_ends_the_manual_fan(Cut::InBalanced);
+}
+
+/// After a sleep send failed at `cut`, with no wake since, a new sleep
+/// notice sends the quit preset again: the fans on auto, then Balanced.
+fn a_new_sleep_notice_sends_the_failed_quit_preset_again(cut: Cut) {
+    let f = fixture(manual_fan());
+    asleep_after_a_cut(&f, cut);
+    let before = sent_count(&f);
+
+    power(&f, &[PowerEvent::Suspending]);
+
+    assert_the_quit_preset(&sent_since(&f, before));
+    let again = sent_count(&f);
+    power(&f, &[PowerEvent::Suspending]);
+    assert_eq!(sent_since(&f, again), [], "it went: once");
+    // The sleep is counted once: after the wake nothing is held.
+    power(&f, &[PowerEvent::Resumed]);
+    pause_ends();
+    assert_eq!(f.shell.kept().pauses, 0);
+}
+
+/// Checks that `sent` is the quit preset from a manual fan: the fans on
+/// auto, then Balanced.
+fn assert_the_quit_preset(sent: &[Command]) {
+    let balanced = PerfMode::Balanced.commands(&BLADE_18).unwrap();
+    assert!(sent.first().is_some_and(auto_fan_mode), "{sent:?}");
+    assert!(sent.ends_with(&balanced), "{sent:?}");
+    assert!(!sets_a_manual_fan(sent), "{sent:?}");
+}
+
+#[test]
+fn a_sleep_notice_skipped_in_a_wake_pause_goes_at_a_new_notice_once_the_pause_ends() {
+    let f = fixture(manual_fan());
+    power(&f, &[PowerEvent::Resumed]);
+    let before = sent_count(&f);
+    power(&f, &[PowerEvent::Suspending]);
+    power(&f, &[PowerEvent::Suspending]);
+    assert_eq!(sent_since(&f, before), [], "not in the pause");
+
+    pause_ends();
+    power(&f, &[PowerEvent::Suspending]);
+
+    assert_the_quit_preset(&sent_since(&f, before));
+}
+
+#[test]
+fn a_late_new_sleep_notice_after_a_cut_sends_nothing() {
+    let f = fixture(manual_fan());
+    asleep_after_a_cut(&f, Cut::InAutoFans);
+    FAKE_SLEEP_NOTICE_LATE.set(true);
+    let before = sent_count(&f);
+
+    power(&f, &[PowerEvent::Suspending]);
+
+    assert_eq!(sent_since(&f, before), []);
+}
+
+#[test]
+fn a_new_sleep_notice_while_the_app_is_busy_leaves_it_to_the_next() {
+    let f = fixture(manual_fan());
+    asleep_after_a_cut(&f, Cut::InAutoFans);
+    let before = sent_count(&f);
+    {
+        let _busy = f.shell.app();
+        power(&f, &[PowerEvent::Suspending]);
+    }
+    assert_eq!(sent_since(&f, before), []);
+
+    power(&f, &[PowerEvent::Suspending]);
+
+    assert_the_quit_preset(&sent_since(&f, before));
+}
+
+#[test]
+fn a_new_sleep_notice_after_a_quit_while_asleep_sends_nothing() {
+    let f = fixture(manual_fan());
+    asleep_after_a_cut(&f, Cut::InAutoFans);
+    f.shell.quit();
+    let before = sent_count(&f);
+
+    power(&f, &[PowerEvent::Suspending]);
+
+    assert_eq!(sent_since(&f, before), []);
+}
+
+#[test]
+fn a_new_sleep_notice_after_a_sleep_send_cut_in_the_auto_fans_sends_it_again() {
+    a_new_sleep_notice_sends_the_failed_quit_preset_again(Cut::InAutoFans);
+}
+
+#[test]
+fn a_new_sleep_notice_after_a_sleep_send_cut_in_balanced_sends_it_again() {
+    a_new_sleep_notice_sends_the_failed_quit_preset_again(Cut::InBalanced);
+}
+
+#[test]
+fn a_held_missed_wake_after_a_cut_sleep_send_sends_the_whole_preset_once_the_screen_is_on() {
+    let f = fixture(manual_fan());
+    let started = sent_since(&f, 0);
+    FAKE_SCREEN_ON.set(Some(false));
+    asleep_after_a_cut(&f, Cut::InAutoFans);
+    let before = sent_count(&f);
+    let wall = SystemTime::now();
+
+    tick_for(&f, wall, 60);
+    pause_ends();
+    assert_eq!(sent_since(&f, before), [], "held");
+    FAKE_SCREEN_ON.set(Some(true));
+    tick_for(&f, wall + Duration::from_secs(61), 0);
+    pause_ends();
+
+    assert_eq!(sent_since(&f, before), started);
+}
+
 #[test]
 fn a_second_sleep_notice_sends_nothing() {
     let f = fixture(manual_fan());

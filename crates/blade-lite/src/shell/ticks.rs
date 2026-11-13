@@ -715,7 +715,7 @@ impl<P: Parts> Shell<P> {
     /// Windows says the laptop goes to sleep or hibernates (ticket 169).
     /// On Modern Standby the controller stays powered, so a manual fan or
     /// Performance would run on in the sleep: the quit preset goes at once,
-    /// once per sleep, never after the quit. Then nothing is sent until the
+    /// once per sleep (see below for a new notice), never after the quit. Then nothing is sent until the
     /// wake, which sends the saved settings after its pause.
     ///
     /// Nothing is sent in a pause (after a wake, an open again or an
@@ -726,20 +726,41 @@ impl<P: Parts> Shell<P> {
     /// running. Nor for a notice Windows no longer waits for: the app may
     /// have been frozen and thawed since, so the controller may have just
     /// woken. Both are rare (a sleep within 2 s of such an event, or an
-    /// event loop busy for over 1 s), and logged. No retry: Windows freezes
-    /// the app a few seconds later.
+    /// event loop busy for over 1 s), and logged. No retry for the same
+    /// notice: Windows freezes the app a few seconds later.
+    ///
+    /// A quit preset that did not go (failed or not sent) goes again at a
+    /// new notice before the wake, under the same rules (ticket 191): a
+    /// sleep Windows cancels with no wake notice can be followed by a real
+    /// one. This breaks the rule that nothing is sent twice on purpose: the
+    /// quit preset sent again changes nothing, and ends a manual fan. It
+    /// goes with no 2 s pause, though Windows may have just thawed the app
+    /// (not checked on the laptop); the replies are checked, so at worst
+    /// it fails again. After a lost handle it only opens a new one, held
+    /// until the wake, so nothing goes. It does not mark the preset unsure:
+    /// nothing else is sent while
+    /// asleep, and the wake, a missed one too, sends the whole saved preset
+    /// again. The power source is not followed while asleep, so a quit then
+    /// still sends the fans on auto first if a manual Custom ran on AC
+    /// before the sleep.
     fn suspend(&self) {
         // A notice while asleep (the last sleep had no wake notice) starts
-        // the minute to a missed wake again; nothing was sent since the last.
+        // the minute to a missed wake again; only a quit preset that did
+        // not go is sent again.
         self.awake_run.set(None);
         self.missed_wake_held.set(false);
         // From the last notice: the app ran since an earlier one.
         self.slept_at.set(Some(SystemTime::now()));
         self.woke.set(false);
-        if self.asleep.get() || self.quit_sent.get() {
+        let again = self.asleep.get();
+        if (again && self.sleep_preset_sent.get()) || self.quit_sent.get() {
             return;
         }
-        if self.resuming.get() > 0 {
+        if !again {
+            self.sleep_preset_sent.set(false);
+        }
+        // The sleep's own count is no pause.
+        if self.resuming.get() > u32::from(again) {
             report(
                 "the laptop goes to sleep in the pause after a wake, an open again or an updater, so the quit preset was not sent: a manual fan or Performance may keep running in the sleep",
             );
@@ -750,8 +771,10 @@ impl<P: Parts> Shell<P> {
         } else {
             self.send_sleep_preset();
         }
-        self.asleep.set(true);
-        self.resuming.set(self.resuming.get().saturating_add(1));
+        if !again {
+            self.asleep.set(true);
+            self.resuming.set(self.resuming.get().saturating_add(1));
+        }
     }
 
     /// Sends the quit preset for a sleep, and logs how it went. The windows
@@ -766,11 +789,14 @@ impl<P: Parts> Shell<P> {
         };
         let began = Instant::now();
         match app.on_power(PowerEvent::Suspending) {
-            Ok(()) => report(&format!(
-                "the laptop goes to sleep, so the quit preset was sent ({} ms, lid {}); the settings go again at the wake",
-                began.elapsed().as_millis(),
-                said(P::lid_open(), "open", "shut")
-            )),
+            Ok(()) => {
+                self.sleep_preset_sent.set(true);
+                report(&format!(
+                    "the laptop goes to sleep, so the quit preset was sent ({} ms, lid {}); the settings go again at the wake",
+                    began.elapsed().as_millis(),
+                    said(P::lid_open(), "open", "shut")
+                ));
+            }
             Err(error) => report(&format!(
                 "the quit preset was not sent before the sleep, so a manual fan or Performance may keep running in it: {error}"
             )),

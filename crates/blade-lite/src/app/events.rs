@@ -302,7 +302,9 @@ where
     ///
     /// # Errors
     ///
-    /// See [`AppError`]. A failure stops the sends after it.
+    /// See [`AppError`]. A failure stops the sends after it, and leaves the
+    /// preset's unsure mark as it was (see the shell's `suspend`; ticket
+    /// 191).
     pub fn quit_preset(&mut self) -> Result<(), AppError> {
         // No manual fan targets may go after the quit's sends, even when
         // the first one fails (ticket 182).
