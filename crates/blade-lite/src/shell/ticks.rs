@@ -41,8 +41,18 @@ const TICK_GAP: Duration = Duration::from_secs(5);
 /// let input from before the notice in.
 const INPUT_GRACE: Duration = Duration::from_secs(30);
 
-/// What Windows said of the lid or the screen, for the log: `yes` or `no`,
-/// or "not known" if it said nothing.
+/// What Windows last said of the lid and the screen, for the log (ticket
+/// 184).
+fn lid_and_screen<P: Parts>() -> String {
+    format!(
+        "lid {}, screen {}",
+        said(P::lid_open(), "open", "shut"),
+        said(P::screen_on(), "on", "off")
+    )
+}
+
+/// What Windows said of the lid or the screen: `yes` or `no`, or "not
+/// known" if it said nothing.
 fn said(state: Option<bool>, yes: &'static str, no: &'static str) -> &'static str {
     match state {
         Some(true) => yes,
@@ -527,7 +537,10 @@ impl<P: Parts> Shell<P> {
             return;
         }
         if event == PowerEvent::Resumed {
-            report("Windows says the laptop woke, so the settings go again after the pause");
+            report(&format!(
+                "Windows says the laptop woke ({}), so the settings go again after the pause",
+                lid_and_screen::<P>()
+            ));
             self.wake();
             return;
         }
@@ -569,13 +582,8 @@ impl<P: Parts> Shell<P> {
         {
             return;
         }
-        let (lid_open, screen_on) = (P::lid_open(), P::screen_on());
-        let seen = format!(
-            "lid {}, screen {}",
-            said(lid_open, "open", "shut"),
-            said(screen_on, "on", "off")
-        );
-        if lid_open != Some(true) && screen_on != Some(true) {
+        let seen = lid_and_screen::<P>();
+        if P::lid_open() != Some(true) && P::screen_on() != Some(true) {
             if !self.missed_wake_held.replace(true) {
                 report(&format!(
                     "the app has run for a minute since Windows said the laptop sleeps, with input from the user and no wake notice, but not with the lid open or the screen on ({seen}), so the sleep goes on: nothing is sent"

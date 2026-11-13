@@ -832,6 +832,19 @@ fn with_the_lid_shut_and_the_screen_off_input_does_not_count() {
 }
 
 #[test]
+fn a_wake_notice_logs_the_lid_and_the_screen() {
+    let f = fixture(manual_fan());
+    FAKE_SCREEN_ON.set(None);
+
+    power(&f, &[PowerEvent::Suspending]);
+    power(&f, &[PowerEvent::Resumed]);
+
+    assert!(logged(&[
+        "Windows says the laptop woke (lid open, screen not known)"
+    ]));
+}
+
+#[test]
 fn the_lid_open_with_the_screen_off_lets_input_count() {
     assert!(a_missed_wake_with(Some(true), Some(false)));
     assert!(logged(&["lid open, screen off", "counts as a wake"]));
