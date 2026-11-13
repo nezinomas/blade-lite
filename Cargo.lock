@@ -582,6 +582,7 @@ dependencies = [
  "i-slint-backend-testing",
  "platform",
  "png",
+ "proptest",
  "raw-window-handle",
  "razer-device",
  "razer-proto",

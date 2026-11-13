@@ -13,6 +13,8 @@ mod logo;
 mod mic_key;
 mod power_key;
 mod presets;
+mod props;
+mod rules;
 mod settings;
 mod touchpad_key;
 mod weak_charge;
