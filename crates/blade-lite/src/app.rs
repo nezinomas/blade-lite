@@ -131,7 +131,7 @@ pub struct App<C, D, R, K> {
     /// Whether the last start, preset change or power switch failed, so
     /// the controller may not run the preset the app shows. Only a failed
     /// preset run marks it, not a lid logo or lighting send after it, or a
-    /// charger found gone at the quit (`battery_at_quit`). The
+    /// charger found gone at the quit or sleep (`battery_at_quit`). The
     /// next poll or power event sends it, even if the source is the same.
     preset_unsure: bool,
     /// The number of the last preset send, if it was a manual Custom taken

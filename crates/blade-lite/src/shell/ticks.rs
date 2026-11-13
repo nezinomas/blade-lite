@@ -742,7 +742,9 @@ impl<P: Parts> Shell<P> {
     /// asleep, and the wake, a missed one too, sends the whole saved preset
     /// again. The power source is not followed while asleep, so a quit then
     /// still sends the fans on auto first if a manual Custom ran on AC
-    /// before the sleep.
+    /// before the sleep. Each send reads the source first, as a quit does
+    /// (ticket 199): a charger pulled with no power event read for it gets
+    /// the battery quit preset.
     fn suspend(&self) {
         // A notice while asleep (the last sleep had no wake notice) starts
         // the minute to a missed wake again; only a quit preset that did
@@ -787,6 +789,7 @@ impl<P: Parts> Shell<P> {
             );
             return;
         };
+        Self::battery_read_for_quit_preset(&mut app);
         let began = Instant::now();
         match app.on_power(PowerEvent::Suspending) {
             Ok(()) => {

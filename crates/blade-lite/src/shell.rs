@@ -516,9 +516,7 @@ impl<P: Parts> Shell<P> {
         self.quit_sent.set(true);
         self.note_pending_wake();
         self.wait_out_the_pause();
-        if P::on_battery() == Some(true) {
-            app.battery_at_quit();
-        }
+        Self::battery_read_for_quit_preset(&mut app);
         // Closed however the sends end, a panic too.
         let sent = std::panic::catch_unwind(AssertUnwindSafe(|| {
             // First: the fans matter more than the rate.
@@ -565,6 +563,16 @@ impl<P: Parts> Shell<P> {
     /// nothing, and leaves its work to the last pause.
     pub(super) fn superseded(&self, pause: u64) -> bool {
         self.asleep.get() || self.pauses.get() != pause
+    }
+
+    /// Before a quit preset (a quit or a sleep), reads the power source
+    /// from Windows, which wakes no hardware: a charger pulled with no
+    /// power event read for it (just before, or in a sleep Windows
+    /// cancelled) moves the app to battery (tickets 196, 199).
+    fn battery_read_for_quit_preset(app: &mut AppOn<P>) {
+        if P::on_battery() == Some(true) {
+            app.battery_at_quit();
+        }
     }
 
     /// A wake that Windows told of but no poll has read yet starts its

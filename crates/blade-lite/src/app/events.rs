@@ -293,7 +293,7 @@ where
     /// left to watch a manual fan or a charger pulled. Always sent, as what
     /// the controller runs may differ from the config after a failed send.
     /// If a manual fan is saved and Custom runs, the last preset send
-    /// failed or the source changed at the quit (`battery_at_quit`), Custom with the fans on auto goes first (with the lowest
+    /// failed or the source changed at the quit or sleep (`battery_at_quit`), Custom with the fans on auto goes first (with the lowest
     /// boosts when Custom is not what should run), the known way to end a
     /// manual fan; whether the preset's own mode write ends it too is not
     /// checked on the laptop. The saved preset is kept, so the next start
@@ -341,9 +341,9 @@ where
         Ok(self.send_preset(&last)?)
     }
 
-    /// Follows battery at a quit when a read says so, but no power event
-    /// was read for it (dropped in a sleep or just before the quit; ticket
-    /// 196), so the quit preset ends a manual fan with the lowest boosts.
+    /// Follows battery at a quit or a sleep when a read says so, but no
+    /// power event was read for it (dropped in a sleep or just before; tickets
+    /// 196, 199), so the quit preset ends a manual fan with the lowest boosts.
     /// Nothing is sent. The controller still runs what was sent for the
     /// charger, so a change of the preset that runs marks it unsure. Never
     /// toward the charger: a weak charge would be missed.
@@ -354,7 +354,7 @@ where
         let before = self.running(self.config).preset;
         self.power = Power::Battery;
         if self.running(self.config).preset != before {
-            report("the charger is gone at the quit, so the battery quit preset is sent");
+            report("the charger is gone, so the battery quit preset is sent");
             self.preset_unsure = true;
         }
     }
