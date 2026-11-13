@@ -10,8 +10,15 @@ use crate::popup::{HEAT_GAP, HEAT_MAX, Sensor};
 /// How long every sensor read must stay cool before the saved speed goes
 /// back.
 pub const FAN_GUARD_COOL_HOLD: Duration = Duration::from_secs(60);
+/// After a long sleep, how long the first readings must stay cool before
+/// the saved speed goes back (ticket 172, 10 to 20 s offered: the longer
+/// one, as a game run on after the wake reads cool at first).
+pub const FAN_GUARD_WAKE_HOLD: Duration = Duration::from_secs(20);
 /// A sensor is cool this far under its guard limit.
 const COOL_MARGIN: u32 = 10;
+/// The longest time between two readings of the short hold after a sleep:
+/// three reads missed at the 2 s guard interval end it.
+const WAKE_GAP: Duration = Duration::from_secs(6);
 
 impl Sensor {
     /// A reading at or above this, in °C, is hot for the guard (user pick,
@@ -40,6 +47,15 @@ pub struct FanGuard {
     gpu_failed_at: Option<Instant>,
     /// Whether it is on only because the GPU's reads failed lately.
     held_by_gpu_fault: bool,
+    /// `Some` after a long sleep while every reading since was cool.
+    wake: Option<WakeHold>,
+}
+
+/// The cool readings since a long sleep's wake: the first and the last.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+struct WakeHold {
+    since: Option<Instant>,
+    last: Option<Instant>,
 }
 
 /// One sensor's recent readings.
@@ -66,6 +82,17 @@ impl FanGuard {
         self.held_by_gpu_fault
     }
 
+    /// The laptop woke from a long sleep (ticket 172): if on, the readings
+    /// from now on end it after [`FAN_GUARD_WAKE_HOLD`], not
+    /// [`FAN_GUARD_COOL_HOLD`], while each is cool: the CPU read and
+    /// [`COOL_MARGIN`] under its limit, the GPU too or asleep (not read, no
+    /// failed read). The first reading that is not, or a gap of over
+    /// [`WAKE_GAP`], leaves the usual hold. Returns whether it is on.
+    pub fn woke(&mut self) -> bool {
+        self.wake = self.on.then(WakeHold::default);
+        self.on
+    }
+
     /// Notes whether the last GPU read failed, before [`note`](Self::note)
     /// takes its `None`.
     pub fn gpu_failed(&mut self, failed: bool) {
@@ -85,7 +112,9 @@ impl FanGuard {
         self.cpu.note(cpu, Sensor::Cpu.guard_limit(), now);
         self.gpu.note(gpu, Sensor::Gpu.guard_limit(), now);
         self.held_by_gpu_fault = false;
-        let next = if self.on {
+        let next = if self.on && self.wake_hold_done(cpu, gpu, now) {
+            false
+        } else if self.on {
             let cpu_cool = self.cpu.settled(now) == Some(true);
             let gpu_settled = self.gpu.settled(now);
             // Not read lately: a GPU asleep cools, but only once no read has
@@ -102,7 +131,38 @@ impl FanGuard {
         };
         let changed = next != self.on;
         self.on = next;
+        if !next {
+            self.wake = None;
+        }
         changed.then_some(next)
+    }
+
+    /// Takes a reading into the short hold after a long sleep, if one runs.
+    /// Returns whether the readings have stayed cool for
+    /// [`FAN_GUARD_WAKE_HOLD`]. A reading that is not cool, or a gap, ends
+    /// the short hold.
+    fn wake_hold_done(&mut self, cpu: Option<u32>, gpu: Option<u32>, now: Instant) -> bool {
+        let Some(mut hold) = self.wake.take() else {
+            return false;
+        };
+        let cool = |celsius: u32, sensor: Sensor| {
+            celsius < sensor.guard_limit().saturating_sub(COOL_MARGIN)
+        };
+        let cpu_cool = cpu.is_some_and(|celsius| cool(celsius, Sensor::Cpu));
+        let gpu_cool = !self.gpu_failing && gpu.is_none_or(|celsius| cool(celsius, Sensor::Gpu));
+        let gap = hold
+            .last
+            .is_some_and(|last| now.saturating_duration_since(last) > WAKE_GAP);
+        if !cpu_cool || !gpu_cool || gap {
+            return false;
+        }
+        let since = *hold.since.get_or_insert(now);
+        hold.last = Some(now);
+        if now.saturating_duration_since(since) >= FAN_GUARD_WAKE_HOLD {
+            return true;
+        }
+        self.wake = Some(hold);
+        false
     }
 }
 
