@@ -8,8 +8,9 @@ use windows_sys::Win32::Graphics::Gdi::{
     GetMonitorInfoW, MONITOR_DEFAULTTONEAREST, MONITORINFO, MonitorFromPoint,
 };
 use windows_sys::Win32::UI::WindowsAndMessaging::{
-    GWL_EXSTYLE, GetWindowLongPtrW, HWND_TOPMOST, SPI_GETWORKAREA, SWP_NOACTIVATE, SWP_NOMOVE,
-    SWP_NOSIZE, SetWindowPos, SystemParametersInfoW, WS_EX_TOPMOST,
+    GW_HWNDPREV, GW_OWNER, GWL_EXSTYLE, GetWindow, GetWindowLongPtrW, GetWindowRect, HWND_TOPMOST,
+    IsWindowVisible, SPI_GETWORKAREA, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SetWindowPos,
+    SystemParametersInfoW, WS_EX_TOPMOST,
 };
 
 const NO_RECT: RECT = RECT {
@@ -72,12 +73,66 @@ pub fn work_area_at((x, y): (i32, i32)) -> io::Result<(i32, i32, i32, i32)> {
 ///
 /// The Windows error if the call fails, such as for a handle that is not a
 /// live window, or an error if the call says it worked but the window is
-/// still not topmost (ticket 181 saw that once).
+/// still not topmost (ticket 181 saw that once) or a shown topmost window
+/// is still above it (ticket 195).
 pub fn raise_topmost(hwnd: isize) -> io::Result<()> {
     let flags = SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE;
     // SAFETY: a plain call on a handle; a bad handle only makes it fail.
     let done = unsafe { SetWindowPos(hwnd as HWND, HWND_TOPMOST, 0, 0, 0, 0, flags) };
-    raised(done, done != 0 && is_topmost(hwnd))
+    raised(done, done != 0 && is_topmost(hwnd))?;
+    if covered(hwnd) {
+        return Err(io::Error::other("a topmost window is still above it"));
+    }
+    Ok(())
+}
+
+/// The most windows the z-order walk reads. The order can change during
+/// the walk, so a cap makes sure it ends.
+const MAX_WINDOWS_ABOVE: usize = 10_000;
+
+/// Whether a shown topmost window of another owner is above the window and
+/// meets its area. Windows that meet none of it are left out: Windows keeps
+/// a shown 1x1 `ThumbnailDeviceHelperWnd` at (0, 0) above every raise.
+fn covered(hwnd: isize) -> bool {
+    let Some(area) = window_rect(hwnd as HWND) else {
+        return false;
+    };
+    let mut next = hwnd as HWND;
+    for _ in 0..MAX_WINDOWS_ABOVE {
+        // SAFETY: a plain call on a handle; the walk ends at the top with
+        // null.
+        next = unsafe { GetWindow(next, GW_HWNDPREV) };
+        if next.is_null() {
+            return false;
+        }
+        // SAFETY: plain calls on a handle; a window that went meanwhile
+        // only reads as hidden and unowned.
+        let (shown, owner) = unsafe { (IsWindowVisible(next) != 0, GetWindow(next, GW_OWNER)) };
+        let in_sight = shown && window_rect(next).is_some_and(|above| overlap(above, area));
+        if covers(in_sight, is_topmost(next as isize), owner as isize == hwnd) {
+            return true;
+        }
+    }
+    false
+}
+
+/// Whether a window above the popup covers it: in sight over it, topmost,
+/// and not one of the popup's own.
+const fn covers(in_sight: bool, topmost: bool, owned_by_popup: bool) -> bool {
+    in_sight && topmost && !owned_by_popup
+}
+
+/// The window's rect on the screen, or `None` if Windows can't read it.
+fn window_rect(hwnd: HWND) -> Option<RECT> {
+    let mut rect = NO_RECT;
+    // SAFETY: the pointer is to a local RECT that outlives the call; a bad
+    // handle only makes it fail.
+    (unsafe { GetWindowRect(hwnd, &raw mut rect) } != 0).then_some(rect)
+}
+
+/// Whether two rects share at least one pixel.
+const fn overlap(a: RECT, b: RECT) -> bool {
+    a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom
 }
 
 /// The raise's result from what `SetWindowPos` returned and whether the
@@ -114,16 +169,17 @@ const fn sides(area: RECT) -> (i32, i32, i32, i32) {
 mod tests {
     use std::ptr::null_mut;
 
-    use windows_sys::Win32::Foundation::HWND;
+    use windows_sys::Win32::Foundation::{HWND, RECT};
     use windows_sys::Win32::UI::WindowsAndMessaging::{
         CreateWindowExW, DestroyWindow, GW_HWNDNEXT, GetWindow, SWP_NOACTIVATE, SWP_NOMOVE,
         SWP_NOSIZE, SetWindowPos, WS_EX_TOPMOST, WS_POPUP,
     };
 
-    use super::{is_topmost, raise_topmost, raised};
+    use super::{covered, covers, is_topmost, overlap, raise_topmost, raised};
     use crate::wide;
 
-    /// A hidden popup, topmost or not.
+    /// A hidden popup, topmost or not, away from the screen's corner (where
+    /// Windows keeps a 1x1 helper window above everything).
     fn window(ex_style: u32) -> isize {
         let class = wide("STATIC");
         // SAFETY: the class name outlives the call; every other pointer is
@@ -134,8 +190,8 @@ mod tests {
                 class.as_ptr(),
                 null_mut(),
                 WS_POPUP,
-                0,
-                0,
+                100,
+                100,
                 100,
                 100,
                 null_mut(),
@@ -229,6 +285,48 @@ mod tests {
     #[test]
     fn a_raise_that_made_the_window_topmost_is_ok() {
         assert!(raised(1, true).is_ok());
+    }
+
+    #[test]
+    fn only_a_shown_topmost_window_of_another_owner_covers() {
+        // As a full-screen game that went on top again (ticket 195).
+        assert!(covers(true, true, false));
+        assert!(!covers(false, true, false), "a window out of sight covers nothing");
+        assert!(!covers(true, false, false), "a plain window is under it");
+        assert!(!covers(true, true, true), "the popup's own windows are its part");
+    }
+
+    #[test]
+    fn rects_overlap_only_when_they_share_a_pixel() {
+        let rect = |left, top, right, bottom| RECT {
+            left,
+            top,
+            right,
+            bottom,
+        };
+        let popup = rect(100, 100, 200, 200);
+        assert!(overlap(rect(0, 0, 1920, 1080), popup), "a full screen");
+        assert!(overlap(rect(199, 199, 300, 300), popup), "one corner pixel");
+        assert!(!overlap(rect(0, 0, 1, 1), popup), "the corner helper");
+        assert!(!overlap(rect(200, 100, 300, 200), popup), "edge to edge");
+        assert!(!overlap(rect(100, 200, 200, 300), popup), "edge to edge below");
+    }
+
+    #[test]
+    fn a_hidden_topmost_window_above_does_not_cover() {
+        // Windows keeps hidden windows of the popup's thread (such as the
+        // IME's) in the z-order; they must not count as a miss.
+        let popup = window(WS_EX_TOPMOST);
+        raise_topmost(popup).unwrap();
+        let game = window(WS_EX_TOPMOST);
+        let game_above = above(game, popup);
+
+        let covered = covered(popup);
+
+        destroy(game);
+        destroy(popup);
+        assert!(game_above, "the test needs the game above the popup");
+        assert!(!covered);
     }
 
     #[test]
