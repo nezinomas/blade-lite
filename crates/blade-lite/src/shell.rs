@@ -311,8 +311,9 @@ pub struct Shell<P: Parts = Laptop> {
     /// The warning for the Razer software last found, shown above the
     /// groups while it runs.
     razer_warning: RefCell<Option<String>>,
-    /// Whether a Razer updater ended since the last tick, which then sends
-    /// the settings again.
+    /// Whether a Razer updater was found ended and its pause has not begun:
+    /// the tick or a click begins it, or in a pause, that pause's end
+    /// (ticket 179). Its end sends the settings again.
     updater_ended: Cell<bool>,
     /// When Razer software was last looked for by the poll.
     razer_looked: Cell<Option<Instant>>,
@@ -661,10 +662,12 @@ impl<P: Parts> Shell<P> {
     /// puts back a switch the click flipped. After a sleep notice with no
     /// wake since, it says so, as no wake may ever come.
     pub fn user_act(self: &Rc<Self>, change: impl FnOnce(&mut AppOn<P>) -> Result<(), AppError>) {
-        // A Razer updater may have started since the last look.
+        // A Razer updater may have started since the last look, or ended:
+        // its pause then comes first, so the click sends nothing (179).
         if self.look_for_razer() {
             self.show_window();
         }
+        self.start_after_updater();
         self.follow_own_power();
         if self.asleep.get() {
             self.refresh(Some(&AppError::Asleep));

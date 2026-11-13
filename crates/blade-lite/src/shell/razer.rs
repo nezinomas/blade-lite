@@ -60,8 +60,10 @@ impl<P: Parts> Shell<P> {
 
     /// After a Razer updater ended: waits the wake's pause, as the
     /// controller may restart, then reads the firmware again (the update may
-    /// have changed it) and sends every setting again. Not in a pause: the
-    /// last pause's end begins it (see [`Self::wait_for_updater`]).
+    /// have changed it) and sends every setting again. Begun by the tick, or
+    /// by a click or the last pause's end that found the updater's end (see
+    /// [`Self::wait_for_updater`]). Not in a pause: the flag waits for the
+    /// pause's end then.
     pub(super) fn start_after_updater(self: &Rc<Self>) {
         if self.resuming.get() > 0 || !self.updater_ended.take() {
             return;
@@ -81,6 +83,10 @@ impl<P: Parts> Shell<P> {
                 shell.end_wake_pause();
                 return;
             }
+            // The updater may have run again and ended in this pause.
+            if shell.look_then_wait_for_updater() {
+                return;
+            }
             // Begun at an open again's end: its release (ticket 179).
             if shell.redo_at_wake.take() {
                 P::release_controller();
@@ -95,6 +101,15 @@ impl<P: Parts> Shell<P> {
             // guard reads at the next tick, not one skipped as late (171).
             shell.schedule.borrow_mut().read_heat_now();
         });
+    }
+
+    /// At the last pause's end: looks for Razer software (the window opens
+    /// on the run's first find), then [`Self::wait_for_updater`].
+    pub(super) fn look_then_wait_for_updater(self: &Rc<Self>) -> bool {
+        if self.look_for_razer() {
+            self.show_window();
+        }
+        self.wait_for_updater()
     }
 
     /// At the last pause's end, after its look: an updater found ended in

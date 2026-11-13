@@ -491,8 +491,71 @@ fn an_updater_found_ended_at_the_wake_s_end_gets_its_own_pause() {
     let before = sent_count(&f);
     let firmware = firmware_reads(&f);
 
+    FAKE_RELEASED.set(false);
+
     power(&f, &[PowerEvent::Resumed]);
     step(2001);
+
+    assert!(!FAKE_RELEASED.get(), "no release at the wake's end");
+    the_updater_gets_its_own_pause(&f, before, firmware);
+    assert!(FAKE_RELEASED.get(), "the updater's end releases the handle");
+}
+
+#[test]
+fn a_sleep_in_the_updater_s_own_pause_leaves_the_send_to_the_next_wake() {
+    let f = fixture(manual_fan());
+    updater_quit_unseen(&f);
+    power(&f, &[PowerEvent::Resumed]);
+    step(3000);
+    power(&f, &[PowerEvent::Suspending]);
+    let before = sent_count(&f);
+    let firmware = firmware_reads(&f);
+    step(1100);
+    assert_eq!(sent_since(&f, before), [], "nothing at the updater's end");
+
+    power(&f, &[PowerEvent::Resumed]);
+    pause_ends();
+
+    let targets = sent_since(&f, before)
+        .iter()
+        .filter(|c| c.id == SET_FAN_TARGET)
+        .count();
+    assert_eq!(
+        targets,
+        BLADE_18.custom.fan_zones.len(),
+        "the wake sends once"
+    );
+    assert_eq!(firmware_reads(&f) - firmware, 1, "and reads the firmware");
+}
+
+#[test]
+fn an_updater_that_runs_again_and_ends_in_its_own_pause_gets_a_new_pause() {
+    let f = fixture(manual_fan());
+    updater_ends(&f);
+    step(1000);
+    // Two clicks look: the updater runs again, then has ended again.
+    f.shell.programs().set(&[UPDATER]);
+    click(f.shell.window(), Button, "Balanced");
+    f.shell.programs().set(&[]);
+    click(f.shell.window(), Button, "Balanced");
+    let before = sent_count(&f);
+    let firmware = firmware_reads(&f);
+    step(1001);
+
+    the_updater_gets_its_own_pause(&f, before, firmware);
+    let sent = sent_count(&f);
+    f.shell.tick();
+    assert_eq!(sent_count(&f), sent, "the next tick sends nothing more");
+}
+
+#[test]
+fn a_click_that_finds_an_updater_ended_sends_after_its_pause_only() {
+    let f = fixture(manual_fan());
+    updater_quit_unseen(&f);
+    let before = sent_count(&f);
+    let firmware = firmware_reads(&f);
+
+    click(f.shell.window(), Button, "Balanced");
 
     the_updater_gets_its_own_pause(&f, before, firmware);
 }

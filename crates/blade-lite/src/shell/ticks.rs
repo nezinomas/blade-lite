@@ -68,10 +68,11 @@ impl<P: Parts> Shell<P> {
     pub(crate) fn tick_at(self: &Rc<Self>, now: Instant, wall: SystemTime) {
         let failures = self.app.borrow().preset_failures();
         let looked = self.look_for_razer_now_and_then(now);
+        // Before any send: an updater end just found waits its pause.
+        self.start_after_updater();
         self.follow_own_power();
         self.follow_missed_wake(wall);
         self.follow_long_sleep(wall);
-        self.start_after_updater();
         self.send_fan_targets_again(now);
         if looked {
             self.read_firmware_if_unread();
@@ -191,12 +192,8 @@ impl<P: Parts> Shell<P> {
                         shell.end_wake_pause();
                         return;
                     }
-                    let first = shell.look_for_razer();
-                    if first {
-                        shell.show_window();
-                    }
                     // An updater that just ended: its own pause sends.
-                    if shell.wait_for_updater() {
+                    if shell.look_then_wait_for_updater() {
                         return;
                     }
                     // This start covers an older pause that left its work
@@ -608,14 +605,11 @@ impl<P: Parts> Shell<P> {
     }
 
     /// The end of the last pause after a wake (the wake's own, or an open
-    /// again begun in it): sends the saved settings.
+    /// again or an updater's begun in it): sends the saved settings. An
+    /// updater found ended then gets its own pause first (ticket 179).
     pub(super) fn end_wake_pause(self: &Rc<Self>) {
-        let first = self.look_for_razer();
-        if first {
-            self.show_window();
-        }
         // An updater that just ended: its own pause sends.
-        if self.wait_for_updater() {
+        if self.look_then_wait_for_updater() {
             return;
         }
         self.wake_due.set(false);
