@@ -3,7 +3,7 @@
 
 use std::time::{Duration, Instant};
 
-use ui::{FAN_GUARD_COOL_HOLD, FAN_GUARD_WAKE_HOLD, FanGuard};
+use ui::{FAN_GUARD_COOL_HOLD, FAN_GUARD_WAKE_HOLD, FanGuard, Sensor};
 
 const SECOND: Duration = Duration::from_secs(1);
 /// A hot spell long enough for any test.
@@ -112,6 +112,16 @@ fn the_gpu_is_cool_20_degrees_under_its_limit() {
         Some(66),
     );
     assert_eq!(changes, [false]);
+}
+
+#[test]
+fn each_cool_line_is_under_its_guard_limit() {
+    for sensor in [Sensor::Cpu, Sensor::Gpu] {
+        assert!(
+            sensor.guard_cool_line() < sensor.guard_limit(),
+            "{sensor:?}"
+        );
+    }
 }
 
 #[test]
@@ -319,6 +329,11 @@ fn a_warm_cpu_after_a_long_sleep_keeps_the_usual_hold() {
 #[test]
 fn a_warm_gpu_after_a_long_sleep_keeps_the_usual_hold() {
     usual_hold_after(Some(70), Some(77), false);
+}
+
+#[test]
+fn a_gpu_under_load_after_a_long_sleep_keeps_the_usual_hold() {
+    usual_hold_after(Some(70), Some(74), false);
 }
 
 #[test]

@@ -95,8 +95,9 @@ impl FanGuard {
     /// The laptop woke from a long sleep (ticket 172): if on, the readings
     /// from now on end it after [`FAN_GUARD_WAKE_HOLD`], not
     /// [`FAN_GUARD_COOL_HOLD`], while each is cool: the CPU read and under
-    /// its [`guard_cool_line`](Sensor::guard_cool_line), the GPU too or asleep (not read, no
-    /// failed read). The first reading that is not, or a gap of over
+    /// its [`guard_cool_line`](Sensor::guard_cool_line), the GPU too or
+    /// asleep (not read, no failed read). The first reading that is not,
+    /// or a gap of over
     /// [`WAKE_GAP`], leaves the usual hold. Returns whether it is on.
     pub fn woke(&mut self) -> bool {
         self.wake = self.on.then(WakeHold::default);
