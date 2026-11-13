@@ -30,8 +30,10 @@ use ui::{FanGuard, HeatWatch, ModeWatch, TouchpadWatch};
 
 use popup::{POPUP_HOLD, POWER_MODE};
 #[cfg(test)]
+pub(crate) use ticks::BY_A_POLL;
+#[cfg(test)]
 pub use ticks::FULL_SPEED_SENT_AGAIN;
-use ticks::WITH_THE_PRESET;
+pub(crate) use ticks::WITH_THE_PRESET;
 
 use crate::{FlyoutWindow, MainWindow, ModePopup, bind};
 

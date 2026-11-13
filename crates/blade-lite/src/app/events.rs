@@ -8,7 +8,7 @@ use blade_core::{
 use platform::{DisplayApi, KeyInjector, PowerEvent, Registry};
 use razer_proto::RedKeys;
 
-use super::{App, AppError, FullSpeed, NOT_UNDERSTOOD, Power};
+use super::{App, AppError, NOT_UNDERSTOOD, Power};
 use crate::report;
 
 impl<C, D, R, K> App<C, D, R, K>
@@ -33,7 +33,7 @@ where
         let red = self.key_should_be_red();
         let applied = apply(&config, self.model, &mut self.machine.controller, red);
         self.key_red = applied.is_ok().then_some(red);
-        self.note_preset_send(&applied);
+        self.note_preset_send(&config, &applied);
         self.check_preset_if_sent(&config, &applied);
         self.note_fan_targets(&config, &applied);
         self.read_logo();
@@ -250,7 +250,7 @@ where
         match &applied {
             Ok(()) => {
                 self.preset_unsure = false;
-                self.full_speed = FullSpeed::Sent;
+                self.note_full_speed(&config);
             }
             Err(ApplyError::Device(_)) => self.preset_send_failed(),
             Err(_) => {}
@@ -272,7 +272,7 @@ where
         let config = self.running(self.config);
         if config.preset != before || self.preset_unsure {
             let applied = self.send_preset(&config);
-            self.note_preset_send(&applied);
+            self.note_preset_send(&config, &applied);
             applied?;
         }
         Ok(())

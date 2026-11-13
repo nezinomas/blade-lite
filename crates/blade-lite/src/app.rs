@@ -409,13 +409,14 @@ where
     /// taken in part is sent again on the next few polls. A value refused
     /// before anything was sent leaves the controller, and so the flag, as
     /// they were. A preset taken before a lid logo or lighting error is
-    /// sure, and drops a rate error held for a resend.
-    fn note_preset_send(&mut self, applied: &Result<(), ApplyError>) {
+    /// sure, and drops a rate error held for a resend. It takes the guard's
+    /// full speed only if `sent` carried it (ticket 180).
+    fn note_preset_send(&mut self, sent: &Config, applied: &Result<(), ApplyError>) {
         match applied {
             Ok(()) | Err(ApplyError::AfterPreset(_)) => {
                 self.preset_unsure = false;
                 self.held_rate_error = None;
-                self.full_speed = FullSpeed::Sent;
+                self.note_full_speed(sent);
             }
             Err(ApplyError::Device(_)) => self.preset_send_cut(),
             Err(_) => {}
@@ -434,6 +435,17 @@ where
     pub fn manual_fan_runs(&self) -> bool {
         let running = self.running(self.config);
         running.preset == Preset::Custom && running.custom.fan_rpm.is_some()
+    }
+
+    /// Notes the guard's full speed sent if `sent`, a preset that went,
+    /// carried it: Custom with the manual fan at the boost (ticket 180).
+    fn note_full_speed(&mut self, sent: &Config) {
+        if self.fan_boost.is_some()
+            && sent.preset == Preset::Custom
+            && sent.custom.fan_rpm == self.fan_boost
+        {
+            self.full_speed = FullSpeed::Sent;
+        }
     }
 
     /// Holds every send and read while a Razer updater runs, or lets them
@@ -691,7 +703,7 @@ where
             return Ok(false);
         }
         let applied = self.send_preset(&running);
-        self.note_preset_send(&applied);
+        self.note_preset_send(&running, &applied);
         if on && matches!(applied, Err(ApplyError::Device(_))) {
             self.full_speed = FullSpeed::Unsent;
         }

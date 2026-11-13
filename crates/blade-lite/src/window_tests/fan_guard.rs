@@ -8,7 +8,8 @@ use platform::PowerEvent;
 use razer_proto::BLADE_18;
 use ui::PerformanceCommand;
 
-use crate::shell::FULL_SPEED_SENT_AGAIN;
+use crate::fakes::FakeCharger;
+use crate::shell::{BY_A_POLL, FULL_SPEED_SENT_AGAIN, WITH_THE_PRESET};
 
 use super::sleep::{pause_ends, power};
 use super::{FAKE_GPU, FAKE_INPUT_AGE, FakeGpu, Fixture, fixture, fixture_with_programs, log_path};
@@ -148,7 +149,7 @@ fn a_poll_that_takes_the_guard_s_failed_full_speed_says_so_once() {
 
     ticks(&f, start, Duration::from_secs(8), 96);
 
-    assert_eq!(sent_again(), ["by a poll"]);
+    assert_eq!(sent_again(), [BY_A_POLL]);
 }
 
 /// The guard's lines that say its failed full-speed send went later.
@@ -175,7 +176,7 @@ fn a_click_that_takes_the_guard_s_failed_full_speed_says_so() {
         .user_act(|app| app.on_performance(PerformanceCommand::SetFanRpm(Some(2000))));
 
     assert!(!f.shell.app().boost_unsent());
-    assert_eq!(sent_again(), ["with the preset"]);
+    assert_eq!(sent_again(), [WITH_THE_PRESET]);
 }
 
 #[test]
@@ -187,7 +188,7 @@ fn a_wake_that_takes_the_guard_s_failed_full_speed_says_so() {
     pause_ends();
 
     assert!(!f.shell.app().boost_unsent());
-    assert_eq!(sent_again(), ["with the preset"]);
+    assert_eq!(sent_again(), [WITH_THE_PRESET]);
 }
 
 #[test]
@@ -205,11 +206,33 @@ fn a_failed_click_says_nothing_of_the_guard_s_full_speed() {
 #[test]
 fn a_click_off_custom_says_nothing_of_the_guard_s_full_speed() {
     let f = full_speed_unsent();
+    let before = sent_count(&f);
 
     f.shell
         .user_act(|app| app.on_performance(PerformanceCommand::SetPreset(Preset::Balanced)));
 
+    assert_ne!(sent_count(&f), before, "Balanced went");
+    assert!(f.shell.app().boost_unsent(), "Balanced did not carry it");
     assert_eq!(sent_again(), [""; 0]);
+}
+
+#[test]
+fn the_full_charger_back_that_takes_the_guard_s_failed_full_speed_says_so() {
+    let f = full_speed_unsent();
+    f.shell.app().machine_mut().controller.inner.charger = FakeCharger::UsbC;
+    let now = ticks(&f, Instant::now(), Duration::ZERO, 96);
+    assert!(
+        !f.shell.app().manual_fan_runs(),
+        "Balanced on a weak charge"
+    );
+    assert_eq!(sent_again(), [""; 0]);
+    f.shell.app().machine_mut().controller.inner.charger = FakeCharger::Razer;
+
+    ticks(&f, now, blade_core::HEAT_INTERVAL * 3, 96);
+
+    assert!(f.shell.app().manual_fan_runs());
+    assert!(!f.shell.app().boost_unsent());
+    assert_eq!(sent_again(), [WITH_THE_PRESET]);
 }
 
 #[test]

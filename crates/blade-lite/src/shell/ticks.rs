@@ -45,9 +45,13 @@ const INPUT_GRACE: Duration = Duration::from_secs(30);
 /// full speed after a short cool hold (ticket 172): the chips cooled in it.
 const LONG_SLEEP: Duration = Duration::from_mins(5);
 
-/// How a start, wake or click sent the guard's failed full speed, for its
-/// log line (ticket 180).
-pub(super) const WITH_THE_PRESET: &str = "with the preset";
+/// How a change run through `act`, or a charger change, sent the guard's
+/// failed full speed, for its log line (ticket 180).
+pub(crate) const WITH_THE_PRESET: &str = "with the preset";
+
+/// How a poll's resend sent the guard's failed full speed, for its log
+/// line (ticket 163).
+pub(crate) const BY_A_POLL: &str = "by a poll";
 
 #[cfg(test)]
 thread_local! {
@@ -241,7 +245,7 @@ impl<P: Parts> Shell<P> {
         }
         let unsent = self.app.borrow().boost_unsent();
         let sent = self.app.borrow_mut().resend_preset();
-        self.say_full_speed_sent_again(unsent, "by a poll");
+        self.say_full_speed_sent_again(unsent, BY_A_POLL);
         if let Err(error) = sent {
             self.act(|_| Err(error));
         }
@@ -249,11 +253,9 @@ impl<P: Parts> Shell<P> {
 
     /// Logs that the guard's failed full-speed send went `how`, if it was
     /// `unsent` before a send that took it: its own log line said nothing
-    /// went (tickets 163, 180). Not when the guard is off or no manual fan
-    /// runs: the full speed did not go then.
+    /// went (tickets 163, 180).
     pub(super) fn say_full_speed_sent_again(&self, unsent: bool, how: &'static str) {
-        let app = self.app.borrow();
-        if unsent && !app.boost_unsent() && self.fan_guard.get().on() && app.manual_fan_runs() {
+        if unsent && !self.app.borrow().boost_unsent() {
             report(&format!("fan guard: Full speed, sent again {how}"));
             #[cfg(test)]
             FULL_SPEED_SENT_AGAIN.with_borrow_mut(|lines| lines.push(how));
@@ -275,7 +277,9 @@ impl<P: Parts> Shell<P> {
         if !self.heat_reads_allowed() {
             return false;
         }
+        let unsent = self.app.borrow().boost_unsent();
         let changed = self.app.borrow_mut().follow_charger();
+        self.say_full_speed_sent_again(unsent, WITH_THE_PRESET);
         let acted = !matches!(changed, Ok(false));
         if acted {
             self.act(|_| changed.map(|_| ()));
