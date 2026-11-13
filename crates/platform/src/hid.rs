@@ -45,9 +45,11 @@ const LIST_TRIES: usize = 3;
 /// How many input reports Windows keeps for a collection, as hidapi set.
 const INPUT_BUFFERS: u32 = 64;
 
-/// The longest wait for a feature report (ticket 197). The controller
-/// answers in milliseconds; one that never answers must not stall the
-/// event-loop thread for good, as hidapi's wait with no limit could.
+/// The longest wait for a feature report (ticket 197), then the read is
+/// cancelled. The controller answers in milliseconds (not measured after
+/// a resume); one that never answers no longer stalls the event-loop
+/// thread for good, as hidapi's wait with no limit could, unless its
+/// driver ignores the cancel too (ticket 201).
 const FEATURE_WAIT: Duration = Duration::from_secs(3);
 
 /// The paths of the HID interfaces that are present. Read from Windows'
@@ -270,7 +272,7 @@ impl HidDevice {
                 &raw mut overlapped,
             )
         };
-        let read = feature_count(self.finish(ok != 0, &overlapped, Some(FEATURE_WAIT))?)?;
+        let read = feature_count(finish(&self.handle, ok != 0, &overlapped, FEATURE_WAIT)?)?;
         let read = usize::try_from(read).map_err(io::Error::other)?;
         Ok(if buffer.first() == Some(&0) {
             read + 1
@@ -303,7 +305,7 @@ impl HidDevice {
                 &raw mut overlapped,
             )
         };
-        let Some(read) = self.finish(ok != 0, &overlapped, Some(wait))? else {
+        let Some(read) = finish(&self.handle, ok != 0, &overlapped, wait)? else {
             return Ok(0);
         };
         let read = usize::try_from(read).map_err(io::Error::other)?;
@@ -326,66 +328,64 @@ impl HidDevice {
             ..OVERLAPPED::default()
         }
     }
+}
 
-    /// Waits for a request to end and gives its byte count. With a
-    /// `wait`, a request still running then is cancelled and waited for,
-    /// and gives `None` unless it ended first.
-    fn finish(
-        &self,
-        started: bool,
-        overlapped: &OVERLAPPED,
-        wait: Option<Duration>,
-    ) -> io::Result<Option<u32>> {
-        if !started {
-            let error = io::Error::last_os_error();
-            if error.raw_os_error() != Some(code(ERROR_IO_PENDING)) {
-                return Err(error);
-            }
-        }
-        let mut count = 0;
-        let millis = wait.map_or(u32::MAX, |wait| {
-            // u32::MAX is no limit: the longest real wait is one less.
-            u32::try_from(wait.as_millis()).map_or(u32::MAX - 1, |millis| millis.min(u32::MAX - 1))
-        });
-        // SAFETY: the overlapped is the running request's; Windows writes
-        // only the count.
-        if unsafe { GetOverlappedResultEx(self.handle.0, overlapped, &raw mut count, millis, 0) }
-            != 0
-        {
-            return Ok(Some(count));
-        }
+/// Waits up to `wait` for a request on `handle` to end and gives its byte
+/// count. A request still running then is cancelled and waited for, and
+/// gives `None` unless it ended first.
+fn finish(
+    handle: &Handle,
+    started: bool,
+    overlapped: &OVERLAPPED,
+    wait: Duration,
+) -> io::Result<Option<u32>> {
+    if !started {
         let error = io::Error::last_os_error();
-        // A wait of 0 ms says "incomplete" where a longer one says "timed out".
-        let still_running = [code(WAIT_TIMEOUT), code(ERROR_IO_INCOMPLETE)];
-        if !still_running.contains(&error.raw_os_error().unwrap_or(0)) {
-            // Most such errors are the request's own, so it has ended; but
-            // a failed wait leaves it running, and its buffer must not be
-            // freed under it. Cancel and wait to be sure.
-            let _ = self.cancel(overlapped);
+        if error.raw_os_error() != Some(code(ERROR_IO_PENDING)) {
             return Err(error);
         }
-        self.cancel(overlapped)
     }
+    let mut count = 0;
+    // u32::MAX is no limit: the longest real wait is one less.
+    let millis =
+        u32::try_from(wait.as_millis()).map_or(u32::MAX - 1, |millis| millis.min(u32::MAX - 1));
+    // SAFETY: the overlapped is the running request's; Windows writes
+    // only the count.
+    if unsafe { GetOverlappedResultEx(handle.0, overlapped, &raw mut count, millis, 0) } != 0 {
+        return Ok(Some(count));
+    }
+    let error = io::Error::last_os_error();
+    // A wait of 0 ms says "incomplete" where a longer one says "timed out".
+    let still_running = [code(WAIT_TIMEOUT), code(ERROR_IO_INCOMPLETE)];
+    if !still_running.contains(&error.raw_os_error().unwrap_or(0)) {
+        // Most such errors are the request's own, so it has ended; but
+        // a failed wait leaves it running, and its buffer must not be
+        // freed under it. Cancel and wait to be sure.
+        let _ = cancel(handle, overlapped);
+        return Err(error);
+    }
+    cancel(handle, overlapped)
+}
 
-    /// Cancels a running request and waits for it to end: its count if
-    /// it ended first, else `None`.
-    fn cancel(&self, overlapped: &OVERLAPPED) -> io::Result<Option<u32>> {
-        let mut count = 0;
-        // SAFETY: the overlapped is the running request's. The wait holds
-        // until Windows is done with the request's buffer.
-        let ended = unsafe {
-            CancelIoEx(self.handle.0, overlapped);
-            GetOverlappedResult(self.handle.0, overlapped, &raw mut count, 1)
-        };
-        if ended != 0 {
-            return Ok(Some(count));
-        }
-        let error = io::Error::last_os_error();
-        if error.raw_os_error() == Some(code(ERROR_OPERATION_ABORTED)) {
-            Ok(None)
-        } else {
-            Err(error)
-        }
+/// Cancels a running request and waits for it to end: its count if it
+/// ended first, else `None`. The wait has no limit: the request's buffer
+/// must not be freed while Windows still uses it (ticket 201).
+fn cancel(handle: &Handle, overlapped: &OVERLAPPED) -> io::Result<Option<u32>> {
+    let mut count = 0;
+    // SAFETY: the overlapped is the running request's. The wait holds
+    // until Windows is done with the request's buffer.
+    let ended = unsafe {
+        CancelIoEx(handle.0, overlapped);
+        GetOverlappedResult(handle.0, overlapped, &raw mut count, 1)
+    };
+    if ended != 0 {
+        return Ok(Some(count));
+    }
+    let error = io::Error::last_os_error();
+    if error.raw_os_error() == Some(code(ERROR_OPERATION_ABORTED)) {
+        Ok(None)
+    } else {
+        Err(error)
     }
 }
 
@@ -491,6 +491,97 @@ mod tests {
     fn a_feature_read_cut_off_at_its_limit_is_timed_out() {
         let error = feature_count(None).unwrap_err();
         assert_eq!(error.kind(), io::ErrorKind::TimedOut);
+    }
+
+    /// A request on one end of a new overlapped named pipe, as a HID
+    /// request is: the test's stand-in for a device. Gives the server
+    /// end, which reads, and the client end, which writes.
+    fn pipe(name: &str) -> (Handle, Handle) {
+        use windows_sys::Win32::Storage::FileSystem::PIPE_ACCESS_DUPLEX;
+        use windows_sys::Win32::System::Pipes::{CreateNamedPipeW, PIPE_TYPE_BYTE};
+        let name = format!(r"\\.\pipe\synapse-hid-test-{}-{name}", std::process::id());
+        let path = wide(&name);
+        // SAFETY: the name ends in a nul; no security.
+        let server = unsafe {
+            CreateNamedPipeW(
+                path.as_ptr(),
+                PIPE_ACCESS_DUPLEX | FILE_FLAG_OVERLAPPED,
+                PIPE_TYPE_BYTE,
+                1,
+                64,
+                64,
+                0,
+                ptr::null(),
+            )
+        };
+        assert_ne!(
+            server,
+            INVALID_HANDLE_VALUE,
+            "{}",
+            io::Error::last_os_error()
+        );
+        let server = Handle::new(server).unwrap();
+        let client = open(&name, GENERIC_READ | GENERIC_WRITE).unwrap();
+        (server, client)
+    }
+
+    /// Starts an overlapped read of up to 8 bytes on `handle` and waits
+    /// for it up to `wait`.
+    fn read_with_limit(handle: &Handle, wait: Duration) -> io::Result<Option<u32>> {
+        // SAFETY: no name or security; a manual-reset event, not set.
+        let event = Handle::new(unsafe { CreateEventW(ptr::null(), 1, 0, ptr::null()) }).unwrap();
+        let mut buffer = [0u8; 8];
+        let mut overlapped = OVERLAPPED {
+            hEvent: event.0,
+            ..OVERLAPPED::default()
+        };
+        // SAFETY: the buffer and overlapped outlive the request, which
+        // `finish` waits for or cancels.
+        let ok = unsafe {
+            ReadFile(
+                handle.0,
+                buffer.as_mut_ptr(),
+                8,
+                ptr::null_mut(),
+                &raw mut overlapped,
+            )
+        };
+        finish(handle, ok != 0, &overlapped, wait)
+    }
+
+    #[test]
+    fn a_request_with_no_reply_is_cancelled_at_its_limit() {
+        let (server, _client) = pipe("silent");
+        let started = std::time::Instant::now();
+        assert_eq!(
+            read_with_limit(&server, Duration::from_millis(50)).unwrap(),
+            None
+        );
+        let took = started.elapsed();
+        assert!(took >= Duration::from_millis(40), "{took:?}");
+        assert!(took < Duration::from_secs(2), "{took:?}");
+    }
+
+    #[test]
+    fn a_request_with_a_reply_gives_its_count() {
+        use windows_sys::Win32::Storage::FileSystem::WriteFile;
+        let (server, client) = pipe("reply");
+        let mut written = 0;
+        // SAFETY: the bytes outlive the call; the client end is not overlapped-waited.
+        let wrote = unsafe {
+            WriteFile(
+                client.0,
+                b"abc".as_ptr(),
+                3,
+                &raw mut written,
+                ptr::null_mut(),
+            )
+        };
+        assert_ne!(wrote, 0, "{}", io::Error::last_os_error());
+        assert_eq!(
+            read_with_limit(&server, Duration::from_secs(1)).unwrap(),
+            Some(3)
+        );
     }
 
     #[test]

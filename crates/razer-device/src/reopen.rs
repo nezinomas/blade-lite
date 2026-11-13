@@ -16,9 +16,9 @@ use crate::Transport;
 const DEAD_HANDLE_GAPS: u32 = 6;
 
 /// The controller, opened again after a HID error. Any error but a short
-/// feature report drops the handle: hidapi gives no kind to tell a dead
-/// handle from a one-off, and a new handle on a live controller does no
-/// harm. Nothing is ever sent twice, and nothing goes on a new handle
+/// feature report drops the handle, a timed-out read too (so a stalled
+/// handle is never read again): the error can't tell a dead handle from
+/// a one-off, and a new handle on a live controller does no harm. Nothing is ever sent twice, and nothing goes on a new handle
 /// before the app is ready:
 /// - the send or read that failed is not tried again;
 /// - the next send opens the controller and is not sent;
