@@ -2799,6 +2799,9 @@ fn a_custom_slider_keeps_the_focus_after_each_arrow_key() {
     );
     shows_cpu_boost(&f, 3);
     assert!(slider.is_valid(), "the rows were made again");
+    // The release's own write-back kept the new stop in the model.
+    let row = f.shell.window().get_sliders().row_data(0).unwrap();
+    assert_eq!((row.position, row.value), (3, 3.0));
 }
 
 #[test]
@@ -2832,6 +2835,33 @@ fn a_custom_slider_follows_a_preset_change_after_its_own_release() {
         .act(|app| app.on_performance(ui::PerformanceCommand::SetCpuBoost(2)));
 
     shows_cpu_boost(&f, 2);
+}
+
+#[test]
+fn a_refresh_keeps_a_custom_slider_drag_not_yet_let_go() {
+    let f = custom_fixture();
+    let slider = control(f.shell.window(), Slider, "CPU boost");
+    let start = slider.absolute_position();
+    let left_end = LogicalPosition::new(start.x, start.y + slider.size().height / 2.0);
+    let window = f.shell.window().window();
+    let button = PointerEventButton::Left;
+    window.dispatch_event(WindowEvent::PointerPressed {
+        position: left_end,
+        button,
+    });
+    let before = sent_count(&f);
+
+    f.shell.refresh(None);
+
+    assert_eq!(slider.accessible_value().unwrap(), "0");
+    window.dispatch_event(WindowEvent::PointerReleased {
+        position: left_end,
+        button,
+    });
+    assert_eq!(
+        sent_since(&f, before),
+        custom_commands(0, razer_proto::FanMode::Auto)
+    );
 }
 
 #[test]
@@ -2869,7 +2899,12 @@ fn custom_drag_cut_short_is_put_back(come_back: impl FnOnce(&Fixture)) {
     // At once, the same row: no change handler has run.
     assert!(slider.is_valid(), "the rows were made again");
     assert_eq!(slider.accessible_value().unwrap(), "1");
-    // Back again: a press elsewhere, let go over the slider.
+    // Back again: the mouse moves to the left end and a press elsewhere is
+    // let go there.
+    f.shell
+        .window()
+        .window()
+        .dispatch_event(WindowEvent::PointerMoved { position: left_end });
     f.shell
         .window()
         .window()

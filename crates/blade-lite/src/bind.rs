@@ -86,7 +86,7 @@ pub fn performance(window: &MainWindow, view: &PerformanceView) {
 
 /// Shows the Custom slider rows. A row that changed is updated, not made
 /// again, so a focused slider keeps the focus. A drag or arrow key not yet
-/// sent stays, unless the laptop's stop changed. Only a change in the
+/// sent stays, unless the row changed. Only a change in the
 /// number of rows makes them again.
 fn sliders(window: &MainWindow, view: &PerformanceView) {
     update_sliders(window, view, same_row);
