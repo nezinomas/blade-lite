@@ -250,6 +250,7 @@ pub fn fixture_with_programs(config: Config, programs: &[&str]) -> Fixture {
     FAKE_INPUT_AGE.set(None);
     FAKE_LID_OPEN.set(Some(true));
     FAKE_SCREEN_ON.set(Some(true));
+    crate::shell::MISSED_WAKES_HELD.set(0);
     FAKE_GPU.set(FakeGpu::Asleep);
     let (mut app, dir, _) = app_on(&BLADE_18, config);
     let controller = &mut app.machine_mut().controller.inner;

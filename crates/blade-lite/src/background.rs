@@ -285,9 +285,12 @@ pub fn power_events() -> Receiver<PowerEvent> {
             let _ = SLEEP_NOTICE.set(handled.clone());
             let _ = LID_AND_SCREEN.set(events.lid_and_screen());
             for (which, error) in events.lid_and_screen_refused() {
-                report(&format!(
-                    "no {which} notices, so a sleep with no wake notice is not ended by input: {error}"
-                ));
+                let lost = if which == "lid" {
+                    "a shut lid is not seen, so input with the screen on can end a sleep with no wake notice"
+                } else {
+                    "input does not end a sleep with no wake notice"
+                };
+                report(&format!("no {which} notices, so {lost}: {error}"));
             }
             spawn_part("power events", move || {
                 while let Some(event) = events.next_event() {

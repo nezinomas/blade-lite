@@ -144,7 +144,9 @@ const ON: u8 = 2;
 /// documentation, not checked on the laptop); a value it does not document
 /// counts as not known. A sleep notice forgets the screen: a screen on from
 /// before the sleep may be stale, as Windows may send no screen-off notice
-/// for a sleep straight from a lid close.
+/// for a sleep straight from a lid close. That the notices come in order
+/// with the sleep notice is assumed, not documented: a screen-on notice run
+/// after the forget would count as since the sleep.
 #[derive(Clone, Default)]
 pub struct LidAndScreen(Arc<[AtomicU8; 2]>);
 
