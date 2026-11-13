@@ -112,6 +112,12 @@ impl PollSchedule {
         !skipped
     }
 
+    /// Makes a temperature read due at once, not skipped as late: for the
+    /// end of a wake's pause, when the wake is known (ticket 171).
+    pub fn read_heat_now(&mut self) {
+        self.last_heat = None;
+    }
+
     /// When the next poll is due, or `None` while polling is stopped.
     #[must_use]
     pub fn next_poll(&self) -> Option<Instant> {

@@ -81,6 +81,9 @@ impl<P: Parts> Shell<P> {
             shell.follow_source();
             shell.app.borrow_mut().take_on_battery(P::on_battery());
             shell.act(AppOn::<P>::start);
+            // No read while the updater ran, so the last is old: the fan
+            // guard reads at the next tick, not one skipped as late (171).
+            shell.schedule.borrow_mut().read_heat_now();
         });
     }
 

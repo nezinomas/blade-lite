@@ -675,3 +675,81 @@ fn a_wake_notice_in_the_tick_of_the_minute_wakes_once() {
     pause_ends();
     assert_eq!(sent, sent_since(&f, again).len());
 }
+
+/// Whether `sent` puts a fan at full speed.
+fn sends_full_speed(sent: &[Command]) -> bool {
+    let top = BLADE_18.custom.fan_rpm.max;
+    sent.iter()
+        .any(|c| c.id == SET_FAN_TARGET && u16::from(c.args[2]) * 100 == top)
+}
+
+/// A heat read, then a sleep and a wake an hour later by the wall clock,
+/// with the CPU hot since. Returns the `Instant` of the read and the wall
+/// clock at the wake.
+fn hot_after_an_hour_asleep(f: &Fixture) -> (std::time::Instant, SystemTime) {
+    let now = std::time::Instant::now();
+    let wall = SystemTime::now();
+    f.shell.tick_at(now, wall);
+    power(f, &[PowerEvent::Suspending]);
+    power(f, &[PowerEvent::Resumed]);
+    f.shell.app().machine_mut().controller.inner.cpu_celsius = Some(96);
+    (now, wall + Duration::from_secs(3600))
+}
+
+#[test]
+fn the_fan_guard_reads_at_the_first_tick_after_the_wake_pause() {
+    // Ticket 171: the wall clock says the laptop slept, but the wake is
+    // known once its pause ends, so the read is not skipped as late.
+    let f = fixture(manual_fan());
+    let (now, wall) = hot_after_an_hour_asleep(&f);
+    pause_ends();
+    let before = sent_count(&f);
+
+    f.shell.tick_at(now + Duration::from_secs(3), wall);
+
+    assert!(sends_full_speed(&sent_since(&f, before)));
+}
+
+#[test]
+fn nothing_is_read_in_a_sleep_begun_in_the_wake_pause_and_the_next_wake_reads_at_once() {
+    let f = fixture(manual_fan());
+    let (now, wall) = hot_after_an_hour_asleep(&f);
+    power(&f, &[PowerEvent::Suspending]);
+    pause_ends();
+    let asked = asked_count(&f);
+
+    f.shell.tick_at(now + Duration::from_secs(3), wall);
+
+    assert_eq!(asked_count(&f), asked, "nothing read while asleep");
+    power(&f, &[PowerEvent::Resumed]);
+    pause_ends();
+    let before = sent_count(&f);
+    f.shell.tick_at(now + Duration::from_secs(4), wall);
+    assert!(
+        sends_full_speed(&sent_since(&f, before)),
+        "the next wake reads"
+    );
+}
+
+#[test]
+fn the_fan_guard_reads_at_the_first_tick_after_an_updater_s_pause() {
+    // No read while the updater runs, so the last one is minutes old.
+    let f = fixture(manual_fan());
+    let now = std::time::Instant::now();
+    let wall = SystemTime::now();
+    f.shell.tick_at(now, wall);
+    f.shell.programs().set(&[UPDATER]);
+    f.shell.look_for_razer();
+    f.shell.programs().set(&[]);
+    f.shell.look_for_razer();
+    let later = Duration::from_secs(300);
+    f.shell.tick_at(now + later, wall + later);
+    pause_ends();
+    f.shell.app().machine_mut().controller.inner.cpu_celsius = Some(96);
+    let before = sent_count(&f);
+
+    let later = later + Duration::from_secs(3);
+    f.shell.tick_at(now + later, wall + later);
+
+    assert!(sends_full_speed(&sent_since(&f, before)));
+}
