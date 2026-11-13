@@ -179,9 +179,10 @@ mod tests {
 
     #[test]
     fn a_plain_window_becomes_topmost() {
-        // Topmost is desktop-wide. In a full workspace run, Windows twice
-        // reported success but left the window plain (ticket 181; not seen in
-        // 830 runs alone), so the test gives it a few tries.
+        // Topmost is desktop-wide. This failed twice in full workspace runs;
+        // the failure seen was a call that reported success but left the
+        // window plain (ticket 181; not seen in 830 runs alone), so the test
+        // gives it a few tries. Ticket 190 revisits this retry.
         const TRIES: u32 = 5;
         let popup = window(0);
 
