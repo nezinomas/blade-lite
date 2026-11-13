@@ -616,7 +616,9 @@ mod tests {
     }
 
     /// A write the pipe's other end never reads, as a feature send the
-    /// controller never takes: it waits until `finish` cancels it.
+    /// controller never takes: it waits until `finish` cancels it. A pipe
+    /// can't take `IOCTL_HID_SET_FEATURE`, so this covers `finish` on a
+    /// send; `send_feature`'s own call is covered by `cargo hw` only.
     #[test]
     fn a_send_never_taken_is_cancelled_at_its_limit() {
         use windows_sys::Win32::Storage::FileSystem::WriteFile;
