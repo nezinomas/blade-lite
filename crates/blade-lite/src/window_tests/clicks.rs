@@ -507,7 +507,7 @@ fn quitting_after_a_failed_switch_from_a_manual_fan_sends_the_fans_on_auto() {
 
 /// Checks that `sent` is the quit preset from a manual fan on battery:
 /// the fans on auto with the lowest boosts, then Balanced.
-fn assert_the_battery_quit_preset(sent: &[Command]) {
+pub(super) fn assert_the_battery_quit_preset(sent: &[Command]) {
     let balanced = PerfMode::Balanced.commands(&BLADE_18).unwrap();
     let (auto_fans, last) = sent.split_at(sent.len() - balanced.len());
     assert_eq!(last, balanced);
@@ -520,7 +520,7 @@ fn assert_the_battery_quit_preset(sent: &[Command]) {
     assert!(boosts.clone().all(|c| c.args[2] == 0), "{auto_fans:?}");
 }
 
-fn manual_fan_with_boosts() -> Config {
+pub(super) fn manual_fan_with_boosts() -> Config {
     let mut config = Config {
         preset: Preset::Custom,
         ..Config::default()

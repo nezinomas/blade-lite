@@ -9,6 +9,7 @@ use i_slint_backend_testing::AccessibleRole::Button;
 use platform::PowerEvent;
 use razer_proto::{BLADE_18, Command, FirmwareVersion, PerfMode};
 
+use super::clicks::{assert_the_battery_quit_preset, manual_fan_with_boosts};
 use super::{
     FAKE_INPUT_AGE, FAKE_LID_OPEN, FAKE_MIC_READS_AGAIN, FAKE_ON_BATTERY, FAKE_RELEASED,
     FAKE_REOPENED, FAKE_SCREEN_ON, FAKE_SLEEP_NOTICE_LATE, Fixture, click, fixture,
@@ -111,6 +112,65 @@ fn a_sleep_from_performance_sends_balanced() {
         sent_since(&f, before),
         PerfMode::Balanced.commands(&BLADE_18).unwrap()
     );
+}
+
+#[test]
+fn a_charger_pulled_just_before_a_sleep_gets_the_lowest_boosts() {
+    let f = fixture(manual_fan_with_boosts());
+    // Pulled, but no power event or poll has read it yet (ticket 199).
+    FAKE_ON_BATTERY.set(true);
+    let before = sent_count(&f);
+
+    power(&f, &[PowerEvent::Suspending]);
+
+    assert_the_battery_quit_preset(&sent_since(&f, before));
+    assert!(logged(&["the charger is gone", "battery quit preset"]));
+}
+
+#[test]
+fn a_charger_pulled_in_a_cancelled_sleep_gets_the_lowest_boosts_at_a_new_notice() {
+    let f = fixture(manual_fan_with_boosts());
+    asleep_after_a_cut(&f, Cut::InAutoFans);
+    // No wake notice, and no power event in the sleep (ticket 191).
+    FAKE_ON_BATTERY.set(true);
+    let before = sent_count(&f);
+
+    power(&f, &[PowerEvent::Suspending]);
+
+    assert_the_battery_quit_preset(&sent_since(&f, before));
+}
+
+#[test]
+fn a_sleep_on_battery_with_the_charger_read_back_keeps_the_battery_preset() {
+    let f = fixture(manual_fan_with_boosts());
+    FAKE_ON_BATTERY.set(true);
+    f.shell.act(|app| app.on_power(PowerEvent::OnBattery));
+    // Never toward the charger at a sleep: a weak one would be missed.
+    FAKE_ON_BATTERY.set(false);
+    let before = sent_count(&f);
+
+    power(&f, &[PowerEvent::Suspending]);
+
+    assert_eq!(
+        sent_since(&f, before),
+        PerfMode::Balanced.commands(&BLADE_18).unwrap()
+    );
+}
+
+#[test]
+fn the_wake_on_ac_after_a_battery_sleep_sends_the_manual_fan_again() {
+    let f = fixture(manual_fan_with_boosts());
+    let started = sent_since(&f, 0);
+    FAKE_ON_BATTERY.set(true);
+    power(&f, &[PowerEvent::Suspending]);
+    // Plugged in again in the sleep.
+    FAKE_ON_BATTERY.set(false);
+    let before = sent_count(&f);
+
+    power(&f, &[PowerEvent::Resumed]);
+    pause_ends();
+
+    assert_eq!(sent_since(&f, before), started);
 }
 
 #[test]
