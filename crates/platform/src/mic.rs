@@ -7,6 +7,7 @@
 use std::io;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
+use std::time::{Duration, Instant};
 
 use windows::Win32::Foundation::PROPERTYKEY;
 use windows::Win32::Media::Audio::Endpoints::{
@@ -142,6 +143,15 @@ impl MicState {
     }
 }
 
+/// How often the mute is read anyway, so a notice registration that died
+/// (the audio service restarted) heals: 1 read a minute, not 60.
+const MIC_RECHECK: Duration = Duration::from_secs(60);
+
+/// Whether the read made at `read_at` is old enough to read again.
+fn recheck_due(read_at: Option<Instant>, now: Instant) -> bool {
+    read_at.is_none_or(|at| now.saturating_duration_since(at) >= MIC_RECHECK)
+}
+
 /// Whether a default-device notice is for the default mic, the one the
 /// app reads (capture, console role).
 fn is_default_mic(flow: EDataFlow, role: ERole) -> bool {
@@ -157,6 +167,8 @@ pub struct MicWatch {
     state: Arc<MicState>,
     /// The default mic's volume and its registered notice, once read.
     mic: Option<(IAudioEndpointVolume, IAudioEndpointVolumeCallback)>,
+    /// When the mute was last read (not noticed).
+    read_at: Option<Instant>,
     client: IMMNotificationClient,
     devices: IMMDeviceEnumerator,
     /// Last, so COM ends after the objects above are released.
@@ -188,6 +200,7 @@ impl MicWatch {
         Ok(Self {
             state,
             mic: None,
+            read_at: None,
             client,
             devices,
             _com: com,
@@ -203,6 +216,9 @@ impl MicWatch {
     ///
     /// A read that failed; the next look tries again.
     pub fn muted(&mut self) -> io::Result<Option<bool>> {
+        if recheck_due(self.read_at, Instant::now()) {
+            self.state.read_again();
+        }
         if self.state.take_stale()
             && let Err(error) = self.watch_default_mic()
         {
@@ -233,6 +249,7 @@ impl MicWatch {
         // a notice that came meanwhile is newer and is kept.
         let muted = unsafe { volume.GetMute() }?;
         self.state.note_read(muted.as_bool());
+        self.read_at = Some(Instant::now());
         Ok(())
     }
 
@@ -412,6 +429,15 @@ mod tests {
 
         assert!(state.take_stale());
         assert!(!state.take_stale());
+    }
+
+    #[test]
+    fn the_mute_is_read_again_each_minute() {
+        let now = Instant::now();
+
+        assert!(recheck_due(None, now));
+        assert!(!recheck_due(Some(now), now + MIC_RECHECK / 2));
+        assert!(recheck_due(Some(now), now + MIC_RECHECK));
     }
 
     #[test]

@@ -222,6 +222,9 @@ impl Parts for Laptop {
         if let Err(error) = &toggled {
             report(&format!("Fn + mic did nothing: {error}"));
         }
+        // The next look reads, so a tick before the change notice can't
+        // paint the key back to the old mute.
+        Self::mic_read_again();
         toggled.ok().or_else(Self::mic_muted)
     }
 

@@ -24,7 +24,7 @@ pub const ENTER_READ_WAIT: Duration = Duration::from_millis(5);
 /// key from dying without a word. With one collection read, one read
 /// waits it all, so the thread does not wake to count quiet reads (a
 /// report ends the wait at once; ticket 188).
-pub const KEY_QUIET_SPELL: Duration = Duration::from_secs(60);
+pub const KEY_QUIET_SPELL: Duration = Duration::from_secs(120);
 
 /// Somewhere key reports come from.
 pub trait KeyReportSource {
@@ -164,6 +164,7 @@ pub fn step_on_presses(
         let watching = presses.watching_enter(Instant::now());
         let wait = read_wait(
             watching,
+            presses.following_brightness(Instant::now()),
             source.single(),
             KEY_QUIET_SPELL.saturating_sub(quiet),
         );
@@ -202,14 +203,39 @@ pub fn step_on_presses(
     ReaderEnd::Reopen
 }
 
-/// How long the next read waits: short while Fn is held, the rest of the
-/// quiet spell `left` with one collection, else [`KEY_READ_WAIT`] at most.
-fn read_wait(watching: bool, single: bool, left: Duration) -> Duration {
+/// How long the next read waits: very short while Enter is watched, the
+/// rest of the quiet spell `left` with one collection and the brightness
+/// not followed, else [`KEY_READ_WAIT`] at most (under
+/// [`blade_core::BRIGHTNESS_READ_GAP`], so the follow keeps its pace).
+fn read_wait(watching: bool, following: bool, single: bool, left: Duration) -> Duration {
     if watching {
         ENTER_READ_WAIT
-    } else if single {
+    } else if single && !following {
         left
     } else {
         KEY_READ_WAIT.min(left)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const LEFT: Duration = Duration::from_secs(50);
+
+    #[test]
+    fn a_single_collection_waits_out_the_spell_only_with_no_fn_held() {
+        assert_eq!(read_wait(true, true, true, LEFT), ENTER_READ_WAIT);
+        // Fn held past the Enter limit: the brightness follow still reads
+        // each gap (ticket 188 review).
+        assert_eq!(read_wait(false, true, true, LEFT), KEY_READ_WAIT);
+        assert_eq!(read_wait(false, false, true, LEFT), LEFT);
+    }
+
+    #[test]
+    fn more_than_one_collection_waits_a_short_read_at_most() {
+        assert_eq!(read_wait(false, false, false, LEFT), KEY_READ_WAIT);
+        let short = Duration::from_millis(30);
+        assert_eq!(read_wait(false, false, false, short), short);
     }
 }

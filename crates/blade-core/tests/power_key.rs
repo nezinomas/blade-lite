@@ -408,3 +408,15 @@ fn after_a_quiet_spell_a_key_last_seen_held_does_not_step_again() {
     );
     assert!(presses.fresh().on_report(&report(&KEY_DOWN), later));
 }
+
+#[test]
+fn the_brightness_is_followed_while_fn_is_held_up_to_its_hold_limit() {
+    // The key reader keeps its reads short then (ticket 188).
+    let start = Instant::now();
+    let presses = fn_down_at(start);
+
+    assert!(presses.following_brightness(start));
+    assert!(presses.following_brightness(start + FN_HOLD_LIMIT + BRIGHTNESS_READ_GAP));
+    assert!(!presses.following_brightness(start + BRIGHTNESS_HOLD_LIMIT));
+    assert!(!self::presses().following_brightness(start));
+}
