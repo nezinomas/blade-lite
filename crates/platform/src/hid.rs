@@ -425,7 +425,10 @@ fn feature_sent(ended: Option<u32>) -> io::Result<()> {
     ended.map(drop).ok_or_else(|| {
         io::Error::new(
             io::ErrorKind::TimedOut,
-            format!("the controller took no feature report within {FEATURE_WAIT:?}"),
+            format!(
+                "a feature send did not end within {FEATURE_WAIT:?} and was cancelled; \
+                 the controller may have acted on it"
+            ),
         )
     })
 }
