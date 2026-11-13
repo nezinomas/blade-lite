@@ -240,6 +240,9 @@ const SET_FAN: u16 = 0x0D01;
 const GET_FAN_RPM: u16 = 0x0D88;
 const CLUSTERS: [u8; 2] = [1, 2];
 const FANS: [u8; 2] = [1, 2];
+/// The fan byte of a mode reply: auto, or manual (the fan follows its target).
+const FAN_AUTO: u8 = 0x00;
+const FAN_MANUAL: u8 = 0x01;
 
 /// The preset of each zone, both boosts and both fan targets.
 fn custom_state<C: Clock>(device: &mut Device<HidTransport, C>) -> Vec<Vec<u8>> {
@@ -253,7 +256,7 @@ fn custom_is_set_and_read_back_and_the_old_preset_restored() {
 
     let mut device = Device::new(open(), SystemClock);
     let before = custom_state(&mut device);
-    refuse_targets_outside_the_range(&before);
+    refuse_unknown_state(&before);
 
     // Safe values: middle boosts, and a fan above what auto runs at idle.
     let custom = Custom {
@@ -377,16 +380,9 @@ fn a_custom_mode_write_alone_and_what_the_fans_do() {
 
     let mut device = Device::new(open(), SystemClock);
     let before = custom_state(&mut device);
-    // The fans go to the target already set: refuse one the model does
-    // not take, such as 0, which would stop them.
-    let range = BLADE_18.custom.fan_rpm;
-    for args in &before[6..8] {
-        let rpm = u16::from(args[2]) * 100;
-        assert!(
-            (range.min..=range.max).contains(&rpm),
-            "fan target {rpm} RPM is outside the model's range: not run"
-        );
-    }
+    // The fans go to the target already set, and the put-back writes the
+    // state as read: refuse one the model does not take.
+    refuse_unknown_state(&before);
 
     // Only the mode writes of a manual Custom (fan byte manual), as a kill
     // between them and the fan targets would leave it (ticket 144).
@@ -471,11 +467,45 @@ fn a_custom_mode_write_alone_and_what_the_fans_do() {
     assert!(last.iter().all(|args| args[2] > 0), "{last:02X?}");
 }
 
-/// Refuses to run when a fan target read before the test is outside the
-/// model's range, such as 0, which would stop the fans: the put-back
-/// writes it while the fans are still manual.
-fn refuse_targets_outside_the_range(before: &[Vec<u8>]) {
-    let range = razer_proto::BLADE_18.custom.fan_rpm;
+/// Refuses to run when the state read before the test is not one the
+/// put-back can safely write: each mode reply must echo its zone and hold a
+/// mode the model offers and an auto or manual fan byte, each boost reply
+/// must echo its cluster and hold a level the model takes, and each fan
+/// target must be in the model's range (0 would stop the fans: the
+/// put-back writes it while the fans are still manual).
+fn refuse_unknown_state(before: &[Vec<u8>]) {
+    use razer_proto::{BLADE_18, CpuBoost, GpuBoost};
+
+    let zones = BLADE_18.perf_zones;
+    assert!(
+        before.len() == zones.len() + CLUSTERS.len() + FANS.len(),
+        "state {before:02X?} not understood: not run"
+    );
+    let bytes = BLADE_18.mode_bytes;
+    let modes = [
+        bytes.silent,
+        bytes.balanced,
+        bytes.performance,
+        BLADE_18.custom.mode,
+    ];
+    for (args, &zone) in before[..4].iter().zip(zones) {
+        assert!(
+            matches!(args[..], [1, echoed, mode, FAN_AUTO | FAN_MANUAL]
+                if echoed == zone && modes.contains(&mode)),
+            "zone {zone} mode reply {args:02X?} not understood: not run"
+        );
+    }
+    let boosts: [fn(u8) -> bool; 2] = [
+        |level| CpuBoost::new(level, &BLADE_18).is_ok(),
+        |level| GpuBoost::new(level, &BLADE_18).is_ok(),
+    ];
+    for ((args, cluster), takes) in before[4..6].iter().zip(CLUSTERS).zip(boosts) {
+        assert!(
+            matches!(args[..], [1, echoed, level] if echoed == cluster && takes(level)),
+            "cluster {cluster} boost reply {args:02X?} not understood: not run"
+        );
+    }
+    let range = BLADE_18.custom.fan_rpm;
     for (args, fan) in before[6..8].iter().zip(FANS) {
         assert!(
             args.len() >= 3 && args[0] == 1 && args[1] == fan,
@@ -536,7 +566,7 @@ fn custom_from_balanced_and_again_and_what_the_fans_do() {
 
     let mut device = Device::new(open(), SystemClock);
     let before = custom_state(&mut device);
-    refuse_targets_outside_the_range(&before);
+    refuse_unknown_state(&before);
     // A full Custom with a manual fan, as the app sends it on a click from
     // Balanced and again on a slider release (ticket 173: about 2900 RPM
     // after the click, more after a slider move).
@@ -628,7 +658,7 @@ fn the_users_custom_with_and_without_the_app_reads() {
 
     let mut device = Device::new(open(), SystemClock);
     let before = custom_state(&mut device);
-    refuse_targets_outside_the_range(&before);
+    refuse_unknown_state(&before);
     // The user's saved Custom (ticket 173): both boosts at the top, 3600 RPM,
     // sent from Performance as the app's click from it does.
     let custom = Custom {
@@ -689,7 +719,7 @@ fn which_boost_holds_a_manual_fan_back() {
 
     let mut device = Device::new(open(), SystemClock);
     let before = custom_state(&mut device);
-    refuse_targets_outside_the_range(&before);
+    refuse_unknown_state(&before);
     // CPU boost, GPU boost, fan RPM (ticket 173: 3 and 3 held 3600 at 2900).
     let cases = [(3, 1, 3600), (1, 3, 3600), (2, 2, 3600), (3, 3, 4500)];
 
@@ -748,7 +778,7 @@ fn what_frees_a_manual_fan_stalled_after_a_custom_from_auto() {
 
     let mut device = Device::new(open(), SystemClock);
     let before = custom_state(&mut device);
-    refuse_targets_outside_the_range(&before);
+    refuse_unknown_state(&before);
     // The user's Custom (ticket 173): from auto it stalls near 2900 RPM
     // until the next Custom send.
     let custom = Custom {
@@ -963,7 +993,7 @@ fn the_sleep_and_wake_sends_under_load() {
     }
     let mut device = Device::new(open(), SystemClock);
     let before = custom_state(&mut device);
-    refuse_targets_outside_the_range(&before);
+    refuse_unknown_state(&before);
     // A stand-in for laptop check 34 (a lid close mid-game): the fan guard's
     // full speed, the quit preset the app sends at a sleep notice, and the
     // full speed again at the wake with its fan targets once more (tickets
@@ -1064,4 +1094,88 @@ fn the_sleep_and_wake_sends_under_load() {
     assert!(put_back.iter().all(Result::is_ok), "check the fans by hand");
     assert_eq!(after, before);
     result.unwrap();
+}
+
+/// A state [`custom_state`] could read: Balanced on auto in each zone,
+/// boosts 1, fans 3500 RPM.
+fn sane_state() -> Vec<Vec<u8>> {
+    let mut state: Vec<Vec<u8>> = (1..=4).map(|zone| vec![1, zone, 0x00, 0x00]).collect();
+    state.extend([vec![1, 1, 1], vec![1, 2, 1], vec![1, 1, 35], vec![1, 2, 35]]);
+    state
+}
+
+/// `sane_state` with one reply's args replaced.
+fn state_with(index: usize, args: &[u8]) -> Vec<Vec<u8>> {
+    let mut state = sane_state();
+    state[index] = args.to_vec();
+    state
+}
+
+#[test]
+fn a_sane_state_is_put_back() {
+    refuse_unknown_state(&sane_state());
+    refuse_unknown_state(&state_with(0, &[1, 1, 0x04, 0x01]));
+    refuse_unknown_state(&state_with(3, &[1, 4, 0x05, 0x00]));
+    refuse_unknown_state(&state_with(4, &[1, 1, 3]));
+    refuse_unknown_state(&state_with(5, &[1, 2, 0]));
+}
+
+#[test]
+#[should_panic(expected = "not run")]
+fn a_short_state_is_refused() {
+    refuse_unknown_state(&sane_state()[..7]);
+}
+
+#[test]
+#[should_panic(expected = "zone 2 mode reply")]
+fn a_mode_reply_for_another_zone_is_refused() {
+    refuse_unknown_state(&state_with(1, &[1, 1, 0x00, 0x00]));
+}
+
+#[test]
+#[should_panic(expected = "zone 1 mode reply")]
+fn an_unknown_mode_byte_is_refused() {
+    refuse_unknown_state(&state_with(0, &[1, 1, 0x07, 0x00]));
+}
+
+#[test]
+#[should_panic(expected = "zone 1 mode reply")]
+fn an_unknown_fan_byte_is_refused() {
+    refuse_unknown_state(&state_with(0, &[1, 1, 0x00, 0x02]));
+}
+
+#[test]
+#[should_panic(expected = "zone 1 mode reply")]
+fn a_mode_reply_of_another_length_is_refused() {
+    refuse_unknown_state(&state_with(0, &[1, 1, 0x00]));
+}
+
+#[test]
+#[should_panic(expected = "cluster 1 boost reply")]
+fn a_boost_reply_for_another_cluster_is_refused() {
+    refuse_unknown_state(&state_with(4, &[1, 2, 1]));
+}
+
+#[test]
+#[should_panic(expected = "cluster 1 boost reply")]
+fn a_cpu_boost_above_the_model_is_refused() {
+    refuse_unknown_state(&state_with(4, &[1, 1, 4]));
+}
+
+#[test]
+#[should_panic(expected = "cluster 2 boost reply")]
+fn a_gpu_boost_above_the_model_is_refused() {
+    refuse_unknown_state(&state_with(5, &[1, 2, 4]));
+}
+
+#[test]
+#[should_panic(expected = "cluster 2 boost reply")]
+fn a_boost_reply_of_another_length_is_refused() {
+    refuse_unknown_state(&state_with(5, &[1, 2, 1, 0]));
+}
+
+#[test]
+#[should_panic(expected = "outside the model's range")]
+fn a_fan_target_outside_the_range_is_still_refused() {
+    refuse_unknown_state(&state_with(6, &[1, 1, 0]));
 }
