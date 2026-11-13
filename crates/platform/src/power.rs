@@ -4,6 +4,7 @@
 use std::ffi::c_void;
 use std::io;
 use std::ptr;
+use std::sync::atomic::{AtomicU8, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::{Arc, Condvar, Mutex, PoisonError};
 use std::time::Duration;
@@ -15,7 +16,9 @@ use windows_sys::Win32::System::Power::{
     PowerSettingUnregisterNotification, PowerUnregisterSuspendResumeNotification,
     SYSTEM_POWER_STATUS,
 };
-use windows_sys::Win32::System::SystemServices::GUID_ACDC_POWER_SOURCE;
+use windows_sys::Win32::System::SystemServices::{
+    GUID_ACDC_POWER_SOURCE, GUID_CONSOLE_DISPLAY_STATE, GUID_LIDSWITCH_STATE_CHANGE,
+};
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     DEVICE_NOTIFY_CALLBACK, GetSystemMetrics, PBT_APMRESUMEAUTOMATIC, PBT_APMSUSPEND,
     PBT_POWERSETTINGCHANGE, SM_SHUTTINGDOWN,
@@ -129,10 +132,80 @@ impl SuspendHandled {
     }
 }
 
-/// What Windows' calls reach: where the events go, and the sleep's answer.
+/// A state Windows has not told of.
+const NOT_KNOWN: u8 = 0;
+/// A state Windows said is off: the lid shut, or the screen off.
+const OFF: u8 = 1;
+/// A state Windows said is on: the lid open, or the screen on or dimmed.
+const ON: u8 = 2;
+
+/// What Windows last said of the lid and the screen (ticket 184). Windows
+/// tells each once at register, then on each change (Microsoft's
+/// documentation, not checked on the laptop); a value it does not document
+/// counts as not known. A sleep notice forgets the screen: a screen on from
+/// before the sleep may be stale, as Windows may send no screen-off notice
+/// for a sleep straight from a lid close. That the notices come in order
+/// with the sleep notice is assumed, not documented: a screen-on notice run
+/// after the forget would count as since the sleep.
+#[derive(Clone, Default)]
+pub struct LidAndScreen(Arc<[AtomicU8; 2]>);
+
+impl LidAndScreen {
+    const LID: usize = 0;
+    const SCREEN: usize = 1;
+
+    /// Whether the lid is open; `None` if Windows has not said.
+    #[must_use]
+    pub fn lid_open(&self) -> Option<bool> {
+        self.read(Self::LID)
+    }
+
+    /// Whether the screen is on or dimmed; `None` if Windows has not said.
+    #[must_use]
+    pub fn screen_on(&self) -> Option<bool> {
+        self.read(Self::SCREEN)
+    }
+
+    fn read(&self, which: usize) -> Option<bool> {
+        match self.0[which].load(Ordering::Relaxed) {
+            ON => Some(true),
+            OFF => Some(false),
+            _ => None,
+        }
+    }
+
+    /// The lid's notice: 0 shut, 1 open.
+    fn lid_said(&self, value: u32) {
+        let state = match value {
+            0 => OFF,
+            1 => ON,
+            _ => NOT_KNOWN,
+        };
+        self.0[Self::LID].store(state, Ordering::Relaxed);
+    }
+
+    /// The screen's notice: 0 off, 1 on, 2 dimmed.
+    fn screen_said(&self, value: u32) {
+        let state = match value {
+            0 => OFF,
+            1 | 2 => ON,
+            _ => NOT_KNOWN,
+        };
+        self.0[Self::SCREEN].store(state, Ordering::Relaxed);
+    }
+
+    /// A sleep notice: the screen is not known until its next notice.
+    fn forget_screen(&self) {
+        self.0[Self::SCREEN].store(NOT_KNOWN, Ordering::Relaxed);
+    }
+}
+
+/// What Windows' calls reach: where the events go, the sleep's answer, and
+/// the lid and the screen.
 struct Listener {
     sender: Sender<PowerEvent>,
     suspend: SuspendHandled,
+    seen: LidAndScreen,
 }
 
 /// Power events from Windows, from [`register`](Self::register) until drop.
@@ -148,6 +221,8 @@ pub struct WindowsPowerEvents {
     events: Receiver<PowerEvent>,
     registration: HPOWERNOTIFY,
     power_source: HPOWERNOTIFY,
+    /// The lid's and the screen's notices, or why Windows refused each.
+    lid_and_screen: [io::Result<HPOWERNOTIFY>; 2],
     // Windows calls back with pointers into these, so they live until drop.
     _params: Box<DEVICE_NOTIFY_SUBSCRIBE_PARAMETERS>,
     listener: Box<Listener>,
@@ -159,16 +234,20 @@ pub struct WindowsPowerEvents {
 unsafe impl Send for WindowsPowerEvents {}
 
 impl WindowsPowerEvents {
-    /// Asks Windows to tell us about each resume and power source change.
+    /// Asks Windows to tell us about each resume and power source change,
+    /// and the lid and the screen. Without the lid's or the screen's
+    /// notices, that one stays not known.
     ///
     /// # Errors
     ///
-    /// The Windows error if the registration fails.
+    /// The Windows error if the registration for the resumes or the power
+    /// source fails.
     pub fn register() -> io::Result<Self> {
         let (sender, events) = mpsc::channel();
         let listener = Box::new(Listener {
             sender,
             suspend: SuspendHandled::default(),
+            seen: LidAndScreen::default(),
         });
         let mut params = Box::new(DEVICE_NOTIFY_SUBSCRIBE_PARAMETERS {
             Callback: Some(on_power_event),
@@ -188,28 +267,39 @@ impl WindowsPowerEvents {
             return Err(windows_error(status));
         }
         let registration = registration as HPOWERNOTIFY;
-        let mut power_source = ptr::null_mut();
-        // SAFETY: as above; the same params serve both registrations.
-        let status = unsafe {
-            PowerSettingRegisterNotification(
-                &GUID_ACDC_POWER_SOURCE,
-                DEVICE_NOTIFY_CALLBACK,
-                ptr::from_mut(&mut *params).cast(),
-                &raw mut power_source,
-            )
+        let power_source = match register_setting(&GUID_ACDC_POWER_SOURCE, &mut params) {
+            Ok(power_source) => power_source,
+            Err(error) => {
+                // SAFETY: the first registration succeeded and is not kept.
+                unsafe { PowerUnregisterSuspendResumeNotification(registration) };
+                return Err(error);
+            }
         };
-        if status != ERROR_SUCCESS {
-            // SAFETY: the first registration succeeded and is not kept.
-            unsafe { PowerUnregisterSuspendResumeNotification(registration) };
-            return Err(windows_error(status));
-        }
+        let lid_and_screen = [GUID_LIDSWITCH_STATE_CHANGE, GUID_CONSOLE_DISPLAY_STATE]
+            .map(|setting| register_setting(&setting, &mut params));
         Ok(Self {
             events,
             registration,
-            power_source: power_source as HPOWERNOTIFY,
+            power_source,
+            lid_and_screen,
             _params: params,
             listener,
         })
+    }
+
+    /// What Windows last said of the lid and the screen.
+    #[must_use]
+    pub fn lid_and_screen(&self) -> LidAndScreen {
+        self.listener.seen.clone()
+    }
+
+    /// Why Windows refused the lid's or the screen's notices, if it did:
+    /// that one then stays not known.
+    pub fn lid_and_screen_refused(&self) -> impl Iterator<Item = (&'static str, &io::Error)> {
+        ["lid", "screen"]
+            .into_iter()
+            .zip(&self.lid_and_screen)
+            .filter_map(|(which, registered)| Some((which, registered.as_ref().err()?)))
     }
 
     /// What the app calls once it has acted on a sleep.
@@ -233,10 +323,35 @@ impl Drop for WindowsPowerEvents {
         // unregistered only here, once. The errors are ignored: there is
         // nothing left to do with them.
         unsafe {
+            for handle in self.lid_and_screen.iter().flatten() {
+                PowerSettingUnregisterNotification(*handle);
+            }
             PowerSettingUnregisterNotification(self.power_source);
             PowerUnregisterSuspendResumeNotification(self.registration);
         }
     }
+}
+
+/// Asks Windows to call back through `params` on each change of `setting`.
+fn register_setting(
+    setting: &GUID,
+    params: &mut DEVICE_NOTIFY_SUBSCRIBE_PARAMETERS,
+) -> io::Result<HPOWERNOTIFY> {
+    let mut handle = ptr::null_mut();
+    // SAFETY: the params and the listener they point to are boxed by the
+    // caller and kept until drop unregisters the handle.
+    let status = unsafe {
+        PowerSettingRegisterNotification(
+            setting,
+            DEVICE_NOTIFY_CALLBACK,
+            ptr::from_mut(params).cast(),
+            &raw mut handle,
+        )
+    };
+    if status != ERROR_SUCCESS {
+        return Err(windows_error(status));
+    }
+    Ok(handle as HPOWERNOTIFY)
 }
 
 /// Whether Windows is shutting down, restarting or signing the user out.
@@ -253,16 +368,30 @@ unsafe extern "system" fn on_power_event(
     kind: u32,
     setting: *const c_void,
 ) -> u32 {
+    // SAFETY: the context is the boxed listener, kept until unregistered.
+    let listener = unsafe { &*context.cast::<Listener>() };
     let event = match kind {
-        PBT_APMSUSPEND => Some(PowerEvent::Suspending),
+        PBT_APMSUSPEND => {
+            listener.seen.forget_screen();
+            Some(PowerEvent::Suspending)
+        }
         PBT_APMRESUMEAUTOMATIC => Some(PowerEvent::Resumed),
         // SAFETY: for this kind Windows passes a setting change.
-        PBT_POWERSETTINGCHANGE => unsafe { power_source(setting.cast()) },
+        PBT_POWERSETTINGCHANGE => match unsafe { setting_change(setting.cast()) } {
+            Some(Setting::PowerSource(value)) => Some(source_event(value)),
+            Some(Setting::Lid(value)) => {
+                listener.seen.lid_said(value);
+                None
+            }
+            Some(Setting::Screen(value)) => {
+                listener.seen.screen_said(value);
+                None
+            }
+            None => None,
+        },
         _ => None,
     };
     if let Some(event) = event {
-        // SAFETY: the context is the boxed listener, kept until unregistered.
-        let listener = unsafe { &*context.cast::<Listener>() };
         if event != PowerEvent::Suspending {
             // An error only means nobody is listening any more.
             let _ = listener.sender.send(event);
@@ -282,37 +411,56 @@ unsafe extern "system" fn on_power_event(
     ERROR_SUCCESS
 }
 
-/// The power source a setting change reports, or `None` for any other
-/// setting. Any source but AC counts as the battery.
+/// A setting change the app follows, with its DWORD value.
+enum Setting {
+    PowerSource(u32),
+    Lid(u32),
+    Screen(u32),
+}
+
+/// The setting change Windows reports, or `None` for any other setting or
+/// one with no DWORD.
 ///
 /// # Safety
 ///
 /// `setting` points to a setting change whose data is `DataLength` bytes.
-unsafe fn power_source(setting: *const POWERBROADCAST_SETTING) -> Option<PowerEvent> {
+unsafe fn setting_change(setting: *const POWERBROADCAST_SETTING) -> Option<Setting> {
     // SAFETY: the caller passes a whole setting change.
     let header = unsafe { &*setting };
-    if !is_power_source(&header.PowerSetting) || header.DataLength < 4 {
+    if header.DataLength < 4 {
         return None;
     }
     // SAFETY: the data holds at least the 4 bytes of a DWORD, maybe unaligned.
     let value = unsafe { ptr::read_unaligned((&raw const header.Data).cast::<u32>()) };
-    Some(if value == 0 {
+    let which = &header.PowerSetting;
+    if same(which, &GUID_ACDC_POWER_SOURCE) {
+        Some(Setting::PowerSource(value))
+    } else if same(which, &GUID_LIDSWITCH_STATE_CHANGE) {
+        Some(Setting::Lid(value))
+    } else if same(which, &GUID_CONSOLE_DISPLAY_STATE) {
+        Some(Setting::Screen(value))
+    } else {
+        None
+    }
+}
+
+/// The event for a power source: any source but AC counts as the battery.
+fn source_event(value: u32) -> PowerEvent {
+    if value == 0 {
         PowerEvent::OnAc
     } else {
         PowerEvent::OnBattery
-    })
+    }
 }
 
-/// Whether a setting is the AC/DC power source. `GUID` has no `==`.
-fn is_power_source(setting: &GUID) -> bool {
-    let wanted = GUID_ACDC_POWER_SOURCE;
-    (setting.data1, setting.data2, setting.data3, setting.data4)
-        == (wanted.data1, wanted.data2, wanted.data3, wanted.data4)
+/// Whether two GUIDs are the same. `GUID` has no `==`.
+fn same(one: &GUID, other: &GUID) -> bool {
+    (one.data1, one.data2, one.data3, one.data4)
+        == (other.data1, other.data2, other.data3, other.data4)
 }
 
 #[cfg(test)]
 mod tests {
-    use windows_sys::Win32::System::SystemServices::GUID_ACDC_POWER_SOURCE;
     use windows_sys::Win32::UI::WindowsAndMessaging::{
         PBT_APMRESUMESUSPEND, PBT_APMSUSPEND, PBT_POWERSETTINGCHANGE,
     };
@@ -327,18 +475,26 @@ mod tests {
         value: u32,
     }
 
-    fn power_source(value: u32) -> SettingChange {
-        SettingChange {
-            setting: GUID_ACDC_POWER_SOURCE,
-            length: 4,
-            value,
-        }
-    }
-
     fn listener() -> (Listener, Receiver<PowerEvent>) {
         let (sender, events) = mpsc::channel();
         let suspend = SuspendHandled::default();
-        (Listener { sender, suspend }, events)
+        let seen = LidAndScreen::default();
+        (
+            Listener {
+                sender,
+                suspend,
+                seen,
+            },
+            events,
+        )
+    }
+
+    fn change(setting: GUID, value: u32) -> SettingChange {
+        SettingChange {
+            setting,
+            length: 4,
+            value,
+        }
     }
 
     fn call(listener: &Listener, kind: u32, setting: Option<&SettingChange>) {
@@ -461,7 +617,7 @@ mod tests {
             call(
                 &listener,
                 PBT_POWERSETTINGCHANGE,
-                Some(&power_source(value)),
+                Some(&change(GUID_ACDC_POWER_SOURCE, value)),
             );
         }
 
@@ -476,11 +632,85 @@ mod tests {
     }
 
     #[test]
+    fn the_lid_and_the_screen_are_kept_not_passed_on() {
+        let (listener, events) = listener();
+        let seen = listener.seen.clone();
+        assert_eq!((seen.lid_open(), seen.screen_on()), (None, None));
+
+        // The lid: 0 shut, 1 open. The screen: 0 off, 1 on, 2 dimmed.
+        let said = |setting, value| {
+            call(
+                &listener,
+                PBT_POWERSETTINGCHANGE,
+                Some(&change(setting, value)),
+            );
+            (seen.lid_open(), seen.screen_on())
+        };
+        assert_eq!(said(GUID_LIDSWITCH_STATE_CHANGE, 0), (Some(false), None));
+        assert_eq!(
+            said(GUID_CONSOLE_DISPLAY_STATE, 0),
+            (Some(false), Some(false))
+        );
+        assert_eq!(
+            said(GUID_LIDSWITCH_STATE_CHANGE, 1),
+            (Some(true), Some(false))
+        );
+        assert_eq!(
+            said(GUID_CONSOLE_DISPLAY_STATE, 2),
+            (Some(true), Some(true))
+        );
+        assert_eq!(
+            said(GUID_CONSOLE_DISPLAY_STATE, 1),
+            (Some(true), Some(true))
+        );
+        // A value Windows does not document is not known.
+        assert_eq!(said(GUID_LIDSWITCH_STATE_CHANGE, 2), (None, Some(true)));
+        assert_eq!(said(GUID_CONSOLE_DISPLAY_STATE, 3), (None, None));
+
+        assert_eq!(events.try_iter().count(), 0);
+    }
+
+    #[test]
+    fn a_sleep_notice_forgets_the_screen_not_the_lid() {
+        let (listener, events) = listener();
+        drop(events);
+        for (setting, value) in [
+            (GUID_LIDSWITCH_STATE_CHANGE, 0),
+            (GUID_CONSOLE_DISPLAY_STATE, 1),
+        ] {
+            call(
+                &listener,
+                PBT_POWERSETTINGCHANGE,
+                Some(&change(setting, value)),
+            );
+        }
+
+        call(&listener, PBT_APMSUSPEND, None);
+
+        let seen = &listener.seen;
+        assert_eq!((seen.lid_open(), seen.screen_on()), (Some(false), None));
+    }
+
+    #[test]
+    fn a_change_with_no_dword_is_ignored() {
+        let (listener, events) = listener();
+        let short = SettingChange {
+            length: 3,
+            ..change(GUID_LIDSWITCH_STATE_CHANGE, 1)
+        };
+
+        call(&listener, PBT_POWERSETTINGCHANGE, Some(&short));
+
+        assert_eq!(listener.seen.lid_open(), None);
+        assert_eq!(events.try_iter().count(), 0);
+    }
+
+    #[test]
     fn other_settings_are_ignored() {
         let (listener, events) = listener();
         let other = SettingChange {
             setting: GUID::from_u128(1),
-            ..power_source(1)
+            ..change(GUID_ACDC_POWER_SOURCE, 1)
         };
 
         call(&listener, PBT_POWERSETTINGCHANGE, Some(&other));

@@ -53,12 +53,34 @@ pub(crate) const WITH_THE_PRESET: &str = "with the preset";
 /// line (ticket 163).
 pub(crate) const BY_A_POLL: &str = "by a poll";
 
+/// What Windows last said of the lid and the screen, for the log (ticket
+/// 184).
+fn lid_and_screen(lid_open: Option<bool>, screen_on: Option<bool>) -> String {
+    format!(
+        "lid {}, screen {}",
+        said(lid_open, "open", "shut"),
+        said(screen_on, "on", "off")
+    )
+}
+
+/// What Windows said of the lid or the screen: `yes` or `no`, or "not
+/// known" if it said nothing.
+fn said(state: Option<bool>, yes: &'static str, no: &'static str) -> &'static str {
+    match state {
+        Some(true) => yes,
+        Some(false) => no,
+        None => "not known",
+    }
+}
+
 #[cfg(test)]
 thread_local! {
     /// How each `Full speed, sent again` line this test's thread logged
     /// says the send went: the window tests share one log.
     pub static FULL_SPEED_SENT_AGAIN: std::cell::RefCell<Vec<&'static str>> =
         const { std::cell::RefCell::new(Vec::new()) };
+    /// How many missed wakes this test's thread logged as held (ticket 184).
+    pub static MISSED_WAKES_HELD: std::cell::Cell<u32> = const { std::cell::Cell::new(0) };
 }
 
 impl<P: Parts> Shell<P> {
@@ -517,7 +539,10 @@ impl<P: Parts> Shell<P> {
             return;
         }
         if event == PowerEvent::Resumed {
-            report("Windows says the laptop woke, so the settings go again after the pause");
+            report(&format!(
+                "Windows says the laptop woke ({}), so the settings go again after the pause",
+                lid_and_screen(P::lid_open(), P::screen_on())
+            ));
             self.wake();
             return;
         }
@@ -535,7 +560,15 @@ impl<P: Parts> Shell<P> {
     /// on a game whose hibernate failed, the sleep goes on: the quit
     /// preset runs and nothing is sent, the safe side. A clock set back or
     /// an unknown input time does the same. Input another program injects
-    /// counts too (Windows' last-input time can't tell it apart).
+    /// counts too (Windows' last-input time can't tell it apart), as does
+    /// an external mouse or keyboard, so Windows must also have said the
+    /// screen is on since the notice, and not that the lid is shut (ticket
+    /// 184): a screen on from before the sleep may be stale, a shut lid can
+    /// light the screen in a failed hibernate, and a lid open with the
+    /// screen off is a power-button standby. Otherwise the sleep goes on,
+    /// logged once per sleep notice. The price: a sleep cancelled before
+    /// the screen went off brings no screen notice, so it waits for the
+    /// screen to go off and on again, or for a wake notice.
     fn follow_missed_wake(self: &Rc<Self>, wall: SystemTime) {
         if !self.asleep.get() {
             return;
@@ -550,16 +583,30 @@ impl<P: Parts> Shell<P> {
         let Ok(ran) = wall.duration_since(began) else {
             return;
         };
-        if ran >= MISSED_WAKE_AFTER
-            && P::input_age().is_some_and(|age| age.saturating_add(INPUT_GRACE) < ran)
+        if ran < MISSED_WAKE_AFTER
+            || P::input_age().is_none_or(|age| age.saturating_add(INPUT_GRACE) >= ran)
         {
-            report(
-                "the app has run for a minute since Windows said the laptop sleeps, with input from the user and no wake notice, so this counts as a wake: the settings go again after the pause",
-            );
-            // The sleep failed: the chips did not cool (ticket 172).
-            self.slept_at.set(None);
-            self.wake();
+            return;
         }
+        // Read once, so the log shows what was decided on.
+        let (lid_open, screen_on) = (P::lid_open(), P::screen_on());
+        let seen = lid_and_screen(lid_open, screen_on);
+        if screen_on != Some(true) || lid_open == Some(false) {
+            if !self.missed_wake_held.replace(true) {
+                report(&format!(
+                    "the app has run for a minute since Windows said the laptop sleeps, with input from the user and no wake notice, but not with the screen on since the notice and the lid not shut ({seen}), so the sleep goes on: nothing is sent until the screen goes off and on again or Windows says the laptop woke"
+                ));
+                #[cfg(test)]
+                MISSED_WAKES_HELD.set(MISSED_WAKES_HELD.get() + 1);
+            }
+            return;
+        }
+        report(&format!(
+            "the app has run for a minute since Windows said the laptop sleeps, with input from the user and no wake notice ({seen}), so this counts as a wake: the settings go again after the pause"
+        ));
+        // The sleep failed: the chips did not cool (ticket 172).
+        self.slept_at.set(None);
+        self.wake();
     }
 
     /// At the first tick after a wake's pause, measures the sleep by the
@@ -672,6 +719,7 @@ impl<P: Parts> Shell<P> {
         // A notice while asleep (the last sleep had no wake notice) starts
         // the minute to a missed wake again; nothing was sent since the last.
         self.awake_run.set(None);
+        self.missed_wake_held.set(false);
         // From the last notice: the app ran since an earlier one.
         self.slept_at.set(Some(SystemTime::now()));
         self.woke.set(false);
@@ -706,8 +754,9 @@ impl<P: Parts> Shell<P> {
         let began = Instant::now();
         match app.on_power(PowerEvent::Suspending) {
             Ok(()) => report(&format!(
-                "the laptop goes to sleep, so the quit preset was sent ({} ms); the settings go again at the wake",
-                began.elapsed().as_millis()
+                "the laptop goes to sleep, so the quit preset was sent ({} ms, lid {}); the settings go again at the wake",
+                began.elapsed().as_millis(),
+                said(P::lid_open(), "open", "shut")
             )),
             Err(error) => report(&format!(
                 "the quit preset was not sent before the sleep, so a manual fan or Performance may keep running in it: {error}"

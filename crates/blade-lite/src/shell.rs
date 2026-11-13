@@ -31,9 +31,9 @@ use ui::{FanGuard, HeatWatch, ModeWatch, TouchpadWatch};
 use popup::{POPUP_HOLD, POWER_MODE};
 #[cfg(test)]
 pub(crate) use ticks::BY_A_POLL;
-#[cfg(test)]
-pub use ticks::FULL_SPEED_SENT_AGAIN;
 pub(crate) use ticks::WITH_THE_PRESET;
+#[cfg(test)]
+pub use ticks::{FULL_SPEED_SENT_AGAIN, MISSED_WAKES_HELD};
 
 use crate::{FlyoutWindow, MainWindow, ModePopup, bind};
 
@@ -71,6 +71,12 @@ pub trait Parts: 'static {
     fn sleep_notice_waits() -> bool;
     /// How long ago the user last gave input. `None` if it can't be told.
     fn input_age() -> Option<Duration>;
+    /// Whether the lid is open, from Windows' last notice. `None` if no
+    /// notice came.
+    fn lid_open() -> Option<bool>;
+    /// Whether the screen is on or dimmed, from Windows' last notice.
+    /// `None` if no notice came.
+    fn screen_on() -> Option<bool>;
 }
 
 /// What [`Parts::pick_file`] calls with the user's answer.
@@ -179,6 +185,14 @@ impl Parts for Laptop {
 
     fn input_age() -> Option<Duration> {
         platform::input_age()
+    }
+
+    fn lid_open() -> Option<bool> {
+        crate::background::lid_open()
+    }
+
+    fn screen_on() -> Option<bool> {
+        crate::background::screen_on()
     }
 
     fn toggle_mic_mute() -> Option<bool> {
@@ -338,6 +352,9 @@ pub struct Shell<P: Parts = Laptop> {
     /// Since a sleep notice: when the ticks' run with no gap began, and
     /// the last tick, by the wall clock (ticket 170).
     awake_run: Cell<Option<(SystemTime, SystemTime)>>,
+    /// Whether a missed wake was held back since the last sleep notice, as
+    /// the lid was shut and the screen off (ticket 184): logged once.
+    missed_wake_held: Cell<bool>,
     /// When the last sleep notice came, by the wall clock, and whether its
     /// wake's pause has ended since: the next tick measures the sleep for
     /// the fan guard (ticket 172).
@@ -403,6 +420,7 @@ impl<P: Parts> Shell<P> {
             quit_sent: Cell::new(false),
             asleep: Cell::new(false),
             awake_run: Cell::new(None),
+            missed_wake_held: Cell::new(false),
             slept_at: Cell::new(None),
             woke: Cell::new(false),
             redo_at_wake: Cell::new(false),

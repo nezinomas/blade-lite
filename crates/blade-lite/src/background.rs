@@ -13,7 +13,8 @@ use blade_lite::{
     step_on_presses,
 };
 use platform::{
-    PowerEvent, PowerEvents, RegistryWatch, SuspendHandled, WakeListener, WindowsPowerEvents,
+    LidAndScreen, PowerEvent, PowerEvents, RegistryWatch, SuspendHandled, WakeListener,
+    WindowsPowerEvents,
 };
 use razer_device::HidKeyReports;
 use razer_proto::BLADE_18;
@@ -282,6 +283,15 @@ pub fn power_events() -> Receiver<PowerEvent> {
             let handled = events.suspend_handled();
             // Only one registration per run: a second keeps the first.
             let _ = SLEEP_NOTICE.set(handled.clone());
+            let _ = LID_AND_SCREEN.set(events.lid_and_screen());
+            for (which, error) in events.lid_and_screen_refused() {
+                let lost = if which == "lid" {
+                    "a shut lid is not seen, so input with the screen on can end a sleep with no wake notice"
+                } else {
+                    "input does not end a sleep with no wake notice"
+                };
+                report(&format!("no {which} notices, so {lost}: {error}"));
+            }
             spawn_part("power events", move || {
                 while let Some(event) = events.next_event() {
                     if sender.send(event).is_err() {
@@ -311,6 +321,22 @@ static SLEEP_NOTICE: OnceLock<SuspendHandled> = OnceLock::new();
 /// notice; true if no notices can come (nothing to act on then).
 pub fn sleep_notice_waits() -> bool {
     SLEEP_NOTICE.get().is_none_or(SuspendHandled::waiting)
+}
+
+/// What Windows last said of the lid and the screen, for [`lid_open`] and
+/// [`screen_on`].
+static LID_AND_SCREEN: OnceLock<LidAndScreen> = OnceLock::new();
+
+/// Whether the lid is open; `None` if Windows has not said, or no power
+/// events come.
+pub fn lid_open() -> Option<bool> {
+    LID_AND_SCREEN.get().and_then(LidAndScreen::lid_open)
+}
+
+/// Whether the screen is on or dimmed; `None` if Windows has not said, or
+/// no power events come.
+pub fn screen_on() -> Option<bool> {
+    LID_AND_SCREEN.get().and_then(LidAndScreen::screen_on)
 }
 
 /// Has the event loop follow the power events now, then tells Windows the
