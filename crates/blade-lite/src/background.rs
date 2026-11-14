@@ -16,7 +16,7 @@ use platform::{
     LidAndScreen, PowerEvent, PowerEvents, RegistryWatch, SuspendHandled, WakeListener,
     WindowsPowerEvents,
 };
-use razer_device::HidKeyReports;
+use razer_device::{DroppedReport, HidKeyReports};
 use razer_proto::BLADE_18;
 
 use crate::SHELL;
@@ -165,6 +165,9 @@ pub fn follow_the_power_key() {
         // The last sender logged, so a new one is logged once: a dead key
         // can then be traced to the collection read.
         let mut logged: Option<String> = None;
+        // The last dropped report logged: a reopen that drops the same one
+        // again is not logged again, so the log does not fill (ticket 210).
+        let mut logged_drop: Option<DroppedReport> = None;
         loop {
             let opened = HidKeyReports::open_preferring(&BLADE_18, sender.as_deref());
             let (problem, pause) = match opened {
@@ -178,6 +181,7 @@ pub fn follow_the_power_key() {
                     let ran = started.elapsed();
                     presses = end.next_presses(ran, &presses);
                     log_read_path(reports.read_path(), &mut logged);
+                    log_first_drop(reports.first_dropped(), &mut logged_drop);
                     sender = if end.keeps_key_state(ran) {
                         reports.sender().map(str::to_owned).or(sender)
                     } else {
@@ -216,6 +220,18 @@ fn log_read_path(path: Option<&str>, logged: &mut Option<String>) {
     {
         report(&format!("the power-mode key is read on {path}"));
         *logged = Some(path.to_owned());
+    }
+}
+
+/// Logs the first report an open of the key reports dropped, once each
+/// time it changes: a key that stays dead because its reports no longer
+/// match the profile can then be traced (ticket 210).
+fn log_first_drop(dropped: Option<DroppedReport>, logged: &mut Option<DroppedReport>) {
+    if let Some(dropped) = dropped
+        && logged.as_ref() != Some(&dropped)
+    {
+        report(&format!("a key report was dropped: {dropped}"));
+        *logged = Some(dropped);
     }
 }
 

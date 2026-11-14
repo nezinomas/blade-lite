@@ -149,6 +149,39 @@ impl HidKeyReports {
     pub fn read(&mut self, wait: Duration) -> io::Result<Option<Vec<u8>>> {
         self.sources.read(wait)
     }
+
+    /// The first report dropped since the open, so a key whose reports no
+    /// longer match the profile can be traced (ticket 210).
+    #[must_use]
+    pub fn first_dropped(&self) -> Option<DroppedReport> {
+        let dropped = self.sources.first_drop?;
+        Some(DroppedReport {
+            id: dropped.id,
+            len: dropped.len,
+            path: self.paths.get(dropped.source)?.clone(),
+        })
+    }
+}
+
+/// A report read on a key collection that was not a key report.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DroppedReport {
+    /// Its report ID, the first byte.
+    pub id: u8,
+    /// Its size in bytes.
+    pub len: usize,
+    /// The path of the collection that sent it.
+    pub path: String,
+}
+
+impl std::fmt::Display for DroppedReport {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "report ID {:02X}, {} bytes, on {}",
+            self.id, self.len, self.path
+        )
+    }
 }
 
 /// Only the collection at `sender` when it is in `found`; else the ones
@@ -195,6 +228,17 @@ struct KeySources<D> {
     source: Option<usize>,
     /// What a key report looks like.
     key: PowerKey,
+    /// The first report dropped, kept for the log (ticket 210).
+    first_drop: Option<Dropped>,
+}
+
+/// Where a dropped report came from, its ID and its size.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct Dropped {
+    /// The index of its collection in `devices`.
+    source: usize,
+    id: u8,
+    len: usize,
 }
 
 impl<D: ReadTimeout> KeySources<D> {
@@ -203,6 +247,7 @@ impl<D: ReadTimeout> KeySources<D> {
             devices,
             source: None,
             key,
+            first_drop: None,
         }
     }
 
@@ -221,8 +266,18 @@ impl<D: ReadTimeout> KeySources<D> {
                 .ok_or_else(|| io::Error::other("the key source is gone"))?,
             None => self.devices.as_slice(),
         };
+        let first_drop = &mut self.first_drop;
         for (index, device) in (first..).zip(devices) {
-            if let Some(report) = read_key_report(device, self.key, wait)? {
+            let on_drop = |report: &[u8]| {
+                if first_drop.is_none() {
+                    *first_drop = report.first().map(|&id| Dropped {
+                        source: index,
+                        id,
+                        len: report.len(),
+                    });
+                }
+            };
+            if let Some(report) = read_key_report(device, self.key, wait, on_drop)? {
                 self.source = Some(index);
                 return Ok(Some(report));
             }
@@ -234,11 +289,13 @@ impl<D: ReadTimeout> KeySources<D> {
 /// Reads `device` until it sends a key report or `wait` is up. Any other
 /// report, such as the `05` one another collection sends at each USB wake,
 /// is dropped: it picks no source and does not end the wait, so the
-/// caller can count the whole wait as quiet (ticket 203).
+/// caller can count the whole wait as quiet (ticket 203). Each dropped
+/// report is passed to `on_drop` (ticket 210).
 fn read_key_report(
     device: &impl ReadTimeout,
     key: PowerKey,
     wait: Duration,
+    mut on_drop: impl FnMut(&[u8]),
 ) -> io::Result<Option<Vec<u8>>> {
     let deadline = Instant::now().checked_add(wait);
     let mut buffer = [0; KEY_REPORT_ROOM];
@@ -255,6 +312,7 @@ fn read_key_report(
         if key.is_key_report(report) {
             return Ok(Some(report.to_vec()));
         }
+        on_drop(report);
         // No deadline (a wait too long to add): the whole wait again.
         left = deadline.map_or(wait, |deadline| {
             deadline.saturating_duration_since(Instant::now())
@@ -501,6 +559,47 @@ mod tests {
 
         assert_eq!(sources.read(Duration::ZERO).unwrap(), None);
         assert_eq!(log.borrow().len(), 1);
+    }
+
+    #[test]
+    fn the_first_dropped_report_is_kept_with_its_collection() {
+        let (mut sources, _) = sources(vec![
+            vec![Ok(wake_report()), Ok(vec![0x06, 0x01])],
+            vec![Ok(vec![0x07]), Ok(report(&POWER_KEY))],
+        ]);
+        assert_eq!(sources.first_drop, None);
+
+        sources.read(WAIT).unwrap();
+
+        let first = Dropped {
+            source: 0,
+            id: 0x05,
+            len: 16,
+        };
+        assert_eq!(sources.first_drop, Some(first));
+    }
+
+    #[test]
+    fn a_key_report_is_no_drop() {
+        let (mut sources, _) = sources(vec![vec![Ok(report(&POWER_KEY))]]);
+
+        sources.read(WAIT).unwrap();
+
+        assert_eq!(sources.first_drop, None);
+    }
+
+    #[test]
+    fn a_dropped_report_is_said_with_its_id_size_and_path() {
+        let dropped = DroppedReport {
+            id: 0x05,
+            len: 16,
+            path: "\\\\?\\hid#col05".to_owned(),
+        };
+
+        assert_eq!(
+            dropped.to_string(),
+            "report ID 05, 16 bytes, on \\\\?\\hid#col05"
+        );
     }
 
     #[test]
