@@ -19,7 +19,7 @@ use std::time::{Duration, Instant, SystemTime};
 use blade_core::{
     ApplyError, Controller, PollSchedule, Query, RESUME_PAUSE, Readings, ReadingsSampler,
 };
-use blade_lite::{App, AppError, Rect, SaidLately, ShownErrors, report, took_effect};
+use blade_lite::{App, AppError, Rect, SaidLately, ShownErrors, TimedSensors, report, took_effect};
 use platform::{
     DisplayApi, FileDialog, KeyInjector, MicWatch, PowerEvent, Programs, Registry, Sensors,
     WindowsDisplays, WindowsKeys, WindowsPrograms, WindowsRegistry, WindowsSensors,
@@ -310,7 +310,9 @@ pub struct Shell<P: Parts = Laptop> {
     flyout: FlyoutWindow,
     popup: ModePopup,
     app: RefCell<AppOn<P>>,
-    sampler: RefCell<(ReadingsSampler, P::Sensors)>,
+    sampler: RefCell<(ReadingsSampler, TimedSensors<P::Sensors>)>,
+    /// The controller reads' time since the last [`take_read_times`](Self::take_read_times).
+    controller_time: Cell<Duration>,
     readings: Cell<Readings>,
     schedule: RefCell<PollSchedule>,
     flyout_open: Cell<bool>,
@@ -419,7 +421,8 @@ impl<P: Parts> Shell<P> {
             flyout,
             popup,
             app: RefCell::new(app),
-            sampler: RefCell::new((ReadingsSampler::default(), P::Sensors::default())),
+            sampler: RefCell::new((ReadingsSampler::default(), TimedSensors::default())),
+            controller_time: Cell::new(Duration::ZERO),
             readings: Cell::new(Readings::default()),
             schedule: RefCell::new(PollSchedule::default()),
             flyout_open: Cell::new(false),
