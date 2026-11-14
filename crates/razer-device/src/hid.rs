@@ -126,6 +126,16 @@ impl HidKeyReports {
         self.paths.get(index).map(String::as_str)
     }
 
+    /// The path of the one collection read: the one that sent, or the only
+    /// one opened. `None` while more than one is read in turn.
+    #[must_use]
+    pub fn read_path(&self) -> Option<&str> {
+        match self.paths.as_slice() {
+            [only] => Some(only.as_str()),
+            _ => self.sender(),
+        }
+    }
+
     /// Waits up to `wait` for a key report on each collection in turn until
     /// one sends, then on that one alone, so a call before the first report
     /// can take `wait` once per collection. `None` if none came. Any other
