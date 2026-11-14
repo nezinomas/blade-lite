@@ -21,7 +21,7 @@ pub use autostart_item::{
     AUTOSTART_LABEL, AUTOSTART_OTHER_LABEL, AUTOSTART_UNKNOWN_LABEL, AutostartItem, autostart_item,
     takeover_note,
 };
-pub use background_gpu::{BackgroundGpu, GPU_READ_MAX_AGE};
+pub use background_gpu::BackgroundGpu;
 pub use key_reader::{
     ENTER_READ_WAIT, FnKeys, KEY_QUIET_SPELL, KEY_READ_WAIT, KEY_REOPEN_PAUSE, KeyEvent,
     KeyReportSource, ReaderEnd, WindowsFnKeys, step_on_presses,

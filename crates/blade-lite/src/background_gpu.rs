@@ -2,7 +2,9 @@
 //! over 2 s (a GPU going to sleep or waking), and on the event loop it froze
 //! the window's scroll. The loop asks the thread for a read and waits for it
 //! at most [`GPU_READ_WAIT`]: nearly every read takes a few ms, so the poll
-//! gets it; a slow one is used by a later poll. Only reads: nothing is sent.
+//! gets it. A slower one is a failed read for that poll, which holds an on
+//! fan guard on as any failed GPU read does, and is given to the next poll
+//! if it is still fresh then. Only reads: nothing is sent.
 
 use std::io;
 use std::sync::mpsc::{self, SyncSender, TrySendError};
@@ -15,13 +17,12 @@ use platform::{BatteryHealth, CpuTimes, GpuReading, PowerReading, Sensors};
 /// took 2 to 6 ms, the slow ones 0.4 to 2.3 s (2026-11-14).
 pub const GPU_READ_WAIT: Duration = Duration::from_millis(50);
 
-/// The oldest GPU read a poll still uses when its own read is slow: longer
-/// than the slowest poll that reads the GPU ([`blade_core::HEAT_INTERVAL`],
-/// 10 s). An older read, one from before a sleep (by the wall clock), or
-/// none is a failed read, which holds an on fan guard on as any failed GPU
-/// read does. So after a wake whose first read is slow, the guard keeps its
-/// full hold, not a long sleep's short one (ticket 172): the safe side.
-pub const GPU_READ_MAX_AGE: Duration = Duration::from_secs(15);
+/// The oldest read a poll takes: one that began longer ago than this (by either clock, so also one that ran over a
+/// sleep), is a failed read. The slow reads seen took up to 2.3 s. A read is
+/// never given to a second poll, so the fan guard never takes an old
+/// reading as a new one; after a wake whose first read is slow, the guard
+/// keeps its full hold, not a long sleep's short one (ticket 172).
+const GPU_READ_MAX_AGE: Duration = Duration::from_secs(3);
 
 /// How long a stopped read thread waits before a new one starts, so a read
 /// that panics each time can't start a thread each poll.
@@ -93,6 +94,9 @@ pub struct BackgroundGpu<S, G = S> {
     /// The read [`gpu_awake`](Sensors::gpu_awake) took, for the
     /// [`gpu`](Sensors::gpu) after it.
     taken: Option<GpuSample>,
+    /// The count of reads done when a read was last given to a poll, so no
+    /// read is given twice.
+    given: u64,
     make: fn() -> G,
 }
 
@@ -104,6 +108,7 @@ impl<S: Default, G: Default> Default for BackgroundGpu<S, G> {
             stopped_at: None,
             slot: Slot::default(),
             taken: None,
+            given: 0,
             make: G::default,
         }
     }
@@ -164,9 +169,9 @@ impl<S, G: Sensors + 'static> BackgroundGpu<S, G> {
     }
 
     /// Waits at most [`GPU_READ_WAIT`] for a read to end after `done`
-    /// reads, then gives the last read if it is fresh, else why there is
-    /// none.
-    fn wait_for_read(&self, done: u64) -> Result<GpuSample, String> {
+    /// reads, then gives the last read if no poll had it and it is fresh,
+    /// else why there is none.
+    fn wait_for_read(&mut self, done: u64) -> Result<GpuSample, String> {
         let shared = lock(&self.slot);
         let (shared, _) = self
             .slot
@@ -174,20 +179,24 @@ impl<S, G: Sensors + 'static> BackgroundGpu<S, G> {
             .wait_timeout_while(shared, GPU_READ_WAIT, |shared| shared.done == done)
             .unwrap_or_else(PoisonError::into_inner);
         let (now, wall) = (Instant::now(), SystemTime::now());
-        if let Some(sample) = shared
-            .last
-            .as_ref()
-            .filter(|sample| sample.fresh(now, wall))
+        if shared.done != self.given
+            && let Some(sample) = shared
+                .last
+                .as_ref()
+                .filter(|sample| sample.fresh(now, wall))
         {
+            self.given = shared.done;
             return Ok(sample.clone());
         }
+        // The varying part in brackets, so the log's quiet time sees one kind.
         Err(match shared.running_since {
             Some(since) => format!(
-                "no GPU read newer than {} s, and the one that runs began {} ms ago",
-                GPU_READ_MAX_AGE.as_secs(),
+                "the GPU read is slow, so this poll has none (it has run {} ms)",
                 now.saturating_duration_since(since).as_millis()
             ),
-            None => format!("no GPU read newer than {} s", GPU_READ_MAX_AGE.as_secs()),
+            None => {
+                "the GPU read is slow, so this poll has none (the last ran too long)".to_owned()
+            }
         })
     }
 }
@@ -205,9 +214,8 @@ impl<S: Sensors, G: Sensors + 'static> Sensors for BackgroundGpu<S, G> {
         self.inner.battery_health()
     }
 
-    /// Asks for a read and waits for it at most [`GPU_READ_WAIT`]; if it is
-    /// slow, takes the last read at most [`GPU_READ_MAX_AGE`] old. Its power
-    /// state, or an error if there is none.
+    /// Asks for a read and waits for it at most [`GPU_READ_WAIT`]. Its power
+    /// state, or an error if no read ended in the wait.
     fn gpu_awake(&mut self) -> io::Result<bool> {
         self.taken = None;
         let done = lock(&self.slot).done;
@@ -280,9 +288,20 @@ mod tests {
     fake_gpu!(AsleepGpu, awake: false, delay_ms: 0, reads: ASLEEP_READS, panics: false);
     fake_gpu!(PanicGpu, awake: true, delay_ms: 0, reads: PANIC_READS, panics: true);
 
+    /// Polls until a read comes, for at most 5 s: the thread's start may
+    /// take longer than the wait on a busy runner.
+    fn warm<G: Sensors + 'static>(sensors: &mut BackgroundGpu<QuickGpu, G>) {
+        let until = Instant::now() + Duration::from_secs(5);
+        while sensors.gpu_awake().is_err() {
+            assert!(Instant::now() < until, "no GPU read came");
+            std::thread::sleep(MS * 20);
+        }
+    }
+
     #[test]
     fn a_quick_read_is_taken_by_the_poll_that_asked() {
         let mut sensors = BackgroundGpu::<QuickGpu>::default();
+        warm(&mut sensors);
         assert!(sensors.gpu_awake().is_ok_and(|awake| awake));
         assert_eq!(sensors.gpu().ok(), Some(READING));
         assert!(QUICK_READS.load(Ordering::SeqCst) >= 1);
@@ -294,18 +313,20 @@ mod tests {
         let began = Instant::now();
         let first = sensors.gpu_awake();
         let held = began.elapsed();
-        assert!(held < GPU_READ_WAIT + MS * 40, "{held:?}");
+        assert!(held < MS * 250, "{held:?}");
         assert!(
             first
                 .as_ref()
-                .is_err_and(|error| error.to_string().contains("began")),
+                .is_err_and(|error| error.to_string().contains("slow")),
             "{first:?}"
         );
         assert!(sensors.gpu().is_err());
-        // A later poll takes the slow read once it is in.
-        std::thread::sleep(MS * 400);
+        // The next poll takes the slow read once it is in, and the one
+        // after it does not take it again.
+        std::thread::sleep(MS * 600);
         assert!(sensors.gpu_awake().is_ok_and(|awake| awake));
         assert_eq!(sensors.gpu().ok(), Some(READING));
+        assert!(sensors.gpu_awake().is_err());
         assert!(SLOW_READS.load(Ordering::SeqCst) >= 1);
     }
 
@@ -315,16 +336,17 @@ mod tests {
         for _ in 0..10 {
             let _ = sensors.gpu_awake();
         }
-        // The 10 asks take about 500 ms (the wait each); reads of 300 ms
-        // each, one running and at most one waiting: 3 at most, not 10.
+        // The 10 asks take about 500 to 650 ms (the wait each); reads of
+        // 300 ms each, one running and at most one waiting: 4 at most, not 10.
         std::thread::sleep(MS * 1500);
         let reads = COUNTED_READS.load(Ordering::SeqCst);
-        assert!((1..=3).contains(&reads), "{reads}");
+        assert!((1..=4).contains(&reads), "{reads}");
     }
 
     #[test]
     fn a_sleeping_gpu_is_never_read_through_nvml() {
         let mut sensors = BackgroundGpu::<QuickGpu, AsleepGpu>::default();
+        warm(&mut sensors);
         assert!(sensors.gpu_awake().is_ok_and(|awake| !awake));
         assert!(sensors.gpu().is_err());
         assert_eq!(ASLEEP_READS.load(Ordering::SeqCst), 0);
@@ -333,6 +355,7 @@ mod tests {
     #[test]
     fn a_reading_is_given_once_per_power_state_read() {
         let mut sensors = BackgroundGpu::<QuickGpu>::default();
+        warm(&mut sensors);
         assert!(sensors.gpu_awake().is_ok());
         assert!(sensors.gpu().is_ok());
         assert!(sensors.gpu().is_err());
