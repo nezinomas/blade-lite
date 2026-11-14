@@ -241,12 +241,12 @@ fn log_drops(dropped: Vec<DroppedReport>, logged: &mut Vec<DroppedReport>) {
 /// room, and one more line as it fills up.
 fn drop_lines(dropped: Vec<DroppedReport>, logged: &mut Vec<DroppedReport>) -> Vec<String> {
     let mut lines = Vec::new();
-    for report in dropped {
-        if logged.len() < MOST_DROPS_LOGGED && !logged.contains(&report) {
+    for each in dropped {
+        if logged.len() < MOST_DROPS_LOGGED && !logged.contains(&each) {
             lines.push(format!(
-                "a report on a key collection was not a key report: {report}"
+                "a report on a key collection was not a key report: {each}"
             ));
-            logged.push(report);
+            logged.push(each);
             if logged.len() == MOST_DROPS_LOGGED {
                 lines.push("more such reports are not logged in this run".to_owned());
             }
