@@ -65,12 +65,15 @@ pub struct StepTime {
 }
 
 impl StepTime {
-    fn said(&self) -> String {
+    /// Said after a poll that began `late`: the part of it no step timed
+    /// (a frame's hand-over, the tray menu, a window drag) is named too.
+    fn said(&self, late: Duration) -> String {
+        let untimed = late.saturating_sub(self.total).as_millis();
         self.slowest.map_or_else(
-            || "no work timed between polls".to_owned(),
+            || format!("no work timed between polls (untimed {untimed} ms)"),
             |(name, took)| {
                 format!(
-                    "work timed between polls {} ms, the slowest {name} {} ms",
+                    "work timed between polls {} ms (untimed {untimed} ms), the slowest {name} {} ms",
                     self.total.as_millis(),
                     took.as_millis()
                 )
@@ -197,7 +200,7 @@ impl SlowPolls {
             slowest.controller.as_millis(),
             slowest.rest().as_millis(),
             slowest.late.as_millis(),
-            slowest.between.said(),
+            slowest.between.said(slowest.late),
         ))
     }
 }
@@ -285,7 +288,7 @@ mod tests {
         assert_eq!(
             line.as_deref(),
             Some(
-                "the event loop was held: 1 slow poll(s) since the last such line; the slowest (0 s ago) ran 3100 ms (GPU 1550 ms, other sensors 2 ms, controller sensors 3 ms, the rest 1545 ms) and began 0 ms late; no work timed between polls"
+                "the event loop was held: 1 slow poll(s) since the last such line; the slowest (0 s ago) ran 3100 ms (GPU 1550 ms, other sensors 2 ms, controller sensors 3 ms, the rest 1545 ms) and began 0 ms late; no work timed between polls (untimed 0 ms)"
             )
         );
     }
@@ -314,11 +317,9 @@ mod tests {
     fn a_late_poll_counts_as_slow() {
         let mut slow = SlowPolls::default();
         let line = slow.note(poll(10, 400), Instant::now());
-        assert!(
-            line.is_some_and(
-                |line| line.ends_with("began 400 ms late; no work timed between polls")
-            )
-        );
+        assert!(line.is_some_and(|line| {
+            line.ends_with("began 400 ms late; no work timed between polls (untimed 400 ms)")
+        }));
     }
 
     #[test]
@@ -360,7 +361,7 @@ mod tests {
         );
         assert!(
             line.as_deref().is_some_and(|line| line.ends_with(
-                "began 1433 ms late; work timed between polls 1400 ms, the slowest display view 1300 ms"
+                "began 1433 ms late; work timed between polls 1400 ms (untimed 33 ms), the slowest display view 1300 ms"
             )),
             "{line:?}"
         );
