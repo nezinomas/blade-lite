@@ -250,6 +250,10 @@ pub const BLADE_18: ModelProfile = ModelProfile {
         interface_number: 1,
         usage_page: 0x01,
         usage: 0x00,
+        // `MI_01&Col04` sends the key reports; Col05, of the same usage,
+        // sends a `05` report at each USB wake (ticket 202, read
+        // 2026-11-14).
+        collection: Some(0x04),
         report_id: 0x04,
         report_len: 16,
         code: 0xD3,

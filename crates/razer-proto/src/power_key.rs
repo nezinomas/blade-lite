@@ -13,6 +13,12 @@ pub struct PowerKey {
     pub interface_number: i32,
     pub usage_page: u16,
     pub usage: u16,
+    /// The `COLxx` number Windows gives that collection in its path. The
+    /// interface can have more than one collection of that usage, and the
+    /// others may send other reports. When it is listed, only it is opened,
+    /// so its reads can wait long from the start (ticket 209). `None`, or
+    /// not listed: each collection of that usage is read in turn.
+    pub collection: Option<u8>,
     /// The first byte of each key report.
     pub report_id: u8,
     /// The size of each key report, with its id. A report of another size
@@ -67,6 +73,7 @@ mod tests {
         interface_number: 1,
         usage_page: 0x01,
         usage: 0x00,
+        collection: Some(0x04),
         report_id: 0x04,
         report_len: 16,
         code: 0xD3,

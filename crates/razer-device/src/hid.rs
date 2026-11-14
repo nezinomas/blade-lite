@@ -8,7 +8,7 @@ use std::time::{Duration, Instant};
 use platform::{HidDetails, HidDevice};
 use razer_proto::{ModelProfile, PowerKey, REPORT_LEN, UsbId};
 
-use crate::discovery::model_interface;
+use crate::discovery::{collection_number, model_interface};
 use crate::{HidInfo, Transport, find_controller, find_key_collections};
 
 /// The controller does not number its reports, so each one starts with ID 0.
@@ -72,8 +72,9 @@ impl HidKeyReports {
 
     /// As [`open`](Self::open), but only the collection at `sender` (the
     /// one that sent last, see [`sender`](Self::sender)) when it is still
-    /// one of the model's key collections and opens; else all of them,
-    /// from the same device list.
+    /// one of the model's key collections and opens; else only the one the
+    /// profile names, when it is listed and opens (ticket 209); else all
+    /// of them, from the same device list.
     ///
     /// # Errors
     ///
@@ -88,7 +89,7 @@ impl HidKeyReports {
         let key = model.power_key.ok_or_else(not_found)?;
         let infos = model_devices(&WindowsHid, &model.usb)?;
         let found = find_key_collections(&infos, &model.usb, &key);
-        let picked = pick_key_collections(found.clone(), sender);
+        let picked = pick_key_collections(found.clone(), sender, key.collection);
         let open_each = |infos: &[&HidInfo]| -> (Vec<String>, Vec<HidDevice>) {
             infos
                 .iter()
@@ -140,14 +141,23 @@ impl HidKeyReports {
     }
 }
 
-/// Only the collection at `sender` when it is in `found`, else all of
-/// `found`.
-fn pick_key_collections<'a>(found: Vec<&'a HidInfo>, sender: Option<&str>) -> Vec<&'a HidInfo> {
-    let picked = sender.and_then(|path| found.iter().find(|info| info.path == path));
-    match picked {
-        Some(&info) => vec![info],
-        None => found,
+/// Only the collection at `sender` when it is in `found`; else the ones
+/// whose path has the profile's `collection` number, when any has; else
+/// all of `found` (ticket 209).
+fn pick_key_collections<'a>(
+    found: Vec<&'a HidInfo>,
+    sender: Option<&str>,
+    collection: Option<u8>,
+) -> Vec<&'a HidInfo> {
+    if let Some(&info) = sender.and_then(|path| found.iter().find(|info| info.path == path)) {
+        return vec![info];
     }
+    let named: Vec<&HidInfo> = found
+        .iter()
+        .copied()
+        .filter(|info| collection.is_some() && collection_number(&info.path) == collection)
+        .collect();
+    if named.is_empty() { found } else { named }
 }
 
 /// A collection read with a wait: Windows', or a fake in the tests.
@@ -415,6 +425,7 @@ mod tests {
         interface_number: 1,
         usage_page: 0x01,
         usage: 0x00,
+        collection: Some(0x04),
         report_id: 0x04,
         report_len: 16,
         code: 0xD3,
@@ -584,12 +595,47 @@ mod tests {
         let found = [key_entry("a"), key_entry("b")];
         let found: Vec<&HidInfo> = found.iter().collect();
 
-        let picked = pick_key_collections(found.clone(), Some("b"));
+        let picked = pick_key_collections(found.clone(), Some("b"), None);
         assert_eq!(picked.len(), 1);
         assert_eq!(picked[0].path, "b");
-        assert_eq!(pick_key_collections(found.clone(), None).len(), 2);
+        assert_eq!(pick_key_collections(found.clone(), None, None).len(), 2);
         // A sender no longer listed (its path changed): all of them.
-        assert_eq!(pick_key_collections(found, Some("gone")).len(), 2);
+        assert_eq!(pick_key_collections(found, Some("gone"), None).len(), 2);
+    }
+
+    /// A key collection's path, as Windows lists it, with this `COLxx`.
+    fn col_path(col: &str) -> String {
+        format!(r"\\?\HID#VID_1532&PID_02C7&MI_01&{col}#7&1&0&0003#{{4d1e55b2}}")
+    }
+
+    #[test]
+    fn the_profiles_collection_is_the_only_one_opened_before_any_sender() {
+        // Ticket 209: Col05 sends a report at each wake, Col04 the keys.
+        let found = [key_entry(&col_path("COL05")), key_entry(&col_path("COL04"))];
+        let found: Vec<&HidInfo> = found.iter().collect();
+
+        let picked = pick_key_collections(found.clone(), None, Some(4));
+
+        assert_eq!(picked, [found[1]]);
+    }
+
+    #[test]
+    fn the_last_sender_wins_over_the_profiles_collection() {
+        let found = [key_entry(&col_path("COL05")), key_entry(&col_path("COL04"))];
+        let found: Vec<&HidInfo> = found.iter().collect();
+        let sender = found[0].path.clone();
+
+        let picked = pick_key_collections(found.clone(), Some(&sender), Some(4));
+
+        assert_eq!(picked, [found[0]]);
+    }
+
+    #[test]
+    fn with_the_profiles_collection_not_listed_all_are_read() {
+        let found = [key_entry(&col_path("COL05")), key_entry(&col_path("COL06"))];
+        let found: Vec<&HidInfo> = found.iter().collect();
+
+        assert_eq!(pick_key_collections(found.clone(), None, Some(4)), found);
     }
 
     #[test]
