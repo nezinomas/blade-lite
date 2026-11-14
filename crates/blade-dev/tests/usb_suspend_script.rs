@@ -19,7 +19,7 @@ fn run(body: &str) -> Result<String, String> {
     let prelude = "$ErrorActionPreference = 'Stop'\n\
         function Get-PnpDevice { throw 'Get-PnpDevice ran' }\n\
         function Set-ItemProperty { throw 'Set-ItemProperty ran' }\n\
-        function Get-ItemProperty { throw 'Get-ItemProperty ran' }\n\
+        function Get-Item { throw 'Get-Item ran' }\n\
         function pnputil { throw 'pnputil ran' }\n\
         function Get-Process { }\n";
     let path = script().display().to_string().replace('\'', "''");
@@ -164,13 +164,119 @@ fn the_script_checks_the_apps_lock() {
 }
 
 #[test]
-fn a_held_lock_is_refused() {
-    let lock = format!(r"Global\blade-lite-test-{}", std::process::id());
-    let free = run(&format!("$LockName = '{lock}'; Assert-NoneRuns; 'free'"));
+fn a_held_lock_or_a_running_app_is_refused() {
+    let lock = format!(
+        r"$LockName = 'Global\blade-lite-test-{}'",
+        std::process::id()
+    );
+    let free = run(&format!("{lock}; (Enter-ControllerLock).Dispose(); 'free'"));
     assert_eq!(free, Ok("free".to_string()));
-    let err = run(&format!(
-        "$LockName = '{lock}'; $m = New-Object System.Threading.Mutex($true, $LockName); Assert-NoneRuns"
-    ))
-    .unwrap_err();
-    assert!(err.contains("Nothing changed"), "{err}");
+    let held = format!(
+        "{lock}; $m = New-Object System.Threading.Mutex($false, $LockName); Enter-ControllerLock"
+    );
+    let running = format!("{lock}; function Get-Process {{ 'blade-lite' }}; Enter-ControllerLock");
+    for body in [held, running] {
+        let err = run(&body).unwrap_err();
+        assert!(err.contains("Nothing changed"), "{body}: {err}");
+    }
+}
+
+#[test]
+fn only_a_dword_or_one_byte_of_0_or_1_is_a_value() {
+    for (kind, data, want) in [
+        ("DWord", "[int]0", "0"),
+        ("DWord", "[int]1", "1"),
+        ("Binary", "[byte[]]@(0)", "0"),
+        ("Binary", "[byte[]]@(1)", "1"),
+        ("DWord", "[int]2", "null"),
+        ("Binary", "[byte[]]@(1, 0)", "null"),
+        ("Binary", "[byte[]]@(2)", "null"),
+        ("String", "'1'", "null"),
+        ("QWord", "[long]1", "null"),
+    ] {
+        let got = run(&format!(
+            "$v = ConvertTo-SuspendValue '{kind}' ({data}); if ($null -eq $v) {{ 'null' }} else {{ \"$v\" }}"
+        ));
+        assert_eq!(got, Ok(want.to_string()), "{kind} {data}");
+    }
+}
+
+/// Where the interface number is in an interface's id (`MI_0x`).
+const MI_AT: usize = 26;
+
+/// Runs `Invoke-UsbSuspend` over fakes that log each read, write and
+/// restart. `values` are the 4 values the interfaces hold; `fail_write`
+/// makes that write (counted from 0) fail. Returns the log, and after a
+/// ` | ` the error, if any.
+fn invoke(undo: bool, values: &str, fail_write: i32) -> String {
+    let list = devices(&laptop());
+    let body = format!(
+        r#"$script:log = @()
+$script:values = @{values}
+$script:writes = 0
+function Get-PnpDevice {{ {list} }}
+function Read-SuspendValue($Interface) {{
+    $script:log += 'read'
+    $script:values[[int]$Interface.InstanceId.Substring({MI_AT}, 1)]
+}}
+function Write-SuspendValue($Interface, $Value) {{
+    if ($script:writes -eq {fail_write}) {{ throw 'access denied' }}
+    $script:writes++
+    $script:log += "write $Value"
+    $script:values[[int]$Interface.InstanceId.Substring({MI_AT}, 1)] = $Value
+}}
+function pnputil {{ $script:log += 'restart'; $global:LASTEXITCODE = 0 }}
+try {{ $null = Invoke-UsbSuspend -Undo:${undo}; $failure = '' }}
+catch {{ $failure = " | $($_.Exception.Message)" }}
+($script:log -join ',') + $failure"#
+    );
+    run(&body).expect("the run itself does not fail")
+}
+
+#[test]
+fn the_fake_finds_the_interface_number() {
+    assert_eq!(&interface(3).0[MI_AT..=MI_AT], "3");
+}
+
+#[test]
+fn a_run_reads_all_writes_all_restarts_and_reads_back() {
+    let reads = "read,read,read,read";
+    let writes = "write 0,write 0,write 0,write 0";
+    assert_eq!(
+        invoke(false, "(1, 1, 0, 1)", -1),
+        format!("{reads},{writes},restart,{reads}")
+    );
+}
+
+#[test]
+fn undo_writes_1() {
+    let log = invoke(true, "(0, 0, 0, 0)", -1);
+    assert!(
+        log.contains("write 1,write 1,write 1,write 1,restart"),
+        "{log}"
+    );
+}
+
+#[test]
+fn values_already_set_write_nothing() {
+    assert_eq!(invoke(false, "(0, 0, 0, 0)", -1), "read,read,read,read");
+}
+
+#[test]
+fn an_unknown_value_writes_nothing() {
+    let log = invoke(false, "(1, 1, $null, 1)", -1);
+    assert!(
+        log.starts_with("read,read,read,read | Expected 4 values"),
+        "{log}"
+    );
+    assert!(log.ends_with("Nothing changed."), "{log}");
+}
+
+#[test]
+fn a_failed_write_says_how_many_changed_and_does_not_restart() {
+    let log = invoke(false, "(1, 1, 1, 1)", 2);
+    assert!(
+        log.starts_with("read,read,read,read,write 0,write 0 | Changed 2 of 4"),
+        "{log}"
+    );
 }

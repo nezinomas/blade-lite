@@ -136,9 +136,8 @@ If the fans stay fast or slow, or Performance stays on battery, see
 Windows lets the Razer USB device (keyboard, lights and fan controller) sleep
 a few seconds after its last use. This is USB selective suspend. At each wake
 the controller drops the keyboard lights: they go off when the laptop is
-idle, blink each 10 s with the app in the tray, or show the colour cycle. Fn +
-Enter and Fn + mic can stop working too (tickets 202 and 204). Windows'
-default is suspend on.
+idle, blink each 10 s with the app in the tray, or show the colour cycle
+(tickets 202 and 204). Windows' default is suspend on.
 
 Run this once in an admin PowerShell, with Blade Lite quit (tray, Quit) and
 no `blade-dev` or `cargo hw` test running:
