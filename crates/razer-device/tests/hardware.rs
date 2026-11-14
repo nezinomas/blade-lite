@@ -649,44 +649,49 @@ fn a_custom_mode_write_alone_and_what_the_fans_do() {
 /// (a manual fan byte only with Custom, as the app and the open-source
 /// tools send it).
 fn refuse_unknown_modes(modes: &[Vec<u8>]) {
-    if let Some(why) = unknown_modes(modes) {
-        panic!("{why}: not run");
-    }
-}
-
-/// Why the mode replies are not ones a put-back can safely write (see
-/// [`refuse_unknown_modes`]), or `None` when they are.
-fn unknown_modes(modes: &[Vec<u8>]) -> Option<String> {
     use razer_proto::{BLADE_18, PerfMode};
 
     let zones = BLADE_18.perf_zones;
-    if modes.len() != zones.len() {
-        return Some(format!("mode replies {modes:02X?} not understood"));
-    }
+    assert!(
+        modes.len() == zones.len(),
+        "mode replies {modes:02X?} not understood: not run"
+    );
     let custom = BLADE_18.custom.mode;
-    modes.iter().zip(zones).find_map(|(args, &zone)| {
+    for (args, &zone) in modes.iter().zip(zones) {
         let preset = PerfMode::from_reply(&BLADE_18, zone, args).is_some();
-        let known = matches!(args[..], [1, echoed, mode, fan] if echoed == zone
-            && ((preset && fan == FAN_AUTO)
-                || (mode == custom && matches!(fan, FAN_AUTO | FAN_MANUAL))));
-        (!known).then(|| format!("zone {zone} mode reply {args:02X?} not understood"))
-    })
+        assert!(
+            matches!(args[..], [1, echoed, mode, fan] if echoed == zone
+                && ((preset && fan == FAN_AUTO)
+                    || (mode == custom && matches!(fan, FAN_AUTO | FAN_MANUAL)))),
+            "zone {zone} mode reply {args:02X?} not understood: not run"
+        );
+    }
 }
 
 /// The mode writes that put back what the battery probe read before it
-/// sent Balanced (ticket 211): the replies as read when
-/// [`unknown_modes`] takes them, else Balanced with fans auto, as the app
-/// sends it. So an unknown mode such as `06` is never written back.
-fn modes_to_put_back(before: Result<&Vec<Vec<u8>>, &String>) -> Vec<Vec<u8>> {
-    match before {
-        Ok(modes) if unknown_modes(modes).is_none() => modes.clone(),
-        _ => razer_proto::PerfMode::Balanced
-            .commands(&razer_proto::BLADE_18)
-            .unwrap()
-            .into_iter()
-            .map(|command| command.args)
-            .collect(),
+/// sent Balanced (ticket 211): the replies as read when each zone holds one
+/// of the model's battery presets with fans auto, else Balanced with fans
+/// auto, as the app sends it on battery. So an unknown mode such as `06`,
+/// a preset the app never runs on battery, and manual fans (whose targets
+/// the probe does not read) are never written back.
+fn modes_to_put_back(before: &[Vec<u8>]) -> Vec<Vec<u8>> {
+    use razer_proto::{BLADE_18, PerfMode};
+
+    let zones = BLADE_18.perf_zones;
+    let battery_preset = |(args, &zone): (&Vec<u8>, &u8)| {
+        args.get(3) == Some(&FAN_AUTO)
+            && PerfMode::from_reply(&BLADE_18, zone, args)
+                .is_some_and(|preset| BLADE_18.battery_presets.contains(&preset))
+    };
+    if before.len() == zones.len() && before.iter().zip(zones).all(battery_preset) {
+        return before.to_vec();
     }
+    PerfMode::Balanced
+        .commands(&BLADE_18)
+        .unwrap()
+        .into_iter()
+        .map(|command| command.args)
+        .collect()
 }
 
 /// Refuses to run when the state read before the test is not one the
@@ -1454,12 +1459,22 @@ fn balanced_writes() -> Vec<Vec<u8>> {
 }
 
 #[test]
-fn the_battery_probe_puts_back_known_modes_as_read() {
+fn the_battery_probe_puts_back_battery_presets_as_read() {
     let mut modes = balanced_writes();
     modes[0] = vec![1, 1, 0x05, 0x00];
-    modes[3] = vec![1, 4, 0x04, 0x01];
 
-    assert_eq!(modes_to_put_back(Ok(&modes)), modes);
+    assert_eq!(modes_to_put_back(&modes), modes);
+}
+
+/// The app never runs Performance or Custom on battery.
+#[test]
+fn the_battery_probe_puts_back_balanced_over_presets_not_run_on_battery() {
+    for args in [[1, 4, 0x02, 0x00], [1, 4, 0x04, 0x00]] {
+        let mut modes = balanced_writes();
+        modes[3] = args.to_vec();
+
+        assert_eq!(modes_to_put_back(&modes), balanced_writes(), "{args:02X?}");
+    }
 }
 
 #[test]
@@ -1467,21 +1482,23 @@ fn the_battery_probe_puts_back_balanced_over_mode_06() {
     let mut modes = balanced_writes();
     modes[2] = vec![1, 3, 0x06, 0x00];
 
-    assert_eq!(modes_to_put_back(Ok(&modes)), balanced_writes());
+    assert_eq!(modes_to_put_back(&modes), balanced_writes());
 }
 
+/// The probe reads no fan targets, and its Balanced write may reset them,
+/// so manual fans are never written back.
 #[test]
-fn the_battery_probe_puts_back_balanced_after_a_failed_read() {
-    assert_eq!(
-        modes_to_put_back(Err(&"no reply".to_string())),
-        balanced_writes()
-    );
+fn the_battery_probe_puts_back_balanced_over_a_manual_fan() {
+    let mut modes = balanced_writes();
+    modes[3] = vec![1, 4, 0x04, 0x01];
+
+    assert_eq!(modes_to_put_back(&modes), balanced_writes());
 }
 
 #[test]
 fn the_battery_probe_puts_back_balanced_over_a_missing_zone() {
     assert_eq!(
-        modes_to_put_back(Ok(&balanced_writes()[..3].to_vec())),
+        modes_to_put_back(&balanced_writes()[..3]),
         balanced_writes()
     );
 }
@@ -1626,7 +1643,7 @@ fn opted_in(name: &str) -> bool {
 /// does it go back when the charger is plugged in again? Read-only: reads
 /// each zone's mode reply and Windows' power source each 2 s for 3 min,
 /// and prints the first read and each change. Pull and plug the charger
-/// during it. Fails only on a failed read.
+/// during it. Fails on a failed read, or when it saw no battery and no AC.
 #[test]
 #[ignore = "needs the Blade 18 and BLADE_MODE_WATCH=1; read-only; 3 min"]
 fn the_modes_follow_the_power_source() {
@@ -1636,9 +1653,13 @@ fn the_modes_follow_the_power_source() {
     let mut device = Device::new(open(), SystemClock);
     let mut last = None;
     let mut failed = Vec::new();
+    let mut sources = Vec::new();
     for _ in 0..90 {
         let at = utc_now();
         let read = (platform::on_battery(), try_preset_args(&mut device));
+        if !sources.contains(&read.0) {
+            sources.push(read.0);
+        }
         if last.as_ref() != Some(&read) {
             eprintln!("{at}  on battery {:?}  modes {:02X?}", read.0, read.1);
         }
@@ -1649,6 +1670,10 @@ fn the_modes_follow_the_power_source() {
         std::thread::sleep(Duration::from_secs(2));
     }
     assert!(failed.is_empty(), "failed reads {failed:?}");
+    assert!(
+        sources.contains(&Some(true)) && sources.contains(&Some(false)),
+        "the charger was not pulled and plugged in: saw only {sources:?}"
+    );
 }
 
 /// Ticket 211: does Balanced, sent on battery as the app sends it, hold, or
@@ -1671,7 +1696,9 @@ fn balanced_holds_on_battery() {
         "not on battery: not run"
     );
     let mut device = Device::new(open(), SystemClock);
-    let before = try_preset_args(&mut device);
+    // A state it can't read is not sent to; a clean 06 is what it is for.
+    let before = try_preset_args(&mut device)
+        .unwrap_or_else(|error| panic!("modes not read ({error}): not run"));
     let balanced = PerfMode::Balanced.commands(&BLADE_18).unwrap();
 
     // From here on every step keeps its result, and the modes are put back
@@ -1688,7 +1715,7 @@ fn balanced_holds_on_battery() {
             ));
         }
     }
-    let put_back: Vec<_> = modes_to_put_back(before.as_ref())
+    let put_back: Vec<_> = modes_to_put_back(&before)
         .iter()
         .map(|args| {
             device
