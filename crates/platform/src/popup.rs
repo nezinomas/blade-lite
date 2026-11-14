@@ -315,13 +315,25 @@ mod tests {
         let result = raise_topmost(popup);
 
         let after = above(popup, game);
-        let topmost = is_topmost(popup);
         destroy(game);
         destroy(popup);
         assert!(raised_here(&result), "{result:?}");
         assert!(!before, "the test starts with the popup under the game");
         assert!(after);
-        assert!(topmost, "the raise left the popup plain");
+    }
+
+    #[test]
+    fn the_topmost_check_tells_a_plain_window_from_a_topmost_one() {
+        // The raise's miss (ticket 190) rests on this check.
+        let plain = window(0);
+        let topmost = window(WS_EX_TOPMOST);
+
+        let (plain_reads, topmost_reads) = (is_topmost(plain), is_topmost(topmost));
+
+        destroy(topmost);
+        destroy(plain);
+        assert!(!plain_reads);
+        assert!(topmost_reads);
     }
 
     // No test makes a plain window topmost: Windows ignores that call from
