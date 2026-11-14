@@ -19,7 +19,9 @@ use std::time::{Duration, Instant, SystemTime};
 use blade_core::{
     ApplyError, Controller, PollSchedule, Query, RESUME_PAUSE, Readings, ReadingsSampler,
 };
-use blade_lite::{App, AppError, Rect, SaidLately, ShownErrors, TimedSensors, report, took_effect};
+use blade_lite::{
+    App, AppError, BackgroundGpu, Rect, SaidLately, ShownErrors, TimedSensors, report, took_effect,
+};
 use platform::{
     DisplayApi, FileDialog, KeyInjector, MicWatch, PowerEvent, Programs, Registry, Sensors,
     WindowsDisplays, WindowsKeys, WindowsPrograms, WindowsRegistry, WindowsSensors,
@@ -165,7 +167,8 @@ impl Parts for Laptop {
     type Registry = WindowsRegistry;
     type Keys = WindowsKeys;
     type Programs = WindowsPrograms;
-    type Sensors = WindowsSensors;
+    /// The GPU reads run on a thread of their own (ticket 206).
+    type Sensors = BackgroundGpu<WindowsSensors>;
 
     fn on_battery() -> Option<bool> {
         crate::background::on_battery_now()
