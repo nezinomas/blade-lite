@@ -32,15 +32,15 @@ use std::cell::RefCell;
 use std::path::PathBuf;
 use std::process::ExitCode;
 use std::rc::Rc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use blade_core::{
     APP_NAME, Config, Log, POLL_INTERVAL, RESUME_PAUSE, Start, razer_software, razer_updater,
     razer_warning, start_instance, starts_in_tray,
 };
 use blade_lite::{
-    App, Machine, accent_colour, config_or_defaults, end_on_loop, icon, open_log, report,
-    report_panics, try_times, try_until_it_works,
+    App, Machine, PollTime, SlowPolls, accent_colour, config_or_defaults, end_on_loop, icon,
+    open_log, poll_late, report, report_panics, try_times, try_until_it_works,
 };
 use platform::{
     SessionEndWatch, WindowsDisplays, WindowsInstance, WindowsKeys, WindowsPrograms,
@@ -252,13 +252,30 @@ fn updater_at_start() -> bool {
 }
 
 /// Starts the poll, each [`POLL_INTERVAL`], and the watchdog that logs it
-/// if it stalls (ticket 143).
+/// if it stalls (ticket 143). A poll that holds the window, or begins
+/// late, is logged (ticket 206).
 fn poll(shell: &Rc<Shell>) -> Timer {
     let poll = Timer::default();
     let ticking = Rc::clone(shell);
+    let mut slow = SlowPolls::default();
+    let mut last: Option<(Instant, Instant)> = None;
     poll.start(TimerMode::Repeated, POLL_INTERVAL, move || {
         beat();
+        let began = Instant::now();
         ticking.tick();
+        let now = Instant::now();
+        let late = last.map_or(Duration::ZERO, |(last_began, last_ended)| {
+            poll_late(last_began, last_ended, began, POLL_INTERVAL)
+        });
+        last = Some((began, now));
+        let times = PollTime {
+            took: now.saturating_duration_since(began),
+            late,
+            ..ticking.take_read_times()
+        };
+        if let Some(line) = slow.note(times, now) {
+            report(&line);
+        }
     });
     watch_the_loop();
     poll

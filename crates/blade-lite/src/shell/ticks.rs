@@ -6,7 +6,7 @@ use std::sync::mpsc::{Receiver, TryRecvError};
 use std::time::{Duration, Instant, SystemTime};
 
 use blade_core::{GUARD_HEAT_INTERVAL, HEAT_INTERVAL, RESUME_PAUSE, Readings};
-use blade_lite::{AppError, report};
+use blade_lite::{AppError, PollTime, report};
 use platform::{PowerEvent, num_lock_on};
 use razer_device::{CONTROLLER_CLOSED, CONTROLLER_OPENED_AGAIN};
 use slint::{ComponentHandle, Timer};
@@ -383,7 +383,7 @@ impl<P: Parts> Shell<P> {
         };
         let cpu = {
             let mut app = self.app.borrow_mut();
-            app.read_cpu_temperature();
+            self.controller_read(|| app.read_cpu_temperature());
             errors.extend_from_slice(app.read_errors());
             app.cpu_celsius()
         };
@@ -829,7 +829,7 @@ impl<P: Parts> Shell<P> {
         };
         self.readings.set(readings);
         let mut app = self.app.borrow_mut();
-        let header = self.header(&mut app, readings);
+        let header = self.controller_read(|| self.header(&mut app, readings));
         errors.extend_from_slice(app.read_errors());
         self.say_read_errors(&errors);
         bind::header(&self.window, &header);
@@ -841,6 +841,32 @@ impl<P: Parts> Shell<P> {
         drop(app);
         let gpu = readings.gpu.map(|gpu| gpu.celsius);
         self.watch_heat(cpu, gpu, now);
+    }
+
+    /// Runs `read`, adding its time to the controller reads' (ticket 206).
+    fn controller_read<T>(&self, read: impl FnOnce() -> T) -> T {
+        let began = Instant::now();
+        let value = read();
+        self.controller_time
+            .set(self.controller_time.get().saturating_add(began.elapsed()));
+        value
+    }
+
+    /// The time the GPU, the other sensors and the controller's sensor
+    /// reads took since the last take, for the slow poll log (ticket 206).
+    /// A sampler borrowed elsewhere gives no sensor times: only a log.
+    pub fn take_read_times(&self) -> PollTime {
+        let (gpu, sensors) = self
+            .sampler
+            .try_borrow_mut()
+            .map(|mut sampler| sampler.1.take_times())
+            .unwrap_or_default();
+        PollTime {
+            gpu,
+            sensors,
+            controller: self.controller_time.take(),
+            ..PollTime::default()
+        }
     }
 
     /// Logs the failed reads not logged in the quiet time. While the
