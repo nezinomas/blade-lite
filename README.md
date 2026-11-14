@@ -131,6 +131,40 @@ The UI toolkit is [Slint](https://slint.dev) with its Fluent style.
 If the fans stay fast or slow, or Performance stays on battery, see
 [docs/recovery.md](docs/recovery.md).
 
+## If the keyboard lights go off or blink
+
+Windows lets the Razer USB device (keyboard, lights and fan controller) sleep
+a few seconds after its last use. This is USB selective suspend. At each wake
+the controller drops the keyboard lights: they go off when the laptop is
+idle, blink each 10 s with the app in the tray, or show the colour cycle
+(tickets 202 and 204). On this laptop suspend was on for this device.
+
+Run this once in an admin PowerShell, with Blade Lite quit (tray, Quit) and
+no `blade-dev` or `cargo hw` test running:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File tools\Set-RazerUsbSuspend.ps1
+```
+
+It sets `SelectiveSuspendEnabled` to 0 on the device's 4 USB interfaces and
+restarts the device (the keyboard and lights go off for a moment). It prints
+each old and new value. It changes nothing if it does not find exactly the
+Blade 18's 4 interfaces, or if a value is not 0 or 1. The setting is kept in
+the registry, so it should stay after a restart of Windows (not checked on
+the laptop yet, laptop check 48). If Windows sets the device up
+again (a driver reinstall, for example), the value may go back to 1; then run
+the script again. The script prints "already" when there is nothing to do.
+The awake device may use more battery, in sleep too (not measured yet,
+laptop check 48). OpenRazer's
+Linux driver turns suspend off for Razer keyboards, but leaves it on for
+Blade laptops, with no reason given; no source here says why.
+
+To put it back as it was (suspend on):
+
+```powershell
+powershell -ExecutionPolicy Bypass -File tools\Set-RazerUsbSuspend.ps1 -Undo
+```
+
 ## How it is built
 
 Work goes in small stages and tickets, listed in [docs/PLAN.md](docs/PLAN.md).
