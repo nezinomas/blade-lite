@@ -40,7 +40,7 @@ use blade_core::{
 };
 use blade_lite::{
     App, Machine, PollTime, SlowPolls, accent_colour, config_or_defaults, end_on_loop, icon,
-    open_log, poll_late, report, report_panics, try_times, try_until_it_works,
+    open_log, poll_late, report, report_panics, report_usb_suspend, try_times, try_until_it_works,
 };
 use platform::{
     SessionEndWatch, WindowsDisplays, WindowsInstance, WindowsKeys, WindowsPrograms,
@@ -320,6 +320,8 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         report("another copy runs, so this one ends");
         return Ok(());
     }
+    // Reads the registry only, on its own thread: never waits, never sends.
+    report_usb_suspend(BLADE_18.usb);
     // Before the windows are made: a long wait for the controller must not
     // leave windows nobody answers. Opening sends nothing.
     let Some(controller) = open_controller_at_start(in_tray)? else {

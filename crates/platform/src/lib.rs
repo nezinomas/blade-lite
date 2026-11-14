@@ -34,7 +34,7 @@ pub use mic::{MicWatch, toggle_mic_mute};
 pub use popup::{raise_topmost, work_area, work_area_at};
 pub use power::{LidAndScreen, SuspendHandled, WindowsPowerEvents, on_battery, shutting_down};
 pub use programs::WindowsPrograms;
-pub use registry::WindowsRegistry;
+pub use registry::{WindowsRegistry, usb_interfaces};
 pub use sensors::WindowsSensors;
 pub use session::{SessionEndWatch, serve_sent_messages};
 pub use watch::RegistryWatch;
@@ -100,6 +100,25 @@ pub trait UserBytes {
     ///
     /// The Windows error if the value is missing or is not binary.
     fn read_user_bytes(&self, key: &str, name: &str) -> io::Result<Vec<u8>>;
+}
+
+/// A registry value as it is stored.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RegValue {
+    Dword(u32),
+    Binary(Vec<u8>),
+    /// Any other kind, such as text.
+    Other,
+}
+
+/// One instance key of a USB interface, under
+/// `HKLM\SYSTEM\CurrentControlSet\Enum\USB`.
+#[derive(Debug)]
+pub struct UsbInstance {
+    /// Its `Service` value: the driver Windows gives it.
+    pub service: io::Result<String>,
+    /// The value read from its `Device Parameters` key.
+    pub value: io::Result<RegValue>,
 }
 
 /// Reads what runs on the laptop now.
