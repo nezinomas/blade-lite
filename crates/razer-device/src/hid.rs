@@ -80,6 +80,22 @@ impl HidKeyReports {
     ///
     /// As [`open`](Self::open).
     pub fn open_preferring(model: &ModelProfile, sender: Option<&str>) -> io::Result<Self> {
+        Self::open_picking(model, sender, true)
+    }
+
+    /// Opens all the model's key collections, not only the one the profile
+    /// names: a way back if new firmware moves the keys (ticket 215).
+    ///
+    /// # Errors
+    ///
+    /// As [`open`](Self::open).
+    pub fn open_all(model: &ModelProfile) -> io::Result<Self> {
+        Self::open_picking(model, None, false)
+    }
+
+    /// As [`open_preferring`](Self::open_preferring), with the profile's
+    /// collection left out of the pick unless `named`.
+    fn open_picking(model: &ModelProfile, sender: Option<&str>, named: bool) -> io::Result<Self> {
         let not_found = || {
             io::Error::new(
                 io::ErrorKind::NotFound,
@@ -89,7 +105,8 @@ impl HidKeyReports {
         let key = model.power_key.ok_or_else(not_found)?;
         let infos = model_devices(&WindowsHid, &model.usb)?;
         let found = find_key_collections(&infos, &model.usb, &key);
-        let picked = pick_key_collections(found.clone(), sender, key.collection);
+        let collection = key.collection.filter(|_| named);
+        let picked = pick_key_collections(found.clone(), sender, collection);
         let (paths, devices) =
             open_key_collections(&picked, &found, HidDevice::open).ok_or_else(not_found)?;
         Ok(Self {

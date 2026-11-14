@@ -27,6 +27,38 @@ pub const ENTER_READ_WAIT: Duration = Duration::from_millis(5);
 /// neither ends the wait nor counts as a report (ticket 203).
 pub const KEY_QUIET_SPELL: Duration = Duration::from_secs(120);
 
+/// How many quiet spells in a row may pass with no key report ever heard
+/// before one spell reads all key collections (about 20 min). That spell
+/// wakes as before ticket 209 (each [`KEY_READ_WAIT`], per collection),
+/// so it is rare (ticket 215).
+pub const UNHEARD_SPELLS_BEFORE_ALL: u32 = 10;
+
+/// The quiet spells in a row with no key report heard. The profile names
+/// the one key collection read before any report (ticket 209); if new
+/// firmware moves the keys to another one, the key would stay dead for
+/// good, so now and then all are read for one spell (ticket 215).
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct UnheardSpells(u32);
+
+impl UnheardSpells {
+    /// Whether the next open reads all key collections, for one spell.
+    #[must_use]
+    pub fn read_all(self) -> bool {
+        self.0 >= UNHEARD_SPELLS_BEFORE_ALL
+    }
+
+    /// The count after a real quiet spell. `heard`: a key report has come
+    /// (there is a sender). After a spell that read all, it starts again.
+    #[must_use]
+    pub fn after_spell(self, heard: bool) -> Self {
+        if heard || self.read_all() {
+            Self::default()
+        } else {
+            Self(self.0 + 1)
+        }
+    }
+}
+
 /// Somewhere key reports come from.
 pub trait KeyReportSource {
     /// Waits up to `wait` for a key report. `None` if none came.
@@ -231,6 +263,35 @@ mod tests {
         // each gap (ticket 188 review).
         assert_eq!(read_wait(false, true, true, LEFT), KEY_READ_WAIT);
         assert_eq!(read_wait(false, false, true, LEFT), LEFT);
+    }
+
+    /// After this many quiet spells with no key report heard.
+    fn unheard(spells: u32) -> UnheardSpells {
+        (0..spells).fold(UnheardSpells::default(), |unheard, _| {
+            unheard.after_spell(false)
+        })
+    }
+
+    #[test]
+    fn all_collections_are_read_after_enough_unheard_spells() {
+        assert!(!unheard(0).read_all());
+        assert!(!unheard(UNHEARD_SPELLS_BEFORE_ALL - 1).read_all());
+        assert!(unheard(UNHEARD_SPELLS_BEFORE_ALL).read_all());
+    }
+
+    #[test]
+    fn all_are_read_for_one_spell_only() {
+        let after_all = unheard(UNHEARD_SPELLS_BEFORE_ALL).after_spell(false);
+
+        assert_eq!(after_all, UnheardSpells::default());
+    }
+
+    #[test]
+    fn a_key_report_heard_starts_the_count_again() {
+        let heard = unheard(UNHEARD_SPELLS_BEFORE_ALL - 1).after_spell(true);
+
+        assert_eq!(heard, UnheardSpells::default());
+        assert!(!heard.read_all());
     }
 
     #[test]

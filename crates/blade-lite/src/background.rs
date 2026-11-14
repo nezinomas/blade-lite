@@ -9,8 +9,8 @@ use std::time::{Duration, Instant};
 
 use blade_core::{PowerKeyPresses, TOUCHPAD_KEY};
 use blade_lite::{
-    KEY_REOPEN_PAUSE, KeyEvent, LOOK_GAP, ReaderEnd, ShownErrors, Watchdog, WindowsFnKeys, report,
-    step_on_presses,
+    KEY_REOPEN_PAUSE, KeyEvent, LOOK_GAP, ReaderEnd, ShownErrors, UNHEARD_SPELLS_BEFORE_ALL,
+    UnheardSpells, Watchdog, WindowsFnKeys, report, step_on_presses,
 };
 use platform::{
     LidAndScreen, PowerEvent, PowerEvents, RegistryWatch, SuspendHandled, WakeListener,
@@ -168,8 +168,23 @@ pub fn follow_the_power_key() {
         // The dropped reports logged: a reopen that drops one again does
         // not log it again, so the log does not fill (ticket 210).
         let mut logged_drops: Vec<DroppedReport> = Vec::new();
+        // The quiet spells with no key report heard: now and then all key
+        // collections are read for one, in case the profile's one never
+        // sends (ticket 215). Said once a run, so the log does not fill.
+        let mut unheard = UnheardSpells::default();
+        let mut said_read_all = false;
         loop {
-            let opened = HidKeyReports::open_preferring(&BLADE_18, sender.as_deref());
+            let opened = if unheard.read_all() {
+                if !std::mem::replace(&mut said_read_all, true) {
+                    report(&format!(
+                        "no key report in {UNHEARD_SPELLS_BEFORE_ALL} quiet spells: \
+                         all key collections are read for one"
+                    ));
+                }
+                HidKeyReports::open_all(&BLADE_18)
+            } else {
+                HidKeyReports::open_preferring(&BLADE_18, sender.as_deref())
+            };
             let (problem, pause) = match opened {
                 Ok(mut reports) => {
                     // At the open when one collection is opened, so a dead
@@ -187,6 +202,9 @@ pub fn follow_the_power_key() {
                     } else {
                         None
                     };
+                    if end.keeps_key_state(ran) {
+                        unheard = unheard.after_spell(sender.is_some());
+                    }
                     let pause = end.pause_before_open(ran);
                     let problem = match end {
                         ReaderEnd::Quit => return,
