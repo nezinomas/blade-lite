@@ -16,7 +16,7 @@ use platform::{
     LidAndScreen, PowerEvent, PowerEvents, RegistryWatch, SuspendHandled, WakeListener,
     WindowsPowerEvents,
 };
-use razer_device::HidKeyReports;
+use razer_device::{DroppedReport, HidKeyReports};
 use razer_proto::BLADE_18;
 
 use crate::SHELL;
@@ -165,6 +165,9 @@ pub fn follow_the_power_key() {
         // The last sender logged, so a new one is logged once: a dead key
         // can then be traced to the collection read.
         let mut logged: Option<String> = None;
+        // The dropped reports logged: a reopen that drops one again does
+        // not log it again, so the log does not fill (ticket 210).
+        let mut logged_drops: Vec<DroppedReport> = Vec::new();
         loop {
             let opened = HidKeyReports::open_preferring(&BLADE_18, sender.as_deref());
             let (problem, pause) = match opened {
@@ -178,6 +181,7 @@ pub fn follow_the_power_key() {
                     let ran = started.elapsed();
                     presses = end.next_presses(ran, &presses);
                     log_read_path(reports.read_path(), &mut logged);
+                    log_drops(reports.dropped(), &mut logged_drops);
                     sender = if end.keeps_key_state(ran) {
                         reports.sender().map(str::to_owned).or(sender)
                     } else {
@@ -217,6 +221,38 @@ fn log_read_path(path: Option<&str>, logged: &mut Option<String>) {
         report(&format!("the power-mode key is read on {path}"));
         *logged = Some(path.to_owned());
     }
+}
+
+/// The most dropped reports logged in one run, so reopens can't fill the
+/// log even if the drops change each time.
+const MOST_DROPS_LOGGED: usize = 8;
+
+/// Logs each report the key reports dropped that was not logged before in
+/// this run, up to [`MOST_DROPS_LOGGED`]: a key that stays dead because its
+/// reports no longer match the profile can then be traced (ticket 210).
+/// Logged as the open ends, so up to one quiet spell late.
+fn log_drops(dropped: Vec<DroppedReport>, logged: &mut Vec<DroppedReport>) {
+    for line in drop_lines(dropped, logged) {
+        report(&line);
+    }
+}
+
+/// A line for each of `dropped` not in `logged`, added to it while it has
+/// room, and one more line as it fills up.
+fn drop_lines(dropped: Vec<DroppedReport>, logged: &mut Vec<DroppedReport>) -> Vec<String> {
+    let mut lines = Vec::new();
+    for each in dropped {
+        if logged.len() < MOST_DROPS_LOGGED && !logged.contains(&each) {
+            lines.push(format!(
+                "a report on a key collection was not a key report: {each}"
+            ));
+            logged.push(each);
+            if logged.len() == MOST_DROPS_LOGGED {
+                lines.push("more such reports are not logged in this run".to_owned());
+            }
+        }
+    }
+    lines
 }
 
 /// Acts on a key event on the event-loop thread. False once the app is
@@ -394,7 +430,65 @@ fn follow_the_sleep_now(handled: &SuspendHandled, number: u64) {
 mod tests {
     use std::sync::atomic::AtomicBool;
 
-    use super::newly_unknown;
+    use razer_device::DroppedReport;
+
+    use super::{MOST_DROPS_LOGGED, drop_lines, newly_unknown};
+
+    fn dropped(id: u8) -> DroppedReport {
+        DroppedReport {
+            id,
+            len: 16,
+            path: "col04".to_owned(),
+        }
+    }
+
+    #[test]
+    fn a_drop_is_logged_once_in_a_run() {
+        let mut logged = Vec::new();
+
+        assert_eq!(
+            drop_lines(vec![dropped(5), dropped(6)], &mut logged),
+            [
+                "a report on a key collection was not a key report: report ID 05, 16 bytes, on col04",
+                "a report on a key collection was not a key report: report ID 06, 16 bytes, on col04",
+            ]
+        );
+        assert_eq!(
+            drop_lines(vec![dropped(6), dropped(5)], &mut logged),
+            Vec::<String>::new()
+        );
+        assert_eq!(drop_lines(Vec::new(), &mut logged), Vec::<String>::new());
+    }
+
+    #[test]
+    fn drops_that_take_turns_are_not_logged_again() {
+        let mut logged = Vec::new();
+
+        let said: usize = [5, 6, 5, 6, 5]
+            .into_iter()
+            .map(|id| drop_lines(vec![dropped(id)], &mut logged).len())
+            .sum();
+
+        assert_eq!(said, 2);
+    }
+
+    #[test]
+    fn no_more_drops_are_logged_once_the_most_are_and_that_is_said() {
+        let mut logged = Vec::new();
+        let many = (0..=u8::MAX).map(dropped).collect();
+
+        let lines = drop_lines(many, &mut logged);
+
+        assert_eq!(lines.len(), MOST_DROPS_LOGGED + 1);
+        assert_eq!(
+            lines.last().map(String::as_str),
+            Some("more such reports are not logged in this run")
+        );
+        assert_eq!(
+            drop_lines(vec![dropped(u8::MAX)], &mut logged),
+            Vec::<String>::new()
+        );
+    }
 
     #[test]
     fn an_unknown_source_is_said_once_until_a_read_tells_again() {
