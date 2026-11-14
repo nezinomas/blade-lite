@@ -496,10 +496,13 @@ fn each_key_collection_prints_its_reports() {
     eprintln!("press keys for 60 s");
     let started = std::time::Instant::now();
     while started.elapsed() < Duration::from_secs(60) {
-        for (tag, reports) in &mut readers {
+        for (_, reports) in &mut readers {
             if let Some(report) = reports.read(Duration::from_millis(10)).unwrap() {
                 let at = started.elapsed().as_millis();
-                eprintln!("{at:>6} ms  {tag}  {report:02X?}");
+                // The path that sent, not the one asked for: an open that
+                // fell back to another collection can't mislabel it.
+                let sender = reports.sender().unwrap_or("?");
+                eprintln!("{at:>6} ms  {sender}  {report:02X?}");
             }
         }
     }
