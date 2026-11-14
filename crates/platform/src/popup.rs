@@ -76,7 +76,8 @@ pub fn work_area_at((x, y): (i32, i32)) -> io::Result<(i32, i32, i32, i32)> {
 ///
 /// The Windows error if the call fails, such as for a handle that is not a
 /// live window, or an error if the call says it worked but the window is
-/// still not topmost (ticket 181 saw that once) or a shown topmost window
+/// still not topmost (ticket 181 saw that once; likely ticket 207, a plain
+/// window raised by a process older than about 1.5 s) or a shown topmost window
 /// is still above it (ticket 195).
 pub fn raise_topmost(hwnd: isize) -> io::Result<()> {
     let flags = SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE;
@@ -230,9 +231,7 @@ mod tests {
         SWP_NOMOVE, SWP_NOSIZE, SWP_SHOWWINDOW, SetWindowPos, WS_EX_TOPMOST, WS_POPUP,
     };
 
-    use super::{
-        COVERED, NOT_TOPMOST, covered, covers, is_topmost, overlap, raise_topmost, raised,
-    };
+    use super::{COVERED, covered, covers, is_topmost, overlap, raise_topmost, raised};
     use crate::wide;
 
     /// A hidden popup, topmost or not, away from the screen's corner (where
@@ -324,32 +323,24 @@ mod tests {
     }
 
     #[test]
-    fn a_plain_window_becomes_topmost() {
-        // Topmost is desktop-wide. This failed twice in full workspace runs;
-        // the failure seen was a call that reported success but left the
-        // window plain (ticket 181; not seen in 830 runs alone). The raise
-        // now says so with an error (ticket 190), so the test tries again on
-        // that miss only. A fail names every miss; a pass after misses stays
-        // quiet (the crate bans prints, and cargo test hides them anyway).
-        const TRIES: usize = 5;
-        let popup = window(0);
+    fn the_topmost_check_tells_a_plain_window_from_a_topmost_one() {
+        // The raise's miss (ticket 190) rests on this check.
+        let plain = window(0);
+        let topmost = window(WS_EX_TOPMOST);
 
-        let mut misses = Vec::new();
-        let result = loop {
-            match raise_topmost(popup) {
-                Err(error) if error.to_string() == NOT_TOPMOST && misses.len() + 1 < TRIES => {
-                    misses.push(error.to_string());
-                    std::thread::sleep(std::time::Duration::from_millis(50));
-                }
-                result => break result,
-            }
-        };
+        let (plain_reads, topmost_reads) = (is_topmost(plain), is_topmost(topmost));
 
-        let topmost = is_topmost(popup);
-        destroy(popup);
-        assert!(raised_here(&result), "{result:?} after misses: {misses:?}");
-        assert!(topmost, "not topmost after misses: {misses:?}");
+        destroy(topmost);
+        destroy(plain);
+        assert!(!plain_reads);
+        assert!(topmost_reads);
     }
+
+    // No test makes a plain window topmost: Windows ignores that call from
+    // a process older than about 1.5 s, yet says it worked (ticket 207), so
+    // such a test fails or passes with the test run's timing. The app never
+    // does it: Slint (through winit) makes the popup topmost when it makes
+    // the window.
 
     #[test]
     fn a_raise_that_leaves_the_window_plain_is_an_error() {
