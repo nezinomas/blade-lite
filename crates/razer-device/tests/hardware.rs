@@ -647,22 +647,43 @@ fn a_custom_mode_write_alone_and_what_the_fans_do() {
 /// (a manual fan byte only with Custom, as the app and the open-source
 /// tools send it).
 fn refuse_unknown_modes(modes: &[Vec<u8>]) {
+    if let Some(why) = unknown_modes(modes) {
+        panic!("{why}: not run");
+    }
+}
+
+/// Why the mode replies are not ones a put-back can safely write (see
+/// [`refuse_unknown_modes`]), or `None` when they are.
+fn unknown_modes(modes: &[Vec<u8>]) -> Option<String> {
     use razer_proto::{BLADE_18, PerfMode};
 
     let zones = BLADE_18.perf_zones;
-    assert!(
-        modes.len() == zones.len(),
-        "mode replies {modes:02X?} not understood: not run"
-    );
+    if modes.len() != zones.len() {
+        return Some(format!("mode replies {modes:02X?} not understood"));
+    }
     let custom = BLADE_18.custom.mode;
-    for (args, &zone) in modes.iter().zip(zones) {
+    modes.iter().zip(zones).find_map(|(args, &zone)| {
         let preset = PerfMode::from_reply(&BLADE_18, zone, args).is_some();
-        assert!(
-            matches!(args[..], [1, echoed, mode, fan] if echoed == zone
-                && ((preset && fan == FAN_AUTO)
-                    || (mode == custom && matches!(fan, FAN_AUTO | FAN_MANUAL)))),
-            "zone {zone} mode reply {args:02X?} not understood: not run"
-        );
+        let known = matches!(args[..], [1, echoed, mode, fan] if echoed == zone
+            && ((preset && fan == FAN_AUTO)
+                || (mode == custom && matches!(fan, FAN_AUTO | FAN_MANUAL))));
+        (!known).then(|| format!("zone {zone} mode reply {args:02X?} not understood"))
+    })
+}
+
+/// The mode writes that put back what the battery probe read before it
+/// sent Balanced (ticket 211): the replies as read when
+/// [`unknown_modes`] takes them, else Balanced with fans auto, as the app
+/// sends it. So an unknown mode such as `06` is never written back.
+fn modes_to_put_back(before: Result<&Vec<Vec<u8>>, &String>) -> Vec<Vec<u8>> {
+    match before {
+        Ok(modes) if unknown_modes(modes).is_none() => modes.clone(),
+        _ => razer_proto::PerfMode::Balanced
+            .commands(&razer_proto::BLADE_18)
+            .unwrap()
+            .into_iter()
+            .map(|command| command.args)
+            .collect(),
     }
 }
 
@@ -1423,6 +1444,44 @@ fn the_preset_test_refuses_an_unknown_mode() {
 #[should_panic(expected = "not run")]
 fn the_preset_test_refuses_a_missing_zone() {
     refuse_unknown_modes(&sane_state()[..3]);
+}
+
+/// The mode write of Balanced with fans auto in each zone, as the app sends it.
+fn balanced_writes() -> Vec<Vec<u8>> {
+    (1..=4).map(|zone| vec![1, zone, 0x00, 0x00]).collect()
+}
+
+#[test]
+fn the_battery_probe_puts_back_known_modes_as_read() {
+    let mut modes = balanced_writes();
+    modes[0] = vec![1, 1, 0x05, 0x00];
+    modes[3] = vec![1, 4, 0x04, 0x01];
+
+    assert_eq!(modes_to_put_back(Ok(&modes)), modes);
+}
+
+#[test]
+fn the_battery_probe_puts_back_balanced_over_mode_06() {
+    let mut modes = balanced_writes();
+    modes[2] = vec![1, 3, 0x06, 0x00];
+
+    assert_eq!(modes_to_put_back(Ok(&modes)), balanced_writes());
+}
+
+#[test]
+fn the_battery_probe_puts_back_balanced_after_a_failed_read() {
+    assert_eq!(
+        modes_to_put_back(Err(&"no reply".to_string())),
+        balanced_writes()
+    );
+}
+
+#[test]
+fn the_battery_probe_puts_back_balanced_over_a_missing_zone() {
+    assert_eq!(
+        modes_to_put_back(Ok(&balanced_writes()[..3].to_vec())),
+        balanced_writes()
+    );
 }
 
 /// An effect reply as the colour test could read it: storage 1, keyboard
