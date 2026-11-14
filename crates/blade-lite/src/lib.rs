@@ -34,4 +34,5 @@ pub use report::{
 pub use session_end::{LoopWork, end_on_loop};
 pub use slow_polls::{PollTime, SLOW_POLL, SLOW_POLL_QUIET, SlowPolls, TimedSensors, poll_late};
 pub use start::{config_or_defaults, try_times, try_until_it_works};
+pub use usb_suspend::report_usb_suspend;
 pub use watchdog::{LOOK_GAP, Watchdog};

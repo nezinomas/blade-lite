@@ -4,14 +4,39 @@
 //! only, never from the device.
 
 use std::io;
+use std::thread;
 
 use platform::{RegValue, UsbInstance};
+use razer_proto::UsbId;
+
+use crate::report;
 
 /// The value `tools/Set-RazerUsbSuspend.ps1` sets on each interface.
 pub const SUSPEND_VALUE: &str = "SelectiveSuspendEnabled";
 
 /// The driver of each of the device's interfaces.
 const HID_DRIVER: &str = "HidUsb";
+
+/// Logs once if USB suspend is on for the device, or if its read is odd.
+/// On a thread of its own, so the start never waits for it; a failed read
+/// only logs.
+pub fn report_usb_suspend(usb: UsbId) {
+    let spawned = thread::Builder::new()
+        .name("usb suspend".into())
+        .spawn(move || {
+            let count = usb.hid_interfaces;
+            let reads =
+                platform::usb_interfaces(usb.vendor_id, usb.product_id, count, SUSPEND_VALUE);
+            if let Some(line) = usb_suspend_report(&usb_suspend(&reads, count)) {
+                report(&line);
+            }
+        });
+    if let Err(error) = spawned {
+        report(&format!(
+            "could not read Windows USB suspend for the Razer device: {error}"
+        ));
+    }
+}
 
 /// What the registry says about USB suspend for the device.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -29,10 +54,7 @@ pub enum UsbSuspend {
 /// driver and a value of 0 or 1; `count` interfaces must be read.
 pub fn usb_suspend(interfaces: &[io::Result<Vec<UsbInstance>>], count: u8) -> UsbSuspend {
     if count == 0 || interfaces.len() != usize::from(count) {
-        return UsbSuspend::Odd(format!(
-            "read {} interfaces, not {count}",
-            interfaces.len()
-        ));
+        return UsbSuspend::Odd(format!("read {} interfaces, not {count}", interfaces.len()));
     }
     let mut on = false;
     for (number, interface) in interfaces.iter().enumerate() {
@@ -50,11 +72,17 @@ fn interface_value(interface: &io::Result<Vec<UsbInstance>>) -> Result<bool, Str
     let [instance] = instances.as_slice() else {
         return Err(format!("{} instances, not 1", instances.len()));
     };
-    let service = instance.service.as_ref().map_err(|error| format!("driver: {error}"))?;
+    let service = instance
+        .service
+        .as_ref()
+        .map_err(|error| format!("driver: {error}"))?;
     if !service.eq_ignore_ascii_case(HID_DRIVER) {
         return Err(format!("driver {service}, not {HID_DRIVER}"));
     }
-    let value = instance.value.as_ref().map_err(|error| format!("{SUSPEND_VALUE}: {error}"))?;
+    let value = instance
+        .value
+        .as_ref()
+        .map_err(|error| format!("{SUSPEND_VALUE}: {error}"))?;
     suspend_on(value).ok_or_else(|| format!("{SUSPEND_VALUE} is {value:?}, not 0 or 1"))
 }
 
@@ -102,12 +130,13 @@ mod tests {
         }
     }
 
-    fn one(value: RegValue) -> io::Result<Vec<UsbInstance>> {
-        Ok(vec![instance("HidUsb", value)])
+    /// One `HidUsb` instance holding `value`.
+    fn one(value: RegValue) -> Vec<UsbInstance> {
+        vec![instance("HidUsb", value)]
     }
 
     fn four(values: [RegValue; 4]) -> Vec<io::Result<Vec<UsbInstance>>> {
-        values.into_iter().map(one).collect()
+        values.into_iter().map(|value| Ok(one(value))).collect()
     }
 
     fn odd(state: &UsbSuspend) -> bool {
@@ -166,16 +195,16 @@ mod tests {
             RegValue::Other,
         ] {
             let mut reads = four([0, 0, 0, 0].map(RegValue::Dword));
-            reads[2] = one(value.clone());
+            reads[2] = Ok(one(value.clone()));
             assert!(odd(&usb_suspend(&reads, 4)), "{value:?}");
         }
     }
 
     #[test]
     fn a_count_other_than_the_profiles_is_odd() {
-        let three: Vec<_> = (0..3).map(|_| one(RegValue::Dword(1))).collect();
+        let three: Vec<_> = (0..3).map(|_| Ok(one(RegValue::Dword(1)))).collect();
         assert!(odd(&usb_suspend(&three, 4)));
-        let five: Vec<_> = (0..5).map(|_| one(RegValue::Dword(1))).collect();
+        let five: Vec<_> = (0..5).map(|_| Ok(one(RegValue::Dword(1)))).collect();
         assert!(odd(&usb_suspend(&five, 4)));
         assert!(odd(&usb_suspend(&[], 0)));
     }
@@ -226,6 +255,22 @@ mod tests {
             value: Ok(RegValue::Dword(1)),
         }]);
         assert!(odd(&usb_suspend(&reads, 4)));
+    }
+
+    /// On the laptop (`cargo hw`): the real registry reads as on or off.
+    /// Reads the registry only, never the device.
+    #[test]
+    #[ignore = "needs the Blade 18's registry keys"]
+    fn the_laptops_registry_reads_as_on_or_off() {
+        let usb = razer_proto::BLADE_18.usb;
+        let reads = platform::usb_interfaces(
+            usb.vendor_id,
+            usb.product_id,
+            usb.hid_interfaces,
+            SUSPEND_VALUE,
+        );
+        let state = usb_suspend(&reads, usb.hid_interfaces);
+        assert!(!odd(&state), "{state:?}");
     }
 
     #[test]
