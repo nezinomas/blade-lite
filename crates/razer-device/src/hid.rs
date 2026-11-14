@@ -167,7 +167,7 @@ impl ReadTimeout for HidDevice {
 /// The key collections, and the one that sent first.
 struct KeySources<D> {
     devices: Vec<D>,
-    /// The collection that sent the first report. Only that one is read
+    /// The collection that sent the first key report. Only that one is read
     /// from then on, so a press can't come in twice or out of order.
     source: Option<usize>,
     /// What a key report looks like.
