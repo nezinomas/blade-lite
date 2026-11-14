@@ -854,8 +854,13 @@ impl<P: Parts> Shell<P> {
 
     /// The time the GPU, the other sensors and the controller's sensor
     /// reads took since the last take, for the slow poll log (ticket 206).
+    /// A sampler borrowed elsewhere gives no sensor times: only a log.
     pub fn take_read_times(&self) -> PollTime {
-        let (gpu, sensors) = self.sampler.borrow_mut().1.take_times();
+        let (gpu, sensors) = self
+            .sampler
+            .try_borrow_mut()
+            .map(|mut sampler| sampler.1.take_times())
+            .unwrap_or_default();
         PollTime {
             gpu,
             sensors,

@@ -40,7 +40,7 @@ use blade_core::{
 };
 use blade_lite::{
     App, Machine, PollTime, SlowPolls, accent_colour, config_or_defaults, end_on_loop, icon,
-    open_log, report, report_panics, try_times, try_until_it_works,
+    open_log, poll_late, report, report_panics, try_times, try_until_it_works,
 };
 use platform::{
     SessionEndWatch, WindowsDisplays, WindowsInstance, WindowsKeys, WindowsPrograms,
@@ -258,18 +258,16 @@ fn poll(shell: &Rc<Shell>) -> Timer {
     let poll = Timer::default();
     let ticking = Rc::clone(shell);
     let mut slow = SlowPolls::default();
-    let mut ended: Option<Instant> = None;
+    let mut last: Option<(Instant, Instant)> = None;
     poll.start(TimerMode::Repeated, POLL_INTERVAL, move || {
         beat();
         let began = Instant::now();
         ticking.tick();
         let now = Instant::now();
-        let late = ended.map_or(Duration::ZERO, |ended| {
-            began
-                .saturating_duration_since(ended)
-                .saturating_sub(POLL_INTERVAL)
+        let late = last.map_or(Duration::ZERO, |(last_began, last_ended)| {
+            poll_late(last_began, last_ended, began, POLL_INTERVAL)
         });
-        ended = Some(now);
+        last = Some((began, now));
         let times = PollTime {
             took: now.saturating_duration_since(began),
             late,

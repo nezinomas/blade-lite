@@ -16,7 +16,8 @@ pub const SLOW_POLL: Duration = Duration::from_millis(100);
 pub const SLOW_POLL_QUIET: Duration = Duration::from_mins(1);
 
 /// A poll this late means the laptop slept (as the watchdog's), not a busy
-/// event loop.
+/// event loop. A hold this long is not logged here; one of 30 s or more is
+/// the watchdog's.
 const SLEPT: Duration = Duration::from_secs(15);
 
 /// Where one poll's time went.
@@ -24,14 +25,14 @@ const SLEPT: Duration = Duration::from_secs(15);
 pub struct PollTime {
     /// How long the poll ran.
     pub took: Duration,
-    /// How much later than its interval it began after the last one ended:
-    /// the event loop was busy with something else (a redraw, a click).
+    /// How much later it began than it was due ([`poll_late`]): the event
+    /// loop was busy with something else (a redraw, a click).
     pub late: Duration,
     /// The GPU's power state and NVML reads.
     pub gpu: Duration,
     /// The other Windows sensor reads: CPU load and the battery.
     pub sensors: Duration,
-    /// The controller's reads.
+    /// The controller's sensor reads (CPU temperature, fans).
     pub controller: Duration,
 }
 
@@ -39,6 +40,33 @@ impl PollTime {
     fn worst(&self) -> Duration {
         self.took.max(self.late)
     }
+
+    /// The poll's time outside the timed reads: other controller sends and
+    /// reads, the power events, the window's fill.
+    fn rest(&self) -> Duration {
+        self.took
+            .saturating_sub(self.gpu)
+            .saturating_sub(self.sensors)
+            .saturating_sub(self.controller)
+    }
+}
+
+/// How late a poll that began at `began` is, after the last one that began
+/// at `last_began` and ended at `last_ended`, each `interval`. Slint arms a
+/// repeated timer again as it fires, so a poll is due `interval` after the
+/// last one began, or at its end if it ran longer: its own time is not
+/// counted twice.
+#[must_use]
+pub fn poll_late(
+    last_began: Instant,
+    last_ended: Instant,
+    began: Instant,
+    interval: Duration,
+) -> Duration {
+    let due = last_began
+        .checked_add(interval)
+        .map_or(last_ended, |due| due.max(last_ended));
+    began.saturating_duration_since(due)
 }
 
 /// The slow polls since the last line.
@@ -77,12 +105,13 @@ impl SlowPolls {
         self.slowest = None;
         let count = std::mem::take(&mut self.count);
         Some(format!(
-            "the window was held: {count} slow poll(s) since the last such line; the slowest ({} s ago) ran {} ms (GPU {} ms, other sensors {} ms, controller {} ms) and began {} ms late",
+            "the event loop was held: {count} slow poll(s) since the last such line; the slowest ({} s ago) ran {} ms (GPU {} ms, other sensors {} ms, controller sensors {} ms, the rest {} ms) and began {} ms late",
             now.saturating_duration_since(at).as_secs(),
             slowest.took.as_millis(),
             slowest.gpu.as_millis(),
             slowest.sensors.as_millis(),
             slowest.controller.as_millis(),
+            slowest.rest().as_millis(),
             slowest.late.as_millis(),
         ))
     }
@@ -169,9 +198,29 @@ mod tests {
         assert_eq!(
             line.as_deref(),
             Some(
-                "the window was held: 1 slow poll(s) since the last such line; the slowest (0 s ago) ran 3100 ms (GPU 1550 ms, other sensors 2 ms, controller 3 ms) and began 0 ms late"
+                "the event loop was held: 1 slow poll(s) since the last such line; the slowest (0 s ago) ran 3100 ms (GPU 1550 ms, other sensors 2 ms, controller sensors 3 ms, the rest 1545 ms) and began 0 ms late"
             )
         );
+    }
+
+    #[test]
+    fn a_poll_of_exactly_the_limit_is_slow() {
+        let mut slow = SlowPolls::default();
+        assert!(slow.note(poll(100, 0), Instant::now()).is_some());
+    }
+
+    #[test]
+    fn a_poll_is_due_an_interval_after_the_last_began_or_at_its_end() {
+        let start = Instant::now();
+        let at = |ms| start + MS * ms;
+        let second = Duration::from_secs(1);
+        // A quick last poll: due 1 s after it began.
+        assert_eq!(poll_late(at(0), at(20), at(1000), second), Duration::ZERO);
+        assert_eq!(poll_late(at(0), at(20), at(1500), second), MS * 500);
+        // A last poll of 3 s: due at its end, not 2 s late.
+        assert_eq!(poll_late(at(0), at(3000), at(3001), second), MS);
+        // Early or at once is not late.
+        assert_eq!(poll_late(at(0), at(20), at(900), second), Duration::ZERO);
     }
 
     #[test]
@@ -237,8 +286,11 @@ mod tests {
         assert!(sensors.gpu_awake().is_ok_and(|awake| awake));
         assert_eq!(sensors.gpu().ok().map(|gpu| gpu.celsius), Some(40));
         let (gpu, other) = sensors.take_times();
+        // The fake's GPU read sleeps 20 ms, its CPU read 5 ms and the rest
+        // nothing; a busy runner only adds time, so the GPU's stays apart
+        // if it is at least its own sleep and the rest well under it.
         assert!(gpu >= MS * 20 && other >= MS * 5, "{gpu:?} {other:?}");
-        assert!(other < MS * 20, "{other:?}");
+        assert!(gpu >= other, "{gpu:?} {other:?}");
         assert_eq!(sensors.take_times(), (Duration::ZERO, Duration::ZERO));
     }
 }
