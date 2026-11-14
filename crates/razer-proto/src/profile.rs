@@ -17,7 +17,8 @@ pub struct UsbId {
     pub usage_page: u16,
     pub usage: u16,
     /// The device's USB interfaces, `MI_00` up, each with Windows' `HidUsb`
-    /// driver. `tools/Set-RazerUsbSuspend.ps1` sets USB suspend on these.
+    /// driver. `tools/Set-RazerUsbSuspend.ps1` sets USB suspend on these;
+    /// a change here also needs its `MI_0[0-3]` pattern changed.
     pub hid_interfaces: u8,
 }
 

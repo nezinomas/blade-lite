@@ -310,6 +310,12 @@ mod tests {
     }
 
     #[test]
+    fn a_missing_key_has_no_subkeys() {
+        let error = subkeys(r"SOFTWARElade-lite-no-such-key").unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::NotFound);
+    }
+
+    #[test]
     fn a_dword_is_read_little_endian() {
         assert_eq!(reg_value(REG_DWORD, vec![1, 0, 0, 0]), RegValue::Dword(1));
         assert_eq!(

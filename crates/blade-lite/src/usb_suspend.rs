@@ -60,7 +60,7 @@ pub fn usb_suspend(interfaces: &[io::Result<Vec<UsbInstance>>], count: u8) -> Us
     for (number, interface) in interfaces.iter().enumerate() {
         match interface_value(interface) {
             Ok(value) => on |= value,
-            Err(reason) => return UsbSuspend::Odd(format!("interface MI_0{number}: {reason}")),
+            Err(reason) => return UsbSuspend::Odd(format!("interface MI_{number:02X}: {reason}")),
         }
     }
     if on { UsbSuspend::On } else { UsbSuspend::Off }
