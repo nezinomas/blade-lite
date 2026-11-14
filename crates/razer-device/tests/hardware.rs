@@ -1501,9 +1501,9 @@ fn sleep_probe_state<C: Clock>(
 
 /// Ticket 204: does the controller keep its mode, fan mode, fan targets,
 /// boosts and lights when the Razer USB device sleeps and wakes? Reads them
-/// (read-only, nothing is set), then 6 times waits 12 s (the device sleeps
-/// 2 to 5 s after its last use, ticket 202), reads them at once (the read
-/// wakes it) and 2 s later. Run `tools/Watch-DevicePower.ps1` beside it to
+/// (read-only, nothing is set), then 6 times waits 12 s, more than 2 s after
+/// the last read (the device sleeps 2 to 5 s after its last use, ticket 202),
+/// reads them at once (the read wakes it) and 2 s later. Rounds are 14 s apart. Run `tools/Watch-DevicePower.ps1` beside it to
 /// see the sleeps. Fails on any read that differs from the first.
 #[test]
 #[ignore = "needs the Blade 18 and BLADE_SLEEP_PROBE=1; read-only; about 90 s"]
@@ -1514,6 +1514,20 @@ fn the_state_holds_across_a_usb_sleep() {
     }
     let mut device = Device::new(open(), SystemClock);
     let first = sleep_probe_state(&mut device).unwrap();
+    // A reply for another zone, cluster, fan or LED would pass later as
+    // unchanged. Mode bytes are not checked: an unknown one is a finding.
+    let echoes = razer_proto::BLADE_18
+        .perf_zones
+        .iter()
+        .chain(&CLUSTERS)
+        .chain(&FANS);
+    for (args, &index) in first.iter().zip(echoes) {
+        assert!(
+            args.starts_with(&[1, index]),
+            "reply {args:02X?} not for {index}: not run"
+        );
+    }
+    refuse_unknown_effect(&first[9]);
     eprintln!("{}  first        {first:02X?}", utc_now());
     let mut changed = Vec::new();
     for round in 1..=6 {
