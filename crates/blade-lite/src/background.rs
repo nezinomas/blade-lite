@@ -165,9 +165,9 @@ pub fn follow_the_power_key() {
         // The last sender logged, so a new one is logged once: a dead key
         // can then be traced to the collection read.
         let mut logged: Option<String> = None;
-        // The last dropped report logged: a reopen that drops the same one
-        // again is not logged again, so the log does not fill (ticket 210).
-        let mut logged_drop: Option<DroppedReport> = None;
+        // The dropped reports logged: a reopen that drops one again does
+        // not log it again, so the log does not fill (ticket 210).
+        let mut logged_drops: Vec<DroppedReport> = Vec::new();
         loop {
             let opened = HidKeyReports::open_preferring(&BLADE_18, sender.as_deref());
             let (problem, pause) = match opened {
@@ -181,7 +181,7 @@ pub fn follow_the_power_key() {
                     let ran = started.elapsed();
                     presses = end.next_presses(ran, &presses);
                     log_read_path(reports.read_path(), &mut logged);
-                    log_first_drop(reports.first_dropped(), &mut logged_drop);
+                    log_drops(reports.dropped(), &mut logged_drops);
                     sender = if end.keeps_key_state(ran) {
                         reports.sender().map(str::to_owned).or(sender)
                     } else {
@@ -223,16 +223,32 @@ fn log_read_path(path: Option<&str>, logged: &mut Option<String>) {
     }
 }
 
-/// Logs the first report an open of the key reports dropped, once each
-/// time it changes: a key that stays dead because its reports no longer
-/// match the profile can then be traced (ticket 210).
-fn log_first_drop(dropped: Option<DroppedReport>, logged: &mut Option<DroppedReport>) {
-    if let Some(dropped) = dropped
-        && logged.as_ref() != Some(&dropped)
-    {
-        report(&format!("a key report was dropped: {dropped}"));
-        *logged = Some(dropped);
+/// The most dropped reports logged in one run, so reopens can't fill the
+/// log even if the drops change each time.
+const MOST_DROPS_LOGGED: usize = 8;
+
+/// Logs each report the key reports dropped that was not logged before in
+/// this run, up to [`MOST_DROPS_LOGGED`]: a key that stays dead because its
+/// reports no longer match the profile can then be traced (ticket 210).
+/// Logged as the open ends, so up to one quiet spell late.
+fn log_drops(dropped: Vec<DroppedReport>, logged: &mut Vec<DroppedReport>) {
+    for drop in new_drops(dropped, logged) {
+        report(&format!(
+            "a report on a key collection was not a key report: {drop}"
+        ));
     }
+}
+
+/// The ones of `dropped` not in `logged`, added to it while it has room.
+fn new_drops(dropped: Vec<DroppedReport>, logged: &mut Vec<DroppedReport>) -> Vec<DroppedReport> {
+    let mut new = Vec::new();
+    for drop in dropped {
+        if logged.len() < MOST_DROPS_LOGGED && !logged.contains(&drop) {
+            logged.push(drop.clone());
+            new.push(drop);
+        }
+    }
+    new
 }
 
 /// Acts on a key event on the event-loop thread. False once the app is
@@ -410,7 +426,50 @@ fn follow_the_sleep_now(handled: &SuspendHandled, number: u64) {
 mod tests {
     use std::sync::atomic::AtomicBool;
 
-    use super::newly_unknown;
+    use razer_device::DroppedReport;
+
+    use super::{MOST_DROPS_LOGGED, new_drops, newly_unknown};
+
+    fn drop(id: u8) -> DroppedReport {
+        DroppedReport {
+            id,
+            len: 16,
+            path: "col04".to_owned(),
+        }
+    }
+
+    #[test]
+    fn a_drop_is_logged_once_in_a_run() {
+        let mut logged = Vec::new();
+
+        assert_eq!(
+            new_drops(vec![drop(5), drop(6)], &mut logged),
+            [drop(5), drop(6)]
+        );
+        assert_eq!(new_drops(vec![drop(6), drop(5)], &mut logged), []);
+        assert_eq!(new_drops(Vec::new(), &mut logged), []);
+    }
+
+    #[test]
+    fn drops_that_take_turns_are_not_logged_again() {
+        let mut logged = Vec::new();
+
+        let said: usize = [5, 6, 5, 6, 5]
+            .into_iter()
+            .map(|id| new_drops(vec![drop(id)], &mut logged).len())
+            .sum();
+
+        assert_eq!(said, 2);
+    }
+
+    #[test]
+    fn no_more_drops_are_logged_once_the_most_are() {
+        let mut logged = Vec::new();
+        let many = (0..=u8::MAX).map(drop).collect();
+
+        assert_eq!(new_drops(many, &mut logged).len(), MOST_DROPS_LOGGED);
+        assert_eq!(new_drops(vec![drop(u8::MAX)], &mut logged), []);
+    }
 
     #[test]
     fn an_unknown_source_is_said_once_until_a_read_tells_again() {

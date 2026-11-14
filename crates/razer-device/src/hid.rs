@@ -150,16 +150,22 @@ impl HidKeyReports {
         self.sources.read(wait)
     }
 
-    /// The first report dropped since the open, so a key whose reports no
-    /// longer match the profile can be traced (ticket 210).
+    /// The first report each collection dropped since the open, so a key
+    /// whose reports no longer match the profile can be traced, even when
+    /// another collection drops its wake report first (ticket 210).
     #[must_use]
-    pub fn first_dropped(&self) -> Option<DroppedReport> {
-        let dropped = self.sources.first_drop?;
-        Some(DroppedReport {
-            id: dropped.id,
-            len: dropped.len,
-            path: self.paths.get(dropped.source)?.clone(),
-        })
+    pub fn dropped(&self) -> Vec<DroppedReport> {
+        self.sources
+            .drops
+            .iter()
+            .filter_map(|drop| {
+                Some(DroppedReport {
+                    id: drop.id,
+                    len: drop.len,
+                    path: self.paths.get(drop.source)?.clone(),
+                })
+            })
+            .collect()
     }
 }
 
@@ -228,8 +234,9 @@ struct KeySources<D> {
     source: Option<usize>,
     /// What a key report looks like.
     key: PowerKey,
-    /// The first report dropped, kept for the log (ticket 210).
-    first_drop: Option<Dropped>,
+    /// The first report each collection dropped, at most one each, kept
+    /// for the log (ticket 210).
+    drops: Vec<Dropped>,
 }
 
 /// Where a dropped report came from, its ID and its size.
@@ -247,7 +254,7 @@ impl<D: ReadTimeout> KeySources<D> {
             devices,
             source: None,
             key,
-            first_drop: None,
+            drops: Vec::new(),
         }
     }
 
@@ -266,11 +273,12 @@ impl<D: ReadTimeout> KeySources<D> {
                 .ok_or_else(|| io::Error::other("the key source is gone"))?,
             None => self.devices.as_slice(),
         };
-        let first_drop = &mut self.first_drop;
+        let drops = &mut self.drops;
         for (index, device) in (first..).zip(devices) {
             let on_drop = |report: &[u8]| {
-                if first_drop.is_none() {
-                    *first_drop = report.first().map(|&id| Dropped {
+                let new = !drops.iter().any(|drop| drop.source == index);
+                if let (true, Some(&id)) = (new, report.first()) {
+                    drops.push(Dropped {
                         source: index,
                         id,
                         len: report.len(),
@@ -562,21 +570,41 @@ mod tests {
     }
 
     #[test]
-    fn the_first_dropped_report_is_kept_with_its_collection() {
+    fn the_first_dropped_report_of_each_collection_is_kept() {
         let (mut sources, _) = sources(vec![
             vec![Ok(wake_report()), Ok(vec![0x06, 0x01])],
-            vec![Ok(vec![0x07]), Ok(report(&POWER_KEY))],
+            vec![Ok(vec![0x07]), Ok(vec![0x08]), Ok(report(&POWER_KEY))],
         ]);
-        assert_eq!(sources.first_drop, None);
+        assert_eq!(sources.drops, Vec::new());
 
         sources.read(WAIT).unwrap();
 
-        let first = Dropped {
+        let wake = Dropped {
             source: 0,
             id: 0x05,
             len: 16,
         };
-        assert_eq!(sources.first_drop, Some(first));
+        let other = Dropped {
+            source: 1,
+            id: 0x07,
+            len: 1,
+        };
+        assert_eq!(sources.drops, [wake, other]);
+    }
+
+    #[test]
+    fn a_drop_on_the_picked_source_keeps_its_index() {
+        let (mut sources, _) = sources(vec![vec![], vec![Ok(wake_report())]]);
+        sources.source = Some(1);
+
+        sources.read(WAIT).unwrap();
+
+        let wake = Dropped {
+            source: 1,
+            id: 0x05,
+            len: 16,
+        };
+        assert_eq!(sources.drops, [wake]);
     }
 
     #[test]
@@ -585,7 +613,7 @@ mod tests {
 
         sources.read(WAIT).unwrap();
 
-        assert_eq!(sources.first_drop, None);
+        assert_eq!(sources.drops, Vec::new());
     }
 
     #[test]
