@@ -76,7 +76,8 @@ pub fn work_area_at((x, y): (i32, i32)) -> io::Result<(i32, i32, i32, i32)> {
 ///
 /// The Windows error if the call fails, such as for a handle that is not a
 /// live window, or an error if the call says it worked but the window is
-/// still not topmost (ticket 181 saw that once) or a shown topmost window
+/// still not topmost (ticket 181 saw that once; likely ticket 207, a plain
+/// window raised by a process older than about 1.5 s) or a shown topmost window
 /// is still above it (ticket 195).
 pub fn raise_topmost(hwnd: isize) -> io::Result<()> {
     let flags = SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE;
@@ -326,7 +327,8 @@ mod tests {
     // No test makes a plain window topmost: Windows ignores that call from
     // a process older than about 1.5 s, yet says it worked (ticket 207), so
     // such a test fails or passes with the test run's timing. The app never
-    // does it: Slint makes the popup topmost when it makes the window.
+    // does it: Slint (through winit) makes the popup topmost when it makes
+    // the window.
 
     #[test]
     fn a_raise_that_leaves_the_window_plain_is_an_error() {
