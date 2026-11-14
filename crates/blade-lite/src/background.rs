@@ -174,11 +174,11 @@ pub fn follow_the_power_key() {
         let mut unheard = UnheardSpells::default();
         let mut said_read_all = false;
         loop {
-            let opened = if unheard.read_all() {
+            let opened = if unheard.take_read_all() {
                 if !std::mem::replace(&mut said_read_all, true) {
                     report(&format!(
                         "no key report in {UNHEARD_SPELLS_BEFORE_ALL} quiet spells: \
-                         all key collections are read for one"
+                         all key collections are read for one spell"
                     ));
                 }
                 HidKeyReports::open_all(&BLADE_18)

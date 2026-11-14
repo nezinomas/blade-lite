@@ -27,11 +27,13 @@ pub const ENTER_READ_WAIT: Duration = Duration::from_millis(5);
 /// neither ends the wait nor counts as a report (ticket 203).
 pub const KEY_QUIET_SPELL: Duration = Duration::from_secs(120);
 
-/// How many quiet spells in a row may pass with no key report ever heard
-/// before one spell reads all key collections (about 20 min). That spell
-/// wakes as before ticket 209 (each [`KEY_READ_WAIT`], per collection),
-/// so it is rare (ticket 215).
-pub const UNHEARD_SPELLS_BEFORE_ALL: u32 = 10;
+/// How many quiet spells in a row may pass with no key report heard before
+/// one spell reads all key collections (about 1 h). That spell wakes as
+/// before ticket 209, each [`KEY_READ_WAIT`], and lasts one
+/// [`KEY_QUIET_SPELL`] per collection (one wait counts once for all of
+/// them), so 4 min with two collections. So it is rare, and a key whose
+/// collection moved is dead for up to about 1 h (ticket 215).
+pub const UNHEARD_SPELLS_BEFORE_ALL: u32 = 30;
 
 /// The quiet spells in a row with no key report heard. The profile names
 /// the one key collection read before any report (ticket 209); if new
@@ -41,17 +43,22 @@ pub const UNHEARD_SPELLS_BEFORE_ALL: u32 = 10;
 pub struct UnheardSpells(u32);
 
 impl UnheardSpells {
-    /// Whether the next open reads all key collections, for one spell.
-    #[must_use]
-    pub fn read_all(self) -> bool {
-        self.0 >= UNHEARD_SPELLS_BEFORE_ALL
+    /// Whether the next open reads all key collections, for one spell. The
+    /// count starts again at once, so an open that fails or ends short
+    /// does not make every later open read all (ticket 215 review).
+    pub fn take_read_all(&mut self) -> bool {
+        let read_all = self.0 >= UNHEARD_SPELLS_BEFORE_ALL;
+        if read_all {
+            *self = Self::default();
+        }
+        read_all
     }
 
-    /// The count after a real quiet spell. `heard`: a key report has come
-    /// (there is a sender). After a spell that read all, it starts again.
+    /// The count after a real quiet spell. `heard`: the sender was read
+    /// (see [`sender_read`]).
     #[must_use]
     pub fn after_spell(self, heard: bool) -> Self {
-        if heard || self.read_all() {
+        if heard {
             Self::default()
         } else {
             Self(self.0 + 1)
@@ -283,24 +290,27 @@ mod tests {
 
     #[test]
     fn all_collections_are_read_after_enough_unheard_spells() {
-        assert!(!unheard(0).read_all());
-        assert!(!unheard(UNHEARD_SPELLS_BEFORE_ALL - 1).read_all());
-        assert!(unheard(UNHEARD_SPELLS_BEFORE_ALL).read_all());
+        assert!(!unheard(0).take_read_all());
+        assert!(!unheard(UNHEARD_SPELLS_BEFORE_ALL - 1).take_read_all());
+        assert!(unheard(UNHEARD_SPELLS_BEFORE_ALL).take_read_all());
     }
 
     #[test]
-    fn all_are_read_for_one_spell_only() {
-        let after_all = unheard(UNHEARD_SPELLS_BEFORE_ALL).after_spell(false);
+    fn all_are_read_for_one_open_only_however_it_ends() {
+        let mut unheard = unheard(UNHEARD_SPELLS_BEFORE_ALL);
 
-        assert_eq!(after_all, UnheardSpells::default());
+        assert!(unheard.take_read_all());
+        // The open failed or ended short: nothing counted, still not again.
+        assert!(!unheard.take_read_all());
+        assert_eq!(unheard, UnheardSpells::default());
     }
 
     #[test]
     fn a_key_report_heard_starts_the_count_again() {
-        let heard = unheard(UNHEARD_SPELLS_BEFORE_ALL - 1).after_spell(true);
+        let mut heard = unheard(UNHEARD_SPELLS_BEFORE_ALL - 1).after_spell(true);
 
         assert_eq!(heard, UnheardSpells::default());
-        assert!(!heard.read_all());
+        assert!(!heard.take_read_all());
     }
 
     #[test]
