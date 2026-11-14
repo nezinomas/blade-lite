@@ -232,23 +232,27 @@ const MOST_DROPS_LOGGED: usize = 8;
 /// reports no longer match the profile can then be traced (ticket 210).
 /// Logged as the open ends, so up to one quiet spell late.
 fn log_drops(dropped: Vec<DroppedReport>, logged: &mut Vec<DroppedReport>) {
-    for drop in new_drops(dropped, logged) {
-        report(&format!(
-            "a report on a key collection was not a key report: {drop}"
-        ));
+    for line in drop_lines(dropped, logged) {
+        report(&line);
     }
 }
 
-/// The ones of `dropped` not in `logged`, added to it while it has room.
-fn new_drops(dropped: Vec<DroppedReport>, logged: &mut Vec<DroppedReport>) -> Vec<DroppedReport> {
-    let mut new = Vec::new();
-    for drop in dropped {
-        if logged.len() < MOST_DROPS_LOGGED && !logged.contains(&drop) {
-            logged.push(drop.clone());
-            new.push(drop);
+/// A line for each of `dropped` not in `logged`, added to it while it has
+/// room, and one more line as it fills up.
+fn drop_lines(dropped: Vec<DroppedReport>, logged: &mut Vec<DroppedReport>) -> Vec<String> {
+    let mut lines = Vec::new();
+    for report in dropped {
+        if logged.len() < MOST_DROPS_LOGGED && !logged.contains(&report) {
+            lines.push(format!(
+                "a report on a key collection was not a key report: {report}"
+            ));
+            logged.push(report);
+            if logged.len() == MOST_DROPS_LOGGED {
+                lines.push("more such reports are not logged in this run".to_owned());
+            }
         }
     }
-    new
+    lines
 }
 
 /// Acts on a key event on the event-loop thread. False once the app is
@@ -428,9 +432,9 @@ mod tests {
 
     use razer_device::DroppedReport;
 
-    use super::{MOST_DROPS_LOGGED, new_drops, newly_unknown};
+    use super::{MOST_DROPS_LOGGED, drop_lines, newly_unknown};
 
-    fn drop(id: u8) -> DroppedReport {
+    fn dropped(id: u8) -> DroppedReport {
         DroppedReport {
             id,
             len: 16,
@@ -443,11 +447,17 @@ mod tests {
         let mut logged = Vec::new();
 
         assert_eq!(
-            new_drops(vec![drop(5), drop(6)], &mut logged),
-            [drop(5), drop(6)]
+            drop_lines(vec![dropped(5), dropped(6)], &mut logged),
+            [
+                "a report on a key collection was not a key report: report ID 05, 16 bytes, on col04",
+                "a report on a key collection was not a key report: report ID 06, 16 bytes, on col04",
+            ]
         );
-        assert_eq!(new_drops(vec![drop(6), drop(5)], &mut logged), []);
-        assert_eq!(new_drops(Vec::new(), &mut logged), []);
+        assert_eq!(
+            drop_lines(vec![dropped(6), dropped(5)], &mut logged),
+            Vec::<String>::new()
+        );
+        assert_eq!(drop_lines(Vec::new(), &mut logged), Vec::<String>::new());
     }
 
     #[test]
@@ -456,19 +466,28 @@ mod tests {
 
         let said: usize = [5, 6, 5, 6, 5]
             .into_iter()
-            .map(|id| new_drops(vec![drop(id)], &mut logged).len())
+            .map(|id| drop_lines(vec![dropped(id)], &mut logged).len())
             .sum();
 
         assert_eq!(said, 2);
     }
 
     #[test]
-    fn no_more_drops_are_logged_once_the_most_are() {
+    fn no_more_drops_are_logged_once_the_most_are_and_that_is_said() {
         let mut logged = Vec::new();
-        let many = (0..=u8::MAX).map(drop).collect();
+        let many = (0..=u8::MAX).map(dropped).collect();
 
-        assert_eq!(new_drops(many, &mut logged).len(), MOST_DROPS_LOGGED);
-        assert_eq!(new_drops(vec![drop(u8::MAX)], &mut logged), []);
+        let lines = drop_lines(many, &mut logged);
+
+        assert_eq!(lines.len(), MOST_DROPS_LOGGED + 1);
+        assert_eq!(
+            lines.last().map(String::as_str),
+            Some("more such reports are not logged in this run")
+        );
+        assert_eq!(
+            drop_lines(vec![dropped(u8::MAX)], &mut logged),
+            Vec::<String>::new()
+        );
     }
 
     #[test]

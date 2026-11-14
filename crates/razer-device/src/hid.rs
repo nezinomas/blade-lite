@@ -158,11 +158,11 @@ impl HidKeyReports {
         self.sources
             .drops
             .iter()
-            .filter_map(|drop| {
+            .filter_map(|dropped| {
                 Some(DroppedReport {
-                    id: drop.id,
-                    len: drop.len,
-                    path: self.paths.get(drop.source)?.clone(),
+                    id: dropped.id,
+                    len: dropped.len,
+                    path: self.paths.get(dropped.source)?.clone(),
                 })
             })
             .collect()
@@ -276,7 +276,7 @@ impl<D: ReadTimeout> KeySources<D> {
         let drops = &mut self.drops;
         for (index, device) in (first..).zip(devices) {
             let on_drop = |report: &[u8]| {
-                let new = !drops.iter().any(|drop| drop.source == index);
+                let new = !drops.iter().any(|kept| kept.source == index);
                 if let (true, Some(&id)) = (new, report.first()) {
                     drops.push(Dropped {
                         source: index,
