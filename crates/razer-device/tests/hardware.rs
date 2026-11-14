@@ -1466,3 +1466,70 @@ fn a_long_effect_reply_is_refused() {
 fn an_empty_effect_reply_is_refused() {
     refuse_unknown_effect(&[]);
 }
+
+/// The UTC time of day, as the app log and `tools/Watch-DevicePower.ps1` print it.
+fn utc_now() -> String {
+    let since = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default();
+    let day = since.as_secs() % 86_400;
+    format!(
+        "{:02}:{:02}:{:02}.{:03}Z",
+        day / 3600,
+        day / 60 % 60,
+        day % 60,
+        since.subsec_millis()
+    )
+}
+
+/// What [`the_state_holds_across_a_usb_sleep`] reads, all read-only: each
+/// zone's mode, both boosts, both fan targets, the keyboard and vapor light
+/// levels, and the keyboard effect (storage 1).
+fn sleep_probe_state<C: Clock>(
+    device: &mut Device<HidTransport, C>,
+) -> Result<Vec<Vec<u8>>, String> {
+    let mut state = try_custom_state(device)?;
+    state.push(levels(device)?);
+    let mut query = [0; EFFECT_ARGS];
+    query[..2].copy_from_slice(&[1, 5]);
+    let effect = device
+        .send(GET_EFFECT, &query)
+        .map_err(|error| error.to_string())?;
+    state.push(effect.args().to_vec());
+    Ok(state)
+}
+
+/// Ticket 204: does the controller keep its mode, fan mode, fan targets,
+/// boosts and lights when the Razer USB device sleeps and wakes? Reads them
+/// (read-only, nothing is set), then 6 times waits 12 s (the device sleeps
+/// 2 to 5 s after its last use, ticket 202), reads them at once (the read
+/// wakes it) and 2 s later. Run `tools/Watch-DevicePower.ps1` beside it to
+/// see the sleeps. Fails on any read that differs from the first.
+#[test]
+#[ignore = "needs the Blade 18 and BLADE_SLEEP_PROBE=1; read-only; about 90 s"]
+fn the_state_holds_across_a_usb_sleep() {
+    if std::env::var_os("BLADE_SLEEP_PROBE").is_none_or(|value| value != "1") {
+        eprintln!("skipped: set BLADE_SLEEP_PROBE=1 to run it");
+        return;
+    }
+    let mut device = Device::new(open(), SystemClock);
+    let first = sleep_probe_state(&mut device).unwrap();
+    eprintln!("{}  first        {first:02X?}", utc_now());
+    let mut changed = Vec::new();
+    for round in 1..=6 {
+        std::thread::sleep(Duration::from_secs(12));
+        for label in ["at the wake ", "2 s later   "] {
+            let at = utc_now();
+            let read = sleep_probe_state(&mut device);
+            eprintln!("{at}  {round} {label} {read:02X?}");
+            if read.as_ref() != Ok(&first) {
+                changed.push((at, read));
+            }
+            std::thread::sleep(Duration::from_secs(2));
+        }
+    }
+    assert!(
+        changed.is_empty(),
+        "first {first:02X?}, changed {changed:02X?}"
+    );
+}
