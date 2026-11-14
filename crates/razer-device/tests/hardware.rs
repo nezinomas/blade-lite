@@ -456,6 +456,10 @@ fn the_second_temperature_field_follows_the_gpu() {
 fn the_key_reports_open_and_wait_quietly() {
     // Only read, so the one-copy lock is not needed.
     let mut reports = HidKeyReports::open(&razer_proto::BLADE_18).unwrap();
+    // Only the profile's collection is opened, so the reads can wait long
+    // (ticket 209).
+    let path = reports.read_path().unwrap_or_default().to_ascii_uppercase();
+    assert!(path.contains("&MI_01&COL04#"), "{path}");
 
     // No key is pressed, so nothing comes, or only a key-up report.
     let report = reports.read(Duration::from_millis(100)).unwrap();

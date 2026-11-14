@@ -169,17 +169,15 @@ pub fn follow_the_power_key() {
             let opened = HidKeyReports::open_preferring(&BLADE_18, sender.as_deref());
             let (problem, pause) = match opened {
                 Ok(mut reports) => {
+                    // At the open when one collection is opened, so a dead
+                    // key can be traced before any press (ticket 209).
+                    log_read_path(reports.read_path(), &mut logged);
                     let started = Instant::now();
                     let end =
                         step_on_presses(&mut reports, &mut WindowsFnKeys, &mut presses, on_key);
                     let ran = started.elapsed();
                     presses = end.next_presses(ran, &presses);
-                    if let Some(path) = reports.sender()
-                        && logged.as_deref() != Some(path)
-                    {
-                        report(&format!("the power-mode key is read on {path}"));
-                        logged = Some(path.to_owned());
-                    }
+                    log_read_path(reports.read_path(), &mut logged);
                     sender = if end.keeps_key_state(ran) {
                         reports.sender().map(str::to_owned).or(sender)
                     } else {
@@ -208,6 +206,17 @@ pub fn follow_the_power_key() {
             std::thread::sleep(pause);
         }
     });
+}
+
+/// Logs the one collection the power-mode key is read on, once each time
+/// it changes.
+fn log_read_path(path: Option<&str>, logged: &mut Option<String>) {
+    if let Some(path) = path
+        && logged.as_deref() != Some(path)
+    {
+        report(&format!("the power-mode key is read on {path}"));
+        *logged = Some(path.to_owned());
+    }
 }
 
 /// Acts on a key event on the event-loop thread. False once the app is

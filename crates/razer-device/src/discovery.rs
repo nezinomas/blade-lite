@@ -67,11 +67,32 @@ pub(crate) fn model_interface(path: &str, usb: &UsbId) -> Option<i32> {
         .collect();
     match interfaces.as_slice() {
         [] => Some(0),
-        [number] if number.len() == 2 && number.bytes().all(|b| b.is_ascii_hexdigit()) => {
-            i32::from_str_radix(number, 16).ok()
-        }
+        [number] => two_hex_digits(number).map(i32::from),
         _ => None,
     }
+}
+
+/// The collection number of a HID interface path, read from the path
+/// alone: the `COLxx` in its second part, as `VID_1532&PID_02C7&MI_01&COL04`.
+/// `None` with no `COLxx`, or more than one.
+pub(crate) fn collection_number(path: &str) -> Option<u8> {
+    let device = path.split('#').nth(1)?.to_ascii_lowercase();
+    let mut numbers = device
+        .split('&')
+        .filter_map(|token| token.strip_prefix("col"));
+    match (numbers.next(), numbers.next()) {
+        (Some(number), None) => two_hex_digits(number),
+        _ => None,
+    }
+}
+
+/// The number written as exactly two hex digits, as Windows writes `MI_`
+/// and `COL` numbers.
+fn two_hex_digits(text: &str) -> Option<u8> {
+    if text.len() != 2 || !text.bytes().all(|b| b.is_ascii_hexdigit()) {
+        return None;
+    }
+    u8::from_str_radix(text, 16).ok()
 }
 
 /// Whether the device has the model's vendor and product id.
@@ -134,6 +155,29 @@ mod tests {
         ] {
             assert_eq!(model_interface(&path(id), usb), None, "{id}");
         }
+    }
+
+    #[test]
+    fn a_path_gives_its_collection_number() {
+        assert_eq!(
+            collection_number(&path("VID_1532&PID_02C7&MI_01&COL04")),
+            Some(4)
+        );
+        assert_eq!(
+            collection_number(&path("vid_1532&pid_02c7&mi_01&col1a")),
+            Some(0x1A)
+        );
+        for id in [
+            "VID_1532&PID_02C7&MI_01",
+            "VID_1532&PID_02C7&MI_01&COL4",
+            "VID_1532&PID_02C7&MI_01&COL004",
+            "VID_1532&PID_02C7&MI_01&COLxx",
+            "VID_1532&PID_02C7&MI_01&COL+4",
+            "VID_1532&PID_02C7&MI_01&COL04&COL05",
+        ] {
+            assert_eq!(collection_number(&path(id)), None, "{id}");
+        }
+        assert_eq!(collection_number("COL04"), None);
     }
 
     #[test]
