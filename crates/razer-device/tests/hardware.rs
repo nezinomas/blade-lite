@@ -466,6 +466,45 @@ fn the_key_reports_open_and_wait_quietly() {
     }
 }
 
+/// Ticket 202: which key collection sends which key? Opens each of the
+/// model's key collections alone and prints each report with its collection
+/// for 60 s, while the user presses keys. Only reads the keyboard: nothing
+/// is sent, so the lock is not needed (`BLADE_KEY_PROBE=1`, with
+/// `--nocapture`).
+#[test]
+#[ignore = "needs the Blade 18, BLADE_KEY_PROBE=1 and a person pressing keys; 60 s"]
+fn each_key_collection_prints_its_reports() {
+    if std::env::var_os("BLADE_KEY_PROBE").is_none_or(|value| value != "1") {
+        eprintln!("skipped: set BLADE_KEY_PROBE=1 to run it");
+        return;
+    }
+    let mut readers: Vec<(String, HidKeyReports)> = platform::hid_paths()
+        .unwrap()
+        .into_iter()
+        .filter(|path| path.to_uppercase().contains("VID_1532&PID_02C7&MI_01&COL"))
+        .filter_map(|path| {
+            let reports =
+                HidKeyReports::open_preferring(&razer_proto::BLADE_18, Some(&path)).ok()?;
+            let tag = path.to_uppercase().split('#').nth(1)?.to_owned();
+            reports.single().then_some((tag, reports))
+        })
+        .collect();
+    assert!(readers.len() > 1, "fewer than two key collections opened");
+    for (tag, _) in &readers {
+        eprintln!("reading {tag}");
+    }
+    eprintln!("press keys for 60 s");
+    let started = std::time::Instant::now();
+    while started.elapsed() < Duration::from_secs(60) {
+        for (tag, reports) in &mut readers {
+            if let Some(report) = reports.read(Duration::from_millis(10)).unwrap() {
+                let at = started.elapsed().as_millis();
+                eprintln!("{at:>6} ms  {tag}  {report:02X?}");
+            }
+        }
+    }
+}
+
 /// What [`custom_state`] reads, keeping the first error.
 fn try_custom_state<C: Clock>(
     device: &mut Device<HidTransport, C>,
