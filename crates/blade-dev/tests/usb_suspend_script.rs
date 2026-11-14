@@ -6,6 +6,7 @@
 use std::path::PathBuf;
 use std::process::Command;
 
+use blade_core::APP_NAME;
 use razer_proto::BLADE_18;
 
 fn script() -> PathBuf {
@@ -19,8 +20,10 @@ fn run(body: &str) -> Result<String, String> {
         function Get-PnpDevice { throw 'Get-PnpDevice ran' }\n\
         function Set-ItemProperty { throw 'Set-ItemProperty ran' }\n\
         function Get-ItemProperty { throw 'Get-ItemProperty ran' }\n\
-        function pnputil { throw 'pnputil ran' }\n";
-    let command = format!("{prelude}. '{}'\n{body}", script().display());
+        function pnputil { throw 'pnputil ran' }\n\
+        function Get-Process { }\n";
+    let path = script().display().to_string().replace('\'', "''");
+    let command = format!("{prelude}. '{path}'\n{body}");
     let output = Command::new("powershell")
         .args([
             "-NoProfile",
@@ -153,4 +156,21 @@ fn only_known_suspend_values_are_taken() {
 fn undo_puts_suspend_back_on() {
     assert_eq!(run("Get-TargetValue -Undo:$false"), Ok("0".to_string()));
     assert_eq!(run("Get-TargetValue -Undo:$true"), Ok("1".to_string()));
+}
+
+#[test]
+fn the_script_checks_the_apps_lock() {
+    assert_eq!(run("$LockName"), Ok(format!(r"Global\{APP_NAME}")));
+}
+
+#[test]
+fn a_held_lock_is_refused() {
+    let lock = format!(r"Global\blade-lite-test-{}", std::process::id());
+    let free = run(&format!("$LockName = '{lock}'; Assert-NoneRuns; 'free'"));
+    assert_eq!(free, Ok("free".to_string()));
+    let err = run(&format!(
+        "$LockName = '{lock}'; $m = New-Object System.Threading.Mutex($true, $LockName); Assert-NoneRuns"
+    ))
+    .unwrap_err();
+    assert!(err.contains("Nothing changed"), "{err}");
 }

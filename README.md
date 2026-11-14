@@ -140,7 +140,8 @@ idle, blink each 10 s with the app in the tray, or show the colour cycle. Fn +
 Enter and Fn + mic can stop working too (tickets 202 and 204). Windows'
 default is suspend on.
 
-Run this once in an admin PowerShell, with Blade Lite quit (tray, Quit):
+Run this once in an admin PowerShell, with Blade Lite quit (tray, Quit) and
+no `blade-dev` or `cargo hw` test running:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File tools\Set-RazerUsbSuspend.ps1
@@ -154,7 +155,9 @@ the registry, so it should stay after a restart of Windows (not checked on
 the laptop yet, laptop check 48). If Windows sets the device up
 again (a driver reinstall, for example), the value may go back to 1; then run
 the script again. The script prints "already" when there is nothing to do.
-The awake device may use a little more battery (not measured).
+The awake device may use a little more battery (not measured). OpenRazer's
+Linux driver turns suspend off for Razer keyboards, but leaves it on for
+Blade laptops, with no reason given; no source here says why.
 
 To put Windows' default back (suspend on):
 

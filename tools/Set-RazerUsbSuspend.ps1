@@ -19,6 +19,9 @@ $ErrorActionPreference = 'Stop'
 $VendorId = '1532'
 $ProductId = '02C7'
 $InterfaceCount = 4
+# The one-copy lock of the app, blade-dev and the cargo hw tests
+# (APP_NAME in crates/blade-core/src/instance.rs). A test checks the name.
+$LockName = 'Global\blade-lite'
 
 function Assert-Admin {
     $principal = [Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()
@@ -27,9 +30,14 @@ function Assert-Admin {
     }
 }
 
+# A device restart in the middle of a send could cut it off, so nothing that
+# drives the controller may run.
 function Assert-NoneRuns {
-    if (Get-Process -Name 'blade-lite' -ErrorAction SilentlyContinue) {
-        throw 'Blade Lite runs. Quit it from the tray (Quit), then run this again. Nothing changed.'
+    $lock = $null
+    $held = [System.Threading.Mutex]::TryOpenExisting($LockName, [ref]$lock)
+    if ($lock) { $lock.Dispose() }
+    if ($held -or (Get-Process -Name 'blade-lite' -ErrorAction SilentlyContinue)) {
+        throw 'Blade Lite, blade-dev or a cargo hw test runs. Quit it (Blade Lite: tray, Quit), then run this again. Nothing changed.'
     }
 }
 
@@ -43,8 +51,8 @@ function Select-RazerInterfaces($Devices) {
     $pattern = "^USB\\VID_$VendorId&PID_$ProductId&MI_0[0-3]\\"
     $found = @($Devices | Where-Object { $_.InstanceId -match $pattern })
     $hid = @($found | Where-Object { $_.Service -eq 'HidUsb' })
-    $numbers = @($hid | ForEach-Object { ($_.InstanceId -split '\\')[1] } | Sort-Object -Unique)
-    if ($found.Count -ne $InterfaceCount -or $hid.Count -ne $InterfaceCount -or $numbers.Count -ne $InterfaceCount) {
+    $interfaceIds = @($hid | ForEach-Object { ($_.InstanceId -split '\\')[1] } | Sort-Object -Unique)
+    if ($found.Count -ne $InterfaceCount -or $hid.Count -ne $InterfaceCount -or $interfaceIds.Count -ne $InterfaceCount) {
         throw "Expected $InterfaceCount HidUsb interfaces MI_00 to MI_03, found $($found.Count) ($($hid.Count) HidUsb). Nothing changed."
     }
     $hid | Sort-Object InstanceId
@@ -66,7 +74,7 @@ function Assert-SuspendValues($Values) {
     $Values = @($Values)
     $bad = @($Values | Where-Object { $_ -isnot [int] -or ($_ -ne 0 -and $_ -ne 1) })
     if ($Values.Count -ne $InterfaceCount -or $bad.Count -ne 0) {
-        throw "Expected $InterfaceCount values of 0 or 1, read: $($Values -join ', '). Nothing changed."
+        throw "Expected $InterfaceCount values of 0 or 1, read: $($Values -join ', ') (an empty one could not be read). Nothing changed."
     }
 }
 
@@ -77,8 +85,9 @@ function Get-ParametersKey($Interface) {
 function Read-SuspendValues($Interfaces) {
     foreach ($interface in $Interfaces) {
         try {
-            (Get-ItemProperty -Path (Get-ParametersKey $interface) -Name SelectiveSuspendEnabled).SelectiveSuspendEnabled
+            (Get-ItemProperty -LiteralPath (Get-ParametersKey $interface) -Name SelectiveSuspendEnabled).SelectiveSuspendEnabled
         } catch {
+            Write-Warning "$($interface.InstanceId): $($_.Exception.Message)"
             $null
         }
     }
@@ -102,7 +111,11 @@ if (@($old | Where-Object { $_ -ne $target }).Count -eq 0) {
 }
 
 for ($i = 0; $i -lt $interfaces.Count; $i++) {
-    Set-ItemProperty -Path (Get-ParametersKey $interfaces[$i]) -Name SelectiveSuspendEnabled -Value $target -Type DWord
+    try {
+        Set-ItemProperty -LiteralPath (Get-ParametersKey $interfaces[$i]) -Name SelectiveSuspendEnabled -Value $target -Type DWord
+    } catch {
+        throw "Changed $i of $InterfaceCount interfaces (listed above), then: $($_.Exception.Message) The device was not restarted. Run this again, or with -Undo."
+    }
     Write-Output "$($interfaces[$i].InstanceId): SelectiveSuspendEnabled $($old[$i]) -> $target"
 }
 
