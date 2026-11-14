@@ -209,9 +209,19 @@ fn refuse_unknown_effect(args: &[u8]) {
 
 /// Reads each zone's preset args, as the controller sends them back.
 fn preset_args<C: Clock>(device: &mut Device<HidTransport, C>) -> Vec<Vec<u8>> {
+    try_preset_args(device).unwrap()
+}
+
+/// What [`preset_args`] reads, keeping the first error.
+fn try_preset_args<C: Clock>(device: &mut Device<HidTransport, C>) -> Result<Vec<Vec<u8>>, String> {
     razer_proto::PerfMode::queries(&razer_proto::BLADE_18)
         .iter()
-        .map(|query| device.send(query.id, &query.args).unwrap().args().to_vec())
+        .map(|query| {
+            device
+                .send(query.id, &query.args)
+                .map(|reply| reply.args().to_vec())
+                .map_err(|error| error.to_string())
+        })
         .collect()
 }
 
@@ -516,15 +526,7 @@ fn each_key_collection_prints_its_reports() {
 fn try_custom_state<C: Clock>(
     device: &mut Device<HidTransport, C>,
 ) -> Result<Vec<Vec<u8>>, String> {
-    let mut state = razer_proto::PerfMode::queries(&razer_proto::BLADE_18)
-        .iter()
-        .map(|query| {
-            device
-                .send(query.id, &query.args)
-                .map(|reply| reply.args().to_vec())
-                .map_err(|error| error.to_string())
-        })
-        .collect::<Result<Vec<_>, String>>()?;
+    let mut state = try_preset_args(device)?;
     state.extend(try_read_each(device, GET_BOOST, &CLUSTERS)?);
     state.extend(try_read_each(device, GET_FAN, &FANS)?);
     Ok(state)
@@ -1571,8 +1573,7 @@ fn sleep_probe_state<C: Clock>(
 #[test]
 #[ignore = "needs the Blade 18 and BLADE_SLEEP_PROBE=1; read-only; about 90 s"]
 fn the_state_holds_across_a_usb_sleep() {
-    if std::env::var_os("BLADE_SLEEP_PROBE").is_none_or(|value| value != "1") {
-        eprintln!("skipped: set BLADE_SLEEP_PROBE=1 to run it");
+    if !opted_in("BLADE_SLEEP_PROBE") {
         return;
     }
     let mut device = Device::new(open(), SystemClock);
@@ -1608,5 +1609,111 @@ fn the_state_holds_across_a_usb_sleep() {
     assert!(
         changed.is_empty(),
         "first {first:02X?}, changed {changed:02X?}"
+    );
+}
+
+/// Whether a probe that is not part of every `cargo hw` run was asked for
+/// with `<name>=1`; says how to run it when not.
+fn opted_in(name: &str) -> bool {
+    let on = std::env::var_os(name).is_some_and(|value| value == "1");
+    if !on {
+        eprintln!("skipped: set {name}=1 to run it");
+    }
+    on
+}
+
+/// Ticket 211: when does the controller put mode `06` in the zones, and
+/// does it go back when the charger is plugged in again? Read-only: reads
+/// each zone's mode reply and Windows' power source each 2 s for 3 min,
+/// and prints the first read and each change. Pull and plug the charger
+/// during it. Fails only on a failed read.
+#[test]
+#[ignore = "needs the Blade 18 and BLADE_MODE_WATCH=1; read-only; 3 min"]
+fn the_modes_follow_the_power_source() {
+    if !opted_in("BLADE_MODE_WATCH") {
+        return;
+    }
+    let mut device = Device::new(open(), SystemClock);
+    let mut last = None;
+    let mut failed = Vec::new();
+    for _ in 0..90 {
+        let at = utc_now();
+        let read = (platform::on_battery(), try_preset_args(&mut device));
+        if last.as_ref() != Some(&read) {
+            eprintln!("{at}  on battery {:?}  modes {:02X?}", read.0, read.1);
+        }
+        if let Err(error) = &read.1 {
+            failed.push((at, error.clone()));
+        }
+        last = Some(read);
+        std::thread::sleep(Duration::from_secs(2));
+    }
+    assert!(failed.is_empty(), "failed reads {failed:?}");
+}
+
+/// Ticket 211: does Balanced, sent on battery as the app sends it, hold, or
+/// does the controller put mode `06` over it? Sends Balanced with fans auto
+/// in each zone, reads the zones each 2 s for 60 s, then puts back the
+/// modes read before only if [`unknown_modes`] takes them, else Balanced
+/// (never an unknown mode such as `06`). Refuses to run off battery. Fails
+/// on any read after the send that is not Balanced on auto.
+#[test]
+#[ignore = "needs the Blade 18 on battery and BLADE_BALANCED_PROBE=1; sends Balanced; about 70 s"]
+fn balanced_holds_on_battery() {
+    use razer_proto::{BLADE_18, PerfMode};
+
+    if !opted_in("BLADE_BALANCED_PROBE") {
+        return;
+    }
+    assert_eq!(
+        platform::on_battery(),
+        Some(true),
+        "not on battery: not run"
+    );
+    let mut device = Device::new(open(), SystemClock);
+    let before = try_preset_args(&mut device);
+    let balanced = PerfMode::Balanced.commands(&BLADE_18).unwrap();
+
+    // From here on every step keeps its result, and the modes are put back
+    // before any assert.
+    let set = device.run(&balanced).map_err(|error| error.to_string());
+    let mut seen = Vec::new();
+    if set.is_ok() {
+        for _ in 0..30 {
+            std::thread::sleep(Duration::from_secs(2));
+            seen.push((
+                utc_now(),
+                platform::on_battery(),
+                try_preset_args(&mut device),
+            ));
+        }
+    }
+    let put_back: Vec<_> = modes_to_put_back(before.as_ref())
+        .iter()
+        .map(|args| {
+            device
+                .send(0x0D02, args)
+                .map(|_| ())
+                .map_err(|error| error.to_string())
+        })
+        .collect();
+    let after = try_preset_args(&mut device);
+
+    eprintln!("before {before:02X?}\nset {set:?}");
+    for (at, on_battery, read) in &seen {
+        eprintln!("{at}  on battery {on_battery:?}  modes {read:02X?}");
+    }
+    eprintln!("put back {put_back:?}\nafter {after:02X?}");
+    // The lasting state first, so its error is never hidden.
+    assert!(put_back.iter().all(Result::is_ok), "check the fans by hand");
+    set.unwrap();
+    let written: Vec<Vec<u8>> = balanced.into_iter().map(|command| command.args).collect();
+    let other: Vec<_> = seen
+        .iter()
+        .filter(|(_, _, read)| read.as_ref() != Ok(&written))
+        .collect();
+    assert!(
+        other.is_empty(),
+        "not Balanced after the send: {other:02X?}"
     );
 }
