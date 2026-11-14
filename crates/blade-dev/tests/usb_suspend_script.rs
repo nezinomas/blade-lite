@@ -280,3 +280,57 @@ fn a_failed_write_says_how_many_changed_and_does_not_restart() {
         "{log}"
     );
 }
+
+/// Runs `Read-SuspendValue` over a fake registry key: `kind` is a
+/// `RegistryValueKind` name, or empty for a missing value.
+fn read_value(kind: &str, data: &str) -> String {
+    let get_kind = if kind.is_empty() {
+        "throw 'no such value'".to_string()
+    } else {
+        format!("[Microsoft.Win32.RegistryValueKind]::{kind}")
+    };
+    let body = format!(
+        r"function Get-Item {{
+    $key = [pscustomobject]@{{}}
+    $key | Add-Member ScriptMethod GetValueKind {{ param($name) {get_kind} }}
+    $key | Add-Member ScriptMethod GetValue {{ param($name) ,({data}) }}
+    $key
+}}
+$v = Read-SuspendValue ([pscustomobject]@{{ InstanceId = 'x' }}) 3>$null
+if ($null -eq $v) {{ 'null' }} else {{ $v.GetType().Name + ' ' + $v }}"
+    );
+    run(&body).expect("the read itself does not fail")
+}
+
+#[test]
+fn a_registry_read_takes_dword_and_one_byte_and_refuses_a_missing_value() {
+    assert_eq!(read_value("DWord", "[int]1"), "Int32 1");
+    assert_eq!(read_value("Binary", "[byte[]]@(0)"), "Int32 0");
+    assert_eq!(read_value("Binary", "[byte[]]@(1, 0)"), "null");
+    assert_eq!(read_value("", "[int]1"), "null");
+}
+
+#[test]
+fn a_restart_that_did_not_run_or_a_wrong_read_back_is_an_error() {
+    let list = devices(&laptop());
+    let fakes = format!(
+        r"function Get-PnpDevice {{ {list} }}
+function Write-SuspendValue($Interface, $Value) {{ }}"
+    );
+    let restart_fails = format!(
+        r"{fakes}
+function Read-SuspendValue($Interface) {{ if ($script:written) {{ 0 }} else {{ 1 }} }}
+function pnputil {{ $script:written = $true; $global:LASTEXITCODE = 3010 }}
+Invoke-UsbSuspend"
+    );
+    let err = run(&restart_fails).unwrap_err();
+    assert!(err.contains("did not restart (pnputil exit 3010)"), "{err}");
+    let stays = format!(
+        r"{fakes}
+function Read-SuspendValue($Interface) {{ 1 }}
+function pnputil {{ $global:LASTEXITCODE = 0 }}
+Invoke-UsbSuspend"
+    );
+    let err = run(&stays).unwrap_err();
+    assert!(err.contains("Read back: 1, 1, 1, 1, not 0"), "{err}");
+}

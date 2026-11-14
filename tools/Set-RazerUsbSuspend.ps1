@@ -1,9 +1,9 @@
 # Ticket 212: turns off Windows' USB selective suspend for the Razer USB
 # device (the keyboard, lights and fan controller). With suspend on, Windows
 # lets the device sleep 2 to 5 s after its last use. Each wake drops the
-# keyboard lights and the Fn keys (tickets 202 and 204, docs/NOTES.md).
+# keyboard lights (tickets 202 and 204, docs/NOTES.md).
 #   powershell -ExecutionPolicy Bypass -File tools\Set-RazerUsbSuspend.ps1         # admin: suspend off
-#   powershell -ExecutionPolicy Bypass -File tools\Set-RazerUsbSuspend.ps1 -Undo   # admin: suspend on (Windows' default)
+#   powershell -ExecutionPolicy Bypass -File tools\Set-RazerUsbSuspend.ps1 -Undo   # admin: suspend on (the value before ticket 204)
 # Quit Blade Lite from the tray first. The script sets the value
 # SelectiveSuspendEnabled on the 4 HidUsb interfaces (MI_00 to MI_03), then
 # restarts the device, so the keyboard and lights go off for a moment.
@@ -45,7 +45,7 @@ function Enter-ControllerLock {
     $lock
 }
 
-# The value to set: 0 turns suspend off, 1 (Windows' default) turns it on.
+# The value to set: 0 turns suspend off, 1 (the value before ticket 204) turns it on.
 function Get-TargetValue([switch]$Undo) {
     if ($Undo) { 1 } else { 0 }
 }

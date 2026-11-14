@@ -137,7 +137,7 @@ Windows lets the Razer USB device (keyboard, lights and fan controller) sleep
 a few seconds after its last use. This is USB selective suspend. At each wake
 the controller drops the keyboard lights: they go off when the laptop is
 idle, blink each 10 s with the app in the tray, or show the colour cycle
-(tickets 202 and 204). Windows' default is suspend on.
+(tickets 202 and 204). On this laptop suspend was on for this device.
 
 Run this once in an admin PowerShell, with Blade Lite quit (tray, Quit) and
 no `blade-dev` or `cargo hw` test running:
@@ -159,7 +159,7 @@ laptop check 48). OpenRazer's
 Linux driver turns suspend off for Razer keyboards, but leaves it on for
 Blade laptops, with no reason given; no source here says why.
 
-To put Windows' default back (suspend on):
+To put it back as it was (suspend on):
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File tools\Set-RazerUsbSuspend.ps1 -Undo
