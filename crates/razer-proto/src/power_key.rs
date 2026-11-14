@@ -40,15 +40,19 @@ impl PowerKey {
         self.lists(report, self.fn_code)
     }
 
+    /// Whether this input report is a key report: the key report's size
+    /// and id.
+    #[must_use]
+    pub fn is_key_report(&self, report: &[u8]) -> bool {
+        report.len() == self.report_len && report.first() == Some(&self.report_id)
+    }
+
     /// Whether this key report lists `code` as held.
     fn lists(&self, report: &[u8], code: u8) -> Option<bool> {
-        if report.len() != self.report_len {
+        if !self.is_key_report(report) {
             return None;
         }
-        let (&id, held) = report.split_first()?;
-        if id != self.report_id {
-            return None;
-        }
+        let (_, held) = report.split_first()?;
         // Code 0 ends the list; nothing after it counts.
         let mut listed = held.iter().take_while(|&&code| code != 0);
         Some(listed.any(|&held| held == code))
