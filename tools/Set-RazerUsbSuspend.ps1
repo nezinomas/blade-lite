@@ -142,7 +142,7 @@ function Invoke-UsbSuspend([switch]$Undo) {
         throw "Read back: $($new -join ', '), not $target. Run this again, or with -Undo."
     }
     if ($restart -ne 0) {
-        throw "The value is set, but the device restart failed (pnputil exit $restart). Restart Windows so it takes effect."
+        throw "The value is set, but the device did not restart (pnputil exit $restart). Restart Windows so it takes effect."
     }
     Write-Output "Done. SelectiveSuspendEnabled is $target on all $InterfaceCount interfaces."
 }

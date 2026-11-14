@@ -154,7 +154,8 @@ the registry, so it should stay after a restart of Windows (not checked on
 the laptop yet, laptop check 48). If Windows sets the device up
 again (a driver reinstall, for example), the value may go back to 1; then run
 the script again. The script prints "already" when there is nothing to do.
-The awake device may use a little more battery (not measured). OpenRazer's
+The awake device may use more battery, in sleep too (not measured yet,
+laptop check 48). OpenRazer's
 Linux driver turns suspend off for Razer keyboards, but leaves it on for
 Blade laptops, with no reason given; no source here says why.
 
