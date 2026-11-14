@@ -90,6 +90,12 @@ fn the_script_names_the_profiles_usb_ids() {
 }
 
 #[test]
+fn the_script_counts_the_profiles_hid_interfaces() {
+    let count = run("$InterfaceCount").unwrap();
+    assert_eq!(count, BLADE_18.usb.hid_interfaces.to_string());
+}
+
+#[test]
 fn the_four_hid_interfaces_are_picked() {
     let list = devices(&laptop());
     let picked = run(&format!(

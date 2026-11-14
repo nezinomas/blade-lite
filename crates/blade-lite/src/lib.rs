@@ -13,6 +13,7 @@ mod report;
 mod session_end;
 mod slow_polls;
 mod start;
+mod usb_suspend;
 mod watchdog;
 
 pub use accent::accent_colour;

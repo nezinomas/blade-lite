@@ -102,6 +102,25 @@ pub trait UserBytes {
     fn read_user_bytes(&self, key: &str, name: &str) -> io::Result<Vec<u8>>;
 }
 
+/// A registry value as it is stored.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RegValue {
+    Dword(u32),
+    Binary(Vec<u8>),
+    /// Any other kind, such as text.
+    Other,
+}
+
+/// One instance key of a USB interface, under
+/// `HKLM\SYSTEM\CurrentControlSet\Enum\USB`.
+#[derive(Debug)]
+pub struct UsbInstance {
+    /// Its `Service` value: the driver Windows gives it.
+    pub service: io::Result<String>,
+    /// The value read from its `Device Parameters` key.
+    pub value: io::Result<RegValue>,
+}
+
 /// Reads what runs on the laptop now.
 pub trait Programs {
     /// The file name of each running program, and the name and display

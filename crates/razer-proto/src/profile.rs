@@ -16,6 +16,9 @@ pub struct UsbId {
     /// That interface has many collections. Only this one takes the report.
     pub usage_page: u16,
     pub usage: u16,
+    /// The device's USB interfaces, `MI_00` up, each with Windows' `HidUsb`
+    /// driver. `tools/Set-RazerUsbSuspend.ps1` sets USB suspend on these.
+    pub hid_interfaces: u8,
 }
 
 /// The keyboard's lighting grid. Each key is at a row and a column.
@@ -145,6 +148,7 @@ pub const BLADE_18: ModelProfile = ModelProfile {
         interface_number: 2,
         usage_page: 0x01,
         usage: 0x02,
+        hid_interfaces: 4,
     },
     brightness_leds: &[0x05],
     // Synapse sets it after the keyboard, at the same level. Level 0 turns
