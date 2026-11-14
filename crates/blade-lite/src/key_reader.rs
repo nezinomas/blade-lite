@@ -27,6 +27,54 @@ pub const ENTER_READ_WAIT: Duration = Duration::from_millis(5);
 /// neither ends the wait nor counts as a report (ticket 203).
 pub const KEY_QUIET_SPELL: Duration = Duration::from_secs(120);
 
+/// How many quiet spells in a row may pass with no key report heard before
+/// one spell reads all key collections (about 1 h). That spell wakes as
+/// before ticket 209, each [`KEY_READ_WAIT`], and lasts one
+/// [`KEY_QUIET_SPELL`] per collection (one wait counts once for all of
+/// them), so 4 min with two collections. So it is rare, and a key whose
+/// collection moved is dead for up to about 1 h (ticket 215).
+pub const UNHEARD_SPELLS_BEFORE_ALL: u32 = 30;
+
+/// The quiet spells in a row with no key report heard. The profile names
+/// the one key collection read before any report (ticket 209); if new
+/// firmware moves the keys to another one, the key would stay dead for
+/// good, so now and then all are read for one spell (ticket 215).
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct UnheardSpells(u32);
+
+impl UnheardSpells {
+    /// Whether the next open reads all key collections, for one spell. The
+    /// count starts again at once, so an open that fails or ends short
+    /// does not make every later open read all (ticket 215 review).
+    pub fn take_read_all(&mut self) -> bool {
+        let read_all = self.0 >= UNHEARD_SPELLS_BEFORE_ALL;
+        if read_all {
+            *self = Self::default();
+        }
+        read_all
+    }
+
+    /// The count after a real quiet spell. `heard`: the sender was read
+    /// (see [`sender_read`]).
+    #[must_use]
+    pub fn after_spell(self, heard: bool) -> Self {
+        if heard {
+            Self::default()
+        } else {
+            Self(self.0 + 1)
+        }
+    }
+}
+
+/// Whether a key report was heard on this open: the one collection read
+/// (`read_path`) is the `sender`. A sender kept from an earlier open that
+/// was not read (no longer found) does not count, so the key can't stay
+/// dead on the profile's collection (ticket 215 review).
+#[must_use]
+pub fn sender_read(read_path: Option<&str>, sender: Option<&str>) -> bool {
+    read_path.is_some() && read_path == sender
+}
+
 /// Somewhere key reports come from.
 pub trait KeyReportSource {
     /// Waits up to `wait` for a key report. `None` if none came.
@@ -231,6 +279,48 @@ mod tests {
         // each gap (ticket 188 review).
         assert_eq!(read_wait(false, true, true, LEFT), KEY_READ_WAIT);
         assert_eq!(read_wait(false, false, true, LEFT), LEFT);
+    }
+
+    /// After this many quiet spells with no key report heard.
+    fn unheard(spells: u32) -> UnheardSpells {
+        (0..spells).fold(UnheardSpells::default(), |unheard, _| {
+            unheard.after_spell(false)
+        })
+    }
+
+    #[test]
+    fn all_collections_are_read_after_enough_unheard_spells() {
+        assert!(!unheard(0).take_read_all());
+        assert!(!unheard(UNHEARD_SPELLS_BEFORE_ALL - 1).take_read_all());
+        assert!(unheard(UNHEARD_SPELLS_BEFORE_ALL).take_read_all());
+    }
+
+    #[test]
+    fn all_are_read_for_one_open_only_however_it_ends() {
+        let mut unheard = unheard(UNHEARD_SPELLS_BEFORE_ALL);
+
+        assert!(unheard.take_read_all());
+        // The open failed or ended short: nothing counted, still not again.
+        assert!(!unheard.take_read_all());
+        assert_eq!(unheard, UnheardSpells::default());
+    }
+
+    #[test]
+    fn a_key_report_heard_starts_the_count_again() {
+        let mut heard = unheard(UNHEARD_SPELLS_BEFORE_ALL - 1).after_spell(true);
+
+        assert_eq!(heard, UnheardSpells::default());
+        assert!(!heard.take_read_all());
+    }
+
+    #[test]
+    fn a_sender_counts_as_heard_only_when_it_was_read() {
+        assert!(sender_read(Some("col06"), Some("col06")));
+        // A sender no longer found: the profile's collection was read.
+        assert!(!sender_read(Some("col04"), Some("col06")));
+        // All read, none sent.
+        assert!(!sender_read(None, Some("col06")));
+        assert!(!sender_read(Some("col04"), None));
     }
 
     #[test]

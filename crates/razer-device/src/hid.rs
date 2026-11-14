@@ -80,6 +80,22 @@ impl HidKeyReports {
     ///
     /// As [`open`](Self::open).
     pub fn open_preferring(model: &ModelProfile, sender: Option<&str>) -> io::Result<Self> {
+        Self::open_picking(model, sender, true)
+    }
+
+    /// Opens all the model's key collections, not only the one the profile
+    /// names: a way back if new firmware moves the keys (ticket 215).
+    ///
+    /// # Errors
+    ///
+    /// As [`open`](Self::open).
+    pub fn open_all(model: &ModelProfile) -> io::Result<Self> {
+        Self::open_picking(model, None, false)
+    }
+
+    /// As [`open_preferring`](Self::open_preferring), with the profile's
+    /// collection left out of the pick unless `named`.
+    fn open_picking(model: &ModelProfile, sender: Option<&str>, named: bool) -> io::Result<Self> {
         let not_found = || {
             io::Error::new(
                 io::ErrorKind::NotFound,
@@ -89,23 +105,10 @@ impl HidKeyReports {
         let key = model.power_key.ok_or_else(not_found)?;
         let infos = model_devices(&WindowsHid, &model.usb)?;
         let found = find_key_collections(&infos, &model.usb, &key);
-        let picked = pick_key_collections(found.clone(), sender, key.collection);
-        let open_each = |infos: &[&HidInfo]| -> (Vec<String>, Vec<HidDevice>) {
-            infos
-                .iter()
-                .filter_map(|info| {
-                    let device = HidDevice::open(&info.path).ok()?;
-                    Some((info.path.clone(), device))
-                })
-                .unzip()
-        };
-        let (mut paths, mut devices) = open_each(&picked);
-        if devices.is_empty() && picked.len() < found.len() {
-            (paths, devices) = open_each(&found);
-        }
-        if devices.is_empty() {
-            return Err(not_found());
-        }
+        let collection = key.collection.filter(|_| named);
+        let picked = pick_key_collections(found.clone(), sender, collection);
+        let (paths, devices) =
+            open_key_collections(&picked, &found, HidDevice::open).ok_or_else(not_found)?;
         Ok(Self {
             sources: KeySources::new(devices, key),
             paths,
@@ -210,6 +213,27 @@ fn pick_key_collections<'a>(
         .filter(|info| collection_number(&info.path) == Some(wanted))
         .collect();
     if named.is_empty() { found } else { named }
+}
+
+/// Opens each of `picked` with `open`; when none of them opens, each of
+/// `found`, if it has more. Gives the path and device of each one opened,
+/// in order. `None` when none opens.
+fn open_key_collections<D>(
+    picked: &[&HidInfo],
+    found: &[&HidInfo],
+    open: impl Fn(&str) -> io::Result<D>,
+) -> Option<(Vec<String>, Vec<D>)> {
+    let open_each = |infos: &[&HidInfo]| -> (Vec<String>, Vec<D>) {
+        infos
+            .iter()
+            .filter_map(|info| Some((info.path.clone(), open(&info.path).ok()?)))
+            .unzip()
+    };
+    let (mut paths, mut devices) = open_each(picked);
+    if devices.is_empty() && picked.len() < found.len() {
+        (paths, devices) = open_each(found);
+    }
+    (!devices.is_empty()).then_some((paths, devices))
 }
 
 /// A collection read with a wait: Windows', or a fake in the tests.
@@ -784,6 +808,66 @@ mod tests {
         let found: Vec<&HidInfo> = found.iter().collect();
 
         assert_eq!(pick_key_collections(found.clone(), None, None), found);
+    }
+
+    /// An open that fails for each path in `broken`, and gives the path
+    /// back for the others.
+    fn open_but(broken: &[&str]) -> impl Fn(&str) -> io::Result<String> {
+        move |path| {
+            if broken.contains(&path) {
+                Err(io::Error::other("will not open"))
+            } else {
+                Ok(path.to_owned())
+            }
+        }
+    }
+
+    #[test]
+    fn the_picked_collection_alone_is_opened_when_it_opens() {
+        let found = [key_entry("col05"), key_entry("col04")];
+        let found: Vec<&HidInfo> = found.iter().collect();
+
+        let (paths, devices) = open_key_collections(&[found[1]], &found, open_but(&[])).unwrap();
+
+        assert_eq!(paths, ["col04"]);
+        assert_eq!(devices, ["col04"]);
+    }
+
+    #[test]
+    fn when_the_picked_collection_fails_to_open_all_are_opened() {
+        let found = [key_entry("col05"), key_entry("col04"), key_entry("col06")];
+        let found: Vec<&HidInfo> = found.iter().collect();
+
+        let (paths, devices) =
+            open_key_collections(&[found[1]], &found, open_but(&["col04"])).unwrap();
+
+        // The one that failed is left out.
+        assert_eq!(paths, ["col05", "col06"]);
+        assert_eq!(devices, paths);
+    }
+
+    #[test]
+    fn when_none_opens_there_is_nothing() {
+        let found = [key_entry("col05"), key_entry("col04")];
+        let found: Vec<&HidInfo> = found.iter().collect();
+
+        let opened = open_key_collections(&[found[1]], &found, open_but(&["col04", "col05"]));
+
+        assert!(opened.is_none());
+    }
+
+    #[test]
+    fn with_all_picked_a_failed_open_is_not_tried_again() {
+        let found = [key_entry("col05"), key_entry("col04")];
+        let found: Vec<&HidInfo> = found.iter().collect();
+        let tries = RefCell::new(0);
+        let open = |path: &str| {
+            *tries.borrow_mut() += 1;
+            open_but(&["col04", "col05"])(path)
+        };
+
+        assert!(open_key_collections(&found, &found, open).is_none());
+        assert_eq!(*tries.borrow(), 2);
     }
 
     #[test]
