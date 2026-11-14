@@ -89,8 +89,10 @@ pub(crate) fn collection_number(path: &str) -> Option<u8> {
 /// The number written as exactly two hex digits, as Windows writes `MI_`
 /// and `COL` numbers.
 fn two_hex_digits(text: &str) -> Option<u8> {
-    let two = text.len() == 2 && text.bytes().all(|b| b.is_ascii_hexdigit());
-    two.then(|| u8::from_str_radix(text, 16).ok()).flatten()
+    if text.len() != 2 || !text.bytes().all(|b| b.is_ascii_hexdigit()) {
+        return None;
+    }
+    u8::from_str_radix(text, 16).ok()
 }
 
 /// Whether the device has the model's vendor and product id.

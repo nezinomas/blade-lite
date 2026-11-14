@@ -17,7 +17,9 @@ pub struct PowerKey {
     /// interface can have more than one collection of that usage, and the
     /// others may send other reports. When it is listed, only it is opened,
     /// so its reads can wait long from the start (ticket 209). `None`, or
-    /// not listed: each collection of that usage is read in turn.
+    /// not listed: each collection of that usage is read in turn. A wrong
+    /// number that is listed (new firmware renumbering them) leaves the
+    /// keys dead with no error, so it is set only from a read on the laptop.
     pub collection: Option<u8>,
     /// The first byte of each key report.
     pub report_id: u8,

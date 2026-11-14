@@ -152,10 +152,13 @@ fn pick_key_collections<'a>(
     if let Some(&info) = sender.and_then(|path| found.iter().find(|info| info.path == path)) {
         return vec![info];
     }
+    let Some(wanted) = collection else {
+        return found;
+    };
     let named: Vec<&HidInfo> = found
         .iter()
         .copied()
-        .filter(|info| collection.is_some() && collection_number(&info.path) == collection)
+        .filter(|info| collection_number(&info.path) == Some(wanted))
         .collect();
     if named.is_empty() { found } else { named }
 }
@@ -636,6 +639,14 @@ mod tests {
         let found: Vec<&HidInfo> = found.iter().collect();
 
         assert_eq!(pick_key_collections(found.clone(), None, Some(4)), found);
+    }
+
+    #[test]
+    fn a_profile_with_no_collection_reads_all() {
+        let found = [key_entry(&col_path("COL04")), key_entry("no col")];
+        let found: Vec<&HidInfo> = found.iter().collect();
+
+        assert_eq!(pick_key_collections(found.clone(), None, None), found);
     }
 
     #[test]
