@@ -2,6 +2,7 @@
 //! runs on the event-loop thread, so while one waits the window can't
 //! scroll or redraw. Only logs: nothing is sent.
 
+use std::cell::Cell;
 use std::io;
 use std::time::{Duration, Instant};
 
@@ -34,6 +35,9 @@ pub struct PollTime {
     pub sensors: Duration,
     /// The controller's sensor reads (CPU temperature, fans).
     pub controller: Duration,
+    /// The work timed on the event loop since the last poll ended (ticket
+    /// 214): what made this poll late, if it was.
+    pub between: StepTime,
 }
 
 impl PollTime {
@@ -48,6 +52,89 @@ impl PollTime {
             .saturating_sub(self.gpu)
             .saturating_sub(self.sensors)
             .saturating_sub(self.controller)
+    }
+}
+
+/// The work timed on the event loop between two polls (ticket 214).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct StepTime {
+    /// All of it.
+    pub total: Duration,
+    /// The one step that took longest, by name.
+    pub slowest: Option<(&'static str, Duration)>,
+}
+
+impl StepTime {
+    /// Said after a poll that began `late`: the part of it no step timed
+    /// (a frame's hand-over, the tray menu, a window drag) is named too.
+    fn said(&self, late: Duration) -> String {
+        let untimed = late.saturating_sub(self.total).as_millis();
+        self.slowest.map_or_else(
+            || format!("no work timed between polls (untimed {untimed} ms)"),
+            |(name, took)| {
+                format!(
+                    "work timed between polls {} ms (untimed {untimed} ms), the slowest {name} {} ms",
+                    self.total.as_millis(),
+                    took.as_millis()
+                )
+            },
+        )
+    }
+}
+
+/// Times the work the event loop runs outside the poll: the window open,
+/// its fill, a click, a redraw (ticket 214). A step inside another counts
+/// only in the inner one, so no time counts twice. Only logs.
+#[derive(Debug, Default)]
+pub struct LoopSteps {
+    /// The time of the steps inside the one that runs now.
+    inner: Cell<Duration>,
+    took: Cell<StepTime>,
+}
+
+impl LoopSteps {
+    /// Runs `step`, adding its own time (not that of steps inside it).
+    pub fn time<T>(&self, name: &'static str, step: impl FnOnce() -> T) -> T {
+        self.time_with(name, Instant::now, step)
+    }
+
+    /// [`time`](Self::time) with the clock `now`, for the tests.
+    fn time_with<T>(
+        &self,
+        name: &'static str,
+        now: impl Fn() -> Instant,
+        step: impl FnOnce() -> T,
+    ) -> T {
+        let outer = self.inner.replace(Duration::ZERO);
+        let began = now();
+        let value = step();
+        let took = now().saturating_duration_since(began);
+        let inner = self.inner.replace(outer.saturating_add(took));
+        self.note(name, took.saturating_sub(inner));
+        value
+    }
+
+    /// Adds a step timed elsewhere, such as a redraw. One inside a timed
+    /// step (a show can draw before it returns) is taken out of that step.
+    pub fn add(&self, name: &'static str, took: Duration) {
+        self.inner.set(self.inner.get().saturating_add(took));
+        self.note(name, took);
+    }
+
+    fn note(&self, name: &'static str, took: Duration) {
+        let mut sum = self.took.get();
+        sum.total = sum.total.saturating_add(took);
+        if sum.slowest.is_none_or(|(_, slowest)| took > slowest) {
+            sum.slowest = Some((name, took));
+        }
+        self.took.set(sum);
+    }
+
+    /// The steps since the last take. Taken between steps, so no step
+    /// runs: what redraws left in the inner time goes too.
+    pub fn take(&self) -> StepTime {
+        self.inner.set(Duration::ZERO);
+        self.took.take()
     }
 }
 
@@ -105,7 +192,7 @@ impl SlowPolls {
         self.slowest = None;
         let count = std::mem::take(&mut self.count);
         Some(format!(
-            "the event loop was held: {count} slow poll(s) since the last such line; the slowest ({} s ago) ran {} ms (GPU {} ms, other sensors {} ms, controller sensors {} ms, the rest {} ms) and began {} ms late",
+            "the event loop was held: {count} slow poll(s) since the last such line; the slowest ({} s ago) ran {} ms (GPU {} ms, other sensors {} ms, controller sensors {} ms, the rest {} ms) and began {} ms late; {}",
             now.saturating_duration_since(at).as_secs(),
             slowest.took.as_millis(),
             slowest.gpu.as_millis(),
@@ -113,6 +200,7 @@ impl SlowPolls {
             slowest.controller.as_millis(),
             slowest.rest().as_millis(),
             slowest.late.as_millis(),
+            slowest.between.said(slowest.late),
         ))
     }
 }
@@ -168,6 +256,7 @@ impl<S: Sensors> Sensors for TimedSensors<S> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::rc::Rc;
 
     const MS: Duration = Duration::from_millis(1);
 
@@ -178,6 +267,7 @@ mod tests {
             gpu: MS * (took_ms / 2),
             sensors: MS * 2,
             controller: MS * 3,
+            between: StepTime::default(),
         }
     }
 
@@ -198,7 +288,7 @@ mod tests {
         assert_eq!(
             line.as_deref(),
             Some(
-                "the event loop was held: 1 slow poll(s) since the last such line; the slowest (0 s ago) ran 3100 ms (GPU 1550 ms, other sensors 2 ms, controller sensors 3 ms, the rest 1545 ms) and began 0 ms late"
+                "the event loop was held: 1 slow poll(s) since the last such line; the slowest (0 s ago) ran 3100 ms (GPU 1550 ms, other sensors 2 ms, controller sensors 3 ms, the rest 1545 ms) and began 0 ms late; no work timed between polls (untimed 0 ms)"
             )
         );
     }
@@ -227,7 +317,9 @@ mod tests {
     fn a_late_poll_counts_as_slow() {
         let mut slow = SlowPolls::default();
         let line = slow.note(poll(10, 400), Instant::now());
-        assert!(line.is_some_and(|line| line.ends_with("began 400 ms late")));
+        assert!(line.is_some_and(|line| {
+            line.ends_with("began 400 ms late; no work timed between polls (untimed 400 ms)")
+        }));
     }
 
     #[test]
@@ -251,6 +343,90 @@ mod tests {
         assert!(line.contains("3 slow poll(s)"), "{line}");
         assert!(line.contains("(40 s ago) ran 900 ms"), "{line}");
         assert_eq!(slow.note(poll(10, 0), at(200)), None);
+    }
+
+    #[test]
+    fn a_late_poll_names_the_slowest_work_timed_since_the_last_poll() {
+        let mut slow = SlowPolls::default();
+        let between = StepTime {
+            total: MS * 1400,
+            slowest: Some(("display view", MS * 1300)),
+        };
+        let line = slow.note(
+            PollTime {
+                between,
+                ..poll(10, 1433)
+            },
+            Instant::now(),
+        );
+        assert!(
+            line.as_deref().is_some_and(|line| line.ends_with(
+                "began 1433 ms late; work timed between polls 1400 ms (untimed 33 ms), the slowest display view 1300 ms"
+            )),
+            "{line:?}"
+        );
+    }
+
+    /// A clock the timed work moves on.
+    fn clock() -> (Rc<Cell<Instant>>, impl Fn() -> Instant) {
+        let now = Rc::new(Cell::new(Instant::now()));
+        let read = Rc::clone(&now);
+        (now, move || read.get())
+    }
+
+    fn pass(now: &Cell<Instant>, ms: u32) {
+        now.set(now.get() + MS * ms);
+    }
+
+    #[test]
+    fn a_step_inside_another_counts_once_and_apart() {
+        let steps = LoopSteps::default();
+        let (now, read) = clock();
+        steps.time_with("window open", &read, || {
+            pass(&now, 30);
+            steps.time_with("window fill", &read, || {
+                pass(&now, 50);
+                steps.time_with("display view", &read, || pass(&now, 700));
+            });
+        });
+        steps.add("redraw", MS * 40);
+        assert_eq!(
+            steps.take(),
+            StepTime {
+                total: MS * 820,
+                slowest: Some(("display view", MS * 700)),
+            }
+        );
+        assert_eq!(steps.take(), StepTime::default());
+    }
+
+    #[test]
+    fn a_redraw_inside_a_timed_step_counts_once() {
+        let steps = LoopSteps::default();
+        let (now, read) = clock();
+        steps.time_with("window show", &read, || {
+            pass(&now, 30);
+            pass(&now, 200);
+            steps.add("window redraw", MS * 200);
+        });
+        assert_eq!(
+            steps.take(),
+            StepTime {
+                total: MS * 230,
+                slowest: Some(("window redraw", MS * 200)),
+            }
+        );
+    }
+
+    #[test]
+    fn the_same_step_twice_is_not_added_into_one() {
+        let steps = LoopSteps::default();
+        steps.add("redraw", MS * 40);
+        steps.add("redraw", MS * 60);
+        steps.add("window fill", MS * 50);
+        let took = steps.take();
+        assert_eq!(took.total, MS * 150);
+        assert_eq!(took.slowest, Some(("redraw", MS * 60)));
     }
 
     #[derive(Default)]
