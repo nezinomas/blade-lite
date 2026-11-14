@@ -20,7 +20,8 @@ use blade_core::{
     ApplyError, Controller, PollSchedule, Query, RESUME_PAUSE, Readings, ReadingsSampler,
 };
 use blade_lite::{
-    App, AppError, BackgroundGpu, Rect, SaidLately, ShownErrors, TimedSensors, report, took_effect,
+    App, AppError, BackgroundGpu, LoopSteps, Rect, SaidLately, ShownErrors, TimedSensors, report,
+    took_effect,
 };
 use platform::{
     DisplayApi, FileDialog, KeyInjector, MicWatch, PowerEvent, Programs, Registry, Sensors,
@@ -316,6 +317,9 @@ pub struct Shell<P: Parts = Laptop> {
     sampler: RefCell<(ReadingsSampler, TimedSensors<P::Sensors>)>,
     /// The controller reads' time since the last [`take_read_times`](Self::take_read_times).
     controller_time: Cell<Duration>,
+    /// The event loop's work outside the poll, for the slow poll log
+    /// (ticket 214).
+    steps: LoopSteps,
     readings: Cell<Readings>,
     schedule: RefCell<PollSchedule>,
     flyout_open: Cell<bool>,
@@ -426,6 +430,7 @@ impl<P: Parts> Shell<P> {
             app: RefCell::new(app),
             sampler: RefCell::new((ReadingsSampler::default(), TimedSensors::default())),
             controller_time: Cell::new(Duration::ZERO),
+            steps: LoopSteps::default(),
             readings: Cell::new(Readings::default()),
             schedule: RefCell::new(PollSchedule::default()),
             flyout_open: Cell::new(false),
@@ -732,6 +737,11 @@ impl<P: Parts> Shell<P> {
     /// puts back a switch the click flipped. After a sleep notice with no
     /// wake since, it says so, as no wake may ever come.
     pub fn user_act(self: &Rc<Self>, change: impl FnOnce(&mut AppOn<P>) -> Result<(), AppError>) {
+        self.steps
+            .time("click or key", || self.user_act_now(change));
+    }
+
+    fn user_act_now(self: &Rc<Self>, change: impl FnOnce(&mut AppOn<P>) -> Result<(), AppError>) {
         // A Razer updater may have started since the last look, or ended:
         // its pause then comes first, so the click sends nothing (179).
         if self.look_for_razer() {
@@ -757,6 +767,10 @@ impl<P: Parts> Shell<P> {
 
     /// Fills both windows again. `error` is shown above the groups, if any.
     pub fn refresh(&self, error: Option<&AppError>) {
+        self.steps.time("window fill", || self.fill(error));
+    }
+
+    fn fill(&self, error: Option<&AppError>) {
         let mut app = self.app.borrow_mut();
         let mut errors: Vec<String> = error.iter().map(ToString::to_string).collect();
         let header = self.header(&mut app, self.readings.get());

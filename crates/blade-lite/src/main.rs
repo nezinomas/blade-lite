@@ -261,8 +261,11 @@ fn poll(shell: &Rc<Shell>) -> Timer {
     let mut last: Option<(Instant, Instant)> = None;
     poll.start(TimerMode::Repeated, POLL_INTERVAL, move || {
         beat();
+        let between = ticking.take_steps();
         let began = Instant::now();
         ticking.tick();
+        // The tick's own fills and the like are in its time, not between.
+        ticking.take_steps();
         let now = Instant::now();
         let late = last.map_or(Duration::ZERO, |(last_began, last_ended)| {
             poll_late(last_began, last_ended, began, POLL_INTERVAL)
@@ -271,6 +274,7 @@ fn poll(shell: &Rc<Shell>) -> Timer {
         let times = PollTime {
             took: now.saturating_duration_since(began),
             late,
+            between,
             ..ticking.take_read_times()
         };
         if let Some(line) = slow.note(times, now) {

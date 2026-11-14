@@ -6,7 +6,7 @@ use std::sync::mpsc::{Receiver, TryRecvError};
 use std::time::{Duration, Instant, SystemTime};
 
 use blade_core::{GUARD_HEAT_INTERVAL, HEAT_INTERVAL, RESUME_PAUSE, Readings};
-use blade_lite::{AppError, PollTime, report};
+use blade_lite::{AppError, PollTime, StepTime, report};
 use platform::{PowerEvent, num_lock_on};
 use razer_device::{CONTROLLER_CLOSED, CONTROLLER_OPENED_AGAIN};
 use slint::{ComponentHandle, Timer};
@@ -341,11 +341,13 @@ impl<P: Parts> Shell<P> {
         app: &mut AppOn<P>,
         errors: &mut Vec<String>,
     ) -> Option<DisplayView> {
-        let view = if self.heat_reads_allowed() {
-            app.display_view()
-        } else {
-            app.display_view_unread()
-        };
+        let view = self.steps.time("display view", || {
+            if self.heat_reads_allowed() {
+                app.display_view()
+            } else {
+                app.display_view_unread()
+            }
+        });
         let view = match view {
             Err(error @ AppError::UnknownNativeMode) => {
                 errors.push(error.to_string());
@@ -867,6 +869,11 @@ impl<P: Parts> Shell<P> {
             controller: self.controller_time.take(),
             ..PollTime::default()
         }
+    }
+
+    /// The work timed on the event loop since the last take (ticket 214).
+    pub fn take_steps(&self) -> StepTime {
+        self.steps.take()
     }
 
     /// Logs the failed reads not logged in the quiet time. While the

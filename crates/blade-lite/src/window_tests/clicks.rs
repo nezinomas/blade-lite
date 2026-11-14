@@ -3405,3 +3405,19 @@ fn a_minimised_window_reads_only_the_heat() {
 
     assert_eq!(poll_reads_since(&f, before), 0);
 }
+
+#[test]
+fn the_window_open_is_timed_for_the_slow_poll_log() {
+    let f = fixture(Config::default());
+    f.shell.take_steps();
+
+    f.shell.show_window();
+
+    let steps = f.shell.take_steps();
+    let names = ["window open", "window show", "window fill", "display view"];
+    assert!(
+        steps.slowest.is_some_and(|(name, _)| names.contains(&name)),
+        "{steps:?}"
+    );
+    assert_eq!(f.shell.take_steps(), blade_lite::StepTime::default());
+}

@@ -9,7 +9,7 @@ use platform::{hide_caption_buttons, round_corners, set_mica, work_area, work_ar
 use raw_window_handle::{HasWindowHandle, RawWindowHandle};
 use slint::platform::WindowEvent;
 use slint::winit_030::{EventResult, WinitWindowAccessor, winit};
-use slint::{ComponentHandle, PhysicalPosition, Timer};
+use slint::{ComponentHandle, PhysicalPosition, RenderingState, Timer};
 
 use super::{Parts, Shell};
 use crate::bind;
@@ -49,6 +49,29 @@ impl<P: Parts> Shell<P> {
             }
             EventResult::Propagate
         });
+        self.time_redraws(self.window.window(), "window redraw");
+        self.time_redraws(self.flyout.window(), "flyout redraw");
+        self.time_redraws(self.popup.window(), "popup redraw");
+    }
+
+    /// Adds each redraw of `window` to the timed steps (ticket 214): the
+    /// draw only, not the hand-over to the screen. A renderer that can't
+    /// say so is logged and left untimed.
+    fn time_redraws(self: &Rc<Self>, window: &slint::Window, name: &'static str) {
+        let shell = Rc::downgrade(self);
+        let mut began = None;
+        let timed = window.set_rendering_notifier(move |state, _| match state {
+            RenderingState::BeforeRendering => began = Some(Instant::now()),
+            RenderingState::AfterRendering => {
+                if let (Some(began), Some(shell)) = (began.take(), shell.upgrade()) {
+                    shell.steps.add(name, began.elapsed());
+                }
+            }
+            _ => {}
+        });
+        if let Err(error) = timed {
+            report(&format!("the {name} is not timed: {error}"));
+        }
     }
 
     /// The window brought back (restored, Alt+Tab) gets the focus.
@@ -103,8 +126,12 @@ impl<P: Parts> Shell<P> {
     }
 
     pub fn show_window(self: &Rc<Self>) {
+        self.steps.time("window open", || self.show_window_now());
+    }
+
+    fn show_window_now(self: &Rc<Self>) {
         self.hide_flyout();
-        if let Err(error) = self.window.show() {
+        if let Err(error) = self.steps.time("window show", || self.window.show()) {
             report(&format!("cannot show the window: {error}"));
             return;
         }
@@ -129,6 +156,11 @@ impl<P: Parts> Shell<P> {
 
     /// Opens the flyout above the tray icon, or closes it if it is open.
     pub fn toggle_flyout(self: &Rc<Self>, icon: Rect) {
+        self.steps
+            .time("flyout open", || self.toggle_flyout_now(icon));
+    }
+
+    fn toggle_flyout_now(self: &Rc<Self>, icon: Rect) {
         if self.flyout_open.get() {
             self.hide_flyout();
             return;
@@ -186,7 +218,7 @@ impl<P: Parts> Shell<P> {
         tries: u32,
     ) {
         if let Some(hwnd) = hwnd(window(self)) {
-            act(self, hwnd);
+            self.steps.time("window backdrop", || act(self, hwnd));
             return;
         }
         if tries == 0 {
