@@ -23,12 +23,13 @@ pub const ENTER_READ_WAIT: Duration = Duration::from_millis(5);
 /// handle that went stale over a sleep may never fail, so this keeps the
 /// key from dying without a word. With one collection read, one read
 /// waits it all, so the thread does not wake to count quiet reads (a
-/// report ends the wait at once; ticket 188).
+/// key report ends the wait at once; ticket 188). Any other report
+/// neither ends the wait nor counts as a report (ticket 203).
 pub const KEY_QUIET_SPELL: Duration = Duration::from_secs(120);
 
 /// Somewhere key reports come from.
 pub trait KeyReportSource {
-    /// Waits up to `wait` for a report. `None` if none came.
+    /// Waits up to `wait` for a key report. `None` if none came.
     ///
     /// # Errors
     ///

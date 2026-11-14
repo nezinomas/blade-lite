@@ -3,10 +3,10 @@
 //! paths are ever opened (ticket 194).
 
 use std::io;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use platform::{HidDetails, HidDevice};
-use razer_proto::{ModelProfile, REPORT_LEN, UsbId};
+use razer_proto::{ModelProfile, PowerKey, REPORT_LEN, UsbId};
 
 use crate::discovery::model_interface;
 use crate::{HidInfo, Transport, find_controller, find_key_collections};
@@ -106,7 +106,7 @@ impl HidKeyReports {
             return Err(not_found());
         }
         Ok(Self {
-            sources: KeySources::new(devices),
+            sources: KeySources::new(devices, key),
             paths,
         })
     }
@@ -125,9 +125,10 @@ impl HidKeyReports {
         self.paths.get(index).map(String::as_str)
     }
 
-    /// Waits up to `wait` for a report on each collection in turn until one
-    /// sends, then on that one alone, so a call before the first report can
-    /// take `wait` once per collection. `None` if none came.
+    /// Waits up to `wait` for a key report on each collection in turn until
+    /// one sends, then on that one alone, so a call before the first report
+    /// can take `wait` once per collection. `None` if none came. Any other
+    /// report is dropped and picks no collection (ticket 203).
     ///
     /// # Errors
     ///
@@ -166,16 +167,19 @@ impl ReadTimeout for HidDevice {
 /// The key collections, and the one that sent first.
 struct KeySources<D> {
     devices: Vec<D>,
-    /// The collection that sent the first report. Only that one is read
+    /// The collection that sent the first key report. Only that one is read
     /// from then on, so a press can't come in twice or out of order.
     source: Option<usize>,
+    /// What a key report looks like.
+    key: PowerKey,
 }
 
 impl<D: ReadTimeout> KeySources<D> {
-    fn new(devices: Vec<D>) -> Self {
+    fn new(devices: Vec<D>, key: PowerKey) -> Self {
         Self {
             devices,
             source: None,
+            key,
         }
     }
 
@@ -186,8 +190,6 @@ impl<D: ReadTimeout> KeySources<D> {
 
     /// See [`HidKeyReports::read`].
     fn read(&mut self, wait: Duration) -> io::Result<Option<Vec<u8>>> {
-        let millis = i32::try_from(wait.as_millis()).unwrap_or(i32::MAX);
-        let mut buffer = [0; KEY_REPORT_ROOM];
         let first = self.source.unwrap_or(0);
         let devices = match self.source {
             Some(index) => self
@@ -197,16 +199,46 @@ impl<D: ReadTimeout> KeySources<D> {
             None => self.devices.as_slice(),
         };
         for (index, device) in (first..).zip(devices) {
-            let read = device.read_timeout(&mut buffer, millis)?;
-            if read > 0 {
+            if let Some(report) = read_key_report(device, self.key, wait)? {
                 self.source = Some(index);
-                let report = buffer
-                    .get(..read)
-                    .ok_or_else(|| io::Error::other("the HID read gave more than the buffer"))?;
-                return Ok(Some(report.to_vec()));
+                return Ok(Some(report));
             }
         }
         Ok(None)
+    }
+}
+
+/// Reads `device` until it sends a key report or `wait` is up. Any other
+/// report, such as the `05` one another collection sends at each USB wake,
+/// is dropped: it picks no source and does not end the wait, so the
+/// caller can count the whole wait as quiet (ticket 203).
+fn read_key_report(
+    device: &impl ReadTimeout,
+    key: PowerKey,
+    wait: Duration,
+) -> io::Result<Option<Vec<u8>>> {
+    let deadline = Instant::now().checked_add(wait);
+    let mut buffer = [0; KEY_REPORT_ROOM];
+    let mut left = wait;
+    loop {
+        let millis = i32::try_from(left.as_millis()).unwrap_or(i32::MAX);
+        let read = device.read_timeout(&mut buffer, millis)?;
+        if read == 0 {
+            return Ok(None);
+        }
+        let report = buffer
+            .get(..read)
+            .ok_or_else(|| io::Error::other("the HID read gave more than the buffer"))?;
+        if key.is_key_report(report) {
+            return Ok(Some(report.to_vec()));
+        }
+        // No deadline (a wait too long to add): the whole wait again.
+        left = deadline.map_or(wait, |deadline| {
+            deadline.saturating_duration_since(Instant::now())
+        });
+        if left.is_zero() {
+            return Ok(None);
+        }
     }
 }
 
@@ -375,11 +407,77 @@ mod tests {
                 log: Rc::clone(&log),
             })
             .collect();
-        (KeySources::new(devices), log)
+        (KeySources::new(devices, KEY), log)
     }
 
     const WAIT: Duration = Duration::from_millis(250);
+    const KEY: PowerKey = PowerKey {
+        interface_number: 1,
+        usage_page: 0x01,
+        usage: 0x00,
+        report_id: 0x04,
+        report_len: 16,
+        code: 0xD3,
+        fn_code: 0x0A,
+    };
     const POWER_KEY: [u8; 3] = [0x04, 0x0A, 0xD3];
+
+    /// A 16-byte report as the laptop sends it, from its first bytes.
+    fn report(bytes: &[u8]) -> Vec<u8> {
+        let mut report = vec![0; 16];
+        report[..bytes.len()].copy_from_slice(bytes);
+        report
+    }
+
+    /// The report collection Col05 sends at each USB wake (ticket 202).
+    fn wake_report() -> Vec<u8> {
+        report(&[0x05, 0x08, 0x3C])
+    }
+
+    #[test]
+    fn a_wake_report_picks_nothing_and_the_key_report_after_it_does() {
+        let (mut sources, log) = sources(vec![
+            vec![Ok(wake_report())],
+            vec![Ok(report(&POWER_KEY)), Ok(report(&[0x04]))],
+        ]);
+
+        assert_eq!(sources.read(WAIT).unwrap(), Some(report(&POWER_KEY)));
+        assert_eq!(sources.source, Some(1));
+        assert_eq!(sources.read(WAIT).unwrap(), Some(report(&[0x04])));
+        let devices: Vec<usize> = log.borrow().iter().map(|&(device, _)| device).collect();
+        // Collection 0 is read again after its wake report, until the
+        // wait is up; then only collection 1.
+        assert_eq!(devices, [0, 0, 1, 1]);
+    }
+
+    #[test]
+    fn a_report_of_another_size_picks_nothing() {
+        let (mut sources, _) = sources(vec![vec![Ok(POWER_KEY.to_vec())], vec![]]);
+
+        assert_eq!(sources.read(WAIT).unwrap(), None);
+        assert_eq!(sources.source, None);
+        assert!(!sources.single());
+    }
+
+    #[test]
+    fn a_dropped_report_does_not_end_the_wait() {
+        let (mut sources, log) = sources(vec![vec![Ok(wake_report()), Ok(report(&POWER_KEY))]]);
+
+        assert_eq!(sources.read(WAIT).unwrap(), Some(report(&POWER_KEY)));
+        let log = log.borrow();
+        assert_eq!(log.len(), 2);
+        assert_eq!(log[0], (0, 250));
+        assert!(log[1].1 <= 250);
+    }
+
+    #[test]
+    fn dropped_reports_end_when_the_wait_is_up() {
+        let flood = (0..1000).map(|_| Ok(wake_report())).collect();
+        let (mut sources, log) = sources(vec![flood]);
+
+        assert_eq!(sources.read(Duration::ZERO).unwrap(), None);
+        assert_eq!(log.borrow().len(), 1);
+    }
 
     #[test]
     fn no_report_is_none_after_each_collection_waited() {
@@ -398,20 +496,20 @@ mod tests {
 
     #[test]
     fn the_report_is_the_bytes_read() {
-        let (mut sources, _) = sources(vec![vec![Ok(POWER_KEY.to_vec())]]);
+        let (mut sources, _) = sources(vec![vec![Ok(report(&POWER_KEY))]]);
 
-        assert_eq!(sources.read(WAIT).unwrap(), Some(POWER_KEY.to_vec()));
+        assert_eq!(sources.read(WAIT).unwrap(), Some(report(&POWER_KEY)));
     }
 
     #[test]
     fn the_first_collection_to_send_is_the_only_one_read_then() {
         let (mut sources, log) = sources(vec![
-            vec![Ok(Vec::new()), Ok(vec![0x04, 0x0A])],
-            vec![Ok(POWER_KEY.to_vec()), Ok(vec![0x04, 0x00])],
+            vec![Ok(Vec::new()), Ok(report(&[0x04, 0x0A]))],
+            vec![Ok(report(&POWER_KEY)), Ok(report(&[0x04]))],
         ]);
 
-        assert_eq!(sources.read(WAIT).unwrap(), Some(POWER_KEY.to_vec()));
-        assert_eq!(sources.read(WAIT).unwrap(), Some(vec![0x04, 0x00]));
+        assert_eq!(sources.read(WAIT).unwrap(), Some(report(&POWER_KEY)));
+        assert_eq!(sources.read(WAIT).unwrap(), Some(report(&[0x04])));
         assert_eq!(sources.read(WAIT).unwrap(), None);
         assert_eq!(*log.borrow(), [(0, 250), (1, 250), (1, 250), (1, 250)]);
     }
@@ -419,8 +517,8 @@ mod tests {
     #[test]
     fn the_first_source_is_kept_when_it_is_the_first_collection() {
         let (mut sources, log) = sources(vec![
-            vec![Ok(POWER_KEY.to_vec())],
-            vec![Ok(vec![0x04, 0x0A])],
+            vec![Ok(report(&POWER_KEY))],
+            vec![Ok(report(&[0x04, 0x0A]))],
         ]);
 
         sources.read(WAIT).unwrap();
@@ -462,7 +560,7 @@ mod tests {
 
     #[test]
     fn two_collections_are_a_single_source_only_once_one_sent() {
-        let (mut sources, _) = sources(vec![vec![], vec![Ok(POWER_KEY.to_vec())]]);
+        let (mut sources, _) = sources(vec![vec![], vec![Ok(report(&POWER_KEY))]]);
         assert!(!sources.single());
 
         sources.read(WAIT).unwrap();

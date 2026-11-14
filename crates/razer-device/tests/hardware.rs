@@ -467,10 +467,12 @@ fn the_key_reports_open_and_wait_quietly() {
 }
 
 /// Ticket 202: which key collection sends which key? Opens each of the
-/// model's key collections alone and prints each report with its collection
-/// for 60 s, while the user presses keys. Only reads the keyboard: nothing
-/// is sent, so the lock is not needed (`BLADE_KEY_PROBE=1`, with
-/// `--nocapture`).
+/// model's interface 1 collections and prints each report with its
+/// collection for 60 s, while the user presses keys. It reads them raw, not
+/// through [`HidKeyReports`], so it also shows reports that are not key
+/// reports, such as Col05's `05` at each USB wake (ticket 203). Only reads
+/// the keyboard: nothing is sent, so the lock is not needed
+/// (`BLADE_KEY_PROBE=1`, with `--nocapture`).
 #[test]
 #[ignore = "needs the Blade 18, BLADE_KEY_PROBE=1 and a person pressing keys; 60 s"]
 fn each_key_collection_prints_its_reports() {
@@ -478,15 +480,14 @@ fn each_key_collection_prints_its_reports() {
         eprintln!("skipped: set BLADE_KEY_PROBE=1 to run it");
         return;
     }
-    let mut readers: Vec<(String, HidKeyReports)> = platform::hid_paths()
+    let readers: Vec<(String, platform::HidDevice)> = platform::hid_paths()
         .unwrap()
         .into_iter()
         .filter(|path| path.to_uppercase().contains("VID_1532&PID_02C7&MI_01&COL"))
         .filter_map(|path| {
-            let reports =
-                HidKeyReports::open_preferring(&razer_proto::BLADE_18, Some(&path)).ok()?;
+            let device = platform::HidDevice::open(&path).ok()?;
             let tag = path.to_uppercase().split('#').nth(1)?.to_owned();
-            reports.single().then_some((tag, reports))
+            Some((tag, device))
         })
         .collect();
     assert!(readers.len() > 1, "fewer than two key collections opened");
@@ -496,13 +497,12 @@ fn each_key_collection_prints_its_reports() {
     eprintln!("press keys for 60 s");
     let started = std::time::Instant::now();
     while started.elapsed() < Duration::from_secs(60) {
-        for (_, reports) in &mut readers {
-            if let Some(report) = reports.read(Duration::from_millis(10)).unwrap() {
+        for (tag, device) in &readers {
+            let mut buffer = [0; 64];
+            let read = device.read(&mut buffer, Duration::from_millis(10)).unwrap();
+            if read > 0 {
                 let at = started.elapsed().as_millis();
-                // The path that sent, not the one asked for: an open that
-                // fell back to another collection can't mislabel it.
-                let sender = reports.sender().unwrap_or("?");
-                eprintln!("{at:>6} ms  {sender}  {report:02X?}");
+                eprintln!("{at:>6} ms  {tag}  {:02X?}", &buffer[..read]);
             }
         }
     }
