@@ -10,7 +10,7 @@ use std::time::{Duration, Instant};
 use blade_core::{PowerKeyPresses, TOUCHPAD_KEY};
 use blade_lite::{
     KEY_REOPEN_PAUSE, KeyEvent, LOOK_GAP, ReaderEnd, ShownErrors, UNHEARD_SPELLS_BEFORE_ALL,
-    UnheardSpells, Watchdog, WindowsFnKeys, report, step_on_presses,
+    UnheardSpells, Watchdog, WindowsFnKeys, report, sender_read, step_on_presses,
 };
 use platform::{
     LidAndScreen, PowerEvent, PowerEvents, RegistryWatch, SuspendHandled, WakeListener,
@@ -197,13 +197,17 @@ pub fn follow_the_power_key() {
                     presses = end.next_presses(ran, &presses);
                     log_read_path(reports.read_path(), &mut logged);
                     log_drops(reports.dropped(), &mut logged_drops);
-                    sender = if end.keeps_key_state(ran) {
+                    let quiet_spell = end.keeps_key_state(ran);
+                    sender = if quiet_spell {
                         reports.sender().map(str::to_owned).or(sender)
                     } else {
                         None
                     };
-                    if end.keeps_key_state(ran) {
-                        unheard = unheard.after_spell(sender.is_some());
+                    // Only a real quiet spell counts: after a failure or a
+                    // short run, a read-all open is tried again.
+                    if quiet_spell {
+                        let heard = sender_read(reports.read_path(), sender.as_deref());
+                        unheard = unheard.after_spell(heard);
                     }
                     let pause = end.pause_before_open(ran);
                     let problem = match end {

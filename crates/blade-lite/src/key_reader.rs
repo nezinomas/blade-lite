@@ -59,6 +59,15 @@ impl UnheardSpells {
     }
 }
 
+/// Whether a key report was heard on this open: the one collection read
+/// (`read_path`) is the `sender`. A sender kept from an earlier open that
+/// was not read (no longer found) does not count, so the key can't stay
+/// dead on the profile's collection (ticket 215 review).
+#[must_use]
+pub fn sender_read(read_path: Option<&str>, sender: Option<&str>) -> bool {
+    read_path.is_some() && read_path == sender
+}
+
 /// Somewhere key reports come from.
 pub trait KeyReportSource {
     /// Waits up to `wait` for a key report. `None` if none came.
@@ -292,6 +301,16 @@ mod tests {
 
         assert_eq!(heard, UnheardSpells::default());
         assert!(!heard.read_all());
+    }
+
+    #[test]
+    fn a_sender_counts_as_heard_only_when_it_was_read() {
+        assert!(sender_read(Some("col06"), Some("col06")));
+        // A sender no longer found: the profile's collection was read.
+        assert!(!sender_read(Some("col04"), Some("col06")));
+        // All read, none sent.
+        assert!(!sender_read(None, Some("col06")));
+        assert!(!sender_read(Some("col04"), None));
     }
 
     #[test]
