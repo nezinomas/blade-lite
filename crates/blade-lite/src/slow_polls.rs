@@ -107,12 +107,18 @@ impl LoopSteps {
         let value = step();
         let took = now().saturating_duration_since(began);
         let inner = self.inner.replace(outer.saturating_add(took));
-        self.add(name, took.saturating_sub(inner));
+        self.note(name, took.saturating_sub(inner));
         value
     }
 
-    /// Adds a step timed elsewhere, such as a redraw.
+    /// Adds a step timed elsewhere, such as a redraw. One inside a timed
+    /// step (a show can draw before it returns) is taken out of that step.
     pub fn add(&self, name: &'static str, took: Duration) {
+        self.inner.set(self.inner.get().saturating_add(took));
+        self.note(name, took);
+    }
+
+    fn note(&self, name: &'static str, took: Duration) {
         let mut sum = self.took.get();
         sum.total = sum.total.saturating_add(took);
         if sum.slowest.is_none_or(|(_, slowest)| took > slowest) {
@@ -121,8 +127,10 @@ impl LoopSteps {
         self.took.set(sum);
     }
 
-    /// The steps since the last take.
+    /// The steps since the last take. Taken between steps, so no step
+    /// runs: what redraws left in the inner time goes too.
     pub fn take(&self) -> StepTime {
+        self.inner.set(Duration::ZERO);
         self.took.take()
     }
 }
@@ -389,6 +397,24 @@ mod tests {
             }
         );
         assert_eq!(steps.take(), StepTime::default());
+    }
+
+    #[test]
+    fn a_redraw_inside_a_timed_step_counts_once() {
+        let steps = LoopSteps::default();
+        let (now, read) = clock();
+        steps.time_with("window show", &read, || {
+            pass(&now, 30);
+            pass(&now, 200);
+            steps.add("window redraw", MS * 200);
+        });
+        assert_eq!(
+            steps.take(),
+            StepTime {
+                total: MS * 230,
+                slowest: Some(("window redraw", MS * 200)),
+            }
+        );
     }
 
     #[test]
