@@ -2,7 +2,7 @@
 
 On 2026-11-14 one cause explained many faults: Windows' USB selective suspend put the Razer USB device to sleep 2 to 5 s after each use (tickets 202, 204, 212; `docs/NOTES.md`). This review asks which guards, retries, timeouts and workarounds in the app were built against symptoms of that sleep, or against causes nobody measured, and which design choices were wrong from the start.
 
-A review only. No app code changed. The tickets at the end are proposals, not opened.
+A review only. No app code changed. The user picked two tickets to open (2026-11-15): 219 and 220 in `docs/PLAN.md`. The rest are proposals, not opened.
 
 ## How it was done
 
@@ -39,7 +39,7 @@ Each finding has: the place, why it was added, the evidence, the risk of keeping
 - **Evidence.** It was never measured. No note and no log line records a send that failed right after a Windows wake, and none records a send tried with no pause. So nothing says the pause is needed, and nothing says it is not. Whether the belief came from USB suspend is not known: bad replies at USB wakes were rare (the log).
 - **Risk of keeping.** For 2 s after each wake, open again and updater end: no fan guard read, and clicks and the power-mode key do nothing with no word (`shell.rs:769`). The pause state is six fields (`resuming`, `pauses`, `pause_began`, `wake_due`, `redo_at_wake`, `asleep`) and gave review bugs in tickets 162 and 179.
 - **Risk of removing.** Not known. After a hibernate the device is set up again, and a set command into that could fail or be cut partway. A cut Custom leaves the fans at the target already set (ticket 144).
-- **Recommendation.** Keep it. Measure first: proposed ticket 219 and check 52. That probe only reads, so it can show when the controller answers after a wake, not that a set command is safe then. A shorter pause for set commands needs the user's pick after 219, and its own check.
+- **Recommendation.** Keep it. Measure first: ticket 219 and check 52. That probe only reads, so it can show when the controller answers after a wake, not that a set command is safe then. A shorter pause for set commands needs the user's pick after 219, and its own check.
 
 ### 2. A sleep notice inside a pause sends no quit preset (small; no change before 219)
 
@@ -47,7 +47,7 @@ Each finding has: the place, why it was added, the evidence, the risk of keeping
 - **Why added.** Ticket 169: nothing is sent in a pause.
 - **How big it is.** Smaller than it looks. In a wake's pause the wake's settings have not gone yet, so the controller still runs the quit preset of the sleep before (`ticks.rs:726`). A manual fan runs on in the new sleep only if that earlier quit preset failed or was skipped (two faults in a row), or in the pause after a Razer updater. After an open again the new handle is held and refuses every send anyway.
 - **Risk of changing.** Real. The quit preset of a saved manual Custom is two steps: Custom with the fans on auto and the saved boosts, then Balanced (`crates/blade-lite/src/app/events.rs:308`). Sent over a controller that runs Balanced and cut after the first step (a controller not ready, or Windows freezing the app), it would leave Custom with boosts 3 and 3 for the whole sleep, where today Balanced stays. Ticket 191 is no precedent: its second notice is refused in a pause too, and its send with no pause is not checked on the laptop.
-- **Recommendation.** No change now. After ticket 219: if at all, send in a wake's pause only when the last sleep's quit preset did not go. Proposed ticket 220, low priority, both reviewers, the user decides.
+- **Recommendation.** No change now. After ticket 219: if at all, send in a wake's pause only when the last sleep's quit preset did not go. A later ticket (not opened), low priority, both reviewers, the user decides.
 
 ### 3. A late heat read is thrown away
 
@@ -56,7 +56,7 @@ Each finding has: the place, why it was added, the evidence, the risk of keeping
 - **Evidence it is now mostly unneeded.** Since ticket 169 nothing is read from the sleep notice to the end of the wake's pause. Ticket 171 had to add `read_heat_now` (`poll.rs:171`) to undo this skip after a wake. So with power events working, the skip acts only after a stalled event loop.
 - **Risk of keeping.** After the event loop stood still for more than 10 s (the case tickets 143 and 208 worry about), the fan guard's next reading is skipped and the one after waits 10 s, also in the 2 s guard mode. The guard is blind longest right after a stall.
 - **Risk of removing.** The tick behind a heat read is not only a read: it feeds the fan guard, which can send a fan speed (`shell/popup.rs:61`), and it follows the charger and can send the preset again (`shell/ticks.rs:192`). If Windows sends no power events, a wake is not seen (`ticks.rs:528`), and the skip is then the only wait before such a send. (The 1 s poll with a view open has no such skip at all: in that same rare case it already reads, and may send, at the first poll after a wake.)
-- **Recommendation.** Keep the skip when no power events come. With power events, remove it, so a stall does not blind the guard. Proposed ticket 223, after 219, both reviewers.
+- **Recommendation.** Keep the skip when no power events come. With power events, remove it, so a stall does not blind the guard. A later ticket (not opened), after 219, both reviewers.
 
 ### 4. The key reader is bigger than it needs to be
 
@@ -66,7 +66,7 @@ Each finding has: the place, why it was added, the evidence, the risk of keeping
 - **What is not shown.** That the lost first presses of check 16 (tickets 131, 158, 174) had the USB wake as a shared cause. Each has its own cause in the plan, and check 16 passed on 2026-11-12 with suspend still on. Ticket 174 also covers the app start, so it stays whatever the reader does.
 - **Risk of keeping.** It works today. The cost is size and churn: about 720 reopens a day; each reopen opens all 11 Razer HID collections to read their usages (`hid.rs:402`) and cancels a read; `keeps_key_state` and the kept sender exist only for the 2 min reopen.
 - **Risk of simplifying.** If a silent stale handle is real, the keys die until the next reopen; a reopen at each Windows wake notice and each hour covers that. Ticket 215's hourly read of all collections (check 51 passed) is the way back if firmware moves the keys: keep it. The keys are no safety part: a step goes through every guard (`shell.rs:761`).
-- **Recommendation.** One ticket (proposed 224, both reviewers, nothing sent changes): open the profile's collection; open again on a read error, at each wake notice and once an hour (that hourly open reads all, as ticket 215 does); drop the 2 min quiet-spell reopen and the kept sender. Low priority.
+- **Recommendation.** One ticket (not opened, both reviewers, nothing sent changes): open the profile's collection; open again on a read error, at each wake notice and once an hour (that hourly open reads all, as ticket 215 does); drop the 2 min quiet-spell reopen and the kept sender. Low priority.
 
 ### 5. One HID error sends every setting again (keep)
 
@@ -81,7 +81,7 @@ Each finding has: the place, why it was added, the evidence, the risk of keeping
 - **Why added.** Ticket 50: the log filled with the same line.
 - **Evidence.** A line stands for 1 to about 60 failures in its 10 minutes at the 10 s poll. For the 3 bad replies that was enough to say "rare"; it is not enough to say how rare, and a failed charger read on a poll leaves nothing at all.
 - **Risk of changing.** None for the laptop: log only.
-- **Recommendation.** Keep the quiet time. When a kind of error is said again, add how many times it failed since its last line. Log a failed charger read on a poll through the same path. Proposed ticket 221, low priority. Rust code in `crates/blade-lite`: both reviewers.
+- **Recommendation.** Keep the quiet time. When a kind of error is said again, add how many times it failed since its last line. Log a failed charger read on a poll through the same path. A later ticket (not opened), low priority. Rust code in `crates/blade-lite`: both reviewers.
 
 ### 7. USB suspend is watched only by a log line
 
@@ -90,7 +90,7 @@ Each finding has: the place, why it was added, the evidence, the risk of keeping
 - **Evidence it is thin.** The fixes of 2026-11-14 hold only while `SelectiveSuspendEnabled` stays 0. A new device setup, such as a driver reinstall, may put 1 back (`NOTES.md`, ticket 204); the research doc also names a device removed in Device Manager, a Windows reset and Razer software (reasoned, not seen). Then the lights drop and blink again and mode `06` may come on battery (ticket 211, likely, not proven). Nobody reads a log line at start.
 - **Also with suspend on again.** A charger reply not understood on a poll counts as a weak charger at once (`events.rs:216`): Balanced is sent, and the saved preset again after two full reads, each with stored mode writes. The log has no such line so far. It fails safe, so it stays.
 - **Risk of changing.** None for the laptop: a registry read and a line of text.
-- **Recommendation.** Show it in the window, as the Razer software warning is shown, with the script's name. Let the installer (tickets 39, 148) run or offer `tools\Set-RazerUsbSuspend.ps1`. Proposed ticket 222, both reviewers (Rust in `crates/blade-lite`). The battery drain in a Start-menu sleep with suspend off is still open in check 48.
+- **Recommendation.** Show it in the window, as the Razer software warning is shown, with the script's name. Let the installer (tickets 39, 148) run or offer `tools\Set-RazerUsbSuspend.ps1`. Ticket 220, both reviewers (Rust in `crates/blade-lite`). The battery drain in a Start-menu sleep with suspend off is still open in check 48.
 
 ### 8. Fan targets sent again after 2 s (ticket 173): real, keep
 
@@ -127,19 +127,22 @@ Dated before 2026-11-14, so the device may have slept between reads. Each "maybe
 | The lid logo comes back on after a sleep (ticket 44) | The logo is sent with storage 0, like the key frames that fell back at each USB wake |
 | Mode `06` on battery (ticket 211) | "Likely, not proven"; needs `-Undo` to prove |
 
-## Proposed tickets (not opened)
+## Tickets
 
-The numbers are proposals from 219 on (218 is in use on another thread's branch); `PLAN.md` gives the real number when one is opened. In the order I would do them:
+Opened in `docs/PLAN.md` (user's pick, 2026-11-15; 218 is in use on another thread's branch):
 
-- **222** Show "USB suspend is on" in the window; the installer runs or offers the script (finding 7). Both reviewers.
 - **219** Wake probe: a read-only `cargo hw` test (app quit) that waits for Windows' wake notice, then reads the firmware version at once and each 100 ms for 3 s, and prints each time and result, with the device's power state and suspend values first (findings 1, 10). Both reviewers. Laptop check 52.
-- **223** After 219: remove the late heat read skip while power events come, and decide the wake pause with the user (findings 1, 3). Both reviewers.
-- **221** Count throttled read failures in the log, and log failed charger reads on polls (finding 6). Both reviewers. Low priority.
-- **224** Make the key reader small (finding 4). Both reviewers. Low priority.
-- **220** After 219, if at all: the quit preset at a sleep notice in a wake's pause, only when the last sleep's quit preset did not go (finding 2). Both reviewers. The user decides.
+- **220** Show "USB suspend is on" in the window; the installer runs or offers the script (finding 7). Both reviewers.
 
-## Proposed laptop check (not added to the plan)
+Proposed, not opened, with no number yet (`PLAN.md` gives one when a ticket is opened). In the order I would do them:
 
-- **52** Wake probe (ticket 219), after check 26 ends (the app must be quit). The user quits the app, starts the probe, sleeps from the Start menu and wakes, then closes the lid (hibernate) and opens it. Claude reads the output.
+- After 219: remove the late heat read skip while power events come, and decide the wake pause with the user (findings 1, 3). Both reviewers.
+- Count throttled read failures in the log, and log failed charger reads on polls (finding 6). Both reviewers. Low priority.
+- Make the key reader small (finding 4). Both reviewers. Low priority.
+- After 219, if at all: the quit preset at a sleep notice in a wake's pause, only when the last sleep's quit preset did not go (finding 2). Both reviewers. The user decides.
+
+## Laptop check
+
+- **52** Wake probe (ticket 219), after check 26 ends (the app must be quit). The user quits the app, starts the probe, sleeps from the Start menu and wakes, then closes the lid (hibernate) and opens it. Claude reads the output. It goes into "Still to check on the laptop" when ticket 219 is built.
 
 Blocked: nothing was blocked.
