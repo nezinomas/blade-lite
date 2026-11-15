@@ -1314,6 +1314,104 @@ fn the_sleep_and_wake_sends_under_load() {
     result.unwrap();
 }
 
+/// The mode replies, fan targets, real speeds and the CPU temperature, one
+/// read.
+type ModeRead = (Vec<Vec<u8>>, Vec<Vec<u8>>, Vec<Vec<u8>>, u8);
+
+/// Reads the modes, fan targets, real speeds and the CPU temperature each
+/// 5 s for `seconds`, kept in `seen`, or until a read fails.
+fn watch_modes_and_fans<C: Clock>(
+    device: &mut Device<HidTransport, C>,
+    seconds: u64,
+    seen: &mut Vec<ModeRead>,
+) -> Result<(), String> {
+    for _ in 0..seconds / 5 {
+        std::thread::sleep(Duration::from_secs(5));
+        let modes = try_preset_args(device)?;
+        let target = try_read_each(device, GET_FAN, &FANS)?;
+        let real = try_read_each(device, GET_FAN_RPM, &FANS)?;
+        seen.push((modes, target, real, read_cpu(device)?));
+    }
+    Ok(())
+}
+
+#[test]
+#[ignore = "needs the Blade 18 on AC, and runs the fans on manual for about 30 s; about 3 min"]
+fn the_sleeps_quit_preset_leaves_the_fans_on_auto() {
+    use razer_proto::{BLADE_18, CpuBoost, Custom, FanMode, GpuBoost, PerfMode, Rpm};
+
+    // Ticket 218: in laptop check 33 (2026-11-15) the fans ran at about
+    // 1600 RPM in a Start-menu sleep after Custom 3600 on AC. This sends
+    // what the app sends around such a sleep, with no app and no real
+    // sleep, and reads whether the fan byte is auto after it.
+    assert_eq!(
+        platform::on_battery(),
+        Some(false),
+        "not on AC (or unknown): not run"
+    );
+    let mut device = Device::new(open(), SystemClock);
+    let before = custom_state(&mut device);
+    refuse_unknown_state(&before);
+    let custom = |fan| Custom {
+        cpu: CpuBoost::new(1, &BLADE_18).unwrap(),
+        gpu: GpuBoost::new(1, &BLADE_18).unwrap(),
+        fan,
+    };
+    let manual = custom(FanMode::Manual(Rpm::new(3600, &BLADE_18).unwrap()));
+    // The quit preset on AC with a manual Custom: Custom on auto (boosts
+    // kept), then Balanced (`quit_preset` in the app).
+    let mut sleep = custom(FanMode::Auto).commands(&BLADE_18);
+    sleep.extend(PerfMode::Balanced.commands(&BLADE_18).unwrap());
+
+    // From here on every step keeps its result, and the state is put back
+    // before any assert.
+    let mut manual_seen = Vec::new();
+    let mut sleep_seen = Vec::new();
+    // The Custom click, with its fan targets again 2 s later (ticket 173).
+    let result = device
+        .run(&manual.commands(&BLADE_18))
+        .and_then(|()| {
+            std::thread::sleep(Duration::from_secs(2));
+            device.run(&manual.fan_target_commands(&BLADE_18))
+        })
+        .map_err(|error| error.to_string())
+        .and_then(|()| watch_modes_and_fans(&mut device, 30, &mut manual_seen))
+        .and_then(|()| device.run(&sleep).map_err(|error| error.to_string()))
+        .and_then(|()| watch_modes_and_fans(&mut device, 120, &mut sleep_seen));
+
+    let put_back = put_back_custom(&mut device, &before);
+    let after = custom_state(&mut device);
+
+    eprintln!("before {before:02X?}");
+    for (name, seen) in [
+        ("manual 3600", &manual_seen),
+        ("after the sleep's quit preset", &sleep_seen),
+    ] {
+        for (step, (modes, target, real, cpu)) in seen.iter().enumerate() {
+            eprintln!(
+                "{name} {:>3} s: modes {modes:02X?}, target {target:02X?}, real {real:02X?}, CPU {cpu} °C",
+                (step + 1) * 5
+            );
+        }
+    }
+    eprintln!("result {result:?}\nput back {put_back:?}\nafter {after:02X?}");
+    // The lasting state first, so its error is never hidden.
+    assert!(put_back.iter().all(Result::is_ok), "check the fans by hand");
+    assert_eq!(after, before);
+    result.unwrap();
+    // Each read after the quit preset: every zone Balanced, fan byte auto.
+    for (modes, ..) in &sleep_seen {
+        for (args, &zone) in modes.iter().zip(BLADE_18.perf_zones) {
+            assert_eq!(
+                PerfMode::from_reply(&BLADE_18, zone, args),
+                Some(PerfMode::Balanced),
+                "{args:02X?}"
+            );
+            assert_eq!(args.get(3), Some(&FAN_AUTO), "{args:02X?}");
+        }
+    }
+}
+
 /// A state [`custom_state`] could read: Balanced on auto in each zone,
 /// boosts 1, fans 3500 RPM.
 fn sane_state() -> Vec<Vec<u8>> {
