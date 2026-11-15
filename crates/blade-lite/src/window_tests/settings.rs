@@ -174,7 +174,7 @@ fn a_file_picked_while_the_laptop_wakes_says_to_try_again() {
 /// Slint's royalty-free licence asks for its `AboutSlint` widget in an
 /// About screen (ticket 95).
 #[test]
-fn the_window_ends_with_the_slint_credit() {
+fn the_window_shows_the_slint_credit() {
     let f = fixture(Config::default());
     let shown = |label| {
         ElementHandle::find_by_accessible_label(f.shell.window(), label)
