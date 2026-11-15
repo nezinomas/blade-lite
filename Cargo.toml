@@ -9,6 +9,15 @@ license = "MIT"
 rust-version = "1.92"
 publish = false
 
+# The release build (ticket 149). Panics unwind, so the app can catch one and
+# send the quit preset (ticket 141). Overflow checks stay on, as in the debug
+# build the tests run: a value that wraps panics instead of being sent. No
+# debug info: the panic log has no backtrace, and the .pdb is not shipped.
+[profile.release]
+panic = "unwind"
+overflow-checks = true
+debug = false
+
 [workspace.lints.rust]
 unsafe_code = "deny"
 
