@@ -10,10 +10,11 @@ rust-version = "1.92"
 publish = false
 
 # The release build (ticket 149). Only the overflow checks differ from
-# Cargo's defaults; the rest is written out on purpose. Panics unwind, so the app can catch one and
-# send the quit preset (ticket 141). Overflow checks stay on, as in the debug
-# build the tests run: a value that wraps panics instead of being sent. No
-# debug info: the panic log has no backtrace, and the .pdb is not shipped.
+# Cargo's defaults; the rest is written out on purpose. Panics unwind, so
+# the app can catch one and send the quit preset (ticket 141). Overflow
+# checks stay on, as in the debug build the tests run: a value that wraps
+# panics instead of being sent. No debug info: the panic log has no
+# backtrace, and the .pdb is not shipped.
 [profile.release]
 panic = "unwind"
 overflow-checks = true
