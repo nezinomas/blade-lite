@@ -8,7 +8,7 @@ import { Header } from "header.slint";
 import { DisplayGroup } from "display.slint";
 import { PerformanceGroup } from "performance.slint";
 import { KeyboardGroup } from "keyboard.slint";
-import { SettingsGroup } from "settings.slint";
+import { AboutGroup, SettingsGroup } from "settings.slint";
 
 // Rust uses these rows, so they stay exported from this file.
 export { Choice, SliderRow, Stat, SwatchItem }
@@ -160,6 +160,8 @@ export component MainWindow inherits Window {
                 import-settings => { root.import-settings(); }
                 reset-settings => { root.reset-settings(); }
             }
+
+            AboutGroup {}
 
             // Takes the spare height, so the groups keep their own.
             Rectangle { vertical-stretch: 1; }
