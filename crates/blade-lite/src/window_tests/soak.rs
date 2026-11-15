@@ -16,7 +16,7 @@ use slint::platform::PointerEventButton;
 
 use super::{
     FAKE_GPU, FAKE_MIC, FAKE_ON_BATTERY, FAKE_REOPENED, FAKE_SOURCE_UNKNOWN, FakeGpu, Fixture,
-    fixture, selected_preset,
+    fixture, flyout_selected_preset, selected_preset,
 };
 use crate::fakes::{FakeCharger, FakeController};
 use crate::rules::{
@@ -96,6 +96,7 @@ struct Seen {
     weak_reads: u32,
     battery_sends: u32,
     read_spells: u32,
+    gpu_fails: u32,
 }
 
 impl Soak {
@@ -280,11 +281,21 @@ impl Soak {
         self.failing_left = self.failing_left.max(spell);
     }
 
-    /// The CPU heat now, so the fan guard comes and goes; sometimes the
-    /// read fails.
+    /// The CPU and GPU heat now, so the fan guard and the heat popup come
+    /// and go; sometimes a read fails, and the GPU may sleep.
     fn change_heat(&mut self) {
         let celsius = (!self.rng.chance(100)).then(|| self.rng.pick(&[40, 55, 70, 85, 95, 99]));
         fake(&self.f, |c| c.cpu_celsius = celsius);
+        let gpu = self.rng.pick(&[
+            FakeGpu::Asleep,
+            FakeGpu::Fails,
+            FakeGpu::Celsius(50),
+            FakeGpu::Celsius(75),
+            FakeGpu::Celsius(88),
+            FakeGpu::Celsius(95),
+        ]);
+        FAKE_GPU.set(gpu);
+        self.seen.gpu_fails += u32::from(gpu == FakeGpu::Fails);
     }
 
     /// Clicks a preset, the lid logo or the vapor light. Returns the preset
@@ -338,11 +349,16 @@ impl Soak {
         if let Some((preset, true)) = clicked
             && !battery_presets
         {
-            assert!(
-                selected_preset(&self.f) != preset
-                    || format!("{:?}", self.f.shell.app().config().preset) == preset,
-                "a failed {preset} shown as done"
-            );
+            let saved = format!("{:?}", self.f.shell.app().config().preset) == preset;
+            for (view, chosen) in [
+                ("window", selected_preset(&self.f)),
+                ("flyout", flyout_selected_preset(&self.f)),
+            ] {
+                assert!(
+                    chosen != preset || saved,
+                    "a failed {preset} shown as done in the {view}"
+                );
+            }
         }
         let kept = self.f.shell.kept();
         assert!(kept.said_lately <= 16, "{kept:?}");
@@ -404,6 +420,7 @@ fn settle(soak: &mut Soak) {
     soak.failing_left = 0;
     soak.reads_failing_left = 0;
     soak.reads_work_again();
+    FAKE_GPU.set(FakeGpu::Asleep);
     for _ in 0..10 {
         soak.second();
         soak.check(None);
@@ -426,6 +443,7 @@ fn soak(preset: Preset, seed: u64) {
         met.weak_reads,
         met.battery_sends,
         met.read_spells,
+        met.gpu_fails,
     ];
     assert!(each.iter().all(|&count| count >= 5), "{met:?}");
 }

@@ -331,8 +331,16 @@ pub fn click(root: &impl ElementRoot, role: AccessibleRole, label: &str) {
 
 /// The label of the preset chosen in the window's Performance mode row.
 pub fn selected_preset(f: &Fixture) -> String {
+    chosen(&f.shell.window().get_presets())
+}
+
+/// The preset the flyout shows chosen.
+pub fn flyout_selected_preset(f: &Fixture) -> String {
+    chosen(&f.shell.flyout().get_presets())
+}
+
+fn chosen(presets: &slint::ModelRc<crate::Choice>) -> String {
     use slint::Model;
-    let presets = f.shell.window().get_presets();
     let chosen = presets.iter().find(|choice| choice.selected);
     chosen.expect("one preset is chosen").label.into()
 }
