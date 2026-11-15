@@ -175,6 +175,29 @@ mod tests {
     }
 
     #[test]
+    fn stalled_is_true_only_on_the_lines_that_start_a_stall() {
+        let start = Instant::now();
+        let mut dog = Watchdog::new(start);
+        let mut said = Vec::new();
+        // A beat at 0 s, at 34 s and at 69 s: two stalls, each ended.
+        for now in (5..=70).step_by(5) {
+            let beat = match now {
+                ..35 => 0,
+                35..70 => 34,
+                _ => 69,
+            };
+            if dog
+                .look(Some(start + SECOND * beat), start + SECOND * now)
+                .is_some()
+            {
+                said.push(dog.stalled());
+            }
+        }
+
+        assert_eq!(said, [true, false, true, false]);
+    }
+
+    #[test]
     fn a_sleep_in_a_stall_does_not_end_it() {
         let start = Instant::now();
         let mut dog = Watchdog::new(start);
