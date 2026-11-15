@@ -97,6 +97,7 @@ impl<P: Parts> Shell<P> {
     /// [`tick`](Self::tick) at `now`, with the wall clock at `wall`. The
     /// window tests give their own times.
     pub(crate) fn tick_at(self: &Rc<Self>, now: Instant, wall: SystemTime) {
+        self.tick_now.set(now);
         let failures = self.app.borrow().preset_failures();
         let looked = self.look_for_razer_now_and_then(now);
         // Before any send: an updater end just found waits its pause.
@@ -879,8 +880,10 @@ impl<P: Parts> Shell<P> {
     /// Logs the failed reads not logged in the quiet time. While the
     /// controller is closed or held (it died, or waits after an open again),
     /// its read failures are said once, until it is opened again: the open
-    /// and its failures are logged on their own (ticket 154).
+    /// and its failures are logged on their own (ticket 154). The quiet time
+    /// runs on the last tick's clock.
     pub(crate) fn say_read_errors(&self, errors: &[String]) {
+        let now = self.tick_now.get();
         let (gone, rest): (Vec<String>, Vec<String>) = errors.iter().cloned().partition(|error| {
             [CONTROLLER_CLOSED, CONTROLLER_OPENED_AGAIN]
                 .iter()
@@ -891,17 +894,13 @@ impl<P: Parts> Shell<P> {
         let floor = [GONE_KEY.to_owned()];
         if let Some(first) = gone.first()
             && !self.controller_gone.replace(true)
-            && !self
-                .read_errors
-                .borrow_mut()
-                .to_say(&floor, Instant::now())
-                .is_empty()
+            && !self.read_errors.borrow_mut().to_say(&floor, now).is_empty()
         {
             report(&format!(
                 "read failed: {first} (more such reads are not logged until it is opened again)"
             ));
         }
-        for error in self.read_errors.borrow_mut().to_say(&rest, Instant::now()) {
+        for error in self.read_errors.borrow_mut().to_say(&rest, now) {
             report(&format!("read failed: {error}"));
         }
     }

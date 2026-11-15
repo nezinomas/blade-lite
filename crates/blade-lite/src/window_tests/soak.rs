@@ -15,8 +15,8 @@ use razer_proto::{Charger, Command, Rgb};
 use slint::platform::PointerEventButton;
 
 use super::{
-    FAKE_MIC, FAKE_ON_BATTERY, FAKE_REOPENED, FAKE_SOURCE_UNKNOWN, Fixture, fixture,
-    selected_preset,
+    FAKE_GPU, FAKE_MIC, FAKE_ON_BATTERY, FAKE_REOPENED, FAKE_SOURCE_UNKNOWN, FakeGpu, Fixture,
+    fixture, selected_preset,
 };
 use crate::fakes::{FakeCharger, FakeController};
 use crate::rules::{
@@ -482,4 +482,27 @@ fn a_usual_day_sends_set_commands_only_at_its_events() {
     // The counts in docs/NOTES.md (ticket 147): 7 preset sends of 4 zones,
     // 2 lighting sends, one lid logo switch.
     assert_eq!((soak.sent.len(), stored), (50, 32), "{:?}", soak.sent);
+}
+
+/// The failed reads said lately are forgotten after the quiet time of the
+/// tick's clock, not the real one, so the soak sees them go. The fake's
+/// controller reads still fail, so some are said again.
+#[test]
+fn a_read_error_said_is_forgotten_by_the_ticks_clock() {
+    let f = fixture(Config::default());
+    let now = Instant::now();
+    let wall = SystemTime::now();
+    FAKE_GPU.set(FakeGpu::Fails);
+    f.shell.tick_at(now, wall);
+    let said = f.shell.kept().said_lately;
+
+    FAKE_GPU.set(FakeGpu::Asleep);
+    // The ten minutes' quiet time, and a second.
+    for second in 1..=601 {
+        let later = SECOND * second;
+        f.shell.tick_at(now + later, wall + later);
+    }
+
+    let kept = f.shell.kept();
+    assert!(kept.said_lately < said, "{said} then {kept:?}");
 }

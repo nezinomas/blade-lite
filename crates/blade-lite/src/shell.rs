@@ -335,6 +335,9 @@ pub struct Shell<P: Parts = Laptop> {
     flyout_icon: Cell<Option<Rect>>,
     shown_errors: RefCell<ShownErrors>,
     read_errors: RefCell<SaidLately>,
+    /// The last tick's time: the clock of the read errors said lately, so
+    /// the window tests' mock time moves it too (ticket 177).
+    tick_now: Cell<Instant>,
     mode_watch: Cell<ModeWatch>,
     /// The touchpad state last seen, for the touchpad popup.
     touchpad_watch: Cell<TouchpadWatch>,
@@ -444,6 +447,7 @@ impl<P: Parts> Shell<P> {
             flyout_icon: Cell::new(None),
             shown_errors: RefCell::new(ShownErrors::default()),
             read_errors: RefCell::new(SaidLately::new(READ_ERROR_QUIET)),
+            tick_now: Cell::new(Instant::now()),
             mode_watch,
             touchpad_watch,
             heat_watch: Cell::new(HeatWatch::default()),
