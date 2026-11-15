@@ -625,9 +625,29 @@ fn a_failed_put_back_at_a_session_end_is_logged_as_expected() {
     f.shell.end_session();
 
     assert_eq!(f.shell.app().machine().displays.0.current.hz, 60);
+    assert_session_end_put_back_logged();
+}
+
+#[test]
+fn a_failed_put_back_after_a_busy_session_end_is_logged_as_a_session_end() {
+    let f = refused_put_back();
+    let held = f.shell.app();
+    f.shell.end_session();
+    drop(held);
+
+    // The quit after the loop, as `serve` runs it.
+    f.shell.quit();
+
+    assert_eq!(f.shell.app().machine().displays.0.current.hz, 60);
+    assert_session_end_put_back_logged();
+}
+
+/// The log is shared by the tests run in parallel, so only the session
+/// end's line is looked for, not that the Quit line is missing.
+fn assert_session_end_put_back_logged() {
     let log = std::fs::read_to_string(log_path()).unwrap();
     assert!(
-        log.contains("the rate was not put back at the session end, as Windows may refuse"),
+        log.contains("the rate was not put back at the session end (Windows may refuse"),
         "{log}"
     );
 }

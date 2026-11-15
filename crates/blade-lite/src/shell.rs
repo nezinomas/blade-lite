@@ -330,11 +330,10 @@ impl Ending {
             Self::Quit => "the panel may stay at 60 Hz",
             // Seen at a sign-out on battery (check 38): Windows likely
             // shows its own desktop by then, and a rate change applies only
-            // to the desktop shown (not proven). The app does not save
-            // 60 Hz, and the panel came back at the saved rate.
+            // to the desktop shown (not proven). The error after it names
+            // the cause.
             Self::Session => {
-                "the rate was not put back at the session end, as Windows may refuse \
-                 display changes then; the next sign-in starts at the rate Windows has saved"
+                "the rate was not put back at the session end (Windows may refuse display changes then)"
             }
         }
     }
@@ -428,6 +427,8 @@ pub struct Shell<P: Parts = Laptop> {
     controller_gone: Cell<bool>,
     /// Whether the quit preset went, so it goes once.
     quit_sent: Cell<bool>,
+    /// How the app ends, for the log line of a failed rate put-back.
+    ending: Cell<Ending>,
     /// Whether Windows told of a sleep and no wake came since (ticket 169).
     /// It counts as one more pause in `resuming`, so nothing is sent until
     /// the wake, which ends it.
@@ -507,6 +508,7 @@ impl<P: Parts> Shell<P> {
             dialog_open: Cell::new(false),
             stopped_parts: RefCell::new(Vec::new()),
             quit_sent: Cell::new(false),
+            ending: Cell::new(Ending::Quit),
             asleep: Cell::new(false),
             sleep_preset_sent: Cell::new(false),
             awake_run: Cell::new(None),
@@ -567,11 +569,6 @@ impl<P: Parts> Shell<P> {
     /// puts back the rate from before battery, as the app quits. A failure
     /// goes to the log, as no window is left to show it.
     pub fn quit(&self) {
-        self.quit_as(Ending::Quit);
-    }
-
-    /// [`Self::quit`]; `ending` only picks the log line of a failed put-back.
-    fn quit_as(&self, ending: Ending) {
         // Once: a session end may have sent it already.
         if self.quit_sent.get() {
             return;
@@ -616,7 +613,7 @@ impl<P: Parts> Shell<P> {
         }
         // After the fans: only the rate, a Windows call that may be slow.
         if let Err(error) = app.on_quit() {
-            report(&format!("{}: {error}", ending.put_back_failed()));
+            report(&format!("{}: {error}", self.ending.get().put_back_failed()));
         }
     }
 
@@ -732,7 +729,9 @@ impl<P: Parts> Shell<P> {
     /// apps that block it: not checked on the laptop (laptop check 30).
     pub fn end_session(&self) {
         report("Windows ends the session, so the app quits");
-        if std::panic::catch_unwind(AssertUnwindSafe(|| self.quit_as(Ending::Session))).is_err() {
+        // Kept for a quit after the loop, if the app is busy now.
+        self.ending.set(Ending::Session);
+        if std::panic::catch_unwind(AssertUnwindSafe(|| self.quit())).is_err() {
             report("the quit at the session end panicked");
         }
         // An error: the loop has already ended.
