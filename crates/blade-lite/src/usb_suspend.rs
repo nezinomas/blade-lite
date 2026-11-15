@@ -4,6 +4,7 @@
 //! only, never from the device.
 
 use std::io;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
 
 use platform::{RegValue, UsbInstance};
@@ -17,9 +18,19 @@ pub const SUSPEND_VALUE: &str = "SelectiveSuspendEnabled";
 /// The driver of each of the device's interfaces.
 const HID_DRIVER: &str = "HidUsb";
 
-/// Logs once if USB suspend is on for the device, or if its read is odd.
-/// On a thread of its own, so the start never waits for it; a failed read
-/// only logs.
+/// Set once the start's read finds suspend on; never set back.
+static SUSPEND_ON: AtomicBool = AtomicBool::new(false);
+
+/// Whether the start's read found suspend on (ticket 220): `false` while it
+/// is off, odd or not read yet, so the window never says on when it is not
+/// known.
+pub fn usb_suspend_on() -> bool {
+    SUSPEND_ON.load(Ordering::Relaxed)
+}
+
+/// Logs once if USB suspend is on for the device, or if its read is odd,
+/// and notes on for the window. On a thread of its own, so the start never
+/// waits for it; a failed read only logs.
 pub fn report_usb_suspend(usb: UsbId) {
     let spawned = thread::Builder::new()
         .name("usb suspend".into())
@@ -27,7 +38,11 @@ pub fn report_usb_suspend(usb: UsbId) {
             let count = usb.hid_interfaces;
             let reads =
                 platform::usb_interfaces(usb.vendor_id, usb.product_id, count, SUSPEND_VALUE);
-            if let Some(line) = usb_suspend_report(&usb_suspend(&reads, count)) {
+            let state = usb_suspend(&reads, count);
+            if state == UsbSuspend::On {
+                SUSPEND_ON.store(true, Ordering::Relaxed);
+            }
+            if let Some(line) = usb_suspend_report(&state) {
                 report(&line);
             }
         });
