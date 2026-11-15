@@ -618,7 +618,10 @@ fn a_failed_put_back_on_quit_is_logged() {
 
     assert_eq!(f.shell.app().machine().displays.0.current.hz, 60);
     let log = std::fs::read_to_string(log_path()).unwrap();
-    assert!(log.contains("the panel may stay at 60 Hz"), "{log}");
+    // The colon right after "60 Hz" is found only in the Quit line.
+    let line =
+        "the panel may stay at 60 Hz: the panel does not offer 240 Hz at its current resolution";
+    assert!(log.contains(line), "{log}");
 }
 
 #[test]
