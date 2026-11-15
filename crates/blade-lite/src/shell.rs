@@ -333,7 +333,7 @@ impl Ending {
             // to the desktop shown (not proven). The error after it names
             // the cause.
             Self::Session => {
-                "the rate was not put back at the session end (Windows may refuse display changes then)"
+                "the panel may stay at 60 Hz (at a session end Windows may refuse display changes)"
             }
         }
     }
