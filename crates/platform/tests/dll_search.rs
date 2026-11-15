@@ -39,12 +39,13 @@ fn a_dll_loaded_by_name_is_found_in_system32_and_not_in_the_app_folder() {
     fs::copy(system.join("version.dll"), &probe).unwrap();
     let found_before = found(PROBE);
 
-    platform::limit_dll_search().unwrap();
+    let limited = platform::limit_dll_search();
     let found_after = found(PROBE);
     let system_found = found("version.dll");
     fs::remove_file(&probe).unwrap();
 
-    assert!(found_before, "the app folder is searched by default");
+    limited.unwrap();
+    assert!(found_before, "the app folder is not searched by default");
     assert!(!found_after, "the app folder is searched after the limit");
     assert!(system_found, "System32 is not searched after the limit");
 }

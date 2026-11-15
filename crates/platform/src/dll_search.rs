@@ -8,8 +8,9 @@ use windows_sys::Win32::System::LibraryLoader::{
 
 /// Makes this process look for a DLL loaded by name only in the System32
 /// folder (after the DLLs already loaded and Windows' known DLLs), never in
-/// the app's folder, the current folder or `PATH`. This also covers the
-/// DLLs that a DLL loads, such as those `nvml.dll` loads. Call it first in
+/// the app's folder, the current folder or `PATH`. Microsoft's documentation
+/// says it also covers the DLLs that a DLL loads, such as those `nvml.dll`
+/// loads (not tested). Call it first in
 /// `main`: it can't move a DLL that is already loaded, such as those the
 /// exe itself imports.
 ///
