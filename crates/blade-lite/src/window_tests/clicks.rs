@@ -590,14 +590,13 @@ fn balanced_is_sent_at_quit_even_when_the_rate_put_back_fails() {
     );
 }
 
-#[test]
-fn a_failed_put_back_on_quit_is_logged() {
+/// On battery at 60 Hz, with 240 Hz gone, so the quit's put-back is refused.
+fn refused_put_back() -> Fixture {
     let f = fixture(Config {
         sixty_hz_on_battery: true,
         ..Config::default()
     });
     f.shell.act(|app| app.on_power(PowerEvent::OnBattery));
-    // 240 Hz is gone, so the put-back is refused.
     f.shell
         .app()
         .machine_mut()
@@ -605,12 +604,32 @@ fn a_failed_put_back_on_quit_is_logged() {
         .0
         .modes
         .retain(|mode| mode.hz != 240);
+    f
+}
+
+#[test]
+fn a_failed_put_back_on_quit_is_logged() {
+    let f = refused_put_back();
 
     f.shell.quit();
 
     assert_eq!(f.shell.app().machine().displays.0.current.hz, 60);
     let log = std::fs::read_to_string(log_path()).unwrap();
     assert!(log.contains("the panel may stay at 60 Hz"), "{log}");
+}
+
+#[test]
+fn a_failed_put_back_at_a_session_end_is_logged_as_expected() {
+    let f = refused_put_back();
+
+    f.shell.end_session();
+
+    assert_eq!(f.shell.app().machine().displays.0.current.hz, 60);
+    let log = std::fs::read_to_string(log_path()).unwrap();
+    assert!(
+        log.contains("the rate was not put back at the session end, as Windows may refuse"),
+        "{log}"
+    );
 }
 
 #[test]

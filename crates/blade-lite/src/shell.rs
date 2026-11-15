@@ -315,6 +315,31 @@ const USB_SUSPEND_ON: &str = "Windows USB suspend is on for the Razer device, so
     lights may go off or blink. Quit Blade Lite from the tray, then run tools\\Set-RazerUsbSuspend.ps1 as \
     admin (README, \"If the keyboard lights go off or blink\").";
 
+/// How the app ends: picks the log line of a refused rate put-back.
+#[derive(Clone, Copy)]
+enum Ending {
+    /// Quit, or the end of a run.
+    Quit,
+    /// Windows ends the session (ticket 217).
+    Session,
+}
+
+impl Ending {
+    fn put_back_failed(self) -> &'static str {
+        match self {
+            Self::Quit => "the panel may stay at 60 Hz",
+            // Seen at a sign-out on battery (check 38): Windows likely
+            // shows its own desktop by then, and a rate change applies only
+            // to the desktop shown (not proven). The app does not save
+            // 60 Hz, and the panel came back at the saved rate.
+            Self::Session => {
+                "the rate was not put back at the session end, as Windows may refuse \
+                 display changes then; the next sign-in starts at the rate Windows has saved"
+            }
+        }
+    }
+}
+
 /// The error a run ends with when a panic (a bug) stopped it.
 pub const PANICKED: &str = "a bug stopped the app (a panic, in the log)";
 
@@ -542,6 +567,11 @@ impl<P: Parts> Shell<P> {
     /// puts back the rate from before battery, as the app quits. A failure
     /// goes to the log, as no window is left to show it.
     pub fn quit(&self) {
+        self.quit_as(Ending::Quit);
+    }
+
+    /// [`Self::quit`]; `ending` only picks the log line of a failed put-back.
+    fn quit_as(&self, ending: Ending) {
         // Once: a session end may have sent it already.
         if self.quit_sent.get() {
             return;
@@ -586,7 +616,7 @@ impl<P: Parts> Shell<P> {
         }
         // After the fans: only the rate, a Windows call that may be slow.
         if let Err(error) = app.on_quit() {
-            report(&format!("the panel may stay at 60 Hz: {error}"));
+            report(&format!("{}: {error}", ending.put_back_failed()));
         }
     }
 
@@ -702,7 +732,7 @@ impl<P: Parts> Shell<P> {
     /// apps that block it: not checked on the laptop (laptop check 30).
     pub fn end_session(&self) {
         report("Windows ends the session, so the app quits");
-        if std::panic::catch_unwind(AssertUnwindSafe(|| self.quit())).is_err() {
+        if std::panic::catch_unwind(AssertUnwindSafe(|| self.quit_as(Ending::Session))).is_err() {
             report("the quit at the session end panicked");
         }
         // An error: the loop has already ended.
