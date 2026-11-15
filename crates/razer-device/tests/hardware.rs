@@ -1319,7 +1319,8 @@ fn the_sleep_and_wake_sends_under_load() {
 type ModeRead = (Vec<Vec<u8>>, Vec<Vec<u8>>, Vec<Vec<u8>>, u8);
 
 /// Reads the modes, fan targets, real speeds and the CPU temperature each
-/// 5 s for `seconds`, kept in `seen`, or until a read fails.
+/// 5 s for `seconds`, kept in `seen`. Stops with an error on a failed read,
+/// a fan reply for another fan, or the CPU at [`LOAD_STOP_CELSIUS`].
 fn watch_modes_and_fans<C: Clock>(
     device: &mut Device<HidTransport, C>,
     seconds: u64,
@@ -1330,13 +1331,25 @@ fn watch_modes_and_fans<C: Clock>(
         let modes = try_preset_args(device)?;
         let target = try_read_each(device, GET_FAN, &FANS)?;
         let real = try_read_each(device, GET_FAN_RPM, &FANS)?;
-        seen.push((modes, target, real, read_cpu(device)?));
+        let cpu = read_cpu(device)?;
+        seen.push((modes, target.clone(), real.clone(), cpu));
+        let echoed = |args: &[Vec<u8>]| {
+            args.iter()
+                .zip(FANS)
+                .all(|(args, fan)| args.starts_with(&[1, fan]))
+        };
+        if !echoed(&target) || !echoed(&real) {
+            return Err("a fan reply for another fan: stopped".to_owned());
+        }
+        if cpu >= LOAD_STOP_CELSIUS {
+            return Err(format!("CPU at {cpu} °C: stopped"));
+        }
     }
     Ok(())
 }
 
 #[test]
-#[ignore = "needs the Blade 18 on AC, and runs the fans on manual for about 30 s; about 3 min"]
+#[ignore = "needs the Blade 18 on AC and idle, and runs the fans on manual for about 30 s; about 3 min"]
 fn the_sleeps_quit_preset_leaves_the_fans_on_auto() {
     use razer_proto::{BLADE_18, CpuBoost, Custom, FanMode, GpuBoost, PerfMode, Rpm};
 
@@ -1399,6 +1412,21 @@ fn the_sleeps_quit_preset_leaves_the_fans_on_auto() {
     assert!(put_back.iter().all(Result::is_ok), "check the fans by hand");
     assert_eq!(after, before);
     result.unwrap();
+    // The manual phase took: every zone Custom with the fan byte manual,
+    // both targets 3600 RPM. Else the reads after prove nothing.
+    for (modes, target, ..) in &manual_seen {
+        for (args, &zone) in modes.iter().zip(BLADE_18.perf_zones) {
+            assert_eq!(
+                args[..],
+                [1, zone, BLADE_18.custom.mode, FAN_MANUAL],
+                "{args:02X?}"
+            );
+        }
+        for (args, fan) in target.iter().zip(FANS) {
+            assert_eq!(args[..], [1, fan, 36], "{args:02X?}");
+        }
+    }
+    assert_eq!(sleep_seen.len(), 24);
     // Each read after the quit preset: every zone Balanced, fan byte auto.
     for (modes, ..) in &sleep_seen {
         for (args, &zone) in modes.iter().zip(BLADE_18.perf_zones) {
