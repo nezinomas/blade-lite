@@ -11,6 +11,7 @@ mod screens;
 mod settings;
 mod sleep;
 mod soak;
+mod usb_suspend;
 
 use std::cell::RefCell;
 use std::io;
@@ -103,6 +104,10 @@ impl Parts for Fakes {
     fn num_lock_on() -> bool {
         FAKE_NUM_LOCK.get()
     }
+
+    fn usb_suspend_on() -> bool {
+        FAKE_USB_SUSPEND_ON.get()
+    }
 }
 
 thread_local! {
@@ -136,6 +141,9 @@ thread_local! {
     pub static FAKE_SCREEN_ON: std::cell::Cell<Option<bool>> = const { std::cell::Cell::new(Some(true)) };
     /// Whether Num Lock is on: off unless a test sets it.
     pub static FAKE_NUM_LOCK: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    /// Whether the start's read found USB suspend on: not (off, odd or not
+    /// read yet) unless a test sets it.
+    pub static FAKE_USB_SUSPEND_ON: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
     /// What the GPU reads: asleep unless a test sets it.
     pub static FAKE_GPU: std::cell::Cell<FakeGpu> = const { std::cell::Cell::new(FakeGpu::Asleep) };
     /// The file dialogs shown.
@@ -266,6 +274,7 @@ pub fn fixture_with_programs(config: Config, programs: &[&str]) -> Fixture {
     crate::shell::MISSED_WAKES_HELD.set(0);
     FAKE_GPU.set(FakeGpu::Asleep);
     FAKE_NUM_LOCK.set(false);
+    FAKE_USB_SUSPEND_ON.set(false);
     let (mut app, dir, _) = app_on(&BLADE_18, config);
     let controller = &mut app.machine_mut().controller.inner;
     controller.logo_reply = Some(vec![0, 4, 1]);

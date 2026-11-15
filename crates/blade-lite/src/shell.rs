@@ -85,6 +85,10 @@ pub trait Parts: 'static {
     fn screen_on() -> Option<bool>;
     /// Whether Num Lock is on now. Read only.
     fn num_lock_on() -> bool;
+    /// Whether the start's registry read found Windows' USB suspend on for
+    /// the Razer device (ticket 220). `false` while it is off, odd or not
+    /// read yet. Read only.
+    fn usb_suspend_on() -> bool;
 }
 
 /// What [`Parts::pick_file`] calls with the user's answer.
@@ -227,6 +231,10 @@ impl Parts for Laptop {
         platform::num_lock_on()
     }
 
+    fn usb_suspend_on() -> bool {
+        blade_lite::usb_suspend_on()
+    }
+
     fn toggle_mic_mute() -> Option<bool> {
         let toggled = platform::toggle_mic_mute();
         if let Err(error) = &toggled {
@@ -300,6 +308,12 @@ pub type AppOn<P> = App<
 /// A sensor or fan read error is logged once, then not again for this long,
 /// since it can come and go on each read.
 const READ_ERROR_QUIET: Duration = Duration::from_mins(10);
+
+/// Shown above the groups while the start's read found Windows' USB
+/// suspend on (ticket 220).
+const USB_SUSPEND_ON: &str = "Windows USB suspend is on for the Razer device, so the keyboard \
+    lights may go off or blink. Quit Blade Lite from the tray, then run tools\\Set-RazerUsbSuspend.ps1 as \
+    admin (README, \"If the keyboard lights go off or blink\").";
 
 /// The error a run ends with when a panic (a bug) stopped it.
 pub const PANICKED: &str = "a bug stopped the app (a panic, in the log)";
@@ -842,9 +856,12 @@ impl<P: Parts> Shell<P> {
             .iter()
             .map(|part| format!("A bug stopped the {part} part. Quit Blade Lite from the tray and start it again."))
             .collect::<Vec<_>>();
+        // Text only: unlike the Razer warning, it stops no background send.
+        let suspend = P::usb_suspend_on().then_some(USB_SUSPEND_ON);
         let shown: Vec<&str> = warning
             .as_deref()
             .into_iter()
+            .chain(suspend)
             .chain(stopped.iter().map(String::as_str))
             .chain(app.firmware_warning())
             .chain(mismatch.as_deref())
