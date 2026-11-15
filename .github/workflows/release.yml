@@ -1,0 +1,43 @@
+name: Release
+
+# A version tag (such as v0.1.0) builds the app from the tag and makes a
+# draft release with the exe and its SHA-256 sum. Publish the draft by hand.
+# Built with --locked, actions pinned by commit, and no build cache, so no
+# earlier run can change what is shipped (ticket 149).
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+jobs:
+  release:
+    runs-on: windows-latest
+    permissions:
+      # To make the draft release.
+      contents: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@df2a88e9fe4098bad09cb42c3dec7187f15861fc # master
+        with:
+          toolchain: stable
+      - run: cargo test --workspace --locked
+      - run: cargo build --release --locked -p blade-lite
+      # `sha256sum -c SHA256SUMS.txt` checks a download (LF line ends).
+      - name: Files and SHA-256 sums
+        shell: bash
+        run: |
+          mkdir dist
+          cp target/release/blade-lite.exe dist/
+          cd dist
+          sha256sum blade-lite.exe > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+      - name: Draft release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: gh release create "$GITHUB_REF_NAME" dist/* --draft --verify-tag --title "$GITHUB_REF_NAME"
