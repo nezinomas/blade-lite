@@ -1,4 +1,5 @@
-//! A plain Windows message box, for a start that fails before any window.
+//! A plain Windows message box, for a start that fails before any window,
+//! or a stall the event loop can't show (ticket 208).
 
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     IDYES, MB_ICONERROR, MB_ICONWARNING, MB_OK, MB_SETFOREGROUND, MB_YESNO, MessageBoxW,
@@ -9,6 +10,11 @@ use crate::wide;
 /// Shows `text` with an OK button, as an error. Blocks until it is closed.
 pub fn show_error(title: &str, text: &str) {
     message_box(title, text, MB_OK | MB_ICONERROR);
+}
+
+/// Shows `text` with an OK button, as a warning. Blocks until it is closed.
+pub fn show_warning(title: &str, text: &str) {
+    message_box(title, text, MB_OK | MB_ICONWARNING);
 }
 
 /// Asks `text` with Yes and No. True only for Yes; a box that can't show
