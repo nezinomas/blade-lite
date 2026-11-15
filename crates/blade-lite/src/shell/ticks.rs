@@ -881,9 +881,10 @@ impl<P: Parts> Shell<P> {
     /// controller is closed or held (it died, or waits after an open again),
     /// its read failures are said once, until it is opened again: the open
     /// and its failures are logged on their own (ticket 154). The quiet time
-    /// runs on the last tick's clock.
+    /// runs on the last tick's clock, or the real one if that is later (a
+    /// fill between ticks, or the first after a wake).
     pub(crate) fn say_read_errors(&self, errors: &[String]) {
-        let now = self.tick_now.get();
+        let now = self.tick_now.get().max(Instant::now());
         let (gone, rest): (Vec<String>, Vec<String>) = errors.iter().cloned().partition(|error| {
             [CONTROLLER_CLOSED, CONTROLLER_OPENED_AGAIN]
                 .iter()

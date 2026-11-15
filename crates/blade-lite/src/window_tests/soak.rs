@@ -295,7 +295,6 @@ impl Soak {
             FakeGpu::Celsius(95),
         ]);
         FAKE_GPU.set(gpu);
-        self.seen.gpu_fails += u32::from(gpu == FakeGpu::Fails);
     }
 
     /// Clicks a preset, the lid logo or the vapor light. Returns the preset
@@ -361,6 +360,9 @@ impl Soak {
             }
         }
         let kept = self.f.shell.kept();
+        // The fake's other sensors read fine: a sampler error is the GPU's.
+        self.seen.gpu_fails +=
+            u32::from(FAKE_GPU.get() == FakeGpu::Fails && kept.sampler_errors > 0);
         assert!(kept.said_lately <= 16, "{kept:?}");
         assert_eq!(kept.stopped_parts, 0, "{kept:?}");
         assert!(kept.sampler_errors <= 8, "{kept:?}");
@@ -502,25 +504,29 @@ fn a_usual_day_sends_set_commands_only_at_its_events() {
     assert_eq!((soak.sent.len(), stored), (50, 32), "{:?}", soak.sent);
 }
 
-/// The failed reads said lately are forgotten after the quiet time of the
-/// tick's clock, not the real one, so the soak sees them go. The fake's
-/// controller reads still fail, so some are said again.
+/// A failed read said lately is forgotten after the quiet time of the
+/// tick's clock, not the real one, so the soak sees it go, and is said
+/// again when it fails again.
 #[test]
 fn a_read_error_said_is_forgotten_by_the_ticks_clock() {
+    const GPU_FAILED: &str = "GPU: driver error";
     let f = fixture(Config::default());
     let now = Instant::now();
     let wall = SystemTime::now();
+    let tick = |second: u32| {
+        f.shell
+            .tick_at(now + SECOND * second, wall + SECOND * second)
+    };
     FAKE_GPU.set(FakeGpu::Fails);
-    f.shell.tick_at(now, wall);
-    let said = f.shell.kept().said_lately;
+    tick(0);
+    assert!(f.shell.said_lately(GPU_FAILED));
 
     FAKE_GPU.set(FakeGpu::Asleep);
-    // The ten minutes' quiet time, and a second.
-    for second in 1..=601 {
-        let later = SECOND * second;
-        f.shell.tick_at(now + later, wall + later);
-    }
+    // The ten minutes' quiet time, and a read after it.
+    (1..=660).for_each(tick);
+    assert!(!f.shell.said_lately(GPU_FAILED));
 
-    let kept = f.shell.kept();
-    assert!(kept.said_lately < said, "{said} then {kept:?}");
+    FAKE_GPU.set(FakeGpu::Fails);
+    (661..=720).for_each(tick);
+    assert!(f.shell.said_lately(GPU_FAILED));
 }

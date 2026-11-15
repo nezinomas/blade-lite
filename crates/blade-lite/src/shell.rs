@@ -335,8 +335,9 @@ pub struct Shell<P: Parts = Laptop> {
     flyout_icon: Cell<Option<Rect>>,
     shown_errors: RefCell<ShownErrors>,
     read_errors: RefCell<SaidLately>,
-    /// The last tick's time: the clock of the read errors said lately, so
-    /// the window tests' mock time moves it too (ticket 177).
+    /// The last tick's time: the clock of the read errors said lately when
+    /// it leads the real one, so the window tests' mock time moves it too
+    /// (ticket 177). Older than now between ticks.
     tick_now: Cell<Instant>,
     mode_watch: Cell<ModeWatch>,
     /// The touchpad state last seen, for the touchpad popup.
@@ -502,6 +503,12 @@ impl<P: Parts> Shell<P> {
     #[cfg(test)]
     pub fn app(&self) -> std::cell::RefMut<'_, AppOn<P>> {
         self.app.borrow_mut()
+    }
+
+    /// Whether a read error of the kind of `error` was said lately.
+    #[cfg(test)]
+    pub fn said_lately(&self, error: &str) -> bool {
+        self.read_errors.borrow().has(error)
     }
 
     /// The sizes of the lists the shell keeps, and the pauses that wait,
