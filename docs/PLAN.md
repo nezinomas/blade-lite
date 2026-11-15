@@ -131,7 +131,7 @@ Checks from the audit of 2026-11-11 (tickets 141 to 153). They need no new code.
 - [ ] 39 Release and installer
 - [ ] 40 Signing
 - [ ] 78 Installer: uninstall closes the app, removes the "Blade Lite" Run value, and asks whether to keep `%APPDATA%\blade-lite` (config and log). Part of 39 or a ticket beside it
-- [ ] 95 Slint attribution: the royalty-free licence asks for the `AboutSlint` widget in an About screen, or the Slint badge on the page the binaries are downloaded from. Add one before the first release (ticket 92 review)
+- [x] 95 Slint attribution: the royalty-free licence asks for the `AboutSlint` widget in an About screen, or the Slint badge on the page the binaries are downloaded from. Add one before the first release (ticket 92 review) Result: the window ends with an About group holding `AboutSlint` (licence 2.0, option a, read in Slint 1.18.1's `LICENSES`); a click test finds it, and the window pictures were saved again.
 
 ## Maybe later (not tickets yet)
 - Retry only the config rename a few times (such as 3 tries, 20 ms apart) on `PermissionDenied`, if the log ever shows a "not saved" line with access denied: another program (Defender, the search indexer) can hold `config.toml` open, and the next start would then send the old config (was ticket 63)
