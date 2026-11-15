@@ -7,7 +7,7 @@ use std::time::{Duration, Instant, SystemTime};
 
 use blade_core::{GUARD_HEAT_INTERVAL, HEAT_INTERVAL, RESUME_PAUSE, Readings};
 use blade_lite::{AppError, PollTime, StepTime, report};
-use platform::{PowerEvent, num_lock_on};
+use platform::PowerEvent;
 use razer_device::{CONTROLLER_CLOSED, CONTROLLER_OPENED_AGAIN};
 use slint::{ComponentHandle, Timer};
 use ui::{DisplayView, FAN_GUARD_WAKE_HOLD, Header, HeatWatch};
@@ -97,6 +97,7 @@ impl<P: Parts> Shell<P> {
     /// [`tick`](Self::tick) at `now`, with the wall clock at `wall`. The
     /// window tests give their own times.
     pub(crate) fn tick_at(self: &Rc<Self>, now: Instant, wall: SystemTime) {
+        self.tick_now.set(now);
         let failures = self.app.borrow().preset_failures();
         let looked = self.look_for_razer_now_and_then(now);
         // Before any send: an updater end just found waits its pause.
@@ -111,7 +112,7 @@ impl<P: Parts> Shell<P> {
         if self.resuming.get() == 0 && self.app.borrow().battery_rate_pending() {
             self.retry_battery_rate();
         }
-        self.follow_num_lock(num_lock_on());
+        self.follow_num_lock(P::num_lock_on());
         // A failed read keeps the last state, so a flaky read can't
         // send a frame each poll.
         if let Some(muted) = P::mic_muted() {
@@ -694,7 +695,7 @@ impl<P: Parts> Shell<P> {
         self.woke.set(true);
         {
             let mut app = self.app.borrow_mut();
-            app.set_num_lock(num_lock_on());
+            app.set_num_lock(P::num_lock_on());
             // The mic is read again at the next tick, not only on notices.
             P::mic_read_again();
             // The charger may have been pulled in the sleep, and the
@@ -879,8 +880,11 @@ impl<P: Parts> Shell<P> {
     /// Logs the failed reads not logged in the quiet time. While the
     /// controller is closed or held (it died, or waits after an open again),
     /// its read failures are said once, until it is opened again: the open
-    /// and its failures are logged on their own (ticket 154).
+    /// and its failures are logged on their own (ticket 154). The quiet time
+    /// runs on the last tick's clock, or the real one if that is later (a
+    /// fill between ticks, or the first after a wake).
     pub(crate) fn say_read_errors(&self, errors: &[String]) {
+        let now = self.tick_now.get().max(Instant::now());
         let (gone, rest): (Vec<String>, Vec<String>) = errors.iter().cloned().partition(|error| {
             [CONTROLLER_CLOSED, CONTROLLER_OPENED_AGAIN]
                 .iter()
@@ -891,17 +895,13 @@ impl<P: Parts> Shell<P> {
         let floor = [GONE_KEY.to_owned()];
         if let Some(first) = gone.first()
             && !self.controller_gone.replace(true)
-            && !self
-                .read_errors
-                .borrow_mut()
-                .to_say(&floor, Instant::now())
-                .is_empty()
+            && !self.read_errors.borrow_mut().to_say(&floor, now).is_empty()
         {
             report(&format!(
                 "read failed: {first} (more such reads are not logged until it is opened again)"
             ));
         }
-        for error in self.read_errors.borrow_mut().to_say(&rest, Instant::now()) {
+        for error in self.read_errors.borrow_mut().to_say(&rest, now) {
             report(&format!("read failed: {error}"));
         }
     }

@@ -83,6 +83,8 @@ pub trait Parts: 'static {
     /// Whether the screen is on or dimmed, from Windows' last notice.
     /// `None` if no notice came.
     fn screen_on() -> Option<bool>;
+    /// Whether Num Lock is on now. Read only.
+    fn num_lock_on() -> bool;
 }
 
 /// What [`Parts::pick_file`] calls with the user's answer.
@@ -221,6 +223,10 @@ impl Parts for Laptop {
         crate::background::screen_on()
     }
 
+    fn num_lock_on() -> bool {
+        platform::num_lock_on()
+    }
+
     fn toggle_mic_mute() -> Option<bool> {
         let toggled = platform::toggle_mic_mute();
         if let Err(error) = &toggled {
@@ -329,6 +335,10 @@ pub struct Shell<P: Parts = Laptop> {
     flyout_icon: Cell<Option<Rect>>,
     shown_errors: RefCell<ShownErrors>,
     read_errors: RefCell<SaidLately>,
+    /// The last tick's time: the clock of the read errors said lately when
+    /// it leads the real one, so the window tests' mock time moves it too
+    /// (ticket 177). Older than now between ticks.
+    tick_now: Cell<Instant>,
     mode_watch: Cell<ModeWatch>,
     /// The touchpad state last seen, for the touchpad popup.
     touchpad_watch: Cell<TouchpadWatch>,
@@ -438,6 +448,7 @@ impl<P: Parts> Shell<P> {
             flyout_icon: Cell::new(None),
             shown_errors: RefCell::new(ShownErrors::default()),
             read_errors: RefCell::new(SaidLately::new(READ_ERROR_QUIET)),
+            tick_now: Cell::new(Instant::now()),
             mode_watch,
             touchpad_watch,
             heat_watch: Cell::new(HeatWatch::default()),
@@ -492,6 +503,12 @@ impl<P: Parts> Shell<P> {
     #[cfg(test)]
     pub fn app(&self) -> std::cell::RefMut<'_, AppOn<P>> {
         self.app.borrow_mut()
+    }
+
+    /// Whether a read error of the kind of `error` was said lately.
+    #[cfg(test)]
+    pub fn said_lately(&self, error: &str) -> bool {
+        self.read_errors.borrow().has(error)
     }
 
     /// The sizes of the lists the shell keeps, and the pauses that wait,
