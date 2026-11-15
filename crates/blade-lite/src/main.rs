@@ -53,8 +53,8 @@ use slint::winit_030::winit::window::{BadIcon, Icon};
 use slint::{Timer, TimerMode};
 
 use crate::background::{
-    beat, follow_the_power_key, follow_the_touchpad, on_battery_now, open_window_on_wake,
-    power_events, watch_the_loop, watch_touchpad,
+    beat, follow_the_power_key, follow_the_touchpad, loop_ended, on_battery_now,
+    open_window_on_wake, power_events, watch_the_loop, watch_touchpad,
 };
 use crate::shell::{CONTROLLER_HELD, Laptop, Parts, REOPEN_GAP, Shell, reopen_controller};
 use crate::tray::Tray;
@@ -433,7 +433,9 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             shell.show_window();
         }
         // Closing the window keeps the app in the tray. Quit is in its menu.
-        slint::run_event_loop_until_quit()?;
+        let ran = slint::run_event_loop_until_quit();
+        loop_ended();
+        ran?;
         Ok(())
     });
     SHELL.with(RefCell::take);

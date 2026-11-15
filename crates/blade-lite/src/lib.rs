@@ -38,4 +38,4 @@ pub use slow_polls::{
 };
 pub use start::{config_or_defaults, try_times, try_until_it_works};
 pub use usb_suspend::report_usb_suspend;
-pub use watchdog::{LOOK_GAP, Watchdog};
+pub use watchdog::{LOOK_GAP, STALL, Watchdog};

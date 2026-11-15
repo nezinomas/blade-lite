@@ -29,7 +29,7 @@ pub use files::{FileDialog, pick_file};
 pub use hid::{HidDetails, HidDevice, hid_details, hid_parent_id, hid_paths};
 pub use instance::{WakeListener, WindowsInstance};
 pub use keys::{WindowsKeys, enter_down, input_age, mic_keys_down, num_lock_on};
-pub use message::{ask_yes_no, show_error};
+pub use message::{ask_yes_no, show_error, show_warning};
 pub use mic::{MicWatch, toggle_mic_mute};
 pub use popup::{raise_topmost, work_area, work_area_at};
 pub use power::{LidAndScreen, SuspendHandled, WindowsPowerEvents, on_battery, shutting_down};

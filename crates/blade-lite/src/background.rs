@@ -9,7 +9,7 @@ use std::time::{Duration, Instant};
 
 use blade_core::{PowerKeyPresses, TOUCHPAD_KEY};
 use blade_lite::{
-    KEY_REOPEN_PAUSE, KeyEvent, LOOK_GAP, ReaderEnd, ShownErrors, UNHEARD_SPELLS_BEFORE_ALL,
+    KEY_REOPEN_PAUSE, KeyEvent, LOOK_GAP, ReaderEnd, STALL, ShownErrors, UNHEARD_SPELLS_BEFORE_ALL,
     UnheardSpells, Watchdog, WindowsFnKeys, report, sender_read, step_on_presses,
 };
 use platform::{
@@ -47,8 +47,20 @@ pub fn beat() {
     }
 }
 
+/// Whether a stall box is open: a new stall shows none until it is closed.
+static STALL_BOX_OPEN: AtomicBool = AtomicBool::new(false);
+
+/// Whether the event loop has ended: the quit's own wait is no stall to show.
+static LOOP_ENDED: AtomicBool = AtomicBool::new(false);
+
+/// The event loop has ended: a stall from now on is only logged.
+pub fn loop_ended() {
+    LOOP_ENDED.store(true, Ordering::Release);
+}
+
 /// Logs a stalled event loop (no beat for 30 s), and its end, from a
-/// thread that looks every few seconds. It only logs: it sends nothing.
+/// thread that looks every few seconds. A stall is also shown in a message
+/// box, once per stall (ticket 208). It sends nothing.
 pub fn watch_the_loop() {
     spawn_part("watchdog", || {
         let mut dog = Watchdog::new(Instant::now());
@@ -57,9 +69,40 @@ pub fn watch_the_loop() {
             let beat = BEAT.lock().ok().and_then(|beat| *beat);
             if let Some(text) = dog.look(beat, Instant::now()) {
                 report(&text);
+                if dog.stalled() {
+                    show_stall();
+                }
             }
         }
     });
+}
+
+/// Shows a stall in a message box on a thread of its own, as the event
+/// loop can't show it and the box waits until it is closed.
+fn show_stall() {
+    if LOOP_ENDED.load(Ordering::Acquire) || STALL_BOX_OPEN.swap(true, Ordering::AcqRel) {
+        return;
+    }
+    let text = stall_text();
+    let shown = std::thread::Builder::new().spawn(move || {
+        platform::show_warning(crate::START_BOX_TITLE, &text);
+        STALL_BOX_OPEN.store(false, Ordering::Release);
+    });
+    if let Err(error) = shown {
+        STALL_BOX_OPEN.store(false, Ordering::Release);
+        report(&format!("can't show the stall in a message box: {error}"));
+    }
+}
+
+/// The stall box's text.
+fn stall_text() -> String {
+    format!(
+        "Blade Lite is stuck: it has not run its checks for {} s. Until it runs again, \
+         there is no fan guard, heat warning or battery preset, and the fans may stay as \
+         they are. The log has the details. This box is not updated: close it.\n\n{}",
+        STALL.as_secs(),
+        crate::RECOVERY
+    )
 }
 
 /// Opens the window each time a second copy asks, from a thread that waits.
@@ -454,7 +497,17 @@ mod tests {
 
     use razer_device::DroppedReport;
 
-    use super::{MOST_DROPS_LOGGED, drop_lines, newly_unknown};
+    use super::{MOST_DROPS_LOGGED, drop_lines, newly_unknown, stall_text};
+
+    #[test]
+    fn the_stall_text_says_the_fans_may_stay_in_one_clean_paragraph() {
+        let text = stall_text();
+
+        assert!(text.contains("for 30 s"), "{text}");
+        assert!(text.contains("the fans may stay as they are"), "{text}");
+        assert!(!text.contains("  "), "{text}");
+        assert_eq!(text.matches('\n').count(), 2, "{text}");
+    }
 
     fn dropped(id: u8) -> DroppedReport {
         DroppedReport {
