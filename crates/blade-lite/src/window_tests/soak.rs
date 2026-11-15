@@ -515,7 +515,7 @@ fn a_read_error_said_is_forgotten_by_the_ticks_clock() {
     let wall = SystemTime::now();
     let tick = |second: u32| {
         f.shell
-            .tick_at(now + SECOND * second, wall + SECOND * second)
+            .tick_at(now + SECOND * second, wall + SECOND * second);
     };
     FAKE_GPU.set(FakeGpu::Fails);
     tick(0);
