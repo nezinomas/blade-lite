@@ -7,7 +7,7 @@ use std::time::{Duration, Instant, SystemTime};
 
 use blade_core::{GUARD_HEAT_INTERVAL, HEAT_INTERVAL, RESUME_PAUSE, Readings};
 use blade_lite::{AppError, PollTime, StepTime, report};
-use platform::{PowerEvent, num_lock_on};
+use platform::PowerEvent;
 use razer_device::{CONTROLLER_CLOSED, CONTROLLER_OPENED_AGAIN};
 use slint::{ComponentHandle, Timer};
 use ui::{DisplayView, FAN_GUARD_WAKE_HOLD, Header, HeatWatch};
@@ -111,7 +111,7 @@ impl<P: Parts> Shell<P> {
         if self.resuming.get() == 0 && self.app.borrow().battery_rate_pending() {
             self.retry_battery_rate();
         }
-        self.follow_num_lock(num_lock_on());
+        self.follow_num_lock(P::num_lock_on());
         // A failed read keeps the last state, so a flaky read can't
         // send a frame each poll.
         if let Some(muted) = P::mic_muted() {
@@ -694,7 +694,7 @@ impl<P: Parts> Shell<P> {
         self.woke.set(true);
         {
             let mut app = self.app.borrow_mut();
-            app.set_num_lock(num_lock_on());
+            app.set_num_lock(P::num_lock_on());
             // The mic is read again at the next tick, not only on notices.
             P::mic_read_again();
             // The charger may have been pulled in the sleep, and the

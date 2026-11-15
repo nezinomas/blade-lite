@@ -14,9 +14,9 @@ use slint::winit_030::winit::event::WindowEvent as WinitEvent;
 use slint::{ComponentHandle, LogicalPosition, Model};
 
 use super::{
-    FAKE_MIC, FAKE_ON_BATTERY, FAKE_RELEASED, FAKE_SCREEN_ON, FAKE_SOURCE_UNKNOWN, Fixture,
-    assert_the_battery_quit_preset, click, control, fixture, log_path, manual_fan_with_boosts,
-    selected_preset,
+    FAKE_MIC, FAKE_NUM_LOCK, FAKE_ON_BATTERY, FAKE_RELEASED, FAKE_SCREEN_ON, FAKE_SOURCE_UNKNOWN,
+    Fixture, assert_the_battery_quit_preset, click, control, fixture, log_path,
+    manual_fan_with_boosts, selected_preset,
 };
 use crate::fakes::{FakeCharger, brightness_commands, lighting_commands, logo};
 
@@ -1495,16 +1495,6 @@ fn mic_fixture() -> Fixture {
     f
 }
 
-/// The frame with the mic key red, or plain while the real Num Lock is on:
-/// the poll and the resume read it.
-fn mic_red_unless_num_lock() -> Vec<Command> {
-    if platform::num_lock_on() {
-        static_colour(WHITE, &BLADE_18)
-    } else {
-        mic_red()
-    }
-}
-
 fn mic_red() -> Vec<Command> {
     let mic = razer_proto::RedKeys {
         touchpad: false,
@@ -1549,12 +1539,49 @@ fn the_poll_follows_a_mute_made_elsewhere() {
     f.shell.tick();
 
     assert_eq!(f.shell.app().mic_muted(), Some(true));
-    let sent = sent_since(&f, before);
-    if platform::num_lock_on() {
-        assert_eq!(sent, []);
-    } else {
-        assert_eq!(sent, mic_red());
-    }
+    assert_eq!(sent_since(&f, before), mic_red());
+}
+
+/// [`touchpad_off_fixture`] with Num Lock on, read by a poll.
+fn num_lock_on_fixture() -> Fixture {
+    let f = touchpad_off_fixture();
+    FAKE_NUM_LOCK.set(true);
+    f.shell.tick();
+    assert!(f.shell.app().num_lock_on());
+    f
+}
+
+#[test]
+fn the_poll_follows_num_lock() {
+    let f = num_lock_on_fixture();
+    let before = sent_count(&f);
+
+    FAKE_NUM_LOCK.set(false);
+    f.shell.tick();
+
+    assert!(!f.shell.app().num_lock_on());
+    assert_eq!(
+        sent_since(&f, before),
+        razer_proto::static_colour_touchpad_off(WHITE, &BLADE_18)
+    );
+}
+
+#[test]
+fn the_resume_reads_num_lock() {
+    let f = num_lock_on_fixture();
+    let (sender, receiver) = std::sync::mpsc::channel();
+    sender.send(PowerEvent::Resumed).unwrap();
+    f.shell.follow_power(&receiver);
+    FAKE_NUM_LOCK.set(false);
+    let before = sent_count(&f);
+
+    i_slint_backend_testing::mock_elapsed_time(
+        blade_core::RESUME_PAUSE + std::time::Duration::from_millis(1),
+    );
+
+    assert!(!f.shell.app().num_lock_on());
+    let touchpad_red = razer_proto::static_colour_touchpad_off(WHITE, &BLADE_18);
+    assert!(sent_since(&f, before).ends_with(&touchpad_red));
 }
 
 #[test]
@@ -1606,7 +1633,7 @@ fn fn_mic_during_the_resume_pause_mutes_but_sends_nothing() {
     i_slint_backend_testing::mock_elapsed_time(
         blade_core::RESUME_PAUSE + std::time::Duration::from_millis(1),
     );
-    assert!(sent_since(&f, before).ends_with(&mic_red_unless_num_lock()));
+    assert!(sent_since(&f, before).ends_with(&mic_red()));
 }
 
 #[test]

@@ -83,6 +83,8 @@ pub trait Parts: 'static {
     /// Whether the screen is on or dimmed, from Windows' last notice.
     /// `None` if no notice came.
     fn screen_on() -> Option<bool>;
+    /// Whether Num Lock is on now. Read only.
+    fn num_lock_on() -> bool;
 }
 
 /// What [`Parts::pick_file`] calls with the user's answer.
@@ -219,6 +221,10 @@ impl Parts for Laptop {
 
     fn screen_on() -> Option<bool> {
         crate::background::screen_on()
+    }
+
+    fn num_lock_on() -> bool {
+        platform::num_lock_on()
     }
 
     fn toggle_mic_mute() -> Option<bool> {
