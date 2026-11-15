@@ -590,27 +590,73 @@ fn balanced_is_sent_at_quit_even_when_the_rate_put_back_fails() {
     );
 }
 
-#[test]
-fn a_failed_put_back_on_quit_is_logged() {
+/// On battery at 60 Hz, with the rate `before` battery gone, so the quit's
+/// put-back is refused. Its error names `before`, so a test that picks its
+/// own rate finds its own line in the shared log.
+fn refused_put_back(before: u32) -> Fixture {
     let f = fixture(Config {
         sixty_hz_on_battery: true,
         ..Config::default()
     });
+    f.shell.app().machine_mut().displays.0.current.hz = before;
     f.shell.act(|app| app.on_power(PowerEvent::OnBattery));
-    // 240 Hz is gone, so the put-back is refused.
     f.shell
         .app()
         .machine_mut()
         .displays
         .0
         .modes
-        .retain(|mode| mode.hz != 240);
+        .retain(|mode| mode.hz != before);
+    f
+}
+
+#[test]
+fn a_failed_put_back_on_quit_is_logged() {
+    let f = refused_put_back(240);
 
     f.shell.quit();
 
     assert_eq!(f.shell.app().machine().displays.0.current.hz, 60);
     let log = std::fs::read_to_string(log_path()).unwrap();
-    assert!(log.contains("the panel may stay at 60 Hz"), "{log}");
+    // The colon right after "60 Hz" is found only in the Quit line.
+    let line =
+        "the panel may stay at 60 Hz: the panel does not offer 240 Hz at its current resolution";
+    assert!(log.contains(line), "{log}");
+}
+
+#[test]
+fn a_failed_put_back_at_a_session_end_is_logged_as_a_session_end() {
+    let f = refused_put_back(240);
+
+    f.shell.end_session();
+
+    assert_eq!(f.shell.app().machine().displays.0.current.hz, 60);
+    assert_session_end_put_back_logged(240);
+}
+
+#[test]
+fn a_failed_put_back_after_a_busy_session_end_is_logged_as_a_session_end() {
+    let f = refused_put_back(120);
+    let held = f.shell.app();
+    f.shell.end_session();
+    drop(held);
+
+    // The quit after the loop, as `serve` runs it.
+    f.shell.quit();
+
+    assert_eq!(f.shell.app().machine().displays.0.current.hz, 60);
+    assert_session_end_put_back_logged(120);
+}
+
+/// The log is shared by the tests run in parallel, so the whole line with
+/// the rate is looked for, not that the Quit line is missing.
+fn assert_session_end_put_back_logged(before: u32) {
+    let log = std::fs::read_to_string(log_path()).unwrap();
+    let line = format!(
+        "the panel may stay at 60 Hz (at a session end Windows may refuse display changes): \
+         the panel does not offer {before} Hz at its current resolution"
+    );
+    assert!(log.contains(&line), "{log}");
 }
 
 #[test]
