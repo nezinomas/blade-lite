@@ -3,7 +3,10 @@
 //! battery queries, and the NVIDIA
 //! GPU from its device power state and NVML.
 
+use std::ffi::OsString;
 use std::io;
+use std::os::windows::ffi::OsStringExt;
+use std::path::PathBuf;
 use std::ptr;
 use std::time::{Duration, Instant};
 
@@ -16,7 +19,7 @@ use windows_sys::Win32::Devices::DeviceAndDriverInstallation::{
     CM_Locate_DevNodeW, CONFIGRET, CR_SUCCESS,
 };
 use windows_sys::Win32::Devices::Properties::DEVPKEY_Device_PowerData;
-use windows_sys::Win32::Foundation::{FILETIME, GENERIC_READ, INVALID_HANDLE_VALUE};
+use windows_sys::Win32::Foundation::{FILETIME, GENERIC_READ, INVALID_HANDLE_VALUE, MAX_PATH};
 use windows_sys::Win32::Storage::FileSystem::{
     CreateFileW, FILE_ATTRIBUTE_NORMAL, FILE_SHARE_READ, FILE_SHARE_WRITE, OPEN_EXISTING,
 };
@@ -28,6 +31,7 @@ use windows_sys::Win32::System::Power::{
     IOCTL_BATTERY_QUERY_TAG, PowerDeviceD0, PowerDeviceD1, PowerDeviceD2, PowerDeviceD3,
     SYSTEM_BATTERY_STATE, SYSTEM_POWER_STATUS, SystemBatteryState,
 };
+use windows_sys::Win32::System::SystemInformation::GetSystemDirectoryW;
 use windows_sys::Win32::System::Threading::GetSystemTimes;
 
 use crate::instance::Handle;
@@ -130,12 +134,8 @@ impl Sensors for WindowsSensors {
 
     /// See [`NvmlSlot::read`] for when NVML starts and closes.
     fn gpu(&mut self) -> io::Result<GpuReading> {
-        self.nvml.read(
-            Instant::now,
-            || Nvml::init().map_err(io::Error::other),
-            read_nvml,
-            nvidia_awake,
-        )
+        self.nvml
+            .read(Instant::now, start_nvml, read_nvml, nvidia_awake)
     }
 }
 
@@ -210,6 +210,32 @@ impl<N> NvmlSlot<N> {
         self.failed = None;
         start().inspect_err(|_| self.closed = Some(now()))
     }
+}
+
+/// Starts NVML from its full path, so Windows' DLL search order can't load
+/// an `nvml.dll` from the app's or the current folder instead (ticket 149).
+fn start_nvml() -> io::Result<Nvml> {
+    let path = nvml_path()?;
+    Nvml::builder()
+        .lib_path(path.as_os_str())
+        .init()
+        .map_err(io::Error::other)
+}
+
+/// `nvml.dll` in the System32 folder, where the NVIDIA driver puts it.
+fn nvml_path() -> io::Result<PathBuf> {
+    let mut buffer = [0_u16; MAX_PATH as usize];
+    // SAFETY: the buffer is `MAX_PATH` wide characters long; Windows writes
+    // only inside it.
+    let length = unsafe { GetSystemDirectoryW(buffer.as_mut_ptr(), MAX_PATH) } as usize;
+    if length == 0 {
+        return Err(io::Error::last_os_error());
+    }
+    if length >= buffer.len() {
+        return Err(io::Error::other("the System32 path is too long"));
+    }
+    let folder = PathBuf::from(OsString::from_wide(&buffer[..length]));
+    Ok(folder.join("nvml.dll"))
 }
 
 fn read_nvml(nvml: &Nvml) -> io::Result<GpuReading> {
@@ -482,6 +508,20 @@ mod tests {
             dwLowDateTime: low,
             dwHighDateTime: high,
         }
+    }
+
+    #[test]
+    fn nvml_is_loaded_from_the_system_folder_by_its_full_path() {
+        let path = nvml_path().unwrap();
+        assert!(path.is_absolute(), "{}", path.display());
+        let tail = path.strip_prefix(path.parent().unwrap().parent().unwrap());
+        assert!(
+            tail.unwrap()
+                .to_string_lossy()
+                .eq_ignore_ascii_case(r"System32\nvml.dll"),
+            "{}",
+            path.display()
+        );
     }
 
     #[test]
