@@ -39,7 +39,7 @@ pub fn report_usb_suspend(usb: UsbId) {
             let reads =
                 platform::usb_interfaces(usb.vendor_id, usb.product_id, count, SUSPEND_VALUE);
             let state = usb_suspend(&reads, count);
-            if state == UsbSuspend::On {
+            if shows_on(&state) {
                 SUSPEND_ON.store(true, Ordering::Relaxed);
             }
             if let Some(line) = usb_suspend_report(&state) {
@@ -116,6 +116,11 @@ fn suspend_on(value: &RegValue) -> Option<bool> {
         1 => Some(true),
         _ => None,
     }
+}
+
+/// Whether the window says suspend is on: only for a read that says so.
+fn shows_on(state: &UsbSuspend) -> bool {
+    *state == UsbSuspend::On
 }
 
 /// The log line for the state, if it needs one.
@@ -286,6 +291,13 @@ mod tests {
         );
         let state = usb_suspend(&reads, usb.hid_interfaces);
         assert!(!odd(&state), "{state:?}");
+    }
+
+    #[test]
+    fn only_on_shows_on_in_the_window() {
+        assert!(shows_on(&UsbSuspend::On));
+        assert!(!shows_on(&UsbSuspend::Off));
+        assert!(!shows_on(&UsbSuspend::Odd("interface MI_02: gone".into())));
     }
 
     #[test]
