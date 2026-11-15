@@ -79,7 +79,7 @@ thread_local! {
 }
 
 fn main() -> ExitCode {
-    match run_caught(run) {
+    match limit_dll_search().and_then(|()| run_caught(run)) {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
             report(&error.to_string());
@@ -87,6 +87,13 @@ fn main() -> ExitCode {
             ExitCode::FAILURE
         }
     }
+}
+
+/// Limits the DLL search to System32 before any DLL is loaded by name, or
+/// stops the start (ticket 223).
+fn limit_dll_search() -> Result<(), Box<dyn std::error::Error>> {
+    platform::limit_dll_search()
+        .map_err(|error| format!("cannot limit the DLL search to System32: {error}").into())
 }
 
 /// Runs `run`; a panic (a bug) it lets out ends as the error

@@ -17,6 +17,11 @@ const KEYS_RUN: Duration = Duration::from_secs(60);
 const KEY_READ_WAIT: Duration = Duration::from_millis(250);
 
 fn main() -> ExitCode {
+    // Before any DLL is loaded by name (ticket 223).
+    if let Err(error) = platform::limit_dll_search() {
+        eprintln!("cannot limit the DLL search to System32: {error}");
+        return ExitCode::FAILURE;
+    }
     let args: Vec<String> = std::env::args().skip(1).collect();
     match Command::parse(args.iter().map(String::as_str)) {
         Some(Command::Probe) => probe(),

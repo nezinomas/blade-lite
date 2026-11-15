@@ -214,7 +214,8 @@ impl<N> NvmlSlot<N> {
 
 /// Starts NVML from its full path, so Windows' DLL search order can't load
 /// an `nvml.dll` from the app's or the current folder instead (ticket 149).
-/// The DLLs `nvml.dll` itself loads still follow that order (ticket 223).
+/// The DLLs `nvml.dll` itself loads follow the search path set by
+/// [`limit_dll_search`](crate::limit_dll_search) (ticket 223).
 fn start_nvml() -> io::Result<Nvml> {
     let path = nvml_path()?;
     Nvml::builder()
