@@ -2,7 +2,7 @@
 
 On 2026-11-14 one cause explained many faults: Windows' USB selective suspend put the Razer USB device to sleep 2 to 5 s after each use (tickets 202, 204, 212; `docs/NOTES.md`). This review asks which guards, retries, timeouts and workarounds in the app were built against symptoms of that sleep, or against causes nobody measured, and which design choices were wrong from the start.
 
-A review only. No app code changed. The user picked two tickets to open (2026-11-15): 219 and 220 in `docs/PLAN.md`. The rest are proposals, not opened.
+A review only. No app code changed. The user picked four tickets to open (2026-11-15): 219 to 222 in `docs/PLAN.md`. The rest are proposals, not opened.
 
 ## How it was done
 
@@ -66,7 +66,7 @@ Each finding has: the place, why it was added, the evidence, the risk of keeping
 - **What is not shown.** That the lost first presses of check 16 (tickets 131, 158, 174) had the USB wake as a shared cause. Each has its own cause in the plan, and check 16 passed on 2026-11-12 with suspend still on. Ticket 174 also covers the app start, so it stays whatever the reader does.
 - **Risk of keeping.** It works today. The cost is size and churn: about 720 reopens a day; each reopen opens all 11 Razer HID collections to read their usages (`hid.rs:402`) and cancels a read; `keeps_key_state` and the kept sender exist only for the 2 min reopen.
 - **Risk of simplifying.** If a silent stale handle is real, the keys die until the next reopen; a reopen at each Windows wake notice and each hour covers that. Ticket 215's hourly read of all collections (check 51 passed) is the way back if firmware moves the keys: keep it. The keys are no safety part: a step goes through every guard (`shell.rs:761`).
-- **Recommendation.** One ticket (not opened, both reviewers, nothing sent changes): open the profile's collection; open again on a read error, at each wake notice and once an hour (that hourly open reads all, as ticket 215 does); drop the 2 min quiet-spell reopen and the kept sender. Low priority.
+- **Recommendation.** Ticket 221 (both reviewers, nothing sent changes). Its `PLAN.md` line is the brief and wins over this text: first a read-only probe of the stale handle guess; then, only if no run shows a silent stale handle, open the profile's collection, open again only after a read error, and drop the 2 min reopen; the rules of tickets 131, 174, 203, 210 and 215 stay. Low priority.
 
 ### 5. One HID error sends every setting again (keep)
 
@@ -96,7 +96,7 @@ Each finding has: the place, why it was added, the evidence, the risk of keeping
 
 - **Place.** `crates/blade-lite/src/shell/ticks.rs:25` and `155`, `crates/blade-lite/src/app.rs:355`.
 - **Evidence it is no suspend effect.** The probe `the_users_custom_with_and_without_the_app_reads` ran one half with the app's reads each second, which keeps the USB device awake (it sleeps only after 2 to 5 s idle), and the fans still held 2900 RPM. The user saw the same with the window open.
-- **Recommendation.** Keep. No check needed.
+- **Recommendation.** Keep the resend. Why the fans stall is still not known; ticket 222 (a) looks for the cause.
 
 ### 9. Guards that stay as they are
 
@@ -133,16 +133,19 @@ Opened in `docs/PLAN.md` (user's pick, 2026-11-15; 218 is in use on another thre
 
 - **219** Wake probe: a read-only `cargo hw` test (app quit) that waits for Windows' wake notice, then reads the firmware version at once and each 100 ms for 3 s, and prints each time and result, with the device's power state and suspend values first (findings 1, 10). Both reviewers. Laptop check 52.
 - **220** Show "USB suspend is on" in the window; the installer runs or offers the script (finding 7). Both reviewers.
+- **221** The key reader (finding 4): first a read-only probe of a key handle kept over a sleep and a hibernate, then make the reader small with what it shows. Both reviewers. Low priority. Laptop check 53.
+- **222** Find the causes behind three workarounds that work but have no proven cause: the fan targets sent again after 2 s (ticket 173, finding 8), the lid logo sent again after each sleep (ticket 44, finding 11), and the 60 Hz tried up to 10 times after a wake (ticket 82; not in this review, from the user's request). Investigation first. One reviewer for notes, both for any code. Laptop check 54.
 
 Proposed, not opened, with no number yet (`PLAN.md` gives one when a ticket is opened). In the order I would do them:
 
 - After 219: remove the late heat read skip while power events come, and decide the wake pause with the user (findings 1, 3). Both reviewers.
 - Count throttled read failures in the log, and log failed charger reads on polls (finding 6). Both reviewers. Low priority.
-- Make the key reader small (finding 4). Both reviewers. Low priority.
 - After 219, if at all: the quit preset at a sleep notice in a wake's pause, only when the last sleep's quit preset did not go (finding 2). Both reviewers. The user decides.
 
-## Laptop check
+## Laptop checks
 
 - **52** Wake probe (ticket 219), after check 26 ends (the app must be quit). The user quits the app, starts the probe, sleeps from the Start menu and wakes, then closes the lid (hibernate) and opens it. Claude reads the output. It goes into "Still to check on the laptop" when ticket 219 is built.
+- **53** Key handle probe (ticket 221): as check 52, and the user presses Fn once after each wake.
+- **54** Lid logo probe and the 60 Hz log (ticket 222, parts b and c). The steps are in the ticket's `PLAN.md` line.
 
 Blocked: nothing was blocked.
