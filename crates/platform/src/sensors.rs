@@ -475,6 +475,26 @@ fn device_power_state(id: &str) -> io::Result<DEVICE_POWER_STATE> {
     Ok(data.PD_MostRecentPowerState)
 }
 
+/// The power state Windows last saw the device `id` (an instance ID) in,
+/// named for a probe's output, such as `D2 (asleep)`. Reading it does not
+/// wake the device.
+///
+/// # Errors
+///
+/// The Windows error if the device or its power data can't be found.
+pub fn device_power(id: &str) -> io::Result<String> {
+    device_power_state(id).map(power_state_name)
+}
+
+/// D0 to D3 by name, any other state as its number.
+fn power_state_name(state: DEVICE_POWER_STATE) -> String {
+    match is_awake(state) {
+        Ok(true) => format!("D{} (awake)", state - PowerDeviceD0),
+        Ok(false) => format!("D{} (asleep)", state - PowerDeviceD0),
+        Err(_) => format!("state {state} (not known)"),
+    }
+}
+
 /// D0 is awake, D1 to D3 are the sleep states; any other state is not
 /// known.
 fn is_awake(state: DEVICE_POWER_STATE) -> io::Result<bool> {
@@ -836,5 +856,12 @@ mod tests {
         assert!(is_awake(PowerDeviceD0).unwrap());
         assert!(!is_awake(PowerDeviceD3).unwrap());
         assert!(is_awake(PowerDeviceUnspecified).is_err());
+    }
+
+    #[test]
+    fn power_states_are_named_and_others_shown_as_numbers() {
+        assert_eq!(power_state_name(PowerDeviceD0), "D0 (awake)");
+        assert_eq!(power_state_name(PowerDeviceD2), "D2 (asleep)");
+        assert_eq!(power_state_name(PowerDeviceUnspecified), "state 0 (not known)");
     }
 }
