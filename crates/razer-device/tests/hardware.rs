@@ -2267,7 +2267,9 @@ const FRESH_READ_WAIT: Duration = Duration::from_millis(100);
 
 /// A read that ended long before its wait with no report and no error:
 /// ticket 131's broken handle. It counts as a failure, not as a silent
-/// handle, and the thread pauses rather than spins.
+/// handle, and the thread pauses rather than spins. The time the read
+/// took is printed with it: whether a read's wait counts time asleep is not
+/// checked, so a read over a sleep could end early and look quick.
 const QUICK: &str = "a read returned at once with no report and no error (ticket 131's case)";
 
 /// What one key handle's thread saw.
@@ -2428,9 +2430,10 @@ fn spawn_kept_key_reader(path: String, tag: &str, notes: std::sync::mpsc::Sender
                 let mut buffer = [0; 64];
                 let started = std::time::Instant::now();
                 let read = match device.read(&mut buffer, KEPT_READ_WAIT) {
-                    Ok(0) if started.elapsed() < KEPT_READ_WAIT / 2 => {
-                        KeyRead::Failed(QUICK.into())
-                    }
+                    Ok(0) if started.elapsed() < KEPT_READ_WAIT / 2 => KeyRead::Failed(format!(
+                        "{QUICK}, after {} ms",
+                        started.elapsed().as_millis()
+                    )),
                     Ok(0) => continue,
                     Ok(read) => KeyRead::Report(buffer[..read].to_vec()),
                     Err(error) => KeyRead::Failed(error.to_string()),
@@ -2484,9 +2487,10 @@ fn spawn_fresh_key_readers(
                 let mut buffer = [0; 64];
                 let started = std::time::Instant::now();
                 let read = match device.read(&mut buffer, FRESH_READ_WAIT) {
-                    Ok(0) if started.elapsed() < FRESH_READ_WAIT / 2 => {
-                        KeyRead::Failed(QUICK.into())
-                    }
+                    Ok(0) if started.elapsed() < FRESH_READ_WAIT / 2 => KeyRead::Failed(format!(
+                        "{QUICK}, after {} ms",
+                        started.elapsed().as_millis()
+                    )),
                     Ok(0) => continue,
                     Ok(read) => KeyRead::Report(buffer[..read].to_vec()),
                     Err(error) => KeyRead::Failed(error.to_string()),
