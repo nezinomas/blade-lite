@@ -2470,6 +2470,47 @@ fn a_wake_60_hz_refused_on_battery_is_set_on_a_later_tick_with_no_error() {
 }
 
 #[test]
+fn each_set_of_a_wake_60_hz_is_logged_with_its_number_and_the_time_since_the_wake() {
+    let f = fixture(Config {
+        sixty_hz_on_battery: true,
+        ..Config::default()
+    });
+    FAKE_ON_BATTERY.set(true);
+    let (sender, receiver) = std::sync::mpsc::channel();
+    f.shell.listen_for_power(receiver);
+    sender.send(PowerEvent::OnBattery).unwrap();
+    f.shell.tick();
+    f.shell.app().machine_mut().displays.0.current.hz = 240;
+    f.shell.app().machine_mut().displays.1 = 1;
+    sender.send(PowerEvent::Resumed).unwrap();
+    f.shell.tick();
+    i_slint_backend_testing::mock_elapsed_time(
+        blade_core::RESUME_PAUSE + std::time::Duration::from_millis(1),
+    );
+
+    f.shell.tick();
+
+    let log = std::fs::read_to_string(log_path()).unwrap();
+    let has = |parts: &[&str]| {
+        log.lines()
+            .any(|line| parts.iter().all(|part| line.contains(part)))
+    };
+    let wake = "s after the wake notice): 60 Hz";
+    assert!(has(&[
+        "rate set 1 (",
+        wake,
+        "failed",
+        "reports 3840x2400 240 Hz"
+    ]));
+    assert!(has(&[
+        "rate set 2 (",
+        wake,
+        "worked",
+        "reports 3840x2400 60 Hz"
+    ]));
+}
+
+#[test]
 fn a_wake_60_hz_refused_every_time_shows_only_the_last_error() {
     let f = fixture(Config {
         sixty_hz_on_battery: true,

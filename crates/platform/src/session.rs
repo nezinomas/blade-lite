@@ -214,17 +214,17 @@ pub fn session_locked() -> Option<bool> {
     if read == 0 || buffer.is_null() {
         return None;
     }
-    let flags = (size as usize >= size_of::<WTSINFOEXW>())
-        .then(|| {
-            // SAFETY: the buffer holds a whole `WTSINFOEXW`, and the union
-            // is read only at level 1, the level whose type it is.
-            let info = unsafe { &*buffer.cast::<WTSINFOEXW>() };
-            (info.Level == 1).then(|| unsafe { info.Data.WTSInfoExLevel1.SessionFlags })
-        })
-        .flatten();
-    // SAFETY: the buffer came from the call above and is freed once.
+    let info = (size as usize >= size_of::<WTSINFOEXW>()).then(|| {
+        // SAFETY: the buffer holds a whole `WTSINFOEXW`; it is copied out
+        // with no assumption on its alignment.
+        unsafe { buffer.cast::<WTSINFOEXW>().read_unaligned() }
+    });
+    // SAFETY: the buffer came from the call above and is freed once; the
+    // copy above does not point into it.
     unsafe { WTSFreeMemory(buffer.cast()) };
-    lock_state(flags?)
+    let info = info.filter(|info| info.Level == 1)?;
+    // SAFETY: at level 1 the union holds its level 1 type.
+    lock_state(unsafe { info.Data.WTSInfoExLevel1.SessionFlags })
 }
 
 /// The lock state from `SessionFlags`: `WTS_SESSIONSTATE_LOCK` (0) or

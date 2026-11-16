@@ -553,6 +553,7 @@ impl<P: Parts> Shell<P> {
             return;
         }
         if event == PowerEvent::Resumed {
+            self.app.borrow_mut().heard_wake();
             report(&format!(
                 "Windows says the laptop woke ({}), so the settings go again after the pause",
                 lid_and_screen(P::lid_open(), P::screen_on())

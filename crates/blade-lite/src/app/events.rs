@@ -1,6 +1,8 @@
 //! What the app does at start, on a power change, on a touchpad switch, on
 //! a Num Lock or mic mute change and on quit.
 
+use std::time::Instant;
+
 use blade_core::{
     ApplyError, Config, Controller, DisplayError, Preset, Query, apply, apply_performance,
     full_power_charger, paint_red_keys, touchpad_on,
@@ -8,7 +10,7 @@ use blade_core::{
 use platform::{DisplayApi, KeyInjector, PowerEvent, Registry};
 use razer_proto::RedKeys;
 
-use super::{App, AppError, NOT_UNDERSTOOD, Power};
+use super::{App, AppError, NOT_UNDERSTOOD, Power, RateLog};
 use crate::report;
 
 impl<C, D, R, K> App<C, D, R, K>
@@ -128,6 +130,7 @@ where
     pub fn on_power(&mut self, event: PowerEvent) -> Result<(), AppError> {
         // The rate is not touched, so its held error stays.
         if event == PowerEvent::Suspending {
+            self.wake_heard = None;
             return self.quit_preset();
         }
         self.held_rate_error = None;
@@ -141,7 +144,11 @@ where
                 // out in the sleep, before its power event comes. An
                 // unknown source leaves the rate alone.
                 let rate = if self.source_known {
-                    let displays = &mut self.machine.displays;
+                    self.rate_sets.begin(self.wake_heard);
+                    let displays = &mut RateLog {
+                        displays: &mut self.machine.displays,
+                        sets: &mut self.rate_sets,
+                    };
                     let on_battery = self.power == Power::Battery;
                     let rate = self
                         .battery_rate
@@ -286,7 +293,11 @@ where
     ///
     /// See [`AppError`].
     pub fn on_quit(&mut self) -> Result<(), AppError> {
-        Ok(self.battery_rate.put_back(&mut self.machine.displays)?)
+        self.rate_sets.begin(None);
+        Ok(self.battery_rate.put_back(&mut RateLog {
+            displays: &mut self.machine.displays,
+            sets: &mut self.rate_sets,
+        })?)
     }
 
     /// Sends Balanced (Silent if Silent runs) as the app quits: no app is
@@ -414,12 +425,24 @@ where
         if !self.battery_rate_pending() {
             return Ok(());
         }
-        let displays = &mut self.machine.displays;
+        let displays = &mut RateLog {
+            displays: &mut self.machine.displays,
+            sets: &mut self.rate_sets,
+        };
         Ok(self.battery_rate.retry(&self.config, displays)?)
     }
 
+    /// The wake notice came now: the rate's log lines count from it.
+    pub fn heard_wake(&mut self) {
+        self.wake_heard = Some(Instant::now());
+    }
+
     pub(super) fn follow_power(&mut self, event: PowerEvent) -> Result<(), AppError> {
-        let displays = &mut self.machine.displays;
+        self.rate_sets.begin(None);
+        let displays = &mut RateLog {
+            displays: &mut self.machine.displays,
+            sets: &mut self.rate_sets,
+        };
         Ok(self.battery_rate.on_event(event, &self.config, displays)?)
     }
 }
