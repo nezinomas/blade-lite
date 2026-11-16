@@ -22,7 +22,8 @@ fn file_offset(bytes: &[u8], sections: usize, count: usize, rva: usize) -> usize
         .map(|index| sections + index * 40)
         .find_map(|section| {
             let start = u32_at(bytes, section + 12);
-            let size = u32_at(bytes, section + 8).max(u32_at(bytes, section + 16));
+            // Only the part with raw data has a place in the file.
+            let size = u32_at(bytes, section + 16);
             (start..start + size)
                 .contains(&rva)
                 .then(|| rva - start + u32_at(bytes, section + 20))
@@ -39,10 +40,9 @@ pub fn dependent_load_flags_offset(bytes: &[u8]) -> Option<usize> {
     let coff = pe + 4;
     let optional = coff + 20;
     assert_eq!(u16_at(bytes, optional), 0x20B, "not a 64-bit exe");
-    assert!(
-        u32_at(bytes, optional + 108) > LOAD_CONFIG,
-        "no load config entry"
-    );
+    if u32_at(bytes, optional + 108) <= LOAD_CONFIG {
+        return None;
+    }
     let sections = optional + u16_at(bytes, coff + 16);
     let rva = u32_at(bytes, optional + 112 + LOAD_CONFIG * 8);
     if rva == 0 {
