@@ -253,6 +253,24 @@ fn narrator_opens_and_closes_a_group() {
     assert!(!is_open(&f, "Settings"));
 }
 
+/// Ticket 232: the header is checkable and checked while its group is open.
+/// AccessKit then gives it the UI Automation toggle pattern: Narrator's
+/// invoke toggles it, and a change raises a toggle-state event that Narrator
+/// says. A changed description alone it does not say.
+#[test]
+fn a_group_header_tells_narrator_its_state_as_a_toggle() {
+    let f = fixture(Config::default());
+    let settings = header(&f, "Settings");
+    assert_eq!(settings.accessible_checkable(), Some(true));
+    assert_eq!(settings.accessible_checked(), Some(false));
+
+    settings.invoke_accessible_default_action();
+    assert_eq!(settings.accessible_checked(), Some(true));
+
+    settings.invoke_accessible_default_action();
+    assert_eq!(settings.accessible_checked(), Some(false));
+}
+
 #[test]
 fn the_groups_are_closed_again_when_the_window_opens_again() {
     let f = fixture(Config::default());
