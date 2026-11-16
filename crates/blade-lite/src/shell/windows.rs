@@ -9,7 +9,7 @@ use platform::{hide_caption_buttons, round_corners, set_mica, work_area, work_ar
 use raw_window_handle::{HasWindowHandle, RawWindowHandle};
 use slint::platform::WindowEvent;
 use slint::winit_030::{EventResult, WinitWindowAccessor, winit};
-use slint::{ComponentHandle, PhysicalPosition, RenderingState, Timer};
+use slint::{ComponentHandle, PhysicalPosition, Timer};
 
 use super::{Parts, Shell};
 use crate::bind;
@@ -49,29 +49,6 @@ impl<P: Parts> Shell<P> {
             }
             EventResult::Propagate
         });
-        self.time_redraws(self.window.window(), "window redraw");
-        self.time_redraws(self.flyout.window(), "flyout redraw");
-        self.time_redraws(self.popup.window(), "popup redraw");
-    }
-
-    /// Adds each redraw of `window` to the timed steps (ticket 214): the
-    /// draw only, not the hand-over to the screen. A renderer that can't
-    /// say so is logged and left untimed.
-    fn time_redraws(self: &Rc<Self>, window: &slint::Window, name: &'static str) {
-        let shell = Rc::downgrade(self);
-        let mut began = None;
-        let timed = window.set_rendering_notifier(move |state, _| match state {
-            RenderingState::BeforeRendering => began = Some(Instant::now()),
-            RenderingState::AfterRendering => {
-                if let (Some(began), Some(shell)) = (began.take(), shell.upgrade()) {
-                    shell.steps.add(name, began.elapsed());
-                }
-            }
-            _ => {}
-        });
-        if let Err(error) = timed {
-            report(&format!("the {name} is not timed: {error}"));
-        }
     }
 
     /// The window brought back (restored, Alt+Tab) gets the focus.
