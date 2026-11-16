@@ -30,6 +30,14 @@ fn window() {
 }
 
 #[test]
+fn window_with_the_groups_open() {
+    let f = fixture(Config::default());
+    click(f.shell.window(), Button, "Settings");
+    click(f.shell.window(), Button, "About");
+    check("window-groups-open", f.shell.window().window());
+}
+
+#[test]
 fn window_with_custom_sliders() {
     let f = fixture(Config {
         preset: Preset::Custom,
