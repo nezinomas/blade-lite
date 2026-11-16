@@ -34,6 +34,8 @@ fn header(f: &Fixture, name: &str) -> ElementHandle {
 fn is_open(f: &Fixture, name: &str) -> bool {
     let state = header(f, name).accessible_description().unwrap();
     assert!(state == "Open" || state == "Closed", "{state}");
+    // Ticket 232: the toggle state Narrator reads agrees with the description.
+    assert_eq!(header(f, name).accessible_checked(), Some(state == "Open"));
     state == "Open"
 }
 
@@ -255,8 +257,8 @@ fn narrator_opens_and_closes_a_group() {
 
 /// Ticket 232: the header is checkable and checked while its group is open.
 /// AccessKit then gives it the UI Automation toggle pattern: Narrator's
-/// invoke toggles it, and a change raises a toggle-state event that Narrator
-/// says. A changed description alone it does not say.
+/// invoke toggles it, and a change raises a toggle-state event, which Narrator
+/// should say (laptop check). A changed description it did not say.
 #[test]
 fn a_group_header_tells_narrator_its_state_as_a_toggle() {
     let f = fixture(Config::default());
