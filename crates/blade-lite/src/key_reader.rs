@@ -19,10 +19,12 @@ pub const KEY_READ_WAIT: Duration = Duration::from_millis(100);
 /// short reads last at most [`blade_core::FN_HOLD_LIMIT`] per Fn press.
 pub const ENTER_READ_WAIT: Duration = Duration::from_millis(5);
 
-/// How long the reports may be quiet before they are opened again. A
-/// handle that went stale over a sleep may never fail, so this keeps the
-/// key from dying without a word. With one collection read, one read
-/// waits it all, so the thread does not wake to count quiet reads (a
+/// How long the reports may be quiet before a quiet spell is counted, the
+/// clock of ticket 215's way back ([`UnheardSpells`]). The same handle is
+/// read on after it: a handle kept over a sleep and a hibernate heard the
+/// key (ticket 221, check 61), so the reports are opened again only after
+/// a read error or for the read-all spell. With one collection read, one
+/// read waits it all, so the thread does not wake to count quiet reads (a
 /// key report ends the wait at once; ticket 188). Any other report
 /// neither ends the wait nor counts as a report (ticket 203).
 pub const KEY_QUIET_SPELL: Duration = Duration::from_secs(120);
@@ -43,11 +45,20 @@ pub const UNHEARD_SPELLS_BEFORE_ALL: u32 = 30;
 pub struct UnheardSpells(u32);
 
 impl UnheardSpells {
+    /// Whether the reports are opened again after a quiet spell, on an
+    /// open that read all collections (`read_all`) or not: after the
+    /// read-all spell, to go back to one collection, and when the read-all
+    /// spell is due. Else the same handle is read on (ticket 221).
+    #[must_use]
+    pub fn opens_again(self, read_all: bool) -> bool {
+        read_all || self.0 >= UNHEARD_SPELLS_BEFORE_ALL
+    }
+
     /// Whether the next open reads all key collections, for one spell. The
     /// count starts again at once, so an open that fails or ends short
     /// does not make every later open read all (ticket 215 review).
     pub fn take_read_all(&mut self) -> bool {
-        let read_all = self.0 >= UNHEARD_SPELLS_BEFORE_ALL;
+        let read_all = self.opens_again(false);
         if read_all {
             *self = Self::default();
         }
@@ -144,8 +155,10 @@ pub enum KeyEvent {
 /// Why the reader loop ended.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ReaderEnd {
-    /// The reports were quiet too long: open them again.
-    Reopen,
+    /// The reports were quiet for a whole [`KEY_QUIET_SPELL`] (or reads
+    /// that did not wait added up to one, a broken handle: see
+    /// [`ReaderEnd::keeps_key_state`]).
+    QuietSpell,
     /// A read failed, for this reason: open them again.
     Failed(String),
     /// The app is quitting.
@@ -181,7 +194,7 @@ impl ReaderEnd {
     /// key counts once (ticket 174).
     #[must_use]
     pub fn keeps_key_state(&self, ran: Duration) -> bool {
-        *self == Self::Reopen && ran >= KEY_QUIET_SPELL / 2
+        *self == Self::QuietSpell && ran >= KEY_QUIET_SPELL / 2
     }
 
     /// The key state for the next open, after a reader that ran for `ran`
@@ -249,7 +262,7 @@ pub fn step_on_presses(
             return ReaderEnd::Quit;
         }
     }
-    ReaderEnd::Reopen
+    ReaderEnd::QuietSpell
 }
 
 /// How long the next read waits: very short while Enter is watched, the
@@ -303,6 +316,22 @@ mod tests {
         // The open failed or ended short: nothing counted, still not again.
         assert!(!unheard.take_read_all());
         assert_eq!(unheard, UnheardSpells::default());
+    }
+
+    #[test]
+    fn a_quiet_spell_reads_on_on_the_same_handle() {
+        assert!(!UnheardSpells::default().opens_again(false));
+        assert!(!unheard(UNHEARD_SPELLS_BEFORE_ALL - 1).opens_again(false));
+    }
+
+    #[test]
+    fn a_quiet_spell_opens_again_when_all_are_due_to_be_read() {
+        assert!(unheard(UNHEARD_SPELLS_BEFORE_ALL).opens_again(false));
+    }
+
+    #[test]
+    fn a_read_all_spell_opens_again_when_it_ends() {
+        assert!(UnheardSpells::default().opens_again(true));
     }
 
     #[test]

@@ -131,7 +131,7 @@ fn a_long_quiet_spell_reopens_the_reports() {
         },
     );
 
-    assert_eq!(end, ReaderEnd::Reopen);
+    assert_eq!(end, ReaderEnd::QuietSpell);
     assert_eq!(calls, 0);
     // It did not read past the quiet spell to the failing read.
     assert!(source.0.is_empty());
@@ -140,18 +140,22 @@ fn a_long_quiet_spell_reopens_the_reports() {
 #[test]
 fn only_a_quiet_spell_of_full_length_opens_again_at_once() {
     let spell = KEY_QUIET_SPELL;
-    assert_eq!(ReaderEnd::Reopen.pause_before_open(spell), Duration::ZERO);
     assert_eq!(
-        ReaderEnd::Reopen.pause_before_open(spell / 2),
+        ReaderEnd::QuietSpell.pause_before_open(spell),
         Duration::ZERO
     );
     assert_eq!(
-        ReaderEnd::Reopen.pause_before_open((spell / 2).saturating_sub(Duration::from_millis(1))),
+        ReaderEnd::QuietSpell.pause_before_open(spell / 2),
+        Duration::ZERO
+    );
+    assert_eq!(
+        ReaderEnd::QuietSpell
+            .pause_before_open((spell / 2).saturating_sub(Duration::from_millis(1))),
         KEY_REOPEN_PAUSE
     );
     // Reads that came back at once are a broken handle: pause.
     assert_eq!(
-        ReaderEnd::Reopen.pause_before_open(Duration::from_secs(1)),
+        ReaderEnd::QuietSpell.pause_before_open(Duration::from_secs(1)),
         KEY_REOPEN_PAUSE
     );
     assert_eq!(
@@ -462,11 +466,11 @@ fn the_brightness_is_read_while_fn_is_held_then_once_more_on_brightness_keys() {
 #[test]
 fn only_a_full_quiet_spell_keeps_the_key_state() {
     let spell = KEY_QUIET_SPELL;
-    assert!(ReaderEnd::Reopen.keeps_key_state(spell));
-    assert!(ReaderEnd::Reopen.keeps_key_state(spell / 2));
+    assert!(ReaderEnd::QuietSpell.keeps_key_state(spell));
+    assert!(ReaderEnd::QuietSpell.keeps_key_state(spell / 2));
     // Quiet reads that did not wait: a broken handle, as a failure.
     let short = (spell / 2).saturating_sub(Duration::from_millis(1));
-    assert!(!ReaderEnd::Reopen.keeps_key_state(short));
+    assert!(!ReaderEnd::QuietSpell.keeps_key_state(short));
     assert!(!ReaderEnd::Failed("gone".into()).keeps_key_state(spell));
     assert!(!ReaderEnd::Quit.keeps_key_state(spell));
 }
@@ -506,8 +510,11 @@ fn the_first_press_after_any_reopen_counts() {
     // A first report listing the key counts even when the key's earlier
     // state is unknown, as after a broken handle or a failure (ticket 174).
     let spell = KEY_QUIET_SPELL;
-    assert_eq!(power_key_calls_after(&ReaderEnd::Reopen, spell), 1);
-    assert_eq!(power_key_calls_after(&ReaderEnd::Reopen, Duration::ZERO), 1);
+    assert_eq!(power_key_calls_after(&ReaderEnd::QuietSpell, spell), 1);
+    assert_eq!(
+        power_key_calls_after(&ReaderEnd::QuietSpell, Duration::ZERO),
+        1
+    );
     assert_eq!(
         power_key_calls_after(&ReaderEnd::Failed("gone".into()), spell),
         1
@@ -518,7 +525,7 @@ fn the_first_press_after_any_reopen_counts() {
 fn a_key_stuck_down_does_not_step_again_after_a_quiet_spell() {
     let spell = KEY_QUIET_SPELL;
     let held = [0x04, 0xD3];
-    let reopen = power_key_calls_after_seeing(&held, &ReaderEnd::Reopen, spell);
+    let reopen = power_key_calls_after_seeing(&held, &ReaderEnd::QuietSpell, spell);
     assert_eq!(reopen, 0);
     let failed = power_key_calls_after_seeing(&held, &ReaderEnd::Failed("gone".into()), spell);
     assert_eq!(failed, 1);
@@ -555,7 +562,7 @@ fn a_single_collection_waits_out_the_quiet_spell_in_one_read() {
         |_| true,
     );
 
-    assert_eq!(end, ReaderEnd::Reopen);
+    assert_eq!(end, ReaderEnd::QuietSpell);
     assert_eq!(source.1, [KEY_QUIET_SPELL]);
 }
 
@@ -575,7 +582,7 @@ fn a_single_collection_waits_less_while_fn_is_held_and_the_spell_starts_again() 
         |_| true,
     );
 
-    assert_eq!(end, ReaderEnd::Reopen);
+    assert_eq!(end, ReaderEnd::QuietSpell);
     assert_eq!(
         source.1,
         [
