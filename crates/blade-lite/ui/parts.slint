@@ -137,6 +137,8 @@ export component GroupTitle inherits VerticalLayout {
 export component GroupHeader inherits VerticalLayout {
     in property <string> text;
     in-out property <bool> open;
+    // Narrator's focus action lands on the header; the keys go to the scope.
+    forward-focus: focus;
     padding-top: 20px;
     padding-bottom: 6px;
     accessible-role: button;
@@ -183,7 +185,10 @@ export component GroupHeader inherits VerticalLayout {
         }
         focus := FocusScope {
             key-pressed(event) => {
-                if event.text == Key.Return || event.text == " " {
+                // Not on a held key's repeat, nor with Ctrl or Alt (Alt+Space
+                // is the window menu).
+                if (event.text == Key.Return || event.text == " ") && !event.repeat
+                    && !event.modifiers.control && !event.modifiers.alt {
                     root.open = !root.open;
                     return accept;
                 }

@@ -8,13 +8,13 @@ use i_slint_backend_testing::ElementHandle;
 use platform::FileDialog;
 use razer_proto::{BLADE_18, PerfMode};
 use slint::ComponentHandle;
-use slint::platform::{Key, WindowEvent};
+use slint::platform::Key;
 use tempfile::TempDir;
 
 use super::clicks::resuming;
 use super::{
     FAKE_DIALOGS, FAKE_HELD, FAKE_HOLD, FAKE_PICKED, FakePick, Fixture, click, control, fixture,
-    selected_preset,
+    press_key, selected_preset, shift_tab,
 };
 
 /// The user picks `name` in a folder of its own, which lasts as long as
@@ -266,23 +266,6 @@ fn the_groups_are_closed_again_when_the_window_opens_again() {
     assert!(!is_open(&f, "About"));
 }
 
-/// Presses `key` on the window's keyboard.
-fn key(f: &Fixture, key: Key, shift: bool) {
-    let window = f.shell.window().window();
-    if shift {
-        window.dispatch_event(WindowEvent::KeyPressed {
-            text: Key::Shift.into(),
-        });
-    }
-    window.dispatch_event(WindowEvent::KeyPressed { text: key.into() });
-    window.dispatch_event(WindowEvent::KeyReleased { text: key.into() });
-    if shift {
-        window.dispatch_event(WindowEvent::KeyReleased {
-            text: Key::Shift.into(),
-        });
-    }
-}
-
 /// The headers take the keyboard focus, and Enter or Space opens and closes
 /// them, so Export, Import and Reset can still be reached without a mouse.
 /// Shift+Tab from the start goes to the last control: the About header.
@@ -290,14 +273,14 @@ fn key(f: &Fixture, key: Key, shift: bool) {
 fn the_keyboard_opens_and_closes_a_group() {
     let f = fixture(Config::default());
 
-    key(&f, Key::Tab, true);
-    key(&f, Key::Return, false);
+    shift_tab(&f);
+    press_key(&f, Key::Return);
     assert!(is_open(&f, "About"));
-    key(&f, Key::Space, false);
+    press_key(&f, Key::Space);
     assert!(!is_open(&f, "About"));
 
-    key(&f, Key::Tab, true);
-    key(&f, Key::Space, false);
+    shift_tab(&f);
+    press_key(&f, Key::Space);
     assert!(is_open(&f, "Settings"));
 }
 

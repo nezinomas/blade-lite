@@ -16,7 +16,7 @@ use slint::{ComponentHandle, LogicalPosition, Model};
 use super::{
     FAKE_MIC, FAKE_NUM_LOCK, FAKE_ON_BATTERY, FAKE_RELEASED, FAKE_SCREEN_ON, FAKE_SOURCE_UNKNOWN,
     Fixture, assert_the_battery_quit_preset, click, control, fixture, log_path,
-    manual_fan_with_boosts, selected_preset,
+    manual_fan_with_boosts, press_key, selected_preset,
 };
 use crate::fakes::{FakeCharger, brightness_commands, lighting_commands, logo};
 
@@ -2873,14 +2873,6 @@ fn a_narrator_increase_at_the_top_of_a_custom_slider_sends_nothing() {
 
     assert_eq!(sent_since(&f, before), []);
     shows_cpu_boost(&f, 3);
-}
-
-/// Presses and lets go `key` in the window, as the keyboard does.
-fn press_key(f: &Fixture, key: slint::platform::Key) {
-    let window = f.shell.window().window();
-    let text: slint::SharedString = key.into();
-    window.dispatch_event(WindowEvent::KeyPressed { text: text.clone() });
-    window.dispatch_event(WindowEvent::KeyReleased { text });
 }
 
 /// Clicks the CPU boost handle at level 1 of 0 to 3, which focuses the

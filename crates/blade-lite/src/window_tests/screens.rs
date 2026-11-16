@@ -15,11 +15,10 @@ use std::time::{Duration, Instant};
 use blade_core::{Config, Preset};
 use i_slint_backend_testing::AccessibleRole::Button;
 use platform::PowerEvent;
-use slint::platform::{Key, WindowEvent};
 use slint::{ComponentHandle, Rgba8Pixel, SharedPixelBuffer};
 use ui::PowerPill;
 
-use super::{click, fixture};
+use super::{click, fixture, shift_tab};
 
 /// A channel may differ by this much, for rounding.
 const CHANNEL_SLACK: u8 = 4;
@@ -36,20 +35,8 @@ fn window_with_the_groups_open() {
     click(f.shell.window(), Button, "Settings");
     click(f.shell.window(), Button, "About");
     // Shift+Tab puts the keyboard focus on the About header: its focus ring.
-    let window = f.shell.window().window();
-    window.dispatch_event(WindowEvent::KeyPressed {
-        text: Key::Shift.into(),
-    });
-    window.dispatch_event(WindowEvent::KeyPressed {
-        text: Key::Tab.into(),
-    });
-    window.dispatch_event(WindowEvent::KeyReleased {
-        text: Key::Tab.into(),
-    });
-    window.dispatch_event(WindowEvent::KeyReleased {
-        text: Key::Shift.into(),
-    });
-    check("window-groups-open", window);
+    shift_tab(&f);
+    check("window-groups-open", f.shell.window().window());
 }
 
 #[test]
