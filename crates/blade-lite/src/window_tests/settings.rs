@@ -7,11 +7,12 @@ use i_slint_backend_testing::AccessibleRole::Button;
 use i_slint_backend_testing::ElementHandle;
 use platform::FileDialog;
 use razer_proto::{BLADE_18, PerfMode};
+use slint::ComponentHandle;
 use tempfile::TempDir;
 
 use super::clicks::resuming;
 use super::{
-    FAKE_DIALOGS, FAKE_HELD, FAKE_HOLD, FAKE_PICKED, FakePick, Fixture, click, fixture,
+    FAKE_DIALOGS, FAKE_HELD, FAKE_HOLD, FAKE_PICKED, FakePick, Fixture, click, control, fixture,
     selected_preset,
 };
 
@@ -22,6 +23,29 @@ fn pick(name: &str) -> (TempDir, PathBuf) {
     let path = dir.path().join(name);
     FAKE_PICKED.set(FakePick::File(path.clone()));
     (dir, path)
+}
+
+/// The header of the group `name`, which opens and closes it.
+fn header(f: &Fixture, name: &str) -> ElementHandle {
+    control(f.shell.window(), Button, name)
+}
+
+fn is_open(f: &Fixture, name: &str) -> bool {
+    header(f, name).accessible_expanded().unwrap()
+}
+
+/// Opens the Settings group if it is closed, then clicks its `label` button.
+fn press(f: &Fixture, label: &str) {
+    if !is_open(f, "Settings") {
+        click(f.shell.window(), Button, "Settings");
+    }
+    click(f.shell.window(), Button, label);
+}
+
+fn shown(f: &Fixture, label: &str) -> bool {
+    ElementHandle::find_by_accessible_label(f.shell.window(), label)
+        .next()
+        .is_some()
 }
 
 fn sent_count(f: &Fixture) -> usize {
@@ -37,7 +61,7 @@ fn export_writes_the_settings_to_the_picked_file() {
     let f = fixture(saved);
     let (_dir, path) = pick("out.toml");
 
-    click(f.shell.window(), Button, "Export…");
+    press(&f, "Export…");
 
     assert_eq!(FAKE_DIALOGS.take(), [FileDialog::Save]);
     assert_eq!(Config::import(&path).unwrap(), saved);
@@ -54,7 +78,7 @@ fn import_sends_saves_and_shows_the_picked_file() {
     file.save(&path).unwrap();
     let before = sent_count(&f);
 
-    click(f.shell.window(), Button, "Import…");
+    press(&f, "Import…");
 
     assert_eq!(FAKE_DIALOGS.take(), [FileDialog::Open]);
     let sent = f.shell.app().machine().controller.inner.sent[before..].to_vec();
@@ -70,7 +94,7 @@ fn a_cancelled_dialog_changes_nothing() {
     FAKE_PICKED.set(FakePick::Cancel);
     let before = sent_count(&f);
 
-    click(f.shell.window(), Button, "Import…");
+    press(&f, "Import…");
 
     assert_eq!(sent_count(&f), before);
     assert_eq!(f.shell.window().get_error(), "");
@@ -81,7 +105,7 @@ fn a_failed_dialog_shows_its_error() {
     let f = fixture(Config::default());
     FAKE_PICKED.set(FakePick::Fail);
 
-    click(f.shell.window(), Button, "Export…");
+    press(&f, "Export…");
 
     assert!(
         f.shell
@@ -98,7 +122,7 @@ fn a_broken_import_shows_its_error_and_sends_nothing() {
     std::fs::write(&path, "preset = \"turbo\"\n").unwrap();
     let before = sent_count(&f);
 
-    click(f.shell.window(), Button, "Import…");
+    press(&f, "Import…");
 
     assert_eq!(sent_count(&f), before);
     assert!(
@@ -117,7 +141,7 @@ fn reset_sends_and_shows_the_defaults() {
     });
     let before = sent_count(&f);
 
-    click(f.shell.window(), Button, "Reset");
+    press(&f, "Reset");
 
     let sent = f.shell.app().machine().controller.inner.sent[before..].to_vec();
     assert!(sent.starts_with(&PerfMode::Balanced.commands(&BLADE_18).unwrap()));
@@ -137,8 +161,8 @@ fn one_dialog_at_a_time_and_its_answer_comes_later() {
     .unwrap();
     FAKE_HOLD.set(true);
 
-    click(f.shell.window(), Button, "Import…");
-    click(f.shell.window(), Button, "Export…");
+    press(&f, "Import…");
+    press(&f, "Export…");
 
     assert_eq!(FAKE_DIALOGS.take(), [FileDialog::Open]);
     assert_eq!(f.shell.app().config().preset, Preset::Balanced);
@@ -146,7 +170,7 @@ fn one_dialog_at_a_time_and_its_answer_comes_later() {
     FAKE_HELD.take().unwrap()();
 
     assert_eq!(f.shell.app().config().preset, Preset::Silent);
-    click(f.shell.window(), Button, "Export…");
+    press(&f, "Export…");
     assert_eq!(FAKE_DIALOGS.take(), [FileDialog::Save]);
 }
 
@@ -161,7 +185,7 @@ fn a_file_picked_while_the_laptop_wakes_says_to_try_again() {
     .save(&path)
     .unwrap();
     FAKE_HOLD.set(true);
-    click(f.shell.window(), Button, "Import…");
+    press(&f, "Import…");
     f.shell.app().machine_mut().controller.inner.sent.clear();
     resuming(&f);
 
@@ -176,11 +200,61 @@ fn a_file_picked_while_the_laptop_wakes_says_to_try_again() {
 #[test]
 fn the_window_shows_the_slint_credit() {
     let f = fixture(Config::default());
-    let shown = |label| {
-        ElementHandle::find_by_accessible_label(f.shell.window(), label)
-            .next()
-            .is_some()
-    };
-    assert!(shown("About"));
-    assert!(shown("#MadeWithSlint"));
+
+    click(f.shell.window(), Button, "About");
+
+    assert!(shown(&f, "#MadeWithSlint"));
+}
+
+/// Ticket 227: the Settings and About groups start closed.
+#[test]
+fn the_settings_and_about_groups_start_closed() {
+    let f = fixture(Config::default());
+
+    assert!(!is_open(&f, "Settings"));
+    assert!(!is_open(&f, "About"));
+    assert!(header(&f, "Settings").accessible_expandable().unwrap());
+    assert!(!shown(&f, "Export…"));
+    assert!(!shown(&f, "#MadeWithSlint"));
+}
+
+#[test]
+fn a_click_on_a_group_header_opens_and_closes_it() {
+    let f = fixture(Config::default());
+
+    click(f.shell.window(), Button, "Settings");
+    assert!(is_open(&f, "Settings"));
+    assert!(shown(&f, "Export…"));
+    assert!(!is_open(&f, "About"), "only the clicked group opens");
+
+    click(f.shell.window(), Button, "Settings");
+    assert!(!is_open(&f, "Settings"));
+    assert!(!shown(&f, "Export…"));
+}
+
+#[test]
+fn the_groups_are_closed_again_when_the_window_opens_again() {
+    let f = fixture(Config::default());
+    click(f.shell.window(), Button, "Settings");
+    click(f.shell.window(), Button, "About");
+    f.shell.window().hide().unwrap();
+
+    f.shell.show_window();
+
+    assert!(!is_open(&f, "Settings"));
+    assert!(!is_open(&f, "About"));
+}
+
+/// A second start, or Open window, on a window already open only brings it
+/// to the front: the groups the user opened stay open.
+#[test]
+fn the_groups_stay_open_when_an_open_window_is_shown_again() {
+    let f = fixture(Config::default());
+    click(f.shell.window(), Button, "Settings");
+    click(f.shell.window(), Button, "About");
+
+    f.shell.show_window();
+
+    assert!(is_open(&f, "Settings"));
+    assert!(is_open(&f, "About"));
 }
