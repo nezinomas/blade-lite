@@ -2253,6 +2253,313 @@ fn the_controller_answers_after_a_wake() {
     assert!(wakes > 0, "no wake was seen");
 }
 
+/// How long one read on the kept key handle waits, as the app's one read
+/// waits its whole quiet spell (`KEY_QUIET_SPELL`, 120 s), so a read is
+/// waiting when the laptop sleeps.
+const KEPT_READ_WAIT: Duration = Duration::from_secs(120);
+
+/// How long the kept key handle waits after a failed read before it opens
+/// again, as the app does after a read error.
+const KEPT_OPEN_PAUSE: Duration = Duration::from_secs(5);
+
+/// How long one read on a fresh key handle waits, so it sees its stop soon.
+const FRESH_READ_WAIT: Duration = Duration::from_millis(100);
+
+/// What one key handle's thread saw.
+enum KeyRead {
+    Opened,
+    Report(Vec<u8>),
+    Failed(String),
+}
+
+/// One thing a key handle's thread saw, with when and on which handle.
+struct KeyNote {
+    at: std::time::Instant,
+    /// `kept` or `fresh`, and the collection, such as `fresh COL04`.
+    handle: String,
+    kept: bool,
+    profiles: bool,
+    read: KeyRead,
+}
+
+/// What the key handles did from one sleep notice to the next.
+#[derive(Default)]
+struct WakeTally {
+    woke: bool,
+    kept_error: Option<String>,
+    kept_heard: bool,
+    /// A fresh handle on the profile's collection heard a key report.
+    fresh_heard: bool,
+}
+
+impl WakeTally {
+    fn verdict(&self) -> String {
+        match (&self.kept_error, self.kept_heard, self.fresh_heard) {
+            (Some(error), ..) => {
+                format!("the kept handle failed ({error}): no silent stale handle")
+            }
+            (None, true, true) => "both heard: no silent stale handle".into(),
+            (None, true, false) => {
+                "the kept handle heard, the fresh one not: no silent stale handle".into()
+            }
+            (None, false, true) => {
+                "STALE: the kept handle stayed silent, the fresh one heard".into()
+            }
+            (None, false, false) => "void: no key report heard (a missed press?)".into(),
+        }
+    }
+
+    fn note(&mut self, note: &KeyNote, key: &razer_proto::PowerKey) {
+        match &note.read {
+            KeyRead::Report(report) if key.is_key_report(report) => {
+                self.kept_heard |= note.kept;
+                self.fresh_heard |= !note.kept && note.profiles;
+            }
+            KeyRead::Failed(error) if note.kept && self.kept_error.is_none() => {
+                self.kept_error = Some(error.clone());
+            }
+            _ => {}
+        }
+    }
+}
+
+/// The paths of the model's key interface collections, each with its tag
+/// (such as `COL04`) and whether it is the one the profile names.
+fn key_collection_paths(model: &razer_proto::ModelProfile) -> Vec<(String, String, bool)> {
+    let key = model.power_key.expect("the model has a power key");
+    let interface = format!(
+        "VID_{:04X}&PID_{:04X}&MI_{:02X}&",
+        model.usb.vendor_id, model.usb.product_id, key.interface_number
+    );
+    let named = key.collection.map(|number| format!("COL{number:02X}"));
+    platform::hid_paths()
+        .unwrap()
+        .into_iter()
+        .filter_map(|path| {
+            let device = path.to_ascii_uppercase().split('#').nth(1)?.to_owned();
+            let tag = device.strip_prefix(&interface)?.to_owned();
+            let profiles = named.as_deref() == Some(tag.as_str());
+            Some((path, tag, profiles))
+        })
+        .collect()
+}
+
+/// Reads the profile's key collection on one handle kept over each sleep,
+/// as the app does, but never opened again while it works (no 2 min
+/// reopen). After a failed read it waits [`KEPT_OPEN_PAUSE`] and opens a
+/// new handle, as the app does after a read error.
+fn spawn_kept_key_reader(path: String, tag: &str, notes: std::sync::mpsc::Sender<KeyNote>) {
+    let handle = format!("kept {tag}");
+    let send = move |read| {
+        notes.send(KeyNote {
+            at: std::time::Instant::now(),
+            handle: handle.clone(),
+            kept: true,
+            profiles: true,
+            read,
+        })
+    };
+    std::thread::spawn(move || {
+        loop {
+            let device = match platform::HidDevice::open(&path) {
+                Ok(device) => device,
+                Err(error) => {
+                    if send(KeyRead::Failed(format!("open: {error}"))).is_err() {
+                        return;
+                    }
+                    std::thread::sleep(KEPT_OPEN_PAUSE);
+                    continue;
+                }
+            };
+            if send(KeyRead::Opened).is_err() {
+                return;
+            }
+            loop {
+                let mut buffer = [0; 64];
+                let read = match device.read(&mut buffer, KEPT_READ_WAIT) {
+                    Ok(0) => continue,
+                    Ok(read) => KeyRead::Report(buffer[..read].to_vec()),
+                    Err(error) => KeyRead::Failed(error.to_string()),
+                };
+                let failed = matches!(read, KeyRead::Failed(_));
+                if send(read).is_err() {
+                    return;
+                }
+                if failed {
+                    break;
+                }
+            }
+            std::thread::sleep(KEPT_OPEN_PAUSE);
+        }
+    });
+}
+
+/// Opens a fresh handle on each key collection and reads it until `stop`.
+fn spawn_fresh_key_readers(
+    model: &razer_proto::ModelProfile,
+    notes: &std::sync::mpsc::Sender<KeyNote>,
+    stop: &std::sync::Arc<std::sync::atomic::AtomicBool>,
+) {
+    use std::sync::atomic::Ordering;
+
+    for (path, tag, profiles) in key_collection_paths(model) {
+        let notes = notes.clone();
+        let stop = std::sync::Arc::clone(stop);
+        let handle = format!("fresh {tag}");
+        std::thread::spawn(move || {
+            let send = |read| {
+                notes.send(KeyNote {
+                    at: std::time::Instant::now(),
+                    handle: handle.clone(),
+                    kept: false,
+                    profiles,
+                    read,
+                })
+            };
+            let device = match platform::HidDevice::open(&path) {
+                Ok(device) => device,
+                Err(error) => {
+                    let _ = send(KeyRead::Failed(format!("open: {error}")));
+                    return;
+                }
+            };
+            if send(KeyRead::Opened).is_err() {
+                return;
+            }
+            while !stop.load(Ordering::Relaxed) {
+                let mut buffer = [0; 64];
+                let read = match device.read(&mut buffer, FRESH_READ_WAIT) {
+                    Ok(0) => continue,
+                    Ok(read) => KeyRead::Report(buffer[..read].to_vec()),
+                    Err(error) => KeyRead::Failed(error.to_string()),
+                };
+                let failed = matches!(read, KeyRead::Failed(_));
+                if send(read).is_err() || failed {
+                    return;
+                }
+            }
+        });
+    }
+}
+
+/// Prints one key note, with its time since the last wake notice.
+fn print_key_note(note: &KeyNote, woke: Option<std::time::Instant>) {
+    let since = woke.map_or_else(
+        || "before a wake".to_owned(),
+        |at| {
+            format!(
+                "{:>6} ms after the wake",
+                note.at.saturating_duration_since(at).as_millis()
+            )
+        },
+    );
+    let what = match &note.read {
+        KeyRead::Opened => "opened".to_owned(),
+        KeyRead::Report(report) => format!("{report:02X?}"),
+        KeyRead::Failed(error) => format!("FAILED: {error}"),
+    };
+    eprintln!("{}  {since}  {:<11} {what}", utc_now(), note.handle);
+}
+
+/// Ticket 221: can a key handle kept over a sleep go stale with no error
+/// (the guess behind the app's 2 min reopen, `KEY_QUIET_SPELL`)? Read-only:
+/// it only reads the key collections and sends nothing to any of them.
+///
+/// Quit the app from the tray, then start the probe by its name only, never
+/// with `cargo hw` (that runs every hardware test, also those that send,
+/// while you sleep the laptop):
+///
+/// `$env:BLADE_KEY_SLEEP_PROBE=1; cargo test -p razer-device --test hardware a_kept_key_handle_across_a_sleep -- --ignored --nocapture --test-threads=1; Remove-Item Env:BLADE_KEY_SLEEP_PROBE`
+///
+/// Never leave `BLADE_KEY_SLEEP_PROBE` set. It prints the USB device's power
+/// state and suspend values, opens the profile's key collection and keeps
+/// that handle over each sleep, with a read waiting (as the app does), and
+/// answers each sleep notice at once. At each wake notice it opens a fresh
+/// handle on each key collection; press Fn once then. It prints each report
+/// and error with its time and handle, and at the next sleep notice (or the
+/// end) a verdict for that wake: kept silent and fresh heard is a stale
+/// handle; a failed kept read or both heard is not; none heard is void. It
+/// ends after 5 min awake with no sleep notice. Fails if no wake was seen.
+/// One run covers a Start-menu sleep and a hibernate (lid close). Check 61.
+#[test]
+#[ignore = "needs the Blade 18, BLADE_KEY_SLEEP_PROBE=1 and a person sleeping the laptop; read-only"]
+fn a_kept_key_handle_across_a_sleep() {
+    use platform::PowerEvent;
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::{Arc, mpsc::RecvTimeoutError};
+    use std::time::Instant;
+
+    if !opted_in("BLADE_KEY_SLEEP_PROBE") {
+        return;
+    }
+    hold_lock();
+    let model = &razer_proto::BLADE_18;
+    let key = model.power_key.expect("the model has a power key");
+    print_usb_power_and_suspend(model.usb);
+    eprintln!("on battery: {:?}", platform::on_battery());
+    let collections = key_collection_paths(model);
+    for (_, tag, profiles) in &collections {
+        eprintln!(
+            "key collection {tag}{}",
+            if *profiles { " (the profile's)" } else { "" }
+        );
+    }
+    let (path, tag, _) = collections
+        .iter()
+        .find(|(_, _, profiles)| *profiles)
+        .expect("the profile's key collection is listed")
+        .clone();
+
+    let (notes, reads) = std::sync::mpsc::channel();
+    spawn_kept_key_reader(path, &tag, notes.clone());
+    let notices = answered_power_notices();
+    let mut wakes = 0;
+    let mut woke: Option<Instant> = None;
+    let mut tally: Option<WakeTally> = None;
+    let mut fresh_stop = Arc::new(AtomicBool::new(false));
+    let mut awake = AwakeTime::new(Instant::now());
+    let end_tally = |tally: &mut Option<WakeTally>| {
+        if let Some(done) = tally.take().filter(|done| done.woke) {
+            eprintln!("{}  VERDICT: {}", utc_now(), done.verdict());
+        }
+    };
+    while awake.time() < PROBE_AWAKE {
+        let notice = notices.recv_timeout(Duration::from_millis(50));
+        awake.tick(Instant::now());
+        match notice {
+            Ok((_, PowerEvent::Suspending)) => {
+                eprintln!("{}  sleep notice (answered)", utc_now());
+                end_tally(&mut tally);
+                tally = Some(WakeTally::default());
+                fresh_stop.store(true, Ordering::Relaxed);
+                woke = None;
+                awake.restart();
+            }
+            Ok((at, PowerEvent::Resumed)) => {
+                eprintln!("{}  wake notice: press Fn once now", utc_now());
+                wakes += 1;
+                woke = Some(at);
+                tally.get_or_insert_with(WakeTally::default).woke = true;
+                fresh_stop.store(true, Ordering::Relaxed);
+                fresh_stop = Arc::new(AtomicBool::new(false));
+                spawn_fresh_key_readers(model, &notes, &fresh_stop);
+            }
+            Ok((_, source)) => eprintln!("{}  {source:?}", utc_now()),
+            Err(RecvTimeoutError::Timeout) => {}
+            Err(RecvTimeoutError::Disconnected) => panic!("the power events stopped"),
+        }
+        for note in reads.try_iter() {
+            print_key_note(&note, woke);
+            if let Some(tally) = tally.as_mut() {
+                tally.note(&note, &key);
+            }
+        }
+    }
+    end_tally(&mut tally);
+    eprintln!("{}  5 min awake with no sleep notice: the end", utc_now());
+    assert!(wakes > 0, "no wake was seen");
+}
+
 #[test]
 fn the_first_wake_read_slot_is_one_step_after_the_notice() {
     assert_eq!(next_wake_read(Duration::ZERO), Duration::from_millis(100));
@@ -2303,4 +2610,44 @@ fn awake_time_starts_again_at_a_sleep_notice() {
     awake.restart();
     awake.tick(start + Duration::from_secs(2));
     assert_eq!(awake.time(), Duration::from_secs(1));
+}
+
+#[test]
+fn a_kept_key_handle_that_failed_is_no_silent_stale_handle() {
+    let tally = WakeTally {
+        woke: true,
+        kept_error: Some("the device is gone".into()),
+        ..WakeTally::default()
+    };
+    assert!(tally.verdict().starts_with("the kept handle failed"));
+}
+
+#[test]
+fn a_kept_key_handle_that_heard_is_not_stale() {
+    let tally = WakeTally {
+        woke: true,
+        kept_heard: true,
+        fresh_heard: true,
+        ..WakeTally::default()
+    };
+    assert!(tally.verdict().starts_with("both heard"));
+}
+
+#[test]
+fn a_silent_kept_key_handle_beside_a_fresh_one_that_heard_is_stale() {
+    let tally = WakeTally {
+        woke: true,
+        fresh_heard: true,
+        ..WakeTally::default()
+    };
+    assert!(tally.verdict().starts_with("STALE"));
+}
+
+#[test]
+fn a_wake_with_no_key_heard_is_void() {
+    let tally = WakeTally {
+        woke: true,
+        ..WakeTally::default()
+    };
+    assert!(tally.verdict().starts_with("void"));
 }
