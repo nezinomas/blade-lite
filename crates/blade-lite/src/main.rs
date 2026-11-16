@@ -343,6 +343,9 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     let window_icon = window_icon(accent)?;
     slint::BackendSelector::new()
         .backend_name("winit".into())
+        // Drawn by the CPU: the default OpenGL renderer loads the graphics
+        // driver, about 95 MB of private memory (ticket 226, `NOTES.md`).
+        .renderer_name("software".into())
         .with_winit_window_attributes_hook(move |attributes| {
             // Inactive: winit then shows each window without the focus,
             // each time, which the power mode popup needs. The window and

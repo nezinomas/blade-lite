@@ -29,6 +29,8 @@ check 26 compares a day's use) are:
   A 1 s tick also reads Num Lock, the mic mute and the power source.
 - Under 15 MB of RAM with just the tray running, and under 50 MB with the
   window open.
+  Measured 2026-11-16 (ticket 226): 24 MB with just the tray, 37 MB after the
+  window was opened.
 - Starts at login, needs no admin rights, and works with Synapse and its
   driver removed.
 

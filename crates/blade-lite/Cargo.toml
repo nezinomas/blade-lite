@@ -13,7 +13,16 @@ platform = { path = "../platform" }
 razer-device = { path = "../razer-device" }
 raw-window-handle = "0.6.2"
 razer-proto = { path = "../razer-proto" }
-slint = { version = "1.18.1", features = ["raw-window-handle-06", "unstable-winit-030"] }
+# No OpenGL renderer: it loads the graphics driver, about 95 MB (ticket 226).
+slint = { version = "1.18.1", default-features = false, features = [
+    "std",
+    "compat-1-2",
+    "accessibility",
+    "backend-winit",
+    "renderer-software",
+    "raw-window-handle-06",
+    "unstable-winit-030",
+] }
 thiserror = "2.0.21"
 tray-icon = "0.26.1"
 ui = { path = "../ui" }
