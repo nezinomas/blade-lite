@@ -862,6 +862,9 @@ mod tests {
     fn power_states_are_named_and_others_shown_as_numbers() {
         assert_eq!(power_state_name(PowerDeviceD0), "D0 (awake)");
         assert_eq!(power_state_name(PowerDeviceD2), "D2 (asleep)");
-        assert_eq!(power_state_name(PowerDeviceUnspecified), "state 0 (not known)");
+        assert_eq!(
+            power_state_name(PowerDeviceUnspecified),
+            "state 0 (not known)"
+        );
     }
 }

@@ -1744,3 +1744,176 @@ fn balanced_holds_on_battery() {
         "not Balanced after the send: {other:02X?}"
     );
 }
+
+/// Prints the Razer USB device's power state and each of its HID
+/// interfaces' `SelectiveSuspendEnabled` value, as each probe does first
+/// (ticket 219's rule). Reads Windows only: the device is not opened.
+fn print_usb_power_and_suspend(usb: razer_proto::UsbId) {
+    match platform::usb_device_ids(usb.vendor_id, usb.product_id) {
+        Ok(ids) => {
+            for id in ids {
+                eprintln!("power state of {id}: {:?}", platform::device_power(&id));
+            }
+        }
+        Err(error) => eprintln!("the USB device's instances: {error}"),
+    }
+    let reads = platform::usb_interfaces(
+        usb.vendor_id,
+        usb.product_id,
+        usb.hid_interfaces,
+        "SelectiveSuspendEnabled",
+    );
+    for (number, read) in reads.iter().enumerate() {
+        match read {
+            Ok(instances) => {
+                for instance in instances {
+                    eprintln!(
+                        "MI_{number:02X} SelectiveSuspendEnabled {:?} (driver {:?})",
+                        instance.value, instance.service
+                    );
+                }
+            }
+            Err(error) => eprintln!("MI_{number:02X}: {error}"),
+        }
+    }
+}
+
+/// The logo as the app sets it (storage 0), and the other stored value
+/// (storage 1), read-only.
+fn logo_reads<C: Clock>(device: &mut Device<HidTransport, C>) -> Result<[Option<bool>; 2], String> {
+    let set = razer_proto::BLADE_18
+        .logo
+        .expect("the Blade 18 has a lid logo");
+    let stored = razer_proto::Logo { storage: 1, ..set };
+    let mut read = |logo: razer_proto::Logo| {
+        let query = logo.query();
+        device
+            .send(query.id, &query.args)
+            .map(|reply| logo.from_reply(reply.args()))
+            .map_err(|error| error.to_string())
+    };
+    Ok([read(set)?, read(stored)?])
+}
+
+/// The longest time awake with no sleep notice before the logo probe ends.
+const LOGO_PROBE_AWAKE: Duration = Duration::from_mins(5);
+
+/// The longest tick counted as awake, so the time asleep does not count.
+const LOGO_PROBE_TICK: Duration = Duration::from_secs(2);
+
+/// When the logo is read after each wake notice.
+const LOGO_READS_AFTER_WAKE: [Duration; 3] = [
+    Duration::ZERO,
+    Duration::from_secs(5),
+    Duration::from_secs(30),
+];
+
+/// Ticket 222 (b): does the lid logo, set off with storage 0 as the app
+/// sets it, come on again by itself at a wake, and does it follow the other
+/// stored value (storage 1)? Read-only: it never sends a set command.
+///
+/// Set the logo off in the app, quit the app from the tray, then start it
+/// by its name only, never with `cargo hw` (that runs every hardware test,
+/// also those that send, while you sleep the laptop):
+///
+/// `$env:BLADE_LOGO_PROBE=1; cargo test -p razer-device --test hardware the_lid_logo_across_a_sleep -- --ignored --nocapture --test-threads=1; Remove-Item Env:BLADE_LOGO_PROBE`
+///
+/// Never leave `BLADE_LOGO_PROBE` set. It prints the USB device's power
+/// state and suspend values and Windows' power source, refuses to go on
+/// unless the logo reads off, reads both values once, then answers each
+/// sleep notice at once and reads both at once, 5 s and 30 s after each
+/// wake notice. After a failed read it opens the controller again (a
+/// hibernate may kill the handle). It ends after 5 min awake with no sleep
+/// notice. Fails if no wake was seen or any read gave the logo on.
+#[test]
+#[ignore = "needs the Blade 18, BLADE_LOGO_PROBE=1 and a person sleeping the laptop; read-only"]
+fn the_lid_logo_across_a_sleep() {
+    use platform::{PowerEvent, PowerEvents, WindowsPowerEvents};
+    use std::sync::mpsc;
+    use std::time::Instant;
+
+    if !opted_in("BLADE_LOGO_PROBE") {
+        return;
+    }
+    print_usb_power_and_suspend(razer_proto::BLADE_18.usb);
+    eprintln!("on battery: {:?}", platform::on_battery());
+    let mut device = Device::new(open(), SystemClock);
+    let first = logo_reads(&mut device).unwrap();
+    eprintln!("{}  before the sleep  [set, stored] {first:?}", utc_now());
+    assert_eq!(
+        first[0],
+        Some(false),
+        "the logo does not read off: set it off in the app, quit it, and start again (this run is void)"
+    );
+
+    let mut events = WindowsPowerEvents::register().unwrap();
+    let handled = events.suspend_handled();
+    let (sender, notices) = mpsc::channel();
+    std::thread::spawn(move || {
+        while let Some(event) = events.next_event() {
+            if event == PowerEvent::Suspending {
+                // Answered at once, so the probe never holds a sleep back.
+                handled.done(handled.number());
+            }
+            if sender.send(event).is_err() {
+                return;
+            }
+        }
+    });
+
+    let mut wakes = 0;
+    let mut turned_on = Vec::new();
+    let mut woke: Option<Instant> = None;
+    let mut next_read = LOGO_READS_AFTER_WAKE.len();
+    let mut awake = Duration::ZERO;
+    let mut last_tick = Instant::now();
+    while awake < LOGO_PROBE_AWAKE {
+        let notice = notices.recv_timeout(Duration::from_secs(1));
+        let now = Instant::now();
+        awake += now.duration_since(last_tick).min(LOGO_PROBE_TICK);
+        last_tick = now;
+        match notice {
+            Ok(PowerEvent::Suspending) => {
+                eprintln!("{}  sleep notice (answered)", utc_now());
+                awake = Duration::ZERO;
+                woke = None;
+            }
+            Ok(PowerEvent::Resumed) => {
+                eprintln!("{}  wake notice", utc_now());
+                wakes += 1;
+                woke = Some(now);
+                next_read = 0;
+            }
+            Ok(source) => eprintln!("{}  {source:?}", utc_now()),
+            Err(mpsc::RecvTimeoutError::Timeout) => {}
+            Err(mpsc::RecvTimeoutError::Disconnected) => panic!("the power events stopped"),
+        }
+        let Some(since) = woke.map(|at| now.duration_since(at)) else {
+            continue;
+        };
+        if next_read >= LOGO_READS_AFTER_WAKE.len() || since < LOGO_READS_AFTER_WAKE[next_read] {
+            continue;
+        }
+        next_read += 1;
+        let read = logo_reads(&mut device);
+        eprintln!(
+            "{}  {:.1} s after the wake  [set, stored] {read:?}",
+            utc_now(),
+            since.as_secs_f32()
+        );
+        match read {
+            Ok(values) if values[0] == Some(true) => turned_on.push((utc_now(), values)),
+            Ok(_) => {}
+            Err(_) => match HidTransport::open(&razer_proto::BLADE_18) {
+                Ok(transport) => {
+                    eprintln!("opened the controller again; the next reads use it");
+                    device = Device::new(transport, SystemClock);
+                }
+                Err(error) => eprintln!("could not open the controller again: {error}"),
+            },
+        }
+    }
+    eprintln!("{}  5 min awake with no sleep notice: the end", utc_now());
+    assert!(wakes > 0, "no wake was seen");
+    assert!(turned_on.is_empty(), "the logo came on: {turned_on:?}");
+}
