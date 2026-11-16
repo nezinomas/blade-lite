@@ -434,11 +434,15 @@ where
         Ok(self.battery_rate.retry(&self.config, displays)?)
     }
 
-    /// What the rate's log lines say at the next wake: when its notice
-    /// came (`None` for a wake with no notice) and how the session's lock
-    /// is read (ticket 222).
-    pub fn rate_log_context(&mut self, wake_heard: Option<Instant>, locked: fn() -> Option<bool>) {
+    /// When the next wake's notice came, for the rate's log lines (`None`
+    /// for a wake with no notice; ticket 222).
+    pub fn set_wake_heard(&mut self, wake_heard: Option<Instant>) {
         self.wake_heard = wake_heard;
+    }
+
+    /// How the rate's log lines read whether the session is locked: the
+    /// shell's parts, so the window tests read a fake.
+    pub fn read_lock_with(&mut self, locked: fn() -> Option<bool>) {
         self.session_locked = locked;
     }
 

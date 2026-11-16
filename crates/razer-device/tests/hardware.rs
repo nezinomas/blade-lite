@@ -1868,6 +1868,8 @@ fn the_lid_logo_across_a_sleep() {
     let mut turned_on = Vec::new();
     let mut woke: Option<Instant> = None;
     let mut next_read = LOGO_READS_AFTER_WAKE.len();
+    // Whether this slot's read was made again on a new handle: once only.
+    let mut read_again = false;
     let mut awake = Duration::ZERO;
     let mut last_tick = Instant::now();
     while awake < LOGO_PROBE_AWAKE {
@@ -1886,6 +1888,7 @@ fn the_lid_logo_across_a_sleep() {
                 wakes += 1;
                 woke = Some(now);
                 next_read = 0;
+                read_again = false;
             }
             Ok(source) => eprintln!("{}  {source:?}", utc_now()),
             Err(mpsc::RecvTimeoutError::Timeout) => {}
@@ -1897,7 +1900,6 @@ fn the_lid_logo_across_a_sleep() {
         if next_read >= LOGO_READS_AFTER_WAKE.len() || since < LOGO_READS_AFTER_WAKE[next_read] {
             continue;
         }
-        next_read += 1;
         let read = logo_reads(&mut device);
         eprintln!(
             "{}  {:.1} s after the wake  [set, stored] {read:?}",
@@ -1909,13 +1911,19 @@ fn the_lid_logo_across_a_sleep() {
             Ok(_) => {}
             Err(_) => match HidTransport::open(&razer_proto::BLADE_18) {
                 Ok(transport) => {
-                    eprintln!("opened the controller again; this read is made again on it");
                     device = Device::new(transport, SystemClock);
-                    next_read -= 1;
+                    if !read_again {
+                        eprintln!("opened the controller again; this read is made again on it");
+                        read_again = true;
+                        continue;
+                    }
+                    eprintln!("opened the controller again; the next reads use it");
                 }
                 Err(error) => eprintln!("could not open the controller again: {error}"),
             },
         }
+        next_read += 1;
+        read_again = false;
     }
     eprintln!("{}  5 min awake with no sleep notice: the end", utc_now());
     assert!(wakes > 0, "no wake was seen");

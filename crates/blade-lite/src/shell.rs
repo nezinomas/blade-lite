@@ -478,8 +478,9 @@ impl<P: Parts> Shell<P> {
         window: MainWindow,
         flyout: FlyoutWindow,
         popup: ModePopup,
-        app: AppOn<P>,
+        mut app: AppOn<P>,
     ) -> Rc<Self> {
+        app.read_lock_with(P::session_locked);
         // The app's start (`Self::start`) sets both again from what it left.
         let mode_watch = Cell::new(ModeWatch::new(app.running_preset()));
         let touchpad_watch = Cell::new(TouchpadWatch::new(app.touchpad_on()));

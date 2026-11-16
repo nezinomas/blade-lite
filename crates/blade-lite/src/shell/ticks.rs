@@ -697,7 +697,7 @@ impl<P: Parts> Shell<P> {
         {
             let mut app = self.app.borrow_mut();
             app.set_num_lock(P::num_lock_on());
-            app.rate_log_context(self.wake_heard.get(), P::session_locked);
+            app.set_wake_heard(self.wake_heard.get());
             // The mic is read again at the next tick, not only on notices.
             P::mic_read_again();
             // The charger may have been pulled in the sleep, and the

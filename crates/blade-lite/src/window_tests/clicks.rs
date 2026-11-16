@@ -2493,23 +2493,15 @@ fn each_set_of_a_wake_60_hz_is_logged_with_its_number_and_the_time_since_the_wak
     f.shell.tick();
 
     let log = std::fs::read_to_string(log_path()).unwrap();
-    let has = |parts: &[&str]| {
+    let has = |parts: &[&str], end: &str| {
         log.lines()
-            .any(|line| parts.iter().all(|part| line.contains(part)))
+            .any(|line| parts.iter().all(|part| line.contains(part)) && line.ends_with(end))
     };
     let wake = "s after the wake notice): 60 Hz";
-    assert!(has(&[
-        "rate set 1 (",
-        wake,
-        "failed",
-        "reports 3840x2400 240 Hz; session locked"
-    ]));
-    assert!(has(&[
-        "rate set 2 (",
-        wake,
-        "worked",
-        "reports 3840x2400 60 Hz; session unlocked"
-    ]));
+    let first = ["rate set 1 (", wake, "failed"];
+    assert!(has(&first, "reports 3840x2400 240 Hz; session locked"));
+    let second = ["rate set 2 (", wake, "worked"];
+    assert!(has(&second, "reports 3840x2400 60 Hz; session unlocked"));
 }
 
 #[test]
