@@ -1,8 +1,6 @@
 //! What the app does at start, on a power change, on a touchpad switch, on
 //! a Num Lock or mic mute change and on quit.
 
-use std::time::Instant;
-
 use blade_core::{
     ApplyError, Config, Controller, DisplayError, Preset, Query, apply, apply_performance,
     full_power_charger, paint_red_keys, touchpad_on,
@@ -10,7 +8,7 @@ use blade_core::{
 use platform::{DisplayApi, KeyInjector, PowerEvent, Registry};
 use razer_proto::RedKeys;
 
-use super::{App, AppError, NOT_UNDERSTOOD, Power, RateLog};
+use super::{App, AppError, NOT_UNDERSTOOD, Power};
 use crate::report;
 
 impl<C, D, R, K> App<C, D, R, K>
@@ -143,12 +141,7 @@ where
                 // out in the sleep, before its power event comes. An
                 // unknown source leaves the rate alone.
                 let rate = if self.source_known {
-                    self.rate_sets.begin(self.wake_heard);
-                    let displays = &mut RateLog {
-                        displays: &mut self.machine.displays,
-                        sets: &mut self.rate_sets,
-                        locked: self.session_locked,
-                    };
+                    let displays = &mut self.machine.displays;
                     let on_battery = self.power == Power::Battery;
                     let rate = self
                         .battery_rate
@@ -293,12 +286,7 @@ where
     ///
     /// See [`AppError`].
     pub fn on_quit(&mut self) -> Result<(), AppError> {
-        self.rate_sets.begin(None);
-        Ok(self.battery_rate.put_back(&mut RateLog {
-            displays: &mut self.machine.displays,
-            sets: &mut self.rate_sets,
-            locked: self.session_locked,
-        })?)
+        Ok(self.battery_rate.put_back(&mut self.machine.displays)?)
     }
 
     /// Sends Balanced (Silent if Silent runs) as the app quits: no app is
@@ -426,33 +414,12 @@ where
         if !self.battery_rate_pending() {
             return Ok(());
         }
-        let displays = &mut RateLog {
-            displays: &mut self.machine.displays,
-            sets: &mut self.rate_sets,
-            locked: self.session_locked,
-        };
+        let displays = &mut self.machine.displays;
         Ok(self.battery_rate.retry(&self.config, displays)?)
     }
 
-    /// When the next wake's notice came, for the rate's log lines (`None`
-    /// for a wake with no notice; ticket 222).
-    pub fn set_wake_heard(&mut self, wake_heard: Option<Instant>) {
-        self.wake_heard = wake_heard;
-    }
-
-    /// How the rate's log lines read whether the session is locked: the
-    /// shell's parts, so the window tests read a fake.
-    pub fn read_lock_with(&mut self, locked: fn() -> Option<bool>) {
-        self.session_locked = locked;
-    }
-
     pub(super) fn follow_power(&mut self, event: PowerEvent) -> Result<(), AppError> {
-        self.rate_sets.begin(None);
-        let displays = &mut RateLog {
-            displays: &mut self.machine.displays,
-            sets: &mut self.rate_sets,
-            locked: self.session_locked,
-        };
+        let displays = &mut self.machine.displays;
         Ok(self.battery_rate.on_event(event, &self.config, displays)?)
     }
 }

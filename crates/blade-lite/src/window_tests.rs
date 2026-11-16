@@ -108,18 +108,12 @@ impl Parts for Fakes {
     fn usb_suspend_on() -> bool {
         FAKE_USB_SUSPEND_ON.get()
     }
-
-    fn session_locked() -> Option<bool> {
-        FAKE_SESSION_LOCKED.get()
-    }
 }
 
 thread_local! {
     /// The power source the fakes report: AC unless a test sets it. Each
     /// test runs on its own thread.
     pub static FAKE_ON_BATTERY: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
-    /// Whether the session reads locked: unlocked unless a test sets it.
-    pub static FAKE_SESSION_LOCKED: std::cell::Cell<Option<bool>> = const { std::cell::Cell::new(Some(false)) };
     /// Whether the power source can't be told: known unless a test sets it.
     pub static FAKE_SOURCE_UNKNOWN: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
     /// What the user does in a file dialog: cancel unless a test sets it.
@@ -268,7 +262,6 @@ pub fn fixture_with_programs(config: Config, programs: &[&str]) -> Fixture {
     .expect("the first Slint call on this thread");
     log_path();
     FAKE_ON_BATTERY.set(false);
-    FAKE_SESSION_LOCKED.set(Some(false));
     FAKE_SOURCE_UNKNOWN.set(false);
     FAKE_MIC.set(None);
     FAKE_MIC_READS_AGAIN.set(0);
