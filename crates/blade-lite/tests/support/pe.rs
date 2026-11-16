@@ -30,23 +30,27 @@ fn file_offset(bytes: &[u8], sections: usize, count: usize, rva: usize) -> usize
         .expect("the address is in a section")
 }
 
-/// The exe's `DependentLoadFlags`: where Windows looks for the DLLs the
-/// exe imports (`/DEPENDENTLOADFLAG`). `None` when the exe has no load
-/// config big enough to hold the field, so Windows uses its default.
-pub fn dependent_load_flags(exe: &Path) -> Option<usize> {
-    let bytes = std::fs::read(exe).unwrap();
-    let pe = u32_at(&bytes, 0x3C);
+/// Where the exe's `DependentLoadFlags` (two bytes) sit in the file.
+/// `None` when the exe has no load config big enough to hold the field,
+/// so Windows uses its default.
+pub fn dependent_load_flags_offset(bytes: &[u8]) -> Option<usize> {
+    let pe = u32_at(bytes, 0x3C);
     assert_eq!(&bytes[pe..pe + 4], b"PE\0\0", "not a PE file");
     let coff = pe + 4;
     let optional = coff + 20;
-    assert_eq!(u16_at(&bytes, optional), 0x20B, "not a 64-bit exe");
-    let sections = optional + u16_at(&bytes, coff + 16);
-    let directory = optional + 112 + LOAD_CONFIG * 8;
-    let rva = u32_at(&bytes, directory);
+    assert_eq!(u16_at(bytes, optional), 0x20B, "not a 64-bit exe");
+    let sections = optional + u16_at(bytes, coff + 16);
+    let rva = u32_at(bytes, optional + 112 + LOAD_CONFIG * 8);
     if rva == 0 {
         return None;
     }
-    let config = file_offset(&bytes, sections, u16_at(&bytes, coff + 2), rva);
-    let size = u32_at(&bytes, config);
-    (size >= DEPENDENT_LOAD_FLAGS + 2).then(|| u16_at(&bytes, config + DEPENDENT_LOAD_FLAGS))
+    let config = file_offset(bytes, sections, u16_at(bytes, coff + 2), rva);
+    (u32_at(bytes, config) >= DEPENDENT_LOAD_FLAGS + 2).then_some(config + DEPENDENT_LOAD_FLAGS)
+}
+
+/// The exe's `DependentLoadFlags`: where Windows looks for the DLLs the
+/// exe imports (`/DEPENDENTLOADFLAG`).
+pub fn dependent_load_flags(exe: &Path) -> Option<usize> {
+    let bytes = std::fs::read(exe).unwrap();
+    dependent_load_flags_offset(&bytes).map(|at| u16_at(&bytes, at))
 }
