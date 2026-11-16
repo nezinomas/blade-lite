@@ -2118,13 +2118,18 @@ fn wake_read(device: &mut Option<Device<HidTransport, SystemClock>>, woke: std::
     if device.is_none() {
         match HidTransport::open(&razer_proto::BLADE_18) {
             Ok(transport) => {
-                eprintln!("{}  opened the controller again", utc_now());
+                eprintln!(
+                    "{}  {:>4} ms after the notice: opened the controller again",
+                    utc_now(),
+                    woke.elapsed().as_millis()
+                );
                 *device = Some(Device::new(transport, SystemClock));
             }
             Err(error) => {
                 eprintln!(
-                    "{}  could not open the controller again: {error}",
-                    utc_now()
+                    "{}  {:>4} ms after the notice: could not open the controller again: {error}",
+                    utc_now(),
+                    woke.elapsed().as_millis()
                 );
                 return;
             }
@@ -2162,7 +2167,9 @@ fn wake_read(device: &mut Option<Device<HidTransport, SystemClock>>, woke: std::
 /// and keeps that handle over the sleep (as the app does), and reads the
 /// firmware version once. Then it answers each sleep notice at once, and
 /// after each wake notice reads at once and then each 100 ms by the clock
-/// until 3 s after the notice (a read itself may take up to 3 s), printing
+/// until 3 s after the notice (each HID call of a read may take up to 3 s,
+/// so one read can take 6 s or more: the printed time taken is the measure),
+/// printing
 /// each read's start, time taken and reply or error. After a failed read it
 /// opens the controller again and reads on the new handle. It ends after
 /// 5 min awake with no sleep notice (counted in ticks of at most 2 s, so the
