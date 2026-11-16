@@ -73,6 +73,13 @@ export component MainWindow inherits Window {
         keyboard.show-brightness();
     }
 
+    // Called when the window opens: the Settings and About groups start
+    // closed (ticket 227).
+    public function close-groups() {
+        settings.open = false;
+        about.open = false;
+    }
+
     title: "Blade Lite";
     preferred-width: 760px;
     preferred-height: 820px;
@@ -155,13 +162,13 @@ export component MainWindow inherits Window {
                 toggle-vapor-light => { root.toggle-vapor-light(); }
             }
 
-            SettingsGroup {
+            settings := SettingsGroup {
                 export-settings => { root.export-settings(); }
                 import-settings => { root.import-settings(); }
                 reset-settings => { root.reset-settings(); }
             }
 
-            AboutGroup {}
+            about := AboutGroup {}
 
             // Takes the spare height, so the groups keep their own.
             Rectangle { vertical-stretch: 1; }

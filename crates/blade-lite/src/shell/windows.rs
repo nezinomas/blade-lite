@@ -108,6 +108,11 @@ impl<P: Parts> Shell<P> {
 
     fn show_window_now(self: &Rc<Self>) {
         self.hide_flyout();
+        // A window that opens shows the Settings and About groups closed; one
+        // already open (a second start) keeps the groups the user opened.
+        if !self.window.window().is_visible() {
+            self.window.invoke_close_groups();
+        }
         if let Err(error) = self.steps.time("window show", || self.window.show()) {
             report(&format!("cannot show the window: {error}"));
             return;
