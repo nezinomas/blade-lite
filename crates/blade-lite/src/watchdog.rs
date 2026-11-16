@@ -34,6 +34,12 @@ impl Watchdog {
         }
     }
 
+    /// Whether the last look saw a stall that no beat has ended yet.
+    #[must_use]
+    pub fn stalled(&self) -> bool {
+        self.stalled
+    }
+
     /// Looks at the loop's last `beat` (`None` before the first). A line to
     /// log when the loop stalls, and one when it beats again.
     pub fn look(&mut self, beat: Option<Instant>, now: Instant) -> Option<String> {
@@ -150,6 +156,45 @@ mod tests {
             said[0].starts_with("the app has not run its checks for 30 s"),
             "{said:?}"
         );
+    }
+
+    #[test]
+    fn stalled_is_true_from_the_stall_line_to_its_end() {
+        let start = Instant::now();
+        let mut dog = Watchdog::new(start);
+        assert!(!dog.stalled());
+
+        assert_eq!(looks(&mut dog, start, Some(start), 5, 30).len(), 1);
+        assert!(dog.stalled());
+
+        assert!(
+            dog.look(Some(start + SECOND * 34), start + SECOND * 35)
+                .is_some()
+        );
+        assert!(!dog.stalled());
+    }
+
+    #[test]
+    fn stalled_is_true_only_on_the_lines_that_start_a_stall() {
+        let start = Instant::now();
+        let mut dog = Watchdog::new(start);
+        let mut said = Vec::new();
+        // A beat at 0 s, at 34 s and at 69 s: two stalls, each ended.
+        for now in (5..=70).step_by(5) {
+            let beat = match now {
+                ..35 => 0,
+                35..70 => 34,
+                _ => 69,
+            };
+            if dog
+                .look(Some(start + SECOND * beat), start + SECOND * now)
+                .is_some()
+            {
+                said.push(dog.stalled());
+            }
+        }
+
+        assert_eq!(said, [true, false, true, false]);
     }
 
     #[test]

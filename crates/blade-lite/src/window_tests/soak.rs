@@ -15,8 +15,8 @@ use razer_proto::{Charger, Command, Rgb};
 use slint::platform::PointerEventButton;
 
 use super::{
-    FAKE_MIC, FAKE_ON_BATTERY, FAKE_REOPENED, FAKE_SOURCE_UNKNOWN, Fixture, fixture,
-    selected_preset,
+    FAKE_GPU, FAKE_MIC, FAKE_ON_BATTERY, FAKE_REOPENED, FAKE_SOURCE_UNKNOWN, FakeGpu, Fixture,
+    fixture, flyout_selected_preset, selected_preset,
 };
 use crate::fakes::{FakeCharger, FakeController};
 use crate::rules::{
@@ -96,6 +96,7 @@ struct Seen {
     weak_reads: u32,
     battery_sends: u32,
     read_spells: u32,
+    gpu_fails: u32,
 }
 
 impl Soak {
@@ -280,11 +281,20 @@ impl Soak {
         self.failing_left = self.failing_left.max(spell);
     }
 
-    /// The CPU heat now, so the fan guard comes and goes; sometimes the
-    /// read fails.
+    /// The CPU and GPU heat now, so the fan guard and the heat popup come
+    /// and go; sometimes a read fails, and the GPU may sleep.
     fn change_heat(&mut self) {
         let celsius = (!self.rng.chance(100)).then(|| self.rng.pick(&[40, 55, 70, 85, 95, 99]));
         fake(&self.f, |c| c.cpu_celsius = celsius);
+        let gpu = self.rng.pick(&[
+            FakeGpu::Asleep,
+            FakeGpu::Fails,
+            FakeGpu::Celsius(50),
+            FakeGpu::Celsius(75),
+            FakeGpu::Celsius(88),
+            FakeGpu::Celsius(95),
+        ]);
+        FAKE_GPU.set(gpu);
     }
 
     /// Clicks a preset, the lid logo or the vapor light. Returns the preset
@@ -338,13 +348,21 @@ impl Soak {
         if let Some((preset, true)) = clicked
             && !battery_presets
         {
-            assert!(
-                selected_preset(&self.f) != preset
-                    || format!("{:?}", self.f.shell.app().config().preset) == preset,
-                "a failed {preset} shown as done"
-            );
+            let saved = format!("{:?}", self.f.shell.app().config().preset) == preset;
+            for (view, chosen) in [
+                ("window", selected_preset(&self.f)),
+                ("flyout", flyout_selected_preset(&self.f)),
+            ] {
+                assert!(
+                    chosen != preset || saved,
+                    "a failed {preset} shown as done in the {view}"
+                );
+            }
         }
         let kept = self.f.shell.kept();
+        // The fake's other sensors read fine: a sampler error is the GPU's.
+        self.seen.gpu_fails +=
+            u32::from(FAKE_GPU.get() == FakeGpu::Fails && kept.sampler_errors > 0);
         assert!(kept.said_lately <= 16, "{kept:?}");
         assert_eq!(kept.stopped_parts, 0, "{kept:?}");
         assert!(kept.sampler_errors <= 8, "{kept:?}");
@@ -404,6 +422,7 @@ fn settle(soak: &mut Soak) {
     soak.failing_left = 0;
     soak.reads_failing_left = 0;
     soak.reads_work_again();
+    FAKE_GPU.set(FakeGpu::Asleep);
     for _ in 0..10 {
         soak.second();
         soak.check(None);
@@ -426,6 +445,7 @@ fn soak(preset: Preset, seed: u64) {
         met.weak_reads,
         met.battery_sends,
         met.read_spells,
+        met.gpu_fails,
     ];
     assert!(each.iter().all(|&count| count >= 5), "{met:?}");
 }
@@ -482,4 +502,31 @@ fn a_usual_day_sends_set_commands_only_at_its_events() {
     // The counts in docs/NOTES.md (ticket 147): 7 preset sends of 4 zones,
     // 2 lighting sends, one lid logo switch.
     assert_eq!((soak.sent.len(), stored), (50, 32), "{:?}", soak.sent);
+}
+
+/// A failed read said lately is forgotten after the quiet time of the
+/// tick's clock, not the real one, so the soak sees it go, and is said
+/// again when it fails again.
+#[test]
+fn a_read_error_said_is_forgotten_by_the_ticks_clock() {
+    const GPU_FAILED: &str = "GPU: driver error";
+    let f = fixture(Config::default());
+    let now = Instant::now();
+    let wall = SystemTime::now();
+    let tick = |second: u32| {
+        f.shell
+            .tick_at(now + SECOND * second, wall + SECOND * second);
+    };
+    FAKE_GPU.set(FakeGpu::Fails);
+    tick(0);
+    assert!(f.shell.said_lately(GPU_FAILED));
+
+    FAKE_GPU.set(FakeGpu::Asleep);
+    // The ten minutes' quiet time, and a read after it.
+    (1..=660).for_each(tick);
+    assert!(!f.shell.said_lately(GPU_FAILED));
+
+    FAKE_GPU.set(FakeGpu::Fails);
+    (661..=720).for_each(tick);
+    assert!(f.shell.said_lately(GPU_FAILED));
 }

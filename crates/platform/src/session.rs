@@ -13,6 +13,10 @@ use std::sync::mpsc;
 
 use windows_sys::Win32::Foundation::{HWND, LPARAM, LRESULT, WPARAM};
 use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
+use windows_sys::Win32::System::RemoteDesktop::{
+    WTS_CURRENT_SERVER_HANDLE, WTS_CURRENT_SESSION, WTS_SESSIONSTATE_LOCK, WTS_SESSIONSTATE_UNLOCK,
+    WTSFreeMemory, WTSINFOEXW, WTSQuerySessionInformationW, WTSSessionInfoEx,
+};
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     CreateWindowExW, DefWindowProcW, DestroyWindow, DispatchMessageW, GetMessageW, MSG,
     PM_NOREMOVE, PM_QS_SENDMESSAGE, PeekMessageW, PostMessageW, PostQuitMessage, RegisterClassW,
@@ -187,6 +191,52 @@ unsafe extern "system" fn on_message(
     unsafe { DefWindowProcW(hwnd, message, wparam, lparam) }
 }
 
+/// Whether Windows says this session is locked, such as at the sign-in
+/// screen after a wake (ticket 222). `None` if Windows can't say. Read with
+/// `WTSQuerySessionInformationW` (`WTSSessionInfoEx`); Windows 7 had the
+/// flags reversed (Microsoft's `WTSINFOEX_LEVEL1` page), and this app does
+/// not run there.
+#[must_use]
+pub fn session_locked() -> Option<bool> {
+    let mut buffer = null_mut();
+    let mut size = 0;
+    // SAFETY: Windows writes a buffer of its own and its size; it is freed
+    // below.
+    let read = unsafe {
+        WTSQuerySessionInformationW(
+            WTS_CURRENT_SERVER_HANDLE,
+            WTS_CURRENT_SESSION,
+            WTSSessionInfoEx,
+            &raw mut buffer,
+            &raw mut size,
+        )
+    };
+    if read == 0 || buffer.is_null() {
+        return None;
+    }
+    let info = (size as usize >= size_of::<WTSINFOEXW>()).then(|| {
+        // SAFETY: the buffer holds a whole `WTSINFOEXW`; it is copied out
+        // with no assumption on its alignment.
+        unsafe { buffer.cast::<WTSINFOEXW>().read_unaligned() }
+    });
+    // SAFETY: the buffer came from the call above and is freed once; the
+    // copy above does not point into it.
+    unsafe { WTSFreeMemory(buffer.cast()) };
+    let info = info.filter(|info| info.Level == 1)?;
+    // SAFETY: at level 1 the union holds its level 1 type.
+    lock_state(unsafe { info.Data.WTSInfoExLevel1.SessionFlags })
+}
+
+/// The lock state from `SessionFlags`: `WTS_SESSIONSTATE_LOCK` (0) or
+/// `WTS_SESSIONSTATE_UNLOCK` (1); any other value is not known.
+fn lock_state(flags: i32) -> Option<bool> {
+    match u32::try_from(flags).ok()? {
+        WTS_SESSIONSTATE_LOCK => Some(true),
+        WTS_SESSIONSTATE_UNLOCK => Some(false),
+        _ => None,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
@@ -198,7 +248,15 @@ mod tests {
         DestroyWindow, SMTO_NORMAL, SendMessageTimeoutW, WM_ENDSESSION, WM_NULL, WM_QUERYENDSESSION,
     };
 
-    use super::{SessionEndWatch, make_window, serve_sent_messages};
+    use super::{SessionEndWatch, lock_state, make_window, serve_sent_messages};
+
+    #[test]
+    fn the_lock_flags_are_read_as_documented() {
+        assert_eq!(lock_state(0), Some(true));
+        assert_eq!(lock_state(1), Some(false));
+        assert_eq!(lock_state(-1), None);
+        assert_eq!(lock_state(2), None);
+    }
 
     static ENDS: AtomicU32 = AtomicU32::new(0);
     /// Whether a session end waits, as one waits for the event loop.

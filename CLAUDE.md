@@ -17,6 +17,7 @@ Blade Lite: a Rust app for Windows 11 that drives the Razer Blade 18 2025 (RZ09-
 - TDD: red, green, refactor, in small stages, per the plan.
 - Clean code: DRY, small functions, SOLID, YAGNI, KISS.
 - State your assumptions. If something changes the goal or the hardware's safety, stop and ask. Otherwise take the most likely reading, say which, and carry on.
+- No guessing. Before you name a cause or build a workaround, find evidence: git history, the log, a measurement on the laptop, the internet, Context7. Name the evidence. If no cause is proven, say so and mark the workaround as unproven.
 - If a simpler approach exists, say so and push back when warranted.
 - If 200 lines could be 50, rewrite it. No abstraction for single-use code, no configurability nobody asked for.
 - Touch only what the task needs. Don't reformat, refactor or "improve" adjacent code; match the existing style.

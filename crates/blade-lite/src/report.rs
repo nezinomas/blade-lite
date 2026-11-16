@@ -167,6 +167,13 @@ impl SaidLately {
     pub fn kept(&self) -> usize {
         self.said.len()
     }
+
+    /// Whether an error of the kind of `error` counts as said now, for the
+    /// window tests (ticket 177).
+    #[must_use]
+    pub fn has(&self, error: &str) -> bool {
+        self.said.contains_key(kind(error))
+    }
 }
 
 /// The error without its details in braces or brackets, such as a

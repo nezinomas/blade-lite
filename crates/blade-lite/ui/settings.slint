@@ -1,7 +1,8 @@
-// The Settings group of the settings window: export, import and reset.
+// The Settings group of the settings window: export, import and reset;
+// and the About group.
 
-import { Button } from "std-widgets.slint";
-import { GroupTitle, Row } from "parts.slint";
+import { AboutSlint, Button } from "std-widgets.slint";
+import { Card, GroupTitle, Row } from "parts.slint";
 
 export component SettingsGroup inherits VerticalLayout {
     callback export-settings();
@@ -34,5 +35,16 @@ export component SettingsGroup inherits VerticalLayout {
             text: "Reset";
             clicked => { root.reset-settings(); }
         }
+    }
+}
+
+// The Slint credit, which Slint's royalty-free licence asks for (ticket 95).
+export component AboutGroup inherits VerticalLayout {
+    spacing: 4px;
+
+    GroupTitle { text: "About"; }
+    Card {
+        vertical-stretch: 0;
+        AboutSlint {}
     }
 }

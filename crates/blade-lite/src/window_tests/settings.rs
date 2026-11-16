@@ -4,6 +4,7 @@ use std::path::PathBuf;
 
 use blade_core::{Config, Preset};
 use i_slint_backend_testing::AccessibleRole::Button;
+use i_slint_backend_testing::ElementHandle;
 use platform::FileDialog;
 use razer_proto::{BLADE_18, PerfMode};
 use tempfile::TempDir;
@@ -168,4 +169,18 @@ fn a_file_picked_while_the_laptop_wakes_says_to_try_again() {
 
     assert_eq!(f.shell.app().config().preset, Preset::Balanced);
     assert!(f.shell.window().get_error().contains("try again"));
+}
+
+/// Slint's royalty-free licence asks for its `AboutSlint` widget in an
+/// About screen (ticket 95).
+#[test]
+fn the_window_shows_the_slint_credit() {
+    let f = fixture(Config::default());
+    let shown = |label| {
+        ElementHandle::find_by_accessible_label(f.shell.window(), label)
+            .next()
+            .is_some()
+    };
+    assert!(shown("About"));
+    assert!(shown("#MadeWithSlint"));
 }

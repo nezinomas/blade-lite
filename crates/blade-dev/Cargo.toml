@@ -13,5 +13,8 @@ platform = { path = "../platform" }
 razer-device = { path = "../razer-device" }
 razer-proto = { path = "../razer-proto" }
 
+[dev-dependencies]
+windows-sys = { version = "0.61.2", features = ["Win32_System_Diagnostics_Debug"] }
+
 [lints]
 workspace = true

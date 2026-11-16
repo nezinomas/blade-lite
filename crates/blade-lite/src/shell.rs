@@ -83,6 +83,15 @@ pub trait Parts: 'static {
     /// Whether the screen is on or dimmed, from Windows' last notice.
     /// `None` if no notice came.
     fn screen_on() -> Option<bool>;
+    /// Whether Num Lock is on now. Read only.
+    fn num_lock_on() -> bool;
+    /// Whether the start's registry read found Windows' USB suspend on for
+    /// the Razer device (ticket 220). `false` while it is off, odd or not
+    /// read yet. Read only.
+    fn usb_suspend_on() -> bool;
+    /// Whether Windows says the session is locked; `None` if it can't
+    /// say. Read only.
+    fn session_locked() -> Option<bool>;
 }
 
 /// What [`Parts::pick_file`] calls with the user's answer.
@@ -221,6 +230,18 @@ impl Parts for Laptop {
         crate::background::screen_on()
     }
 
+    fn num_lock_on() -> bool {
+        platform::num_lock_on()
+    }
+
+    fn usb_suspend_on() -> bool {
+        blade_lite::usb_suspend_on()
+    }
+
+    fn session_locked() -> Option<bool> {
+        platform::session_locked()
+    }
+
     fn toggle_mic_mute() -> Option<bool> {
         let toggled = platform::toggle_mic_mute();
         if let Err(error) = &toggled {
@@ -295,6 +316,36 @@ pub type AppOn<P> = App<
 /// since it can come and go on each read.
 const READ_ERROR_QUIET: Duration = Duration::from_mins(10);
 
+/// Shown above the groups while the start's read found Windows' USB
+/// suspend on (ticket 220).
+const USB_SUSPEND_ON: &str = "Windows USB suspend is on for the Razer device, so the keyboard \
+    lights may go off or blink. Quit Blade Lite from the tray, then run tools\\Set-RazerUsbSuspend.ps1 as \
+    admin (README, \"If the keyboard lights go off or blink\").";
+
+/// How the app ends: picks the log line of a refused rate put-back.
+#[derive(Clone, Copy)]
+enum Ending {
+    /// Quit, or the end of a run.
+    Quit,
+    /// Windows ends the session (ticket 217).
+    Session,
+}
+
+impl Ending {
+    fn put_back_failed(self) -> &'static str {
+        match self {
+            Self::Quit => "the panel may stay at 60 Hz",
+            // Seen at a sign-out on battery (check 38): Windows likely
+            // shows its own desktop by then, and a rate change applies only
+            // to the desktop shown (not proven). The error after it names
+            // the cause.
+            Self::Session => {
+                "the panel may stay at 60 Hz (at a session end Windows may refuse display changes)"
+            }
+        }
+    }
+}
+
 /// The error a run ends with when a panic (a bug) stopped it.
 pub const PANICKED: &str = "a bug stopped the app (a panic, in the log)";
 
@@ -329,6 +380,10 @@ pub struct Shell<P: Parts = Laptop> {
     flyout_icon: Cell<Option<Rect>>,
     shown_errors: RefCell<ShownErrors>,
     read_errors: RefCell<SaidLately>,
+    /// The last tick's time: the clock of the read errors said lately when
+    /// it leads the real one, so the window tests' mock time moves it too
+    /// (ticket 177). Older than now between ticks.
+    tick_now: Cell<Instant>,
     mode_watch: Cell<ModeWatch>,
     /// The touchpad state last seen, for the touchpad popup.
     touchpad_watch: Cell<TouchpadWatch>,
@@ -379,6 +434,8 @@ pub struct Shell<P: Parts = Laptop> {
     controller_gone: Cell<bool>,
     /// Whether the quit preset went, so it goes once.
     quit_sent: Cell<bool>,
+    /// How the app ends, for the log line of a failed rate put-back.
+    ending: Cell<Ending>,
     /// Whether Windows told of a sleep and no wake came since (ticket 169).
     /// It counts as one more pause in `resuming`, so nothing is sent until
     /// the wake, which ends it.
@@ -397,6 +454,9 @@ pub struct Shell<P: Parts = Laptop> {
     /// the fan guard (ticket 172).
     slept_at: Cell<Option<SystemTime>>,
     woke: Cell<bool>,
+    /// When the last wake notice came; a sleep notice forgets it, so a
+    /// missed wake has none (ticket 222's rate log lines).
+    wake_heard: Cell<Option<Instant>>,
     /// Whether the pause of an open again or an updater ended in a sleep
     /// or a newer pause, or a last pause's end left its work to an
     /// updater's own pause (ticket 179), so the last pause's end releases
@@ -418,8 +478,9 @@ impl<P: Parts> Shell<P> {
         window: MainWindow,
         flyout: FlyoutWindow,
         popup: ModePopup,
-        app: AppOn<P>,
+        mut app: AppOn<P>,
     ) -> Rc<Self> {
+        app.read_lock_with(P::session_locked);
         // The app's start (`Self::start`) sets both again from what it left.
         let mode_watch = Cell::new(ModeWatch::new(app.running_preset()));
         let touchpad_watch = Cell::new(TouchpadWatch::new(app.touchpad_on()));
@@ -438,6 +499,7 @@ impl<P: Parts> Shell<P> {
             flyout_icon: Cell::new(None),
             shown_errors: RefCell::new(ShownErrors::default()),
             read_errors: RefCell::new(SaidLately::new(READ_ERROR_QUIET)),
+            tick_now: Cell::new(Instant::now()),
             mode_watch,
             touchpad_watch,
             heat_watch: Cell::new(HeatWatch::default()),
@@ -457,12 +519,14 @@ impl<P: Parts> Shell<P> {
             dialog_open: Cell::new(false),
             stopped_parts: RefCell::new(Vec::new()),
             quit_sent: Cell::new(false),
+            ending: Cell::new(Ending::Quit),
             asleep: Cell::new(false),
             sleep_preset_sent: Cell::new(false),
             awake_run: Cell::new(None),
             missed_wake_held: Cell::new(false),
             slept_at: Cell::new(None),
             woke: Cell::new(false),
+            wake_heard: Cell::new(None),
             redo_at_wake: Cell::new(false),
             wake_due: Cell::new(false),
             pauses: Cell::new(0),
@@ -492,6 +556,12 @@ impl<P: Parts> Shell<P> {
     #[cfg(test)]
     pub fn app(&self) -> std::cell::RefMut<'_, AppOn<P>> {
         self.app.borrow_mut()
+    }
+
+    /// Whether a read error of the kind of `error` was said lately.
+    #[cfg(test)]
+    pub fn said_lately(&self, error: &str) -> bool {
+        self.read_errors.borrow().has(error)
     }
 
     /// The sizes of the lists the shell keeps, and the pauses that wait,
@@ -555,7 +625,7 @@ impl<P: Parts> Shell<P> {
         }
         // After the fans: only the rate, a Windows call that may be slow.
         if let Err(error) = app.on_quit() {
-            report(&format!("the panel may stay at 60 Hz: {error}"));
+            report(&format!("{}: {error}", self.ending.get().put_back_failed()));
         }
     }
 
@@ -671,6 +741,8 @@ impl<P: Parts> Shell<P> {
     /// apps that block it: not checked on the laptop (laptop check 30).
     pub fn end_session(&self) {
         report("Windows ends the session, so the app quits");
+        // Kept for a quit after the loop, if the app is busy now.
+        self.ending.set(Ending::Session);
         if std::panic::catch_unwind(AssertUnwindSafe(|| self.quit())).is_err() {
             report("the quit at the session end panicked");
         }
@@ -825,9 +897,12 @@ impl<P: Parts> Shell<P> {
             .iter()
             .map(|part| format!("A bug stopped the {part} part. Quit Blade Lite from the tray and start it again."))
             .collect::<Vec<_>>();
+        // Text only: unlike the Razer warning, it stops no background send.
+        let suspend = P::usb_suspend_on().then_some(USB_SUSPEND_ON);
         let shown: Vec<&str> = warning
             .as_deref()
             .into_iter()
+            .chain(suspend)
             .chain(stopped.iter().map(String::as_str))
             .chain(app.firmware_warning())
             .chain(mismatch.as_deref())

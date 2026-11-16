@@ -14,9 +14,9 @@ use slint::winit_030::winit::event::WindowEvent as WinitEvent;
 use slint::{ComponentHandle, LogicalPosition, Model};
 
 use super::{
-    FAKE_MIC, FAKE_ON_BATTERY, FAKE_RELEASED, FAKE_SCREEN_ON, FAKE_SOURCE_UNKNOWN, Fixture,
-    assert_the_battery_quit_preset, click, control, fixture, log_path, manual_fan_with_boosts,
-    selected_preset,
+    FAKE_MIC, FAKE_NUM_LOCK, FAKE_ON_BATTERY, FAKE_RELEASED, FAKE_SCREEN_ON, FAKE_SESSION_LOCKED,
+    FAKE_SOURCE_UNKNOWN, Fixture, assert_the_battery_quit_preset, click, control, fixture,
+    log_path, manual_fan_with_boosts, selected_preset,
 };
 use crate::fakes::{FakeCharger, brightness_commands, lighting_commands, logo};
 
@@ -590,27 +590,73 @@ fn balanced_is_sent_at_quit_even_when_the_rate_put_back_fails() {
     );
 }
 
-#[test]
-fn a_failed_put_back_on_quit_is_logged() {
+/// On battery at 60 Hz, with the rate `before` battery gone, so the quit's
+/// put-back is refused. Its error names `before`, so a test that picks its
+/// own rate finds its own line in the shared log.
+fn refused_put_back(before: u32) -> Fixture {
     let f = fixture(Config {
         sixty_hz_on_battery: true,
         ..Config::default()
     });
+    f.shell.app().machine_mut().displays.0.current.hz = before;
     f.shell.act(|app| app.on_power(PowerEvent::OnBattery));
-    // 240 Hz is gone, so the put-back is refused.
     f.shell
         .app()
         .machine_mut()
         .displays
         .0
         .modes
-        .retain(|mode| mode.hz != 240);
+        .retain(|mode| mode.hz != before);
+    f
+}
+
+#[test]
+fn a_failed_put_back_on_quit_is_logged() {
+    let f = refused_put_back(240);
 
     f.shell.quit();
 
     assert_eq!(f.shell.app().machine().displays.0.current.hz, 60);
     let log = std::fs::read_to_string(log_path()).unwrap();
-    assert!(log.contains("the panel may stay at 60 Hz"), "{log}");
+    // The colon right after "60 Hz" is found only in the Quit line.
+    let line =
+        "the panel may stay at 60 Hz: the panel does not offer 240 Hz at its current resolution";
+    assert!(log.contains(line), "{log}");
+}
+
+#[test]
+fn a_failed_put_back_at_a_session_end_is_logged_as_a_session_end() {
+    let f = refused_put_back(240);
+
+    f.shell.end_session();
+
+    assert_eq!(f.shell.app().machine().displays.0.current.hz, 60);
+    assert_session_end_put_back_logged(240);
+}
+
+#[test]
+fn a_failed_put_back_after_a_busy_session_end_is_logged_as_a_session_end() {
+    let f = refused_put_back(120);
+    let held = f.shell.app();
+    f.shell.end_session();
+    drop(held);
+
+    // The quit after the loop, as `serve` runs it.
+    f.shell.quit();
+
+    assert_eq!(f.shell.app().machine().displays.0.current.hz, 60);
+    assert_session_end_put_back_logged(120);
+}
+
+/// The log is shared by the tests run in parallel, so the whole line with
+/// the rate is looked for, not that the Quit line is missing.
+fn assert_session_end_put_back_logged(before: u32) {
+    let log = std::fs::read_to_string(log_path()).unwrap();
+    let line = format!(
+        "the panel may stay at 60 Hz (at a session end Windows may refuse display changes): \
+         the panel does not offer {before} Hz at its current resolution"
+    );
+    assert!(log.contains(&line), "{log}");
 }
 
 #[test]
@@ -1495,16 +1541,6 @@ fn mic_fixture() -> Fixture {
     f
 }
 
-/// The frame with the mic key red, or plain while the real Num Lock is on:
-/// the poll and the resume read it.
-fn mic_red_unless_num_lock() -> Vec<Command> {
-    if platform::num_lock_on() {
-        static_colour(WHITE, &BLADE_18)
-    } else {
-        mic_red()
-    }
-}
-
 fn mic_red() -> Vec<Command> {
     let mic = razer_proto::RedKeys {
         touchpad: false,
@@ -1549,12 +1585,49 @@ fn the_poll_follows_a_mute_made_elsewhere() {
     f.shell.tick();
 
     assert_eq!(f.shell.app().mic_muted(), Some(true));
-    let sent = sent_since(&f, before);
-    if platform::num_lock_on() {
-        assert_eq!(sent, []);
-    } else {
-        assert_eq!(sent, mic_red());
-    }
+    assert_eq!(sent_since(&f, before), mic_red());
+}
+
+/// [`touchpad_off_fixture`] with Num Lock on, read by a poll.
+fn num_lock_on_fixture() -> Fixture {
+    let f = touchpad_off_fixture();
+    FAKE_NUM_LOCK.set(true);
+    f.shell.tick();
+    assert!(f.shell.app().num_lock_on());
+    f
+}
+
+#[test]
+fn the_poll_follows_num_lock() {
+    let f = num_lock_on_fixture();
+    let before = sent_count(&f);
+
+    FAKE_NUM_LOCK.set(false);
+    f.shell.tick();
+
+    assert!(!f.shell.app().num_lock_on());
+    assert_eq!(
+        sent_since(&f, before),
+        razer_proto::static_colour_touchpad_off(WHITE, &BLADE_18)
+    );
+}
+
+#[test]
+fn the_resume_reads_num_lock() {
+    let f = num_lock_on_fixture();
+    let (sender, receiver) = std::sync::mpsc::channel();
+    sender.send(PowerEvent::Resumed).unwrap();
+    f.shell.follow_power(&receiver);
+    FAKE_NUM_LOCK.set(false);
+    let before = sent_count(&f);
+
+    i_slint_backend_testing::mock_elapsed_time(
+        blade_core::RESUME_PAUSE + std::time::Duration::from_millis(1),
+    );
+
+    assert!(!f.shell.app().num_lock_on());
+    let touchpad_red = razer_proto::static_colour_touchpad_off(WHITE, &BLADE_18);
+    assert!(sent_since(&f, before).ends_with(&touchpad_red));
 }
 
 #[test]
@@ -1606,7 +1679,7 @@ fn fn_mic_during_the_resume_pause_mutes_but_sends_nothing() {
     i_slint_backend_testing::mock_elapsed_time(
         blade_core::RESUME_PAUSE + std::time::Duration::from_millis(1),
     );
-    assert!(sent_since(&f, before).ends_with(&mic_red_unless_num_lock()));
+    assert!(sent_since(&f, before).ends_with(&mic_red()));
 }
 
 #[test]
@@ -2394,6 +2467,41 @@ fn a_wake_60_hz_refused_on_battery_is_set_on_a_later_tick_with_no_error() {
 
     assert_eq!(f.shell.app().machine().displays.0.current.hz, 60);
     assert_eq!(f.shell.window().get_error(), "");
+}
+
+#[test]
+fn each_set_of_a_wake_60_hz_is_logged_with_its_number_and_the_time_since_the_wake() {
+    let f = fixture(Config {
+        sixty_hz_on_battery: true,
+        ..Config::default()
+    });
+    FAKE_ON_BATTERY.set(true);
+    let (sender, receiver) = std::sync::mpsc::channel();
+    f.shell.listen_for_power(receiver);
+    sender.send(PowerEvent::OnBattery).unwrap();
+    f.shell.tick();
+    f.shell.app().machine_mut().displays.0.current.hz = 240;
+    f.shell.app().machine_mut().displays.1 = 1;
+    FAKE_SESSION_LOCKED.set(Some(true));
+    sender.send(PowerEvent::Resumed).unwrap();
+    f.shell.tick();
+    i_slint_backend_testing::mock_elapsed_time(
+        blade_core::RESUME_PAUSE + std::time::Duration::from_millis(1),
+    );
+    FAKE_SESSION_LOCKED.set(Some(false));
+
+    f.shell.tick();
+
+    let log = std::fs::read_to_string(log_path()).unwrap();
+    let has = |parts: &[&str], end: &str| {
+        log.lines()
+            .any(|line| parts.iter().all(|part| line.contains(part)) && line.ends_with(end))
+    };
+    let wake = "s after the wake notice): 60 Hz";
+    let first = ["rate set 1 (", wake, "failed"];
+    assert!(has(&first, "reports 3840x2400 240 Hz; session locked"));
+    let second = ["rate set 2 (", wake, "worked"];
+    assert!(has(&second, "reports 3840x2400 60 Hz; session unlocked"));
 }
 
 #[test]

@@ -64,6 +64,17 @@ fn window_with_the_razer_warning() {
     check("window-razer", f.shell.window().window());
 }
 
+/// Beside the Razer warning, as both can show at once (ticket 220).
+#[test]
+fn window_with_usb_suspend_on() {
+    let f = fixture(Config::default());
+    f.shell.programs().set(&["Razer Synapse Service"]);
+    f.shell.look_for_razer();
+    super::FAKE_USB_SUSPEND_ON.set(true);
+    f.shell.refresh(None);
+    check("window-usb-suspend", f.shell.window().window());
+}
+
 #[test]
 fn flyout() {
     let f = fixture(Config::default());

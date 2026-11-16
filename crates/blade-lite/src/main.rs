@@ -53,8 +53,8 @@ use slint::winit_030::winit::window::{BadIcon, Icon};
 use slint::{Timer, TimerMode};
 
 use crate::background::{
-    beat, follow_the_power_key, follow_the_touchpad, on_battery_now, open_window_on_wake,
-    power_events, watch_the_loop, watch_touchpad,
+    beat, follow_the_power_key, follow_the_touchpad, loop_ended, on_battery_now,
+    open_window_on_wake, power_events, watch_the_loop, watch_touchpad,
 };
 use crate::shell::{CONTROLLER_HELD, Laptop, Parts, REOPEN_GAP, Shell, reopen_controller};
 use crate::tray::Tray;
@@ -79,7 +79,7 @@ thread_local! {
 }
 
 fn main() -> ExitCode {
-    match run_caught(run) {
+    match limit_dll_search().and_then(|()| run_caught(run)) {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
             report(&error.to_string());
@@ -87,6 +87,13 @@ fn main() -> ExitCode {
             ExitCode::FAILURE
         }
     }
+}
+
+/// Limits the DLL search to System32 before any DLL is loaded by name, or
+/// stops the start (ticket 223).
+fn limit_dll_search() -> Result<(), Box<dyn std::error::Error>> {
+    platform::limit_dll_search()
+        .map_err(|error| format!("cannot limit the DLL search to System32: {error}").into())
 }
 
 /// Runs `run`; a panic (a bug) it lets out ends as the error
@@ -433,7 +440,9 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             shell.show_window();
         }
         // Closing the window keeps the app in the tray. Quit is in its menu.
-        slint::run_event_loop_until_quit()?;
+        let ran = slint::run_event_loop_until_quit();
+        loop_ended();
+        ran?;
         Ok(())
     });
     SHELL.with(RefCell::take);

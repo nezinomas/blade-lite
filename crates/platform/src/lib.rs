@@ -7,6 +7,7 @@
 
 mod backdrop;
 mod display;
+mod dll_search;
 mod files;
 mod hid;
 mod instance;
@@ -25,18 +26,19 @@ use std::io;
 
 pub use backdrop::{hide_caption_buttons, round_corners, set_mica};
 pub use display::WindowsDisplays;
+pub use dll_search::limit_dll_search;
 pub use files::{FileDialog, pick_file};
 pub use hid::{HidDetails, HidDevice, hid_details, hid_parent_id, hid_paths};
 pub use instance::{WakeListener, WindowsInstance};
 pub use keys::{WindowsKeys, enter_down, input_age, mic_keys_down, num_lock_on};
-pub use message::{ask_yes_no, show_error};
+pub use message::{ask_yes_no, show_error, show_warning};
 pub use mic::{MicWatch, toggle_mic_mute};
 pub use popup::{raise_topmost, work_area, work_area_at};
 pub use power::{LidAndScreen, SuspendHandled, WindowsPowerEvents, on_battery, shutting_down};
 pub use programs::WindowsPrograms;
-pub use registry::{WindowsRegistry, usb_interfaces};
-pub use sensors::WindowsSensors;
-pub use session::{SessionEndWatch, serve_sent_messages};
+pub use registry::{WindowsRegistry, usb_device_ids, usb_interfaces};
+pub use sensors::{WindowsSensors, device_power};
+pub use session::{SessionEndWatch, serve_sent_messages, session_locked};
 pub use watch::RegistryWatch;
 
 /// Something Windows tells us about power.

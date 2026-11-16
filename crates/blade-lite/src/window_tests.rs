@@ -11,6 +11,7 @@ mod screens;
 mod settings;
 mod sleep;
 mod soak;
+mod usb_suspend;
 
 use std::cell::RefCell;
 use std::io;
@@ -99,12 +100,26 @@ impl Parts for Fakes {
     fn screen_on() -> Option<bool> {
         FAKE_SCREEN_ON.get()
     }
+
+    fn num_lock_on() -> bool {
+        FAKE_NUM_LOCK.get()
+    }
+
+    fn usb_suspend_on() -> bool {
+        FAKE_USB_SUSPEND_ON.get()
+    }
+
+    fn session_locked() -> Option<bool> {
+        FAKE_SESSION_LOCKED.get()
+    }
 }
 
 thread_local! {
     /// The power source the fakes report: AC unless a test sets it. Each
     /// test runs on its own thread.
     pub static FAKE_ON_BATTERY: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    /// Whether the session reads locked: unlocked unless a test sets it.
+    pub static FAKE_SESSION_LOCKED: std::cell::Cell<Option<bool>> = const { std::cell::Cell::new(Some(false)) };
     /// Whether the power source can't be told: known unless a test sets it.
     pub static FAKE_SOURCE_UNKNOWN: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
     /// What the user does in a file dialog: cancel unless a test sets it.
@@ -130,6 +145,11 @@ thread_local! {
     pub static FAKE_LID_OPEN: std::cell::Cell<Option<bool>> = const { std::cell::Cell::new(Some(true)) };
     /// Whether the screen is on: on unless a test sets it.
     pub static FAKE_SCREEN_ON: std::cell::Cell<Option<bool>> = const { std::cell::Cell::new(Some(true)) };
+    /// Whether Num Lock is on: off unless a test sets it.
+    pub static FAKE_NUM_LOCK: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    /// Whether the start's read found USB suspend on: not (off, odd or not
+    /// read yet) unless a test sets it.
+    pub static FAKE_USB_SUSPEND_ON: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
     /// What the GPU reads: asleep unless a test sets it.
     pub static FAKE_GPU: std::cell::Cell<FakeGpu> = const { std::cell::Cell::new(FakeGpu::Asleep) };
     /// The file dialogs shown.
@@ -248,6 +268,7 @@ pub fn fixture_with_programs(config: Config, programs: &[&str]) -> Fixture {
     .expect("the first Slint call on this thread");
     log_path();
     FAKE_ON_BATTERY.set(false);
+    FAKE_SESSION_LOCKED.set(Some(false));
     FAKE_SOURCE_UNKNOWN.set(false);
     FAKE_MIC.set(None);
     FAKE_MIC_READS_AGAIN.set(0);
@@ -259,6 +280,8 @@ pub fn fixture_with_programs(config: Config, programs: &[&str]) -> Fixture {
     FAKE_SCREEN_ON.set(Some(true));
     crate::shell::MISSED_WAKES_HELD.set(0);
     FAKE_GPU.set(FakeGpu::Asleep);
+    FAKE_NUM_LOCK.set(false);
+    FAKE_USB_SUSPEND_ON.set(false);
     let (mut app, dir, _) = app_on(&BLADE_18, config);
     let controller = &mut app.machine_mut().controller.inner;
     controller.logo_reply = Some(vec![0, 4, 1]);
@@ -324,8 +347,16 @@ pub fn click(root: &impl ElementRoot, role: AccessibleRole, label: &str) {
 
 /// The label of the preset chosen in the window's Performance mode row.
 pub fn selected_preset(f: &Fixture) -> String {
+    chosen(&f.shell.window().get_presets())
+}
+
+/// The preset the flyout shows chosen.
+pub fn flyout_selected_preset(f: &Fixture) -> String {
+    chosen(&f.shell.flyout().get_presets())
+}
+
+fn chosen(presets: &slint::ModelRc<crate::Choice>) -> String {
     use slint::Model;
-    let presets = f.shell.window().get_presets();
     let chosen = presets.iter().find(|choice| choice.selected);
     chosen.expect("one preset is chosen").label.into()
 }
