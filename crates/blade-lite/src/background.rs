@@ -9,8 +9,9 @@ use std::time::{Duration, Instant};
 
 use blade_core::{PowerKeyPresses, TOUCHPAD_KEY};
 use blade_lite::{
-    KEY_REOPEN_PAUSE, KeyEvent, LOOK_GAP, ReaderEnd, STALL, ShownErrors, UNHEARD_SPELLS_BEFORE_ALL,
-    UnheardSpells, Watchdog, WindowsFnKeys, report, sender_read, step_on_presses,
+    HeardReports, KEY_REOPEN_PAUSE, KeyEvent, LOOK_GAP, ReaderEnd, STALL, ShownErrors,
+    UNHEARD_SPELLS_BEFORE_ALL, UnheardSpells, Watchdog, WindowsFnKeys, reads_on, report,
+    step_on_presses,
 };
 use platform::{
     LidAndScreen, PowerEvent, PowerEvents, RegistryWatch, SuspendHandled, WakeListener,
@@ -212,9 +213,11 @@ pub fn follow_the_power_key() {
         // The dropped reports logged: a reopen that drops one again does
         // not log it again, so the log does not fill (ticket 210).
         let mut logged_drops: Vec<DroppedReport> = Vec::new();
-        // The quiet spells with no key report heard: now and then all key
-        // collections are read for one, in case the profile's one never
-        // sends (ticket 215). Said once a run, so the log does not fill.
+        // The quiet spells with no key report heard: after about an hour all
+        // key collections are read for one, in case the profile's one never
+        // sends (ticket 215), and the reports are opened again, in case a
+        // handle went dead with no error (ticket 230). Said once a run, so
+        // the log does not fill.
         let mut unheard = UnheardSpells::default();
         let mut said_read_all = false;
         loop {
@@ -231,37 +234,32 @@ pub fn follow_the_power_key() {
                 HidKeyReports::open_preferring(&BLADE_18, sender.as_deref())
             };
             let (problem, pause) = match opened {
-                Ok(mut reports) => {
+                Ok(reports) => {
+                    let mut reports = HeardReports::new(reports);
                     // At the open when one collection is opened, so a dead
                     // key can be traced before any press (ticket 209).
-                    log_read_path(reports.read_path(), &mut logged);
+                    log_read_path(reports.reports().read_path(), &mut logged);
                     let (end, ran) = loop {
                         let started = Instant::now();
                         let end =
                             step_on_presses(&mut reports, &mut WindowsFnKeys, &mut presses, on_key);
                         let ran = started.elapsed();
-                        log_read_path(reports.read_path(), &mut logged);
-                        log_drops(reports.dropped(), &mut logged_drops);
-                        let quiet_spell = end.keeps_key_state(ran);
-                        sender = if quiet_spell {
-                            reports.sender().map(str::to_owned).or(sender)
+                        let heard = reports.take_heard();
+                        let open = reports.reports();
+                        log_read_path(open.read_path(), &mut logged);
+                        log_drops(open.take_dropped(), &mut logged_drops);
+                        // After a spell the Fn, Enter and mic states start
+                        // unknown, a release lost in a sleep with it.
+                        presses = end.next_presses(ran, &presses);
+                        sender = if end.keeps_key_state(ran) {
+                            open.sender().map(str::to_owned).or(sender)
                         } else {
                             None
                         };
-                        // Only a real quiet spell counts: after a failure or
-                        // a short run, a read-all open is tried again.
-                        if quiet_spell {
-                            let heard = sender_read(reports.read_path(), sender.as_deref());
-                            unheard = unheard.after_spell(heard);
-                            // The same handle is read on, with the key state
-                            // as it is: no reopen after a quiet spell
-                            // (ticket 221).
-                            if !unheard.opens_again(read_all) {
-                                continue;
-                            }
+                        // No reopen after a quiet spell (ticket 230).
+                        if !reads_on(&end, ran, read_all, heard, &mut unheard) {
+                            break (end, ran);
                         }
-                        presses = end.next_presses(ran, &presses);
-                        break (end, ran);
                     };
                     let pause = end.pause_before_open(ran);
                     let problem = match end {

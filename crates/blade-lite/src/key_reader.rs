@@ -65,8 +65,8 @@ impl UnheardSpells {
         read_all
     }
 
-    /// The count after a real quiet spell. `heard`: the sender was read
-    /// (see [`sender_read`]).
+    /// The count after a real quiet spell. `heard`: a key report was read
+    /// since the last spell ([`HeardReports`]).
     #[must_use]
     pub fn after_spell(self, heard: bool) -> Self {
         if heard {
@@ -77,13 +77,66 @@ impl UnheardSpells {
     }
 }
 
-/// Whether a key report was heard on this open: the one collection read
-/// (`read_path`) is the `sender`. A sender kept from an earlier open that
-/// was not read (no longer found) does not count, so the key can't stay
-/// dead on the profile's collection (ticket 215 review).
+/// Whether the reader reads on with the same handle after a run of
+/// [`step_on_presses`] that ended with `end` after `ran`, on an open that
+/// reads all collections (`read_all`) or not, with a key report `heard`
+/// in that run; `unheard` counts a real quiet spell. Only a real quiet
+/// spell reads on, and not when the reports open again for or after the
+/// read-all spell ([`UnheardSpells::opens_again`]). A failure or a short
+/// run (a broken handle, ticket 131) opens again and counts nothing.
 #[must_use]
-pub fn sender_read(read_path: Option<&str>, sender: Option<&str>) -> bool {
-    read_path.is_some() && read_path == sender
+pub fn reads_on(
+    end: &ReaderEnd,
+    ran: Duration,
+    read_all: bool,
+    heard: bool,
+    unheard: &mut UnheardSpells,
+) -> bool {
+    if !end.keeps_key_state(ran) {
+        return false;
+    }
+    *unheard = unheard.after_spell(heard);
+    !unheard.opens_again(read_all)
+}
+
+/// Key reports that note when one was read, so a quiet spell knows
+/// whether the key was heard since the last one: about an hour with no
+/// key report, the read-all spell opens the reports again, the way back
+/// if a handle ever goes dead with no error (tickets 215, 230).
+pub struct HeardReports<S> {
+    reports: S,
+    heard: bool,
+}
+
+impl<S> HeardReports<S> {
+    pub fn new(reports: S) -> Self {
+        Self {
+            reports,
+            heard: false,
+        }
+    }
+
+    /// Whether a key report was read since the last take.
+    pub fn take_heard(&mut self) -> bool {
+        std::mem::take(&mut self.heard)
+    }
+
+    /// The key reports read.
+    pub fn reports(&mut self) -> &mut S {
+        &mut self.reports
+    }
+}
+
+impl<S: KeyReportSource> KeyReportSource for HeardReports<S> {
+    fn read(&mut self, wait: Duration) -> io::Result<Option<Vec<u8>>> {
+        let read = self.reports.read(wait);
+        self.heard |= matches!(read, Ok(Some(_)));
+        read
+    }
+
+    fn single(&self) -> bool {
+        self.reports.single()
+    }
 }
 
 /// Somewhere key reports come from.
@@ -171,8 +224,9 @@ pub const KEY_REOPEN_PAUSE: Duration = Duration::from_secs(5);
 
 impl ReaderEnd {
     /// How long to wait before the next open, after a reader that ran for
-    /// `ran` (its whole run, not only the quiet spell). A quiet spell opens
-    /// again at once, so no press is lost in the pause. A run shorter than
+    /// `ran` (its whole run, not only the quiet spell). A quiet spell that
+    /// opens again (for or after the read-all spell, see [`reads_on`])
+    /// does so at once, so no press is lost in the pause. A run shorter than
     /// half its quiet reads' waits had reads that did not wait, a broken
     /// handle, so it pauses, as a failure does. A handle that breaks late
     /// in a long run gets one open at once; the next, short run pauses.
@@ -318,6 +372,82 @@ mod tests {
         assert_eq!(unheard, UnheardSpells::default());
     }
 
+    const SPELL: Duration = KEY_QUIET_SPELL;
+
+    #[test]
+    fn a_real_quiet_spell_reads_on_and_counts() {
+        let mut unheard = UnheardSpells::default();
+        assert!(reads_on(
+            &ReaderEnd::QuietSpell,
+            SPELL,
+            false,
+            false,
+            &mut unheard
+        ));
+        assert_eq!(unheard, self::unheard(1));
+    }
+
+    #[test]
+    fn a_heard_key_report_starts_the_count_again_and_reads_on() {
+        let mut unheard = unheard(5);
+        assert!(reads_on(
+            &ReaderEnd::QuietSpell,
+            SPELL,
+            false,
+            true,
+            &mut unheard
+        ));
+        assert_eq!(unheard, UnheardSpells::default());
+    }
+
+    #[test]
+    fn an_hour_of_unheard_spells_opens_again_to_read_all() {
+        let mut unheard = unheard(UNHEARD_SPELLS_BEFORE_ALL - 1);
+        assert!(!reads_on(
+            &ReaderEnd::QuietSpell,
+            SPELL,
+            false,
+            false,
+            &mut unheard
+        ));
+        assert!(unheard.take_read_all());
+    }
+
+    #[test]
+    fn the_read_all_spell_opens_again_when_it_ends() {
+        let mut unheard = UnheardSpells::default();
+        assert!(!reads_on(
+            &ReaderEnd::QuietSpell,
+            SPELL,
+            true,
+            true,
+            &mut unheard
+        ));
+    }
+
+    #[test]
+    fn a_short_run_or_a_failure_opens_again_and_counts_nothing() {
+        let mut unheard = unheard(3);
+        let short = Duration::from_secs(1);
+        assert!(!reads_on(
+            &ReaderEnd::QuietSpell,
+            short,
+            false,
+            false,
+            &mut unheard
+        ));
+        let failed = ReaderEnd::Failed("gone".into());
+        assert!(!reads_on(&failed, SPELL, false, false, &mut unheard));
+        assert!(!reads_on(
+            &ReaderEnd::Quit,
+            SPELL,
+            false,
+            false,
+            &mut unheard
+        ));
+        assert_eq!(unheard, self::unheard(3));
+    }
+
     #[test]
     fn a_quiet_spell_reads_on_on_the_same_handle() {
         assert!(!UnheardSpells::default().opens_again(false));
@@ -340,16 +470,6 @@ mod tests {
 
         assert_eq!(heard, UnheardSpells::default());
         assert!(!heard.take_read_all());
-    }
-
-    #[test]
-    fn a_sender_counts_as_heard_only_when_it_was_read() {
-        assert!(sender_read(Some("col06"), Some("col06")));
-        // A sender no longer found: the profile's collection was read.
-        assert!(!sender_read(Some("col04"), Some("col06")));
-        // All read, none sent.
-        assert!(!sender_read(None, Some("col06")));
-        assert!(!sender_read(Some("col04"), None));
     }
 
     #[test]

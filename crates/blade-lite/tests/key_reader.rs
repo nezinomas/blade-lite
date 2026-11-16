@@ -6,8 +6,8 @@ use std::time::Duration;
 
 use blade_core::{BRIGHTNESS_READ_GAP, PowerKeyPresses};
 use blade_lite::{
-    ENTER_READ_WAIT, FnKeys, KEY_QUIET_SPELL, KEY_READ_WAIT, KEY_REOPEN_PAUSE, KeyEvent,
-    KeyReportSource, ReaderEnd, step_on_presses,
+    ENTER_READ_WAIT, FnKeys, HeardReports, KEY_QUIET_SPELL, KEY_READ_WAIT, KEY_REOPEN_PAUSE,
+    KeyEvent, KeyReportSource, ReaderEnd, step_on_presses,
 };
 use razer_proto::BLADE_18;
 
@@ -116,7 +116,19 @@ fn the_loop_ends_when_the_app_is_quitting() {
 }
 
 #[test]
-fn a_long_quiet_spell_reopens_the_reports() {
+fn a_key_report_read_is_heard() {
+    let mut reports = HeardReports::new(source(vec![None, Some(vec![0x04])]));
+
+    reports.read(KEY_READ_WAIT).unwrap();
+    assert!(!reports.take_heard());
+    reports.read(KEY_READ_WAIT).unwrap();
+    assert!(reports.take_heard());
+    // Taken: not heard again until the next report.
+    assert!(!reports.take_heard());
+}
+
+#[test]
+fn a_long_quiet_spell_ends_the_run_as_a_quiet_spell() {
     let quiet = (0..idle_reads()).map(|_| None).collect();
     let mut source = source(quiet);
     let mut calls = 0;
@@ -138,7 +150,7 @@ fn a_long_quiet_spell_reopens_the_reports() {
 }
 
 #[test]
-fn only_a_quiet_spell_of_full_length_opens_again_at_once() {
+fn only_a_quiet_spell_of_full_length_opens_again_with_no_pause() {
     let spell = KEY_QUIET_SPELL;
     assert_eq!(
         ReaderEnd::QuietSpell.pause_before_open(spell),

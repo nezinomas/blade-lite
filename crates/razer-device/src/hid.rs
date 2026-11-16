@@ -153,14 +153,15 @@ impl HidKeyReports {
         self.sources.read(wait)
     }
 
-    /// The first report each collection dropped since the open, so a key
-    /// whose reports no longer match the profile can be traced, even when
-    /// another collection drops its wake report first (ticket 210).
-    #[must_use]
-    pub fn dropped(&self) -> Vec<DroppedReport> {
+    /// The first report each collection dropped since the open or the last
+    /// take, so a key whose reports no longer match the profile can be
+    /// traced, even when another collection drops its wake report first
+    /// (ticket 210). Taken, so a handle read on for long keeps one for
+    /// each collection's later drops too (ticket 230).
+    pub fn take_dropped(&mut self) -> Vec<DroppedReport> {
         self.sources
-            .drops
-            .iter()
+            .take_drops()
+            .into_iter()
             .filter_map(|dropped| {
                 Some(DroppedReport {
                     id: dropped.id,
@@ -280,6 +281,12 @@ impl<D: ReadTimeout> KeySources<D> {
             key,
             drops: Vec::new(),
         }
+    }
+
+    /// The drops kept so far; the next drop of each collection is kept
+    /// again.
+    fn take_drops(&mut self) -> Vec<Dropped> {
+        std::mem::take(&mut self.drops)
     }
 
     /// Whether only one collection is read: there is one, or one sent.
@@ -614,6 +621,29 @@ mod tests {
             len: 1,
         };
         assert_eq!(sources.drops, [wake, other]);
+    }
+
+    #[test]
+    fn a_collection_drop_is_kept_again_once_the_drops_are_taken() {
+        let later = vec![0x06, 0x01];
+        // An empty read ends the first wait: nothing came.
+        let (mut sources, _) = sources(vec![vec![Ok(wake_report()), Ok(vec![]), Ok(later)]]);
+
+        sources.read(WAIT).unwrap();
+        let wake = Dropped {
+            source: 0,
+            id: 0x05,
+            len: 16,
+        };
+        assert_eq!(sources.take_drops(), [wake]);
+
+        sources.read(WAIT).unwrap();
+        let other = Dropped {
+            source: 0,
+            id: 0x06,
+            len: 2,
+        };
+        assert_eq!(sources.drops, [other]);
     }
 
     #[test]
