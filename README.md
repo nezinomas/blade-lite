@@ -19,8 +19,7 @@ background services, no account and no cloud.
 Synapse is heavy. It runs several services, wants an account, and uses memory
 and CPU all the time just to set a few things on the laptop.
 
-This app does only those few things. The targets (laptop check 26 compared a
-day's use) are:
+This app does only those few things. The targets are:
 
 - About 0% CPU while the window and flyout are closed. With no view open the
   app still reads the CPU and GPU temperature and the charger each 10 s
@@ -29,8 +28,8 @@ day's use) are:
   A 1 s tick also reads Num Lock, the mic mute and the power source.
 - Under 25 MB of RAM with just the tray running, and under 50 MB with the
   window open.
-  Measured 2026-11-16 (ticket 226): 24 MB with just the tray, 37 MB after the
-  window was opened.
+  Measured 2026-11-16 (ticket 226, private memory): 24 MB with just the
+  tray, 37 MB with the window open and after it was closed.
 - Starts at login, needs no admin rights, and works with Synapse and its
   driver removed.
 
