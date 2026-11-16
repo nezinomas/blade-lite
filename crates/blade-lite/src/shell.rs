@@ -427,6 +427,8 @@ pub struct Shell<P: Parts = Laptop> {
     controller_gone: Cell<bool>,
     /// Whether the quit preset went, so it goes once.
     quit_sent: Cell<bool>,
+    /// Whether the quit preset's sends worked (ticket 148).
+    quit_preset_went: Cell<bool>,
     /// How the app ends, for the log line of a failed rate put-back.
     ending: Cell<Ending>,
     /// Whether Windows told of a sleep and no wake came since (ticket 169).
@@ -508,6 +510,7 @@ impl<P: Parts> Shell<P> {
             dialog_open: Cell::new(false),
             stopped_parts: RefCell::new(Vec::new()),
             quit_sent: Cell::new(false),
+            quit_preset_went: Cell::new(false),
             ending: Cell::new(Ending::Quit),
             asleep: Cell::new(false),
             sleep_preset_sent: Cell::new(false),
@@ -599,10 +602,11 @@ impl<P: Parts> Shell<P> {
                 P::release_controller();
                 sent = app.quit_preset();
             }
-            if let Err(error) = sent {
-                report(&format!(
+            match sent {
+                Ok(()) => self.quit_preset_went.set(true),
+                Err(error) => report(&format!(
                     "Balanced was not sent at quit, so a manual fan or Performance may keep running: {error}"
-                ));
+                )),
             }
         }));
         // Nothing more may reach the controller: an event still queued, or
@@ -718,6 +722,12 @@ impl<P: Parts> Shell<P> {
             return Err(PANICKED.into());
         }
         served.unwrap_or_else(|_| Err(PANICKED.into()))
+    }
+
+    /// Whether the quit preset was sent and every send of it worked, for a
+    /// `--quit` start that waits (ticket 148).
+    pub fn quit_preset_went(&self) -> bool {
+        self.quit_preset_went.get()
     }
 
     /// Windows ends the session (shut down, restart, sign out) or an

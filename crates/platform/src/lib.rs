@@ -151,20 +151,30 @@ pub trait InstanceLock {
     fn wake_first(&self) -> io::Result<()>;
 
     /// Asks the copy that has the app to quit, as the tray's Quit does
-    /// (`--quit`, ticket 148).
+    /// (`--quit`, ticket 148). Its old word that the quit preset was sent
+    /// is dropped first.
     ///
     /// # Errors
     ///
     /// The Windows error if the other copy could not be told.
     fn ask_first_to_quit(&self) -> io::Result<()>;
 
-    /// Takes back an ask to quit that no copy has taken yet, so a copy
-    /// that could not take it in time does not quit later by surprise.
+    /// Takes back an ask to quit that no copy has taken yet. `true` if one
+    /// was taken back, `false` if none was left: a copy took it, so it is
+    /// quitting.
     ///
     /// # Errors
     ///
-    /// The Windows error if the ask could not be taken back.
-    fn withdraw_quit(&self) -> io::Result<()>;
+    /// The Windows error if the look failed.
+    fn take_back_quit(&self) -> io::Result<bool>;
+
+    /// Whether the copy that took the ask to quit said its quit preset was
+    /// sent.
+    ///
+    /// # Errors
+    ///
+    /// The Windows error if the look failed.
+    fn quit_was_sent(&self) -> io::Result<bool>;
 }
 
 /// A key that the app may send. The app never sends any other key.

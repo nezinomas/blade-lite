@@ -36,13 +36,15 @@ pub use apply::{
 };
 pub use autostart::{
     APPROVED_KEY, Autostart, AutostartError, RUN_KEY, RUN_VALUE, SHOWN_COMMAND_CHARS, TRAY_FLAG,
-    autostart, set_autostart, starts_in_tray,
+    autostart, set_autostart,
 };
 pub use battery_rate::{BATTERY_RATE, BatteryRate, RESUME_RATE_TRIES};
 pub use charge::{ChargeError, charge_limit_on, set_charge_limit};
 pub use charger::full_power_charger;
 pub use config::{Config, ConfigError, CustomSettings, Lighting, Preset};
-pub use instance::{APP_NAME, Quit, Start, Task, TaskError, quit_first, start_instance, task};
+pub use instance::{
+    APP_NAME, ArgsError, Launch, Quit, Start, Task, launch, quit_first, start_instance,
+};
 pub use keyboard_brightness::{keyboard_brightness, set_vapor_light};
 pub use log::{LOG_FILES, LOG_LINE_MAX, LOG_MAX_BYTES, Log, log_line};
 pub use logo::{LogoError, logo_on, set_logo};

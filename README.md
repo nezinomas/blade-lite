@@ -93,8 +93,10 @@ The look follows Windows 11 Settings, so the app feels like part of Windows.
 - **For an installer:** `blade-lite.exe --quit` asks the running copy to
   quit as Quit does and waits for it to end; `blade-lite.exe --reset`, with
   no copy running, sets the fans to auto and sends Balanced. Each must be
-  the only argument, shows no window or box, and ends with exit code 0 if
-  it worked, else 1 (the log says why). See
+  the only argument; any other argument starts nothing. They show no
+  window or box. Exit code 0: it worked. 2 (`--quit` only): the copy is
+  quitting but has not ended yet; don't end it, run `--quit` again later.
+  1: it failed (the log says why). See
   [docs/recovery.md](docs/recovery.md).
 
 The UI toolkit is [Slint](https://slint.dev) with its Fluent style.

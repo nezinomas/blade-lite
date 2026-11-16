@@ -542,5 +542,6 @@ fn a_reset_whose_balanced_send_fails_is_an_error() {
     controller.ok_runs = Some(1);
 
     assert!(reset(&BLADE_18, &mut controller).is_err());
-    assert_eq!(log.borrow().len(), reset_steps().len() - 4);
+    let custom_run = &reset_steps()[..6];
+    assert_eq!(*log.borrow(), custom_run);
 }

@@ -7,6 +7,8 @@ use std::time::Duration;
 
 use platform::InstanceLock;
 
+use crate::TRAY_FLAG;
+
 /// The name that keeps the app, and the dev tools, to one copy that
 /// drives the controller.
 pub const APP_NAME: &str = "blade-lite";
@@ -59,27 +61,42 @@ impl Task {
     }
 }
 
-/// Why the arguments name no task that can run.
-#[derive(Debug, thiserror::Error)]
-#[error("--quit or --reset must be the only argument")]
-pub struct TaskError;
+/// What a start of `blade-lite.exe` does.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Launch {
+    /// Runs the app, in the tray if started with [`TRAY_FLAG`].
+    App {
+        /// Started with [`TRAY_FLAG`], as autostart does.
+        in_tray: bool,
+    },
+    /// Does one task for an installer and ends.
+    Task(Task),
+}
 
-/// The task the arguments name, or `None` for a start of the app. A task
-/// must be the only argument: anything beside it is refused, so a mistyped
-/// command does nothing (fail safe).
+/// Why the arguments name nothing the app can do.
+#[derive(Debug, thiserror::Error)]
+#[error("unknown arguments: Blade Lite takes none, or one of --tray, --quit and --reset")]
+pub struct ArgsError;
+
+/// What the arguments ask for. Only no argument, or one exact flag, counts;
+/// anything else (a mistyped flag, two flags, a flag that is not text) is
+/// refused, so a wrong command never starts the app and sends the saved
+/// preset (fail safe, ticket 148).
 ///
 /// # Errors
 ///
-/// [`TaskError`] if a task's flag comes with any other argument.
-pub fn task(args: impl IntoIterator<Item = OsString>) -> Result<Option<Task>, TaskError> {
+/// [`ArgsError`] for any other arguments.
+pub fn launch(args: impl IntoIterator<Item = OsString>) -> Result<Launch, ArgsError> {
     let args: Vec<OsString> = args.into_iter().collect();
-    let named = [Task::Quit, Task::Reset]
-        .into_iter()
-        .find(|task| args.iter().any(|arg| arg == task.flag()));
-    match (named, args.len()) {
-        (None, _) => Ok(None),
-        (Some(task), 1) => Ok(Some(task)),
-        (Some(_), _) => Err(TaskError),
+    match args.as_slice() {
+        [] => Ok(Launch::App { in_tray: false }),
+        [one] if one == TRAY_FLAG => Ok(Launch::App { in_tray: true }),
+        [one] => [Task::Quit, Task::Reset]
+            .into_iter()
+            .find(|task| one == task.flag())
+            .map(Launch::Task)
+            .ok_or(ArgsError),
+        _ => Err(ArgsError),
     }
 }
 
@@ -88,40 +105,68 @@ pub fn task(args: impl IntoIterator<Item = OsString>) -> Result<Option<Task>, Ta
 pub enum Quit {
     /// No copy ran, so nobody was asked.
     NoneRan,
-    /// The running copy was asked and has ended.
+    /// The running copy was asked, sent its quit preset and has ended.
     Ended,
-    /// The running copy was asked but had not ended within the wait; the
-    /// ask was taken back.
+    /// The running copy was asked and has ended, but did not say its quit
+    /// preset was sent (a failed send, a Razer updater, a crash).
+    EndedUnsent,
+    /// The running copy took the ask but had not ended within the wait,
+    /// such as while a menu or a file box of its own was open. It quits
+    /// once that ends: it must not be ended meanwhile.
+    Quitting,
+    /// The running copy had not taken the ask within the wait (it may wait
+    /// at login for the controller, or on a box); the ask was taken back.
     StillRuns,
 }
 
 /// Asks the running copy to quit and waits up to `wait` for it to let go
-/// of the lock, looking each `every` (each pause through `sleep`). Once it
-/// returns [`Quit::NoneRan`] or [`Quit::Ended`], this copy holds the lock,
-/// so no new copy can start until it ends. If the copy has not ended in
-/// time, the ask is taken back, so it does not quit later by surprise.
+/// of the lock, looking each `every` (each pause through `sleep`). An ask
+/// left untaken is always taken back before this returns, so no copy quits
+/// later by surprise. Once it returns [`Quit::NoneRan`], [`Quit::Ended`] or
+/// [`Quit::EndedUnsent`], this copy holds the lock, so no new copy can start
+/// until it ends.
 ///
 /// # Errors
 ///
-/// The Windows error if a claim, the ask, or taking it back failed. Nothing
-/// is asked after a failed claim.
+/// The Windows error if a claim, the ask, taking it back, or the read of
+/// whether the quit preset was sent failed. Nothing is asked after a failed
+/// first claim.
 pub fn quit_first(
     lock: &mut impl InstanceLock,
     wait: Duration,
     every: Duration,
-    mut sleep: impl FnMut(Duration),
+    sleep: impl FnMut(Duration),
 ) -> io::Result<Quit> {
     if lock.claim()? {
         return Ok(Quit::NoneRan);
     }
     lock.ask_first_to_quit()?;
+    let ended = wait_for_the_lock(lock, wait, every, sleep);
+    // Also after an end or an error: a copy that ended without taking the
+    // ask must not leave it to the next one.
+    let taken_back = lock.take_back_quit();
+    match (ended?, taken_back?) {
+        (true, _) if lock.quit_was_sent()? => Ok(Quit::Ended),
+        (true, _) => Ok(Quit::EndedUnsent),
+        (false, true) => Ok(Quit::StillRuns),
+        (false, false) => Ok(Quit::Quitting),
+    }
+}
+
+/// Claims the lock each `every` until it works or `wait` is up: whether
+/// the other copy ended.
+fn wait_for_the_lock(
+    lock: &mut impl InstanceLock,
+    wait: Duration,
+    every: Duration,
+    mut sleep: impl FnMut(Duration),
+) -> io::Result<bool> {
     let looks = wait.as_millis().div_ceil(every.as_millis().max(1));
     for _ in 0..looks {
         sleep(every);
         if lock.claim()? {
-            return Ok(Quit::Ended);
+            return Ok(true);
         }
     }
-    lock.withdraw_quit()?;
-    Ok(Quit::StillRuns)
+    Ok(false)
 }

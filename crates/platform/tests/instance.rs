@@ -93,14 +93,42 @@ fn a_wake_is_no_ask_to_quit() {
 }
 
 #[test]
-fn a_withdrawn_ask_to_quit_is_not_seen() {
-    let name = name("withdrawn");
+fn an_ask_to_quit_taken_back_is_not_seen() {
+    let name = name("taken-back");
     let first = WindowsInstance::new(&name).unwrap();
     let quits = first.quit_listener().unwrap();
     let second = WindowsInstance::new(&name).unwrap();
 
     second.ask_first_to_quit().unwrap();
-    second.withdraw_quit().unwrap();
 
+    assert!(second.take_back_quit().unwrap());
     assert!(!quits.wait(NO_WAIT).unwrap());
+}
+
+#[test]
+fn an_ask_the_first_copy_took_can_not_be_taken_back() {
+    let name = name("taken");
+    let first = WindowsInstance::new(&name).unwrap();
+    let quits = first.quit_listener().unwrap();
+    let second = WindowsInstance::new(&name).unwrap();
+
+    second.ask_first_to_quit().unwrap();
+    assert!(quits.wait(NO_WAIT).unwrap());
+
+    assert!(!second.take_back_quit().unwrap());
+}
+
+#[test]
+fn the_quit_preset_sent_is_seen_until_the_next_ask() {
+    let name = name("sent");
+    let first = WindowsInstance::new(&name).unwrap();
+    let second = WindowsInstance::new(&name).unwrap();
+    assert!(!second.quit_was_sent().unwrap());
+
+    first.note_quit_sent().unwrap();
+
+    assert!(second.quit_was_sent().unwrap());
+    assert!(second.quit_was_sent().unwrap());
+    second.ask_first_to_quit().unwrap();
+    assert!(!second.quit_was_sent().unwrap());
 }

@@ -49,6 +49,8 @@ pub struct WindowsInstance {
     event: Handle,
     quit_name: Vec<u16>,
     quit: Handle,
+    /// Set by the copy that quit, once its quit preset was sent.
+    quit_sent: Handle,
     /// Kept until drop, so the claim lasts as long as this copy runs.
     mutex: Option<Handle>,
 }
@@ -62,12 +64,14 @@ impl WindowsInstance {
     pub fn new(app: &str) -> io::Result<Self> {
         let event_name = wide(&format!(r"Local\{app}-open"));
         let quit_name = wide(&format!(r"Local\{app}-quit"));
+        let sent_name = wide(&format!(r"Local\{app}-quit-sent"));
         Ok(Self {
             mutex_name: wide(&format!(r"Global\{app}")),
             event: open_event(&event_name)?,
             event_name,
             quit: open_event(&quit_name)?,
             quit_name,
+            quit_sent: open_manual_event(&sent_name)?,
             mutex: None,
         })
     }
@@ -88,6 +92,15 @@ impl WindowsInstance {
     /// The Windows error if the event could not be opened.
     pub fn quit_listener(&self) -> io::Result<WakeListener> {
         open_event(&self.quit_name).map(WakeListener)
+    }
+
+    /// Says the quit preset was sent, for a `--quit` start that waits.
+    ///
+    /// # Errors
+    ///
+    /// The Windows error if the event could not be set.
+    pub fn note_quit_sent(&self) -> io::Result<()> {
+        set(&self.quit_sent)
     }
 }
 
@@ -115,15 +128,21 @@ impl InstanceLock for WindowsInstance {
     }
 
     fn ask_first_to_quit(&self) -> io::Result<()> {
+        // SAFETY: the event handle is open until drop.
+        if unsafe { ResetEvent(self.quit_sent.0) } == 0 {
+            return Err(io::Error::last_os_error());
+        }
         set(&self.quit)
     }
 
-    fn withdraw_quit(&self) -> io::Result<()> {
-        // SAFETY: the event handle is open until drop.
-        if unsafe { ResetEvent(self.quit.0) } == 0 {
-            return Err(io::Error::last_os_error());
-        }
-        Ok(())
+    fn take_back_quit(&self) -> io::Result<bool> {
+        // Auto-reset: a wait that finds it set also clears it, in one step,
+        // so a copy can't take it in between.
+        WakeListener::wait_on(&self.quit, Duration::ZERO)
+    }
+
+    fn quit_was_sent(&self) -> io::Result<bool> {
+        WakeListener::wait_on(&self.quit_sent, Duration::ZERO)
     }
 }
 
@@ -147,9 +166,14 @@ impl WakeListener {
     ///
     /// The Windows error if the wait failed.
     pub fn wait(&self, timeout: Duration) -> io::Result<bool> {
+        Self::wait_on(&self.0, timeout)
+    }
+
+    /// Waits up to `timeout` for `event`.
+    fn wait_on(event: &Handle, timeout: Duration) -> io::Result<bool> {
         let millis = u32::try_from(timeout.as_millis()).unwrap_or(INFINITE);
         // SAFETY: the event handle is open until drop.
-        match unsafe { WaitForSingleObject((self.0).0, millis) } {
+        match unsafe { WaitForSingleObject(event.0, millis) } {
             WAIT_OBJECT_0 => Ok(true),
             WAIT_TIMEOUT => Ok(false),
             _ => Err(io::Error::last_os_error()),
@@ -161,6 +185,13 @@ impl WakeListener {
 fn open_event(name: &[u16]) -> io::Result<Handle> {
     // SAFETY: the name ends in a nul. No attributes, auto-reset, not set.
     Handle::new(unsafe { CreateEventW(ptr::null(), 0, 0, name.as_ptr()) })
+}
+
+/// Makes a manual-reset event, which stays set for every look, or opens
+/// it if another copy made it.
+fn open_manual_event(name: &[u16]) -> io::Result<Handle> {
+    // SAFETY: the name ends in a nul. No attributes, manual reset, not set.
+    Handle::new(unsafe { CreateEventW(ptr::null(), 1, 0, name.as_ptr()) })
 }
 
 #[cfg(test)]

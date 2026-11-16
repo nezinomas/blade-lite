@@ -35,15 +35,15 @@ use std::rc::Rc;
 use std::time::{Duration, Instant};
 
 use blade_core::{
-    APP_NAME, Config, Log, POLL_INTERVAL, Quit, RESUME_PAUSE, Start, Task, quit_first,
-    razer_software, razer_updater, razer_warning, start_instance, starts_in_tray, task,
+    APP_NAME, Config, Launch, Log, POLL_INTERVAL, Quit, RESUME_PAUSE, Start, Task, launch,
+    quit_first, razer_software, razer_updater, razer_warning, start_instance,
 };
 use blade_lite::{
     App, Machine, PollTime, SlowPolls, accent_colour, config_or_defaults, end_on_loop, icon,
     open_log, poll_late, report, report_panics, report_usb_suspend, try_times, try_until_it_works,
 };
 use platform::{
-    SessionEndWatch, WindowsDisplays, WindowsInstance, WindowsKeys, WindowsPrograms,
+    InstanceLock, SessionEndWatch, WindowsDisplays, WindowsInstance, WindowsKeys, WindowsPrograms,
     WindowsRegistry, num_lock_on, serve_sent_messages,
 };
 use razer_device::{Device, HidTransport, Reopening, SystemClock};
@@ -79,12 +79,19 @@ thread_local! {
 }
 
 fn main() -> ExitCode {
-    let task =
-        limit_dll_search().and_then(|()| task(std::env::args_os().skip(1)).map_err(Into::into));
-    match task {
-        Ok(Some(task)) => do_task(task),
-        Ok(None) => show_if_failed(run_caught(run)),
-        Err(error) => show_if_failed(Err(error)),
+    match launch(std::env::args_os().skip(1)) {
+        Ok(Launch::App { in_tray }) => {
+            show_if_failed(limit_dll_search().and_then(|()| run_caught(move || run(in_tray))))
+        }
+        Ok(Launch::Task(task)) => do_task(task),
+        // Nothing runs, and no box: an installer may have sent it, and a
+        // box would hold it.
+        Err(error) => {
+            // Without a log the line goes to stderr only.
+            let _ = open_the_log();
+            report(&error.to_string());
+            ExitCode::FAILURE
+        }
     }
 }
 
@@ -98,28 +105,33 @@ fn show_if_failed(ran: Result<(), Box<dyn std::error::Error>>) -> ExitCode {
     ExitCode::FAILURE
 }
 
+/// The exit code of a `--quit` whose copy took the ask but has not ended:
+/// it must not be ended, as it sends the quit preset as it ends.
+const STILL_QUITTING: u8 = 2;
+
 /// Runs a task for an installer (ticket 148). It shows no box, so an
-/// installer that runs it is never held: the exit code says whether it
-/// worked, and the log why not.
+/// installer that runs it is never held: the exit code says how it went
+/// (0 it worked, [`STILL_QUITTING`], else 1), and the log why.
 fn do_task(task: Task) -> ExitCode {
-    match run_caught(move || run_task(task)) {
-        Ok(()) => ExitCode::SUCCESS,
-        Err(error) => {
-            report(&format!("{}: {error}", task.flag()));
-            ExitCode::FAILURE
-        }
-    }
+    let ran = open_the_log()
+        .and_then(|_| limit_dll_search())
+        .and_then(|()| run_caught(move || run_task(task)));
+    ran.unwrap_or_else(|error| {
+        report(&format!("{}: {error}", task.flag()));
+        ExitCode::FAILURE
+    })
 }
 
 /// How long `--quit` waits for the running copy to end. Its quit may first
-/// wait out the rest of a pause after a wake (2 s) and then send twice,
-/// with a retry, each send waiting up to 3 s for its reply; the rest is room.
+/// wait out the rest of a pause after a wake (2 s), then send twice, with
+/// a retry, each send waiting up to 3 s for the controller (`FEATURE_WAIT`
+/// in `platform/src/hid.rs`), then put the panel's rate back; the rest is
+/// room.
 const QUIT_WAIT: Duration = Duration::from_secs(20);
 /// How often `--quit` looks whether the running copy has ended.
 const QUIT_LOOK: Duration = Duration::from_millis(100);
 
-fn run_task(task: Task) -> Result<(), Box<dyn std::error::Error>> {
-    open_the_log()?;
+fn run_task(task: Task) -> Result<ExitCode, Box<dyn std::error::Error>> {
     report(&format!(
         "{} starts, version {}",
         task.flag(),
@@ -128,25 +140,51 @@ fn run_task(task: Task) -> Result<(), Box<dyn std::error::Error>> {
     let mut instance = WindowsInstance::new(APP_NAME)?;
     match task {
         Task::Quit => quit_running_copy(&mut instance),
-        Task::Reset => reset_alone(&mut instance),
+        Task::Reset => reset_alone(&mut instance).map(|()| ExitCode::SUCCESS),
     }
 }
 
 /// `--quit`: asks the running copy to quit, as the tray's Quit does, and
 /// waits for it to end. Sends nothing itself.
-fn quit_running_copy(instance: &mut WindowsInstance) -> Result<(), Box<dyn std::error::Error>> {
-    match quit_first(instance, QUIT_WAIT, QUIT_LOOK, std::thread::sleep)? {
-        Quit::NoneRan => report("--quit: no copy of the app runs, so nothing was asked"),
-        Quit::Ended => report("--quit: the running copy has quit"),
-        Quit::StillRuns => {
-            return Err(format!(
-                "the running copy did not end within {} s, so the ask was taken back. A copy                  that waits at login for the controller has sent nothing yet and can't hear the                  ask: end it in Task Manager, then run --reset",
-                QUIT_WAIT.as_secs()
-            )
-            .into());
-        }
-    }
-    Ok(())
+fn quit_running_copy(
+    instance: &mut WindowsInstance,
+) -> Result<ExitCode, Box<dyn std::error::Error>> {
+    let wait = QUIT_WAIT.as_secs();
+    let (line, code) = match quit_first(instance, QUIT_WAIT, QUIT_LOOK, std::thread::sleep)? {
+        Quit::NoneRan => (
+            "no copy of the app runs, so nothing was asked".to_owned(),
+            ExitCode::SUCCESS,
+        ),
+        Quit::Ended => (
+            "the running copy sent its quit preset and has quit".to_owned(),
+            ExitCode::SUCCESS,
+        ),
+        Quit::EndedUnsent => (
+            "the running copy has quit, but its quit preset was not sent, so a manual fan or \
+             Performance may run on: run --reset"
+                .to_owned(),
+            ExitCode::FAILURE,
+        ),
+        Quit::Quitting => (
+            format!(
+                "the running copy is quitting but has not ended within {wait} s (a menu or a \
+                 file box of its own may be open). Do not end it: it sends the quit preset as \
+                 it ends. Run --quit again later"
+            ),
+            ExitCode::from(STILL_QUITTING),
+        ),
+        Quit::StillRuns => (
+            format!(
+                "the running copy did not take the ask within {wait} s, so it was taken back. \
+                 A copy that waits at login for the controller, or on its start box about the \
+                 settings, has sent nothing yet and can't hear the ask: end it in Task \
+                 Manager, then run --reset"
+            ),
+            ExitCode::FAILURE,
+        ),
+    };
+    report(&format!("--quit: {line}"));
+    Ok(code)
 }
 
 /// `--reset`: when no copy runs, ends a manual fan that a crash or a kill
@@ -193,9 +231,9 @@ fn limit_dll_search() -> Result<(), Box<dyn std::error::Error>> {
 /// Runs `run`; a panic (a bug) it lets out ends as the error
 /// [`shell::PANICKED`], so the start box shows it (ticket 164). The panic
 /// hook has logged it, unless it came before the log was opened.
-fn run_caught(
-    run: impl FnOnce() -> Result<(), Box<dyn std::error::Error>> + std::panic::UnwindSafe,
-) -> Result<(), Box<dyn std::error::Error>> {
+fn run_caught<T>(
+    run: impl FnOnce() -> Result<T, Box<dyn std::error::Error>> + std::panic::UnwindSafe,
+) -> Result<T, Box<dyn std::error::Error>> {
     std::panic::catch_unwind(run).unwrap_or_else(|_| Err(shell::PANICKED.into()))
 }
 
@@ -324,7 +362,7 @@ fn window_icon(accent: Rgb) -> Result<Icon, BadIcon> {
 #[cfg(test)]
 #[test]
 fn a_panic_in_the_run_ends_with_an_error() {
-    let ran = run_caught(|| panic!("a bug"));
+    let ran = run_caught::<()>(|| panic!("a bug"));
 
     assert_eq!(
         ran.map_err(|error| error.to_string()),
@@ -410,17 +448,41 @@ fn end_session_on_loop() {
     }
 }
 
-fn run() -> Result<(), Box<dyn std::error::Error>> {
+/// Claims the app for this copy, or `None` if another copy has it (it is
+/// told to open its window, unless `in_tray`).
+fn claim_the_app(in_tray: bool) -> Result<Option<WindowsInstance>, Box<dyn std::error::Error>> {
+    let mut instance = WindowsInstance::new(APP_NAME)?;
+    if start_instance(&mut instance, !in_tray)? == Start::Second {
+        report("another copy runs, so this one ends");
+        return Ok(None);
+    }
+    // No ask to quit made before this copy held the lock is meant for it
+    // (ticket 148). If this fails, an old ask may quit it as it starts.
+    if let Err(error) = instance.take_back_quit() {
+        report(&format!("an old --quit ask may quit the app: {error}"));
+    }
+    Ok(Some(instance))
+}
+
+/// Tells a `--quit` start that waits that the quit preset went (ticket 148).
+fn tell_a_quit_start(shell: &Shell, instance: &WindowsInstance) {
+    if shell.quit_preset_went()
+        && let Err(error) = instance.note_quit_sent()
+    {
+        report(&format!(
+            "a --quit start can't be told the quit preset was sent: {error}"
+        ));
+    }
+}
+
+fn run(in_tray: bool) -> Result<(), Box<dyn std::error::Error>> {
     // First, so even a failed start leaves its reason in the log.
     let appdata = open_the_log()?;
     report(concat!("starts, version ", env!("CARGO_PKG_VERSION")));
     // Before the controller is opened: a second copy must never drive it.
-    let in_tray = starts_in_tray(std::env::args_os().skip(1));
-    let mut instance = WindowsInstance::new(APP_NAME)?;
-    if start_instance(&mut instance, !in_tray)? == Start::Second {
-        report("another copy runs, so this one ends");
+    let Some(instance) = claim_the_app(in_tray)? else {
         return Ok(());
-    }
+    };
     // Reads the registry only, on its own thread: never waits, never sends.
     report_usb_suspend(BLADE_18.usb);
     // Before the windows are made: a long wait for the controller must not
@@ -539,6 +601,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         ran?;
         Ok(())
     });
+    tell_a_quit_start(&shell, &instance);
     SHELL.with(RefCell::take);
     TRAY.with(RefCell::take);
     served
