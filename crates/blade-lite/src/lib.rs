@@ -24,9 +24,9 @@ pub use autostart_item::{
 };
 pub use background_gpu::BackgroundGpu;
 pub use key_reader::{
-    ENTER_READ_WAIT, FnKeys, KEY_QUIET_SPELL, KEY_READ_WAIT, KEY_REOPEN_PAUSE, KeyEvent,
-    KeyReportSource, ReaderEnd, UNHEARD_SPELLS_BEFORE_ALL, UnheardSpells, WindowsFnKeys,
-    sender_read, step_on_presses,
+    ENTER_READ_WAIT, FnKeys, HeardReports, KEY_QUIET_SPELL, KEY_READ_WAIT, KEY_REOPEN_PAUSE,
+    KeyEvent, KeyReportSource, ReaderEnd, UNHEARD_SPELLS_BEFORE_ALL, UnheardSpells, WindowsFnKeys,
+    reads_on, step_on_presses,
 };
 pub use placement::{Rect, flyout_position, popup_position};
 pub use report::{

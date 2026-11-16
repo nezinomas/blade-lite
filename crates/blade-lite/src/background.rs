@@ -9,8 +9,9 @@ use std::time::{Duration, Instant};
 
 use blade_core::{PowerKeyPresses, TOUCHPAD_KEY};
 use blade_lite::{
-    KEY_REOPEN_PAUSE, KeyEvent, LOOK_GAP, ReaderEnd, STALL, ShownErrors, UNHEARD_SPELLS_BEFORE_ALL,
-    UnheardSpells, Watchdog, WindowsFnKeys, report, sender_read, step_on_presses,
+    HeardReports, KEY_REOPEN_PAUSE, KeyEvent, LOOK_GAP, ReaderEnd, STALL, ShownErrors,
+    UNHEARD_SPELLS_BEFORE_ALL, UnheardSpells, Watchdog, WindowsFnKeys, reads_on, report,
+    step_on_presses,
 };
 use platform::{
     LidAndScreen, PowerEvent, PowerEvents, RegistryWatch, SuspendHandled, WakeListener,
@@ -197,9 +198,10 @@ pub fn follow_the_power_key() {
     spawn_part("power-mode key", move || {
         // Each problem is said once, not each time it is tried again.
         let mut said = ShownErrors::default();
-        // The key state is kept over a quiet-spell reopen, so a key stuck
-        // down does not step again; new after a failure, as the gap is
-        // unknown. A first report listing the key counts (ticket 174).
+        // The key state is kept over a reopen after a quiet spell (for the
+        // read-all spell, ticket 215), so a key stuck down does not step
+        // again; new after a failure, as the gap is unknown. A first
+        // report listing the key counts (ticket 174).
         let mut presses = PowerKeyPresses::new(key);
         // The collection that sent last: the next open reads it alone, so
         // its reads can wait long (ticket 188). Forgotten as the key state
@@ -211,13 +213,16 @@ pub fn follow_the_power_key() {
         // The dropped reports logged: a reopen that drops one again does
         // not log it again, so the log does not fill (ticket 210).
         let mut logged_drops: Vec<DroppedReport> = Vec::new();
-        // The quiet spells with no key report heard: now and then all key
-        // collections are read for one, in case the profile's one never
-        // sends (ticket 215). Said once a run, so the log does not fill.
+        // The quiet spells with no key report heard: after about an hour all
+        // key collections are read for one, in case the profile's one never
+        // sends (ticket 215), and the reports are opened again, in case a
+        // handle went dead with no error (ticket 230). Said once a run, so
+        // the log does not fill.
         let mut unheard = UnheardSpells::default();
         let mut said_read_all = false;
         loop {
-            let opened = if unheard.take_read_all() {
+            let read_all = unheard.take_read_all();
+            let opened = if read_all {
                 if !std::mem::replace(&mut said_read_all, true) {
                     report(&format!(
                         "no key report in {UNHEARD_SPELLS_BEFORE_ALL} quiet spells: \
@@ -229,33 +234,38 @@ pub fn follow_the_power_key() {
                 HidKeyReports::open_preferring(&BLADE_18, sender.as_deref())
             };
             let (problem, pause) = match opened {
-                Ok(mut reports) => {
+                Ok(reports) => {
+                    let mut reports = HeardReports::new(reports);
                     // At the open when one collection is opened, so a dead
                     // key can be traced before any press (ticket 209).
-                    log_read_path(reports.read_path(), &mut logged);
-                    let started = Instant::now();
-                    let end =
-                        step_on_presses(&mut reports, &mut WindowsFnKeys, &mut presses, on_key);
-                    let ran = started.elapsed();
-                    presses = end.next_presses(ran, &presses);
-                    log_read_path(reports.read_path(), &mut logged);
-                    log_drops(reports.dropped(), &mut logged_drops);
-                    let quiet_spell = end.keeps_key_state(ran);
-                    sender = if quiet_spell {
-                        reports.sender().map(str::to_owned).or(sender)
-                    } else {
-                        None
+                    log_read_path(reports.reports().read_path(), &mut logged);
+                    let (end, ran) = loop {
+                        let started = Instant::now();
+                        let end =
+                            step_on_presses(&mut reports, &mut WindowsFnKeys, &mut presses, on_key);
+                        let ran = started.elapsed();
+                        let heard = reports.take_heard();
+                        let open = reports.reports();
+                        log_read_path(open.read_path(), &mut logged);
+                        log_drops(open.take_dropped(), &mut logged_drops);
+                        // After a spell the Fn, Enter and mic states start
+                        // unknown, a release lost in a sleep with it (the
+                        // safe side: a Fn still held then gives no Fn up).
+                        presses = end.next_presses(ran, &presses);
+                        sender = if end.keeps_key_state(ran) {
+                            open.sender().map(str::to_owned).or(sender)
+                        } else {
+                            None
+                        };
+                        // No reopen after a quiet spell (ticket 230).
+                        if !reads_on(&end, ran, read_all, heard, &mut unheard) {
+                            break (end, ran);
+                        }
                     };
-                    // Only a real quiet spell counts: after a failure or a
-                    // short run, a read-all open is tried again.
-                    if quiet_spell {
-                        let heard = sender_read(reports.read_path(), sender.as_deref());
-                        unheard = unheard.after_spell(heard);
-                    }
                     let pause = end.pause_before_open(ran);
                     let problem = match end {
                         ReaderEnd::Quit => return,
-                        ReaderEnd::Reopen => String::new(),
+                        ReaderEnd::QuietSpell => String::new(),
                         ReaderEnd::Failed(error) => format!("the key reports stopped: {error}"),
                     };
                     (problem, pause)
