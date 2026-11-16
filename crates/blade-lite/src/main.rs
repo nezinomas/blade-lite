@@ -35,8 +35,8 @@ use std::rc::Rc;
 use std::time::{Duration, Instant};
 
 use blade_core::{
-    APP_NAME, Config, Launch, Log, POLL_INTERVAL, Quit, RESUME_PAUSE, Start, Task, launch,
-    quit_first, razer_software, razer_updater, razer_warning, start_instance,
+    APP_NAME, Config, Launch, Log, POLL_INTERVAL, Quit, QuitWait, RESUME_PAUSE, Start, Task,
+    launch, quit_first, razer_software, razer_updater, razer_warning, start_instance,
 };
 use blade_lite::{
     App, Machine, PollTime, SlowPolls, accent_colour, config_or_defaults, end_on_loop, icon,
@@ -122,14 +122,18 @@ fn do_task(task: Task) -> ExitCode {
     })
 }
 
-/// How long `--quit` waits for the running copy to end. Its quit may first
-/// wait out the rest of a pause after a wake (2 s), then send twice, with
-/// a retry, each send waiting up to 3 s for the controller (`FEATURE_WAIT`
-/// in `platform/src/hid.rs`), then put the panel's rate back; the rest is
-/// room.
-const QUIT_WAIT: Duration = Duration::from_secs(20);
-/// How often `--quit` looks whether the running copy has ended.
-const QUIT_LOOK: Duration = Duration::from_millis(100);
+/// How long `--quit` waits for the running copy. It takes the ask at once
+/// unless it is busy, such as in its start sends; then its quit may wait
+/// out the rest of a pause after a wake (2 s), send twice, with a retry,
+/// each command waiting up to 3 s for the controller (`FEATURE_WAIT` in
+/// `platform/src/hid.rs`), then put the panel's rate back. Once it took the
+/// ask, a long wait: it must never be ended mid-quit, and only this start
+/// can read whether its quit preset went.
+const QUIT_WAIT: QuitWait = QuitWait {
+    to_take: Duration::from_secs(20),
+    to_end: Duration::from_secs(120),
+    every: Duration::from_millis(100),
+};
 
 fn run_task(task: Task) -> Result<ExitCode, Box<dyn std::error::Error>> {
     report(&format!(
@@ -149,8 +153,9 @@ fn run_task(task: Task) -> Result<ExitCode, Box<dyn std::error::Error>> {
 fn quit_running_copy(
     instance: &mut WindowsInstance,
 ) -> Result<ExitCode, Box<dyn std::error::Error>> {
-    let wait = QUIT_WAIT.as_secs();
-    let (line, code) = match quit_first(instance, QUIT_WAIT, QUIT_LOOK, std::thread::sleep)? {
+    let take = QUIT_WAIT.to_take.as_secs();
+    let all = (QUIT_WAIT.to_take + QUIT_WAIT.to_end).as_secs();
+    let (line, code) = match quit_first(instance, QUIT_WAIT, std::thread::sleep)? {
         Quit::NoneRan => (
             "no copy of the app runs, so nothing was asked".to_owned(),
             ExitCode::SUCCESS,
@@ -167,15 +172,15 @@ fn quit_running_copy(
         ),
         Quit::Quitting => (
             format!(
-                "the running copy is quitting but has not ended within {wait} s (a menu or a \
+                "the running copy is quitting but has not ended within {all} s (a menu or a \
                  file box of its own may be open). Do not end it: it sends the quit preset as \
-                 it ends. Run --quit again later"
+                 it ends. Whether that works can't be known: once it has ended, run --reset"
             ),
             ExitCode::from(STILL_QUITTING),
         ),
         Quit::StillRuns => (
             format!(
-                "the running copy did not take the ask within {wait} s, so it was taken back. \
+                "the running copy did not take the ask within {take} s, so it was taken back. \
                  A copy that waits at login for the controller, or on its start box about the \
                  settings, has sent nothing yet and can't hear the ask: end it in Task \
                  Manager, then run --reset"
@@ -456,10 +461,19 @@ fn claim_the_app(in_tray: bool) -> Result<Option<WindowsInstance>, Box<dyn std::
         report("another copy runs, so this one ends");
         return Ok(None);
     }
-    // No ask to quit made before this copy held the lock is meant for it
-    // (ticket 148). If this fails, an old ask may quit it as it starts.
-    if let Err(error) = instance.take_back_quit() {
-        report(&format!("an old --quit ask may quit the app: {error}"));
+    // No ask to quit made before this copy held the lock is meant for it,
+    // nor an older copy's word that its quit preset went (ticket 148). An
+    // ask made between the claim and this look is dropped too: its --quit
+    // then says the app is quitting (exit 2), and this line says why.
+    match instance.take_back_quit() {
+        Ok(true) => report("an old --quit ask was dropped"),
+        Ok(false) => {}
+        Err(error) => report(&format!("an old --quit ask may quit the app: {error}")),
+    }
+    if let Err(error) = instance.forget_quit_sent() {
+        report(&format!(
+            "a --quit start may be told an old quit preset was sent: {error}"
+        ));
     }
     Ok(Some(instance))
 }

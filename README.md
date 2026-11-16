@@ -95,7 +95,8 @@ The look follows Windows 11 Settings, so the app feels like part of Windows.
   no copy running, sets the fans to auto and sends Balanced. Each must be
   the only argument; any other argument starts nothing. They show no
   window or box. Exit code 0: it worked. 2 (`--quit` only): the copy is
-  quitting but has not ended yet; don't end it, run `--quit` again later.
+  quitting but has not ended within 140 s; don't end it, and once it has
+  ended run `--reset`.
   1: it failed (the log says why). See
   [docs/recovery.md](docs/recovery.md).
 

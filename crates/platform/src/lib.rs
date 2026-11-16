@@ -151,8 +151,7 @@ pub trait InstanceLock {
     fn wake_first(&self) -> io::Result<()>;
 
     /// Asks the copy that has the app to quit, as the tray's Quit does
-    /// (`--quit`, ticket 148). Its old word that the quit preset was sent
-    /// is dropped first.
+    /// (`--quit`, ticket 148).
     ///
     /// # Errors
     ///

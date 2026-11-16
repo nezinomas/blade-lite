@@ -126,7 +126,9 @@ pub fn quit_when_asked(listener: WakeListener) {
 }
 
 /// Runs `act` on the event loop each time a second copy asks through
-/// `listener`, from the `part`'s own thread, until the loop ends.
+/// `listener`, from the `part`'s own thread. Once the loop has ended it
+/// still takes each ask, and drops it, until the app ends: a `--quit` then
+/// sees its ask taken (the app is quitting), never one nobody heard.
 fn on_each_ask(listener: WakeListener, part: &'static str, what: &'static str, act: fn()) {
     spawn_part(part, move || {
         loop {
@@ -138,10 +140,8 @@ fn on_each_ask(listener: WakeListener, part: &'static str, what: &'static str, a
                     return;
                 }
             }
-            // The event loop has ended, so the app is quitting.
-            if slint::invoke_from_event_loop(act).is_err() {
-                return;
-            }
+            // An error: the event loop has ended, so the app is quitting.
+            let _ = slint::invoke_from_event_loop(act);
         }
     });
 }

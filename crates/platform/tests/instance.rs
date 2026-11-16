@@ -119,7 +119,7 @@ fn an_ask_the_first_copy_took_can_not_be_taken_back() {
 }
 
 #[test]
-fn the_quit_preset_sent_is_seen_until_the_next_ask() {
+fn the_quit_preset_sent_is_seen_until_a_new_copy_forgets_it() {
     let name = name("sent");
     let first = WindowsInstance::new(&name).unwrap();
     let second = WindowsInstance::new(&name).unwrap();
@@ -130,5 +130,7 @@ fn the_quit_preset_sent_is_seen_until_the_next_ask() {
     assert!(second.quit_was_sent().unwrap());
     assert!(second.quit_was_sent().unwrap());
     second.ask_first_to_quit().unwrap();
+    assert!(second.quit_was_sent().unwrap());
+    first.forget_quit_sent().unwrap();
     assert!(!second.quit_was_sent().unwrap());
 }

@@ -110,46 +110,74 @@ pub enum Quit {
     /// The running copy was asked and has ended, but did not say its quit
     /// preset was sent (a failed send, a Razer updater, a crash).
     EndedUnsent,
-    /// The running copy took the ask but had not ended within the wait,
+    /// The running copy took the ask but had not ended within both waits,
     /// such as while a menu or a file box of its own was open. It quits
-    /// once that ends: it must not be ended meanwhile.
+    /// once that ends: it must not be ended meanwhile, and whether its quit
+    /// preset went is not known.
     Quitting,
     /// The running copy had not taken the ask within the wait (it may wait
     /// at login for the controller, or on a box); the ask was taken back.
     StillRuns,
 }
 
-/// Asks the running copy to quit and waits up to `wait` for it to let go
-/// of the lock, looking each `every` (each pause through `sleep`). An ask
-/// left untaken is always taken back before this returns, so no copy quits
-/// later by surprise. Once it returns [`Quit::NoneRan`], [`Quit::Ended`] or
-/// [`Quit::EndedUnsent`], this copy holds the lock, so no new copy can start
-/// until it ends.
+/// How long `--quit` waits.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct QuitWait {
+    /// For the running copy to take the ask or end.
+    pub to_take: Duration,
+    /// Then, once it took the ask, for it to end.
+    pub to_end: Duration,
+    /// How often it looks.
+    pub every: Duration,
+}
+
+/// Asks the running copy to quit and waits up to `wait.to_take` for it to
+/// let go of the lock, looking each `wait.every` (each pause through
+/// `sleep`). An ask left untaken is then taken back, so no copy quits later
+/// by surprise. A copy that took the ask is quitting: it gets `wait.to_end`
+/// more, and is never reported as one that can be ended. Once it returns
+/// [`Quit::NoneRan`], [`Quit::Ended`] or [`Quit::EndedUnsent`], this copy
+/// holds the lock, so no new copy can start until it ends.
 ///
 /// # Errors
 ///
-/// The Windows error if a claim, the ask, taking it back, or the read of
-/// whether the quit preset was sent failed. Nothing is asked after a failed
-/// first claim.
+/// The Windows error if the first claim or the ask failed (nothing is asked
+/// after a failed first claim), if a claim or the take-back failed while no
+/// copy is known to quit, or if the read of whether the quit preset was
+/// sent failed.
 pub fn quit_first(
     lock: &mut impl InstanceLock,
-    wait: Duration,
-    every: Duration,
-    sleep: impl FnMut(Duration),
+    wait: QuitWait,
+    mut sleep: impl FnMut(Duration),
 ) -> io::Result<Quit> {
     if lock.claim()? {
         return Ok(Quit::NoneRan);
     }
     lock.ask_first_to_quit()?;
-    let ended = wait_for_the_lock(lock, wait, every, sleep);
+    let ended = wait_for_the_lock(lock, wait.to_take, wait.every, &mut sleep);
     // Also after an end or an error: a copy that ended without taking the
     // ask must not leave it to the next one.
     let taken_back = lock.take_back_quit();
-    match (ended?, taken_back?) {
-        (true, _) if lock.quit_was_sent()? => Ok(Quit::Ended),
-        (true, _) => Ok(Quit::EndedUnsent),
-        (false, true) => Ok(Quit::StillRuns),
-        (false, false) => Ok(Quit::Quitting),
+    if matches!(ended, Ok(true)) {
+        return quit_result(lock);
+    }
+    if taken_back? {
+        return ended.map(|_| Quit::StillRuns);
+    }
+    // The copy took the ask, so it is quitting: even a failed claim must
+    // not report it as one to end.
+    match wait_for_the_lock(lock, wait.to_end, wait.every, &mut sleep) {
+        Ok(true) => quit_result(lock),
+        Ok(false) | Err(_) => Ok(Quit::Quitting),
+    }
+}
+
+/// Whether the copy that ended said its quit preset was sent.
+fn quit_result(lock: &impl InstanceLock) -> io::Result<Quit> {
+    if lock.quit_was_sent()? {
+        Ok(Quit::Ended)
+    } else {
+        Ok(Quit::EndedUnsent)
     }
 }
 
@@ -159,7 +187,7 @@ fn wait_for_the_lock(
     lock: &mut impl InstanceLock,
     wait: Duration,
     every: Duration,
-    mut sleep: impl FnMut(Duration),
+    sleep: &mut impl FnMut(Duration),
 ) -> io::Result<bool> {
     let looks = wait.as_millis().div_ceil(every.as_millis().max(1));
     for _ in 0..looks {

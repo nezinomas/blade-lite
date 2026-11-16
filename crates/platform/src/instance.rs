@@ -102,6 +102,20 @@ impl WindowsInstance {
     pub fn note_quit_sent(&self) -> io::Result<()> {
         set(&self.quit_sent)
     }
+
+    /// Drops an older copy's word that its quit preset was sent, for a copy
+    /// that just claimed the app: only its own quit may say so.
+    ///
+    /// # Errors
+    ///
+    /// The Windows error if the event could not be reset.
+    pub fn forget_quit_sent(&self) -> io::Result<()> {
+        // SAFETY: the event handle is open until drop.
+        if unsafe { ResetEvent(self.quit_sent.0) } == 0 {
+            return Err(io::Error::last_os_error());
+        }
+        Ok(())
+    }
 }
 
 impl InstanceLock for WindowsInstance {
@@ -128,10 +142,6 @@ impl InstanceLock for WindowsInstance {
     }
 
     fn ask_first_to_quit(&self) -> io::Result<()> {
-        // SAFETY: the event handle is open until drop.
-        if unsafe { ResetEvent(self.quit_sent.0) } == 0 {
-            return Err(io::Error::last_os_error());
-        }
         set(&self.quit)
     }
 

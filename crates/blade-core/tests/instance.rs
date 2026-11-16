@@ -5,7 +5,7 @@ use std::ffi::OsString;
 use std::io;
 use std::time::Duration;
 
-use blade_core::{Launch, Quit, Start, Task, launch, quit_first, start_instance};
+use blade_core::{Launch, Quit, QuitWait, Start, Task, launch, quit_first, start_instance};
 use platform::InstanceLock;
 
 /// A lock that another copy may already hold.
@@ -23,6 +23,19 @@ struct FakeLock {
     quit_sent: bool,
     /// The claim with this number fails.
     fails_at: Option<u32>,
+    /// A look that fails.
+    look_fails: Option<Look>,
+}
+
+/// A look at the quit events.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Look {
+    TakeBack,
+    Sent,
+}
+
+fn failed_look() -> io::Error {
+    io::ErrorKind::PermissionDenied.into()
 }
 
 impl FakeLock {
@@ -37,6 +50,7 @@ impl FakeLock {
             ask_taken: false,
             quit_sent: true,
             fails_at: None,
+            look_fails: None,
         }
     }
 }
@@ -67,10 +81,16 @@ impl InstanceLock for FakeLock {
 
     fn take_back_quit(&self) -> io::Result<bool> {
         self.quits_taken_back.set(self.quits_taken_back.get() + 1);
+        if self.look_fails == Some(Look::TakeBack) {
+            return Err(failed_look());
+        }
         Ok(!self.ask_taken)
     }
 
     fn quit_was_sent(&self) -> io::Result<bool> {
+        if self.look_fails == Some(Look::Sent) {
+            return Err(failed_look());
+        }
         Ok(self.quit_sent)
     }
 }
@@ -109,12 +129,17 @@ fn a_second_start_in_the_tray_ends_and_leaves_the_window_alone() {
 }
 
 const EVERY: Duration = Duration::from_millis(100);
-const WAIT: Duration = Duration::from_secs(1);
+/// 10 looks to take the ask, then 20 more to end.
+const WAIT: QuitWait = QuitWait {
+    to_take: Duration::from_secs(1),
+    to_end: Duration::from_secs(2),
+    every: EVERY,
+};
 
 /// Runs `quit_first` with a sleep that only counts the sleeps.
 fn quit(lock: &mut FakeLock) -> (io::Result<Quit>, u32) {
     let mut sleeps = 0;
-    let quit = quit_first(lock, WAIT, EVERY, |pause| {
+    let quit = quit_first(lock, WAIT, |pause| {
         assert_eq!(pause, EVERY);
         sleeps += 1;
     });
@@ -175,11 +200,58 @@ fn a_copy_that_never_took_the_ask_still_runs_and_the_ask_is_taken_back() {
 }
 
 #[test]
-fn a_copy_that_took_the_ask_but_has_not_ended_is_quitting() {
+fn a_copy_that_took_the_ask_but_has_not_ended_in_both_waits_is_quitting() {
     let mut lock = FakeLock::new(true);
     lock.ask_taken = true;
 
+    let (quit, sleeps) = quit(&mut lock);
+
+    assert_eq!(quit.unwrap(), Quit::Quitting);
+    assert_eq!(sleeps, 30);
+}
+
+#[test]
+fn a_copy_that_took_the_ask_gets_the_second_wait_to_end() {
+    let mut lock = FakeLock::new(true);
+    lock.ask_taken = true;
+    lock.frees_after = Some(25);
+
+    assert_eq!(quit(&mut lock).0.unwrap(), Quit::Ended);
+}
+
+#[test]
+fn a_failed_claim_while_the_copy_quits_is_still_quitting_never_one_to_end() {
+    let mut lock = FakeLock::new(true);
+    lock.ask_taken = true;
+    lock.fails_at = Some(3);
+
     assert_eq!(quit(&mut lock).0.unwrap(), Quit::Quitting);
+}
+
+#[test]
+fn a_failed_take_back_of_an_ask_nobody_may_have_taken_is_an_error() {
+    let mut lock = FakeLock::new(true);
+    lock.look_fails = Some(Look::TakeBack);
+
+    assert!(quit(&mut lock).0.is_err());
+}
+
+#[test]
+fn a_copy_that_ended_is_read_even_if_the_take_back_fails() {
+    let mut lock = FakeLock::new(true);
+    lock.frees_after = Some(1);
+    lock.look_fails = Some(Look::TakeBack);
+
+    assert_eq!(quit(&mut lock).0.unwrap(), Quit::Ended);
+}
+
+#[test]
+fn a_failed_read_of_the_quit_preset_is_an_error() {
+    let mut lock = FakeLock::new(true);
+    lock.frees_after = Some(1);
+    lock.look_fails = Some(Look::Sent);
+
+    assert!(quit(&mut lock).0.is_err());
 }
 
 #[test]
