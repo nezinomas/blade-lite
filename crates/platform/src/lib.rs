@@ -36,9 +36,9 @@ pub use mic::{MicWatch, toggle_mic_mute};
 pub use popup::{raise_topmost, work_area, work_area_at};
 pub use power::{LidAndScreen, SuspendHandled, WindowsPowerEvents, on_battery, shutting_down};
 pub use programs::WindowsPrograms;
-pub use registry::{WindowsRegistry, usb_interfaces};
-pub use sensors::WindowsSensors;
-pub use session::{SessionEndWatch, serve_sent_messages};
+pub use registry::{WindowsRegistry, usb_device_ids, usb_interfaces};
+pub use sensors::{WindowsSensors, device_power};
+pub use session::{SessionEndWatch, serve_sent_messages, session_locked};
 pub use watch::RegistryWatch;
 
 /// Something Windows tells us about power.

@@ -179,6 +179,26 @@ pub fn usb_interfaces(
         .collect()
 }
 
+/// The instance ID of each instance key of the USB device itself (not its
+/// interfaces), such as `USB\VID_1532&PID_02C7\<serial>`. Reads the registry
+/// only: the device is never opened.
+///
+/// # Errors
+///
+/// The Windows error if the device's key can't be read.
+pub fn usb_device_ids(vendor_id: u16, product_id: u16) -> io::Result<Vec<String>> {
+    let key = format!(r"{USB_DEVICES}\VID_{vendor_id:04X}&PID_{product_id:04X}");
+    Ok(subkeys(&key)?
+        .iter()
+        .map(|instance| device_id(vendor_id, product_id, instance))
+        .collect())
+}
+
+/// The instance ID Windows gives one instance of a USB device.
+fn device_id(vendor_id: u16, product_id: u16, instance: &str) -> String {
+    format!(r"USB\VID_{vendor_id:04X}&PID_{product_id:04X}\{instance}")
+}
+
 /// The key of one USB interface of the device, as Windows names it.
 fn interface_key(vendor_id: u16, product_id: u16, number: u8) -> String {
     format!(r"{USB_DEVICES}\VID_{vendor_id:04X}&PID_{product_id:04X}&MI_{number:02X}")
@@ -307,6 +327,14 @@ mod tests {
             r"SYSTEM\CurrentControlSet\Enum\USB\VID_1532&PID_02C7&MI_03"
         );
         assert!(interface_key(0x1532, 0x02C7, 10).ends_with("MI_0A"));
+    }
+
+    #[test]
+    fn device_ids_are_named_as_windows_names_them() {
+        assert_eq!(
+            device_id(0x1532, 0x02C7, "6&abc"),
+            r"USB\VID_1532&PID_02C7\6&abc"
+        );
     }
 
     #[test]

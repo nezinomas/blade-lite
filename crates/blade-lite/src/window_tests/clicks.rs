@@ -14,9 +14,9 @@ use slint::winit_030::winit::event::WindowEvent as WinitEvent;
 use slint::{ComponentHandle, LogicalPosition, Model};
 
 use super::{
-    FAKE_MIC, FAKE_NUM_LOCK, FAKE_ON_BATTERY, FAKE_RELEASED, FAKE_SCREEN_ON, FAKE_SOURCE_UNKNOWN,
-    Fixture, assert_the_battery_quit_preset, click, control, fixture, log_path,
-    manual_fan_with_boosts, selected_preset,
+    FAKE_MIC, FAKE_NUM_LOCK, FAKE_ON_BATTERY, FAKE_RELEASED, FAKE_SCREEN_ON, FAKE_SESSION_LOCKED,
+    FAKE_SOURCE_UNKNOWN, Fixture, assert_the_battery_quit_preset, click, control, fixture,
+    log_path, manual_fan_with_boosts, selected_preset,
 };
 use crate::fakes::{FakeCharger, brightness_commands, lighting_commands, logo};
 
@@ -2467,6 +2467,41 @@ fn a_wake_60_hz_refused_on_battery_is_set_on_a_later_tick_with_no_error() {
 
     assert_eq!(f.shell.app().machine().displays.0.current.hz, 60);
     assert_eq!(f.shell.window().get_error(), "");
+}
+
+#[test]
+fn each_set_of_a_wake_60_hz_is_logged_with_its_number_and_the_time_since_the_wake() {
+    let f = fixture(Config {
+        sixty_hz_on_battery: true,
+        ..Config::default()
+    });
+    FAKE_ON_BATTERY.set(true);
+    let (sender, receiver) = std::sync::mpsc::channel();
+    f.shell.listen_for_power(receiver);
+    sender.send(PowerEvent::OnBattery).unwrap();
+    f.shell.tick();
+    f.shell.app().machine_mut().displays.0.current.hz = 240;
+    f.shell.app().machine_mut().displays.1 = 1;
+    FAKE_SESSION_LOCKED.set(Some(true));
+    sender.send(PowerEvent::Resumed).unwrap();
+    f.shell.tick();
+    i_slint_backend_testing::mock_elapsed_time(
+        blade_core::RESUME_PAUSE + std::time::Duration::from_millis(1),
+    );
+    FAKE_SESSION_LOCKED.set(Some(false));
+
+    f.shell.tick();
+
+    let log = std::fs::read_to_string(log_path()).unwrap();
+    let has = |parts: &[&str], end: &str| {
+        log.lines()
+            .any(|line| parts.iter().all(|part| line.contains(part)) && line.ends_with(end))
+    };
+    let wake = "s after the wake notice): 60 Hz";
+    let first = ["rate set 1 (", wake, "failed"];
+    assert!(has(&first, "reports 3840x2400 240 Hz; session locked"));
+    let second = ["rate set 2 (", wake, "worked"];
+    assert!(has(&second, "reports 3840x2400 60 Hz; session unlocked"));
 }
 
 #[test]

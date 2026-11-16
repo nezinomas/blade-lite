@@ -89,6 +89,9 @@ pub trait Parts: 'static {
     /// the Razer device (ticket 220). `false` while it is off, odd or not
     /// read yet. Read only.
     fn usb_suspend_on() -> bool;
+    /// Whether Windows says the session is locked; `None` if it can't
+    /// say. Read only.
+    fn session_locked() -> Option<bool>;
 }
 
 /// What [`Parts::pick_file`] calls with the user's answer.
@@ -233,6 +236,10 @@ impl Parts for Laptop {
 
     fn usb_suspend_on() -> bool {
         blade_lite::usb_suspend_on()
+    }
+
+    fn session_locked() -> Option<bool> {
+        platform::session_locked()
     }
 
     fn toggle_mic_mute() -> Option<bool> {
@@ -447,6 +454,9 @@ pub struct Shell<P: Parts = Laptop> {
     /// the fan guard (ticket 172).
     slept_at: Cell<Option<SystemTime>>,
     woke: Cell<bool>,
+    /// When the last wake notice came; a sleep notice forgets it, so a
+    /// missed wake has none (ticket 222's rate log lines).
+    wake_heard: Cell<Option<Instant>>,
     /// Whether the pause of an open again or an updater ended in a sleep
     /// or a newer pause, or a last pause's end left its work to an
     /// updater's own pause (ticket 179), so the last pause's end releases
@@ -468,8 +478,9 @@ impl<P: Parts> Shell<P> {
         window: MainWindow,
         flyout: FlyoutWindow,
         popup: ModePopup,
-        app: AppOn<P>,
+        mut app: AppOn<P>,
     ) -> Rc<Self> {
+        app.read_lock_with(P::session_locked);
         // The app's start (`Self::start`) sets both again from what it left.
         let mode_watch = Cell::new(ModeWatch::new(app.running_preset()));
         let touchpad_watch = Cell::new(TouchpadWatch::new(app.touchpad_on()));
@@ -515,6 +526,7 @@ impl<P: Parts> Shell<P> {
             missed_wake_held: Cell::new(false),
             slept_at: Cell::new(None),
             woke: Cell::new(false),
+            wake_heard: Cell::new(None),
             redo_at_wake: Cell::new(false),
             wake_due: Cell::new(false),
             pauses: Cell::new(0),
