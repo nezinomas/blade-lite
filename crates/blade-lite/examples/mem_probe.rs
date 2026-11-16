@@ -1,7 +1,7 @@
 //! Ticket 226 probe: the app's three windows with no controller, no tray and
 //! no sensors, so nothing is sent to the laptop. Prints each step with its
-//! time; a sampler outside reads the private memory. The renderer comes from
-//! `SLINT_BACKEND` (for example `winit-software`), else the app's default.
+//! time; a sampler outside reads the private memory. Same renderer as the
+//! app: the build has only the software one.
 #![allow(clippy::print_stdout, clippy::unwrap_used, clippy::type_complexity)]
 
 use std::time::Duration;
@@ -26,12 +26,9 @@ fn say(step: &str) {
 fn main() {
     say("start");
     std::thread::sleep(HOLD);
-    let renderer = std::env::var("SLINT_BACKEND").ok();
-    let mut selector = slint::BackendSelector::new().backend_name("winit".into());
-    if let Some(name) = renderer.as_deref().and_then(|s| s.strip_prefix("winit-")) {
-        selector = selector.renderer_name(name.into());
-    }
-    selector
+    slint::BackendSelector::new()
+        .backend_name("winit".into())
+        .renderer_name("software".into())
         .with_winit_window_attributes_hook(|a| a.with_transparent(true).with_active(false))
         .select()
         .unwrap();
