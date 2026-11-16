@@ -1,5 +1,5 @@
-//! One running copy, through a named mutex, and a named event that a second
-//! copy sets to wake the first.
+//! One running copy, through a named mutex, and named events that a second
+//! copy sets to wake the first or to ask it to quit.
 
 use std::ffi::c_void;
 use std::io;
@@ -10,7 +10,7 @@ use windows_sys::Win32::Foundation::{
     CloseHandle, ERROR_ALREADY_EXISTS, GetLastError, WAIT_OBJECT_0, WAIT_TIMEOUT,
 };
 use windows_sys::Win32::System::Threading::{
-    CreateEventW, CreateMutexW, INFINITE, SetEvent, WaitForSingleObject,
+    CreateEventW, CreateMutexW, INFINITE, ResetEvent, SetEvent, WaitForSingleObject,
 };
 use windows_sys::Win32::UI::WindowsAndMessaging::{ASFW_ANY, AllowSetForegroundWindow};
 
@@ -40,28 +40,38 @@ impl Drop for Handle {
 }
 
 /// The lock for one app name, across all sessions on this PC, so a copy
-/// in another user's session can't drive the controller too. The wake
-/// stays in this session.
+/// in another user's session can't drive the controller too. The wake and
+/// the ask to quit stay in this session: a copy in another session (such
+/// as an installer's service) can't reach them.
 pub struct WindowsInstance {
     mutex_name: Vec<u16>,
     event_name: Vec<u16>,
     event: Handle,
+    quit_name: Vec<u16>,
+    quit: Handle,
+    /// Set by the copy that quit, once its quit preset was sent.
+    quit_sent: Handle,
     /// Kept until drop, so the claim lasts as long as this copy runs.
     mutex: Option<Handle>,
 }
 
 impl WindowsInstance {
-    /// Opens the wake event for `app`. Nothing is claimed yet.
+    /// Opens the wake and quit events for `app`. Nothing is claimed yet.
     ///
     /// # Errors
     ///
-    /// The Windows error if the event could not be made.
+    /// The Windows error if an event could not be made.
     pub fn new(app: &str) -> io::Result<Self> {
         let event_name = wide(&format!(r"Local\{app}-open"));
+        let quit_name = wide(&format!(r"Local\{app}-quit"));
+        let sent_name = wide(&format!(r"Local\{app}-quit-sent"));
         Ok(Self {
             mutex_name: wide(&format!(r"Global\{app}")),
             event: open_event(&event_name)?,
             event_name,
+            quit: open_event(&quit_name)?,
+            quit_name,
+            quit_sent: open_manual_event(&sent_name)?,
             mutex: None,
         })
     }
@@ -73,6 +83,38 @@ impl WindowsInstance {
     /// The Windows error if the event could not be opened.
     pub fn listener(&self) -> io::Result<WakeListener> {
         open_event(&self.event_name).map(WakeListener)
+    }
+
+    /// A second handle to the quit event, to wait on from another thread.
+    ///
+    /// # Errors
+    ///
+    /// The Windows error if the event could not be opened.
+    pub fn quit_listener(&self) -> io::Result<WakeListener> {
+        open_event(&self.quit_name).map(WakeListener)
+    }
+
+    /// Says the quit preset was sent, for a `--quit` start that waits.
+    ///
+    /// # Errors
+    ///
+    /// The Windows error if the event could not be set.
+    pub fn note_quit_sent(&self) -> io::Result<()> {
+        set(&self.quit_sent)
+    }
+
+    /// Drops an older copy's word that its quit preset was sent, for a copy
+    /// that just claimed the app: only its own quit may say so.
+    ///
+    /// # Errors
+    ///
+    /// The Windows error if the event could not be reset.
+    pub fn forget_quit_sent(&self) -> io::Result<()> {
+        // SAFETY: the event handle is open until drop.
+        if unsafe { ResetEvent(self.quit_sent.0) } == 0 {
+            return Err(io::Error::last_os_error());
+        }
+        Ok(())
     }
 }
 
@@ -96,28 +138,52 @@ impl InstanceLock for WindowsInstance {
         // open behind others. If that fails, the wake still goes.
         // SAFETY: no pointers; ASFW_ANY is a plain process id value.
         unsafe { AllowSetForegroundWindow(ASFW_ANY) };
-        // SAFETY: the event handle is open until drop.
-        if unsafe { SetEvent(self.event.0) } == 0 {
-            return Err(io::Error::last_os_error());
-        }
-        Ok(())
+        set(&self.event)
+    }
+
+    fn ask_first_to_quit(&self) -> io::Result<()> {
+        set(&self.quit)
+    }
+
+    fn take_back_quit(&self) -> io::Result<bool> {
+        // Auto-reset: a wait that finds it set also clears it, in one step,
+        // so a copy can't take it in between.
+        WakeListener::wait_on(&self.quit, Duration::ZERO)
+    }
+
+    fn quit_was_sent(&self) -> io::Result<bool> {
+        WakeListener::wait_on(&self.quit_sent, Duration::ZERO)
     }
 }
 
-/// Waits for a second copy to ask for the window.
+/// Sets `event`.
+fn set(event: &Handle) -> io::Result<()> {
+    // SAFETY: the event handle is open until drop.
+    if unsafe { SetEvent(event.0) } == 0 {
+        return Err(io::Error::last_os_error());
+    }
+    Ok(())
+}
+
+/// Waits for a second copy to ask for the window, or to quit.
 pub struct WakeListener(Handle);
 
 impl WakeListener {
-    /// Waits up to `timeout` for a wake. `true` means one came. Each wake
+    /// Waits up to `timeout` for an ask. `true` means one came. Each ask
     /// is seen once. A timeout too long for Windows waits for ever.
     ///
     /// # Errors
     ///
     /// The Windows error if the wait failed.
     pub fn wait(&self, timeout: Duration) -> io::Result<bool> {
+        Self::wait_on(&self.0, timeout)
+    }
+
+    /// Waits up to `timeout` for `event`.
+    fn wait_on(event: &Handle, timeout: Duration) -> io::Result<bool> {
         let millis = u32::try_from(timeout.as_millis()).unwrap_or(INFINITE);
         // SAFETY: the event handle is open until drop.
-        match unsafe { WaitForSingleObject((self.0).0, millis) } {
+        match unsafe { WaitForSingleObject(event.0, millis) } {
             WAIT_OBJECT_0 => Ok(true),
             WAIT_TIMEOUT => Ok(false),
             _ => Err(io::Error::last_os_error()),
@@ -129,6 +195,13 @@ impl WakeListener {
 fn open_event(name: &[u16]) -> io::Result<Handle> {
     // SAFETY: the name ends in a nul. No attributes, auto-reset, not set.
     Handle::new(unsafe { CreateEventW(ptr::null(), 0, 0, name.as_ptr()) })
+}
+
+/// Makes a manual-reset event, which stays set for every look, or opens
+/// it if another copy made it.
+fn open_manual_event(name: &[u16]) -> io::Result<Handle> {
+    // SAFETY: the name ends in a nul. No attributes, manual reset, not set.
+    Handle::new(unsafe { CreateEventW(ptr::null(), 1, 0, name.as_ptr()) })
 }
 
 #[cfg(test)]

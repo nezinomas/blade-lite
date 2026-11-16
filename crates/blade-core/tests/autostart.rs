@@ -1,13 +1,12 @@
 //! Autostart at login, over a fake registry.
 
 use std::collections::HashMap;
-use std::ffi::OsString;
 use std::io;
 use std::path::Path;
 
 use blade_core::{
     APPROVED_KEY, Autostart, AutostartError, RUN_KEY, RUN_VALUE, SHOWN_COMMAND_CHARS, TRAY_FLAG,
-    autostart, set_autostart, starts_in_tray,
+    autostart, set_autostart,
 };
 use platform::{UserBytes, UserStrings};
 
@@ -211,25 +210,6 @@ fn turning_on_clears_the_task_manager_flag() {
 
     assert_eq!(registry.approved(), None);
     assert_eq!(autostart(&registry, exe()).unwrap(), Autostart::On);
-}
-
-#[test]
-fn only_the_exact_tray_flag_starts_in_the_tray() {
-    let starts = |args: &[&str]| starts_in_tray(args.iter().map(OsString::from));
-
-    assert!(starts(&["--tray"]));
-    assert!(starts(&["--other", "--tray"]));
-    assert!(!starts(&[]));
-    assert!(!starts(&["--TRAY"]));
-    assert!(!starts(&["--tray=1"]));
-}
-
-#[test]
-fn an_argument_that_is_not_unicode_is_no_crash() {
-    use std::os::windows::ffi::OsStringExt;
-    let broken = OsString::from_wide(&[0xD800]);
-
-    assert!(!starts_in_tray([broken]));
 }
 
 #[test]

@@ -1,5 +1,5 @@
-//! Threads that wait for the world outside the app: a second start, the
-//! touchpad, the power-mode key and the power source.
+//! Threads that wait for the world outside the app: a second start, a
+//! `--quit` start, the touchpad, the power-mode key and the power source.
 
 use std::panic::AssertUnwindSafe;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -108,26 +108,43 @@ fn stall_text() -> String {
 
 /// Opens the window each time a second copy asks, from a thread that waits.
 pub fn open_window_on_wake(listener: WakeListener) {
-    spawn_part("second start", move || {
+    on_each_ask(listener, "second start", "open the window", || {
+        if let Some(shell) = SHELL.with(|cell| cell.borrow().clone()) {
+            shell.show_window();
+        }
+    });
+}
+
+/// Quits as the tray's Quit does (so the quit preset is sent) when a
+/// `--quit` start asks, from a thread that waits (ticket 148).
+pub fn quit_when_asked(listener: WakeListener) {
+    on_each_ask(listener, "quit ask", "quit", || {
+        report("a --quit start asks the app to quit");
+        // An error: the loop has already ended.
+        let _ = slint::quit_event_loop();
+    });
+}
+
+/// Runs `act` on the event loop each time a second copy asks through
+/// `listener`, from the `part`'s own thread. Once the loop has ended it
+/// still takes each ask, and drops it, until the app ends: a `--quit` then
+/// sees its ask taken (the app is quitting), never one nobody heard.
+fn on_each_ask(listener: WakeListener, part: &'static str, what: &'static str, act: fn()) {
+    spawn_part(part, move || {
         loop {
             match listener.wait(Duration::MAX) {
                 Ok(true) => {}
                 Ok(false) => continue,
                 Err(error) => {
-                    report(&format!(
-                        "a second start can't open the window now: {error}"
-                    ));
+                    report(&format!("a second start can't {what} now: {error}"));
                     return;
                 }
             }
-            let shown = slint::invoke_from_event_loop(|| {
-                if let Some(shell) = SHELL.with(|cell| cell.borrow().clone()) {
-                    shell.show_window();
-                }
-            });
-            // The event loop has ended, so the app is quitting.
-            if shown.is_err() {
-                return;
+            // An error: the event loop has ended, so the app is quitting.
+            if let Err(error) = slint::invoke_from_event_loop(act) {
+                report(&format!(
+                    "a second start's ask to {what} came as the app ends, so it was dropped: {error}"
+                ));
             }
         }
     });

@@ -63,3 +63,74 @@ fn one_wake_is_seen_once() {
     assert!(listener.wait(NO_WAIT).unwrap());
     assert!(!listener.wait(NO_WAIT).unwrap());
 }
+
+#[test]
+fn an_ask_to_quit_reaches_the_first_copy_and_not_its_wake() {
+    let name = name("quit");
+    let mut first = WindowsInstance::new(&name).unwrap();
+    assert!(first.claim().unwrap());
+    let quits = first.quit_listener().unwrap();
+    let wakes = first.listener().unwrap();
+
+    WindowsInstance::new(&name)
+        .unwrap()
+        .ask_first_to_quit()
+        .unwrap();
+
+    assert!(quits.wait(NO_WAIT).unwrap());
+    assert!(!wakes.wait(NO_WAIT).unwrap());
+}
+
+#[test]
+fn a_wake_is_no_ask_to_quit() {
+    let name = name("wake-no-quit");
+    let first = WindowsInstance::new(&name).unwrap();
+    let quits = first.quit_listener().unwrap();
+
+    WindowsInstance::new(&name).unwrap().wake_first().unwrap();
+
+    assert!(!quits.wait(NO_WAIT).unwrap());
+}
+
+#[test]
+fn an_ask_to_quit_taken_back_is_not_seen() {
+    let name = name("taken-back");
+    let first = WindowsInstance::new(&name).unwrap();
+    let quits = first.quit_listener().unwrap();
+    let second = WindowsInstance::new(&name).unwrap();
+
+    second.ask_first_to_quit().unwrap();
+
+    assert!(second.take_back_quit().unwrap());
+    assert!(!quits.wait(NO_WAIT).unwrap());
+}
+
+#[test]
+fn an_ask_the_first_copy_took_can_not_be_taken_back() {
+    let name = name("taken");
+    let first = WindowsInstance::new(&name).unwrap();
+    let quits = first.quit_listener().unwrap();
+    let second = WindowsInstance::new(&name).unwrap();
+
+    second.ask_first_to_quit().unwrap();
+    assert!(quits.wait(NO_WAIT).unwrap());
+
+    assert!(!second.take_back_quit().unwrap());
+}
+
+#[test]
+fn the_quit_preset_sent_is_seen_until_a_new_copy_forgets_it() {
+    let name = name("sent");
+    let first = WindowsInstance::new(&name).unwrap();
+    let second = WindowsInstance::new(&name).unwrap();
+    assert!(!second.quit_was_sent().unwrap());
+
+    first.note_quit_sent().unwrap();
+
+    assert!(second.quit_was_sent().unwrap());
+    assert!(second.quit_was_sent().unwrap());
+    second.ask_first_to_quit().unwrap();
+    assert!(second.quit_was_sent().unwrap());
+    first.forget_quit_sent().unwrap();
+    assert!(!second.quit_was_sent().unwrap());
+}

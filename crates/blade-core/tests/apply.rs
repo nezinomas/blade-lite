@@ -5,7 +5,7 @@ use std::rc::Rc;
 
 use blade_core::{
     ApplyError, Config, Controller, CustomSettings, Lighting, Preset, apply, apply_fan_targets,
-    apply_lighting, apply_performance,
+    apply_lighting, apply_performance, reset,
 };
 use razer_device::DeviceError;
 use razer_proto::{
@@ -504,4 +504,44 @@ fn a_fan_target_out_of_range_is_not_sent_again() {
 
     assert!(matches!(sent_any, Err(ApplyError::Custom(_))));
     assert!(log.borrow().is_empty());
+}
+
+/// What `--reset` sends (ticket 148): Custom with the fans on auto and the
+/// lowest boosts, then Balanced.
+fn reset_steps() -> Vec<Step> {
+    let mut steps: Vec<Step> = (1..=4).map(|zone| sent(0x0D02, &[1, zone, 4, 0])).collect();
+    steps.extend([sent(0x0D07, &[1, 1, 0]), sent(0x0D07, &[1, 2, 0])]);
+    steps.extend(preset_steps(0x00));
+    steps
+}
+
+#[test]
+fn the_reset_ends_a_manual_fan_then_sends_balanced() {
+    let (mut controller, log) = fakes();
+
+    reset(&BLADE_18, &mut controller).unwrap();
+
+    assert_eq!(*log.borrow(), reset_steps());
+}
+
+#[test]
+fn a_failed_reset_send_sends_nothing_after_it() {
+    let (mut controller, log) = fakes();
+    controller.ok_runs = Some(0);
+
+    assert!(matches!(
+        reset(&BLADE_18, &mut controller),
+        Err(ApplyError::Device(DeviceError::Busy))
+    ));
+    assert!(log.borrow().is_empty());
+}
+
+#[test]
+fn a_reset_whose_balanced_send_fails_is_an_error() {
+    let (mut controller, log) = fakes();
+    controller.ok_runs = Some(1);
+
+    assert!(reset(&BLADE_18, &mut controller).is_err());
+    let custom_run = &reset_steps()[..6];
+    assert_eq!(*log.borrow(), custom_run);
 }

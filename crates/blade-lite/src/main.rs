@@ -35,8 +35,8 @@ use std::rc::Rc;
 use std::time::{Duration, Instant};
 
 use blade_core::{
-    APP_NAME, Config, Log, POLL_INTERVAL, RESUME_PAUSE, Start, razer_software, razer_updater,
-    razer_warning, start_instance, starts_in_tray,
+    APP_NAME, Config, Launch, Log, POLL_INTERVAL, Quit, QuitWait, RESUME_PAUSE, Start, Task,
+    launch, quit_first, razer_software, razer_updater, razer_warning, start_instance,
 };
 use blade_lite::{
     App, Machine, PollTime, SlowPolls, accent_colour, config_or_defaults, end_on_loop, icon,
@@ -54,7 +54,7 @@ use slint::{Timer, TimerMode};
 
 use crate::background::{
     beat, follow_the_power_key, follow_the_touchpad, loop_ended, on_battery_now,
-    open_window_on_wake, power_events, watch_the_loop, watch_touchpad,
+    open_window_on_wake, power_events, quit_when_asked, watch_the_loop, watch_touchpad,
 };
 use crate::shell::{CONTROLLER_HELD, Laptop, Parts, REOPEN_GAP, Shell, reopen_controller};
 use crate::tray::Tray;
@@ -79,14 +79,151 @@ thread_local! {
 }
 
 fn main() -> ExitCode {
-    match limit_dll_search().and_then(|()| run_caught(run)) {
-        Ok(()) => ExitCode::SUCCESS,
+    match launch(std::env::args_os().skip(1)) {
+        Ok(Launch::App { in_tray }) => {
+            show_if_failed(limit_dll_search().and_then(|()| run_caught(move || run(in_tray))))
+        }
+        Ok(Launch::Task(task)) => do_task(task),
+        // Nothing runs, and no box: an installer may have sent it, and a
+        // box would hold it.
         Err(error) => {
+            // Without a log the line goes to stderr only.
+            let _ = open_the_log();
             report(&error.to_string());
-            show_start_error(&error.to_string());
             ExitCode::FAILURE
         }
     }
+}
+
+/// Logs a failed start and shows it in the start box.
+fn show_if_failed(ran: Result<(), Box<dyn std::error::Error>>) -> ExitCode {
+    let Err(error) = ran else {
+        return ExitCode::SUCCESS;
+    };
+    report(&error.to_string());
+    show_start_error(&error.to_string());
+    ExitCode::FAILURE
+}
+
+/// The exit code of a `--quit` whose copy took the ask but has not ended:
+/// it must not be ended, as it sends the quit preset as it ends.
+const STILL_QUITTING: u8 = 2;
+
+/// Runs a task for an installer (ticket 148). It shows no box, so an
+/// installer that runs it is never held: the exit code says how it went
+/// (0 it worked, [`STILL_QUITTING`], else 1), and the log why.
+fn do_task(task: Task) -> ExitCode {
+    let ran = open_the_log()
+        .and_then(|_| limit_dll_search())
+        .and_then(|()| run_caught(move || run_task(task)));
+    ran.unwrap_or_else(|error| {
+        report(&format!("{}: {error}", task.flag()));
+        ExitCode::FAILURE
+    })
+}
+
+/// How long `--quit` waits for the running copy. It takes the ask at once
+/// unless it is busy, such as in its start sends; then its quit may wait
+/// out the rest of a pause after a wake (2 s), send twice, with a retry,
+/// each command waiting up to 3 s for the controller (`FEATURE_WAIT` in
+/// `platform/src/hid.rs`), then put the panel's rate back. Once it took the
+/// ask, a long wait: it must never be ended mid-quit, and only this start
+/// can read whether its quit preset went.
+const QUIT_WAIT: QuitWait = QuitWait {
+    to_take: Duration::from_secs(20),
+    to_end: Duration::from_secs(120),
+    every: Duration::from_millis(100),
+};
+
+fn run_task(task: Task) -> Result<ExitCode, Box<dyn std::error::Error>> {
+    report(&format!(
+        "{} starts, version {}",
+        task.flag(),
+        env!("CARGO_PKG_VERSION")
+    ));
+    let mut instance = WindowsInstance::new(APP_NAME)?;
+    match task {
+        Task::Quit => quit_running_copy(&mut instance),
+        Task::Reset => reset_alone(&mut instance).map(|()| ExitCode::SUCCESS),
+    }
+}
+
+/// `--quit`: asks the running copy to quit, as the tray's Quit does, and
+/// waits for it to end. Sends nothing itself.
+fn quit_running_copy(
+    instance: &mut WindowsInstance,
+) -> Result<ExitCode, Box<dyn std::error::Error>> {
+    let take = QUIT_WAIT.to_take.as_secs();
+    let all = (QUIT_WAIT.to_take + QUIT_WAIT.to_end).as_secs();
+    let (line, code) = match quit_first(instance, QUIT_WAIT, std::thread::sleep)? {
+        Quit::NoneRan => (
+            "no copy of the app runs, so nothing was asked".to_owned(),
+            ExitCode::SUCCESS,
+        ),
+        Quit::Ended => (
+            "the running copy sent its quit preset and has quit".to_owned(),
+            ExitCode::SUCCESS,
+        ),
+        Quit::EndedUnsent => (
+            "the running copy has quit, but its quit preset was not sent, so a manual fan or \
+             Performance may run on: run --reset"
+                .to_owned(),
+            ExitCode::FAILURE,
+        ),
+        Quit::Quitting => (
+            format!(
+                "the running copy may be quitting but has not ended within {all} s (a menu or \
+                 a file box of its own may be open). Do not end it: it sends the quit preset \
+                 as it ends. Run --quit again until it gives 0 or 1, then run --reset"
+            ),
+            ExitCode::from(STILL_QUITTING),
+        ),
+        Quit::StillRuns => (
+            format!(
+                "the running copy did not take the ask within {take} s, so it was taken back. \
+                 A copy that waits at login for the controller, or on its start box about the \
+                 settings, has sent nothing yet and can't hear the ask: end it in Task \
+                 Manager, then run --reset"
+            ),
+            ExitCode::FAILURE,
+        ),
+    };
+    report(&format!("--quit: {line}"));
+    Ok(code)
+}
+
+/// `--reset`: when no copy runs, ends a manual fan that a crash or a kill
+/// may have left, then sends Balanced. Nothing is sent while another copy
+/// runs (it drives the controller), or while Razer software runs (it may
+/// hold or update the controller), or if the look for it fails.
+fn reset_alone(instance: &mut WindowsInstance) -> Result<(), Box<dyn std::error::Error>> {
+    if start_instance(instance, false)? == Start::Second {
+        return Err("Blade Lite runs, so nothing was sent: use --quit".into());
+    }
+    let found = razer_software(&WindowsPrograms)
+        .map_err(|error| format!("can't look for Razer software, so nothing was sent: {error}"))?;
+    if !found.is_empty() {
+        return Err(format!(
+            "Razer software runs ({}), so nothing was sent",
+            found.join(", ")
+        )
+        .into());
+    }
+    let mut controller = Device::new(open_controller()?, SystemClock);
+    blade_core::reset(&BLADE_18, &mut controller)?;
+    report("--reset: Custom with the fans on auto, then Balanced, was sent");
+    Ok(())
+}
+
+/// Opens the log in `%APPDATA%`, so even a failed start leaves its reason
+/// there, and logs each panic.
+fn open_the_log() -> Result<PathBuf, Box<dyn std::error::Error>> {
+    // With no APPDATA there is no log: this error goes to stderr only.
+    let appdata = PathBuf::from(std::env::var_os("APPDATA").ok_or("no APPDATA")?);
+    let opened = open_log(Log::new(Log::path_in(&appdata)));
+    debug_assert!(opened, "a report came before the log was opened");
+    report_panics();
+    Ok(appdata)
 }
 
 /// Limits the DLL search to System32 before any DLL is loaded by name, or
@@ -99,9 +236,9 @@ fn limit_dll_search() -> Result<(), Box<dyn std::error::Error>> {
 /// Runs `run`; a panic (a bug) it lets out ends as the error
 /// [`shell::PANICKED`], so the start box shows it (ticket 164). The panic
 /// hook has logged it, unless it came before the log was opened.
-fn run_caught(
-    run: impl FnOnce() -> Result<(), Box<dyn std::error::Error>> + std::panic::UnwindSafe,
-) -> Result<(), Box<dyn std::error::Error>> {
+fn run_caught<T>(
+    run: impl FnOnce() -> Result<T, Box<dyn std::error::Error>> + std::panic::UnwindSafe,
+) -> Result<T, Box<dyn std::error::Error>> {
     std::panic::catch_unwind(run).unwrap_or_else(|_| Err(shell::PANICKED.into()))
 }
 
@@ -230,7 +367,7 @@ fn window_icon(accent: Rgb) -> Result<Icon, BadIcon> {
 #[cfg(test)]
 #[test]
 fn a_panic_in_the_run_ends_with_an_error() {
-    let ran = run_caught(|| panic!("a bug"));
+    let ran = run_caught::<()>(|| panic!("a bug"));
 
     assert_eq!(
         ran.map_err(|error| error.to_string()),
@@ -316,21 +453,45 @@ fn end_session_on_loop() {
     }
 }
 
-fn run() -> Result<(), Box<dyn std::error::Error>> {
-    // With no APPDATA there is no log: this error goes to stderr only.
-    let appdata = PathBuf::from(std::env::var_os("APPDATA").ok_or("no APPDATA")?);
-    // First, so even a failed start leaves its reason in the log.
-    let opened = open_log(Log::new(Log::path_in(&appdata)));
-    debug_assert!(opened, "a report came before the log was opened");
-    report_panics();
-    report(concat!("starts, version ", env!("CARGO_PKG_VERSION")));
-    // Before the controller is opened: a second copy must never drive it.
-    let in_tray = starts_in_tray(std::env::args_os().skip(1));
+/// Claims the app for this copy, or `None` if another copy has it (it is
+/// told to open its window, unless `in_tray`).
+fn claim_the_app(in_tray: bool) -> Result<Option<WindowsInstance>, Box<dyn std::error::Error>> {
     let mut instance = WindowsInstance::new(APP_NAME)?;
     if start_instance(&mut instance, !in_tray)? == Start::Second {
         report("another copy runs, so this one ends");
-        return Ok(());
+        return Ok(None);
     }
+    // An older copy's word that its quit preset went is not this copy's
+    // (ticket 148). An ask to quit already set is kept: it may be a
+    // `--quit` that asked just after the claim, so this copy quits (the
+    // safe side); only a `--quit` ended mid-wait leaves one that is old.
+    if let Err(error) = instance.forget_quit_sent() {
+        report(&format!(
+            "a --quit start may be told an old quit preset was sent: {error}"
+        ));
+    }
+    Ok(Some(instance))
+}
+
+/// Tells a `--quit` start that waits that the quit preset went (ticket 148).
+fn tell_a_quit_start(shell: &Shell, instance: &WindowsInstance) {
+    if shell.quit_preset_went()
+        && let Err(error) = instance.note_quit_sent()
+    {
+        report(&format!(
+            "a --quit start can't be told the quit preset was sent: {error}"
+        ));
+    }
+}
+
+fn run(in_tray: bool) -> Result<(), Box<dyn std::error::Error>> {
+    // First, so even a failed start leaves its reason in the log.
+    let appdata = open_the_log()?;
+    report(concat!("starts, version ", env!("CARGO_PKG_VERSION")));
+    // Before the controller is opened: a second copy must never drive it.
+    let Some(instance) = claim_the_app(in_tray)? else {
+        return Ok(());
+    };
     // Reads the registry only, on its own thread: never waits, never sends.
     report_usb_suspend(BLADE_18.usb);
     // Before the windows are made: a long wait for the controller must not
@@ -418,6 +579,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         tray.on_action(on_tray);
         TRAY.with(|cell| cell.replace(Some(Rc::clone(&tray))));
         open_window_on_wake(instance.listener()?);
+        quit_when_asked(instance.quit_listener()?);
         // Held to the end of the run: dropping it stops the watch. Without
         // it the app runs on, as before it had one.
         let _session = SessionEndWatch::start(on_session_end)
@@ -448,6 +610,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         ran?;
         Ok(())
     });
+    tell_a_quit_start(&shell, &instance);
     SHELL.with(RefCell::take);
     TRAY.with(RefCell::take);
     served

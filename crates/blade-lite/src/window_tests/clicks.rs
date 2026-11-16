@@ -147,6 +147,7 @@ fn quitting_from_performance_sends_balanced() {
         PerfMode::Balanced.commands(&BLADE_18).unwrap()
     );
     assert_eq!(f.shell.app().config().preset, Preset::Performance);
+    assert!(f.shell.quit_preset_went());
 }
 
 #[test]
@@ -441,6 +442,8 @@ fn a_failed_balanced_on_quit_is_logged_and_not_sent_again() {
     // A Busy failure: one run, not tried again.
     assert_eq!(f.shell.app().machine().controller.inner.runs - runs, 1);
     assert!(!FAKE_RELEASED.get());
+    // So a `--quit` start says the fans may not be on auto (ticket 148).
+    assert!(!f.shell.quit_preset_went());
     let log = std::fs::read_to_string(log_path()).unwrap();
     assert!(log.contains("Balanced was not sent at quit"), "{log}");
 }

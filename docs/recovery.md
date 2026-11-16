@@ -28,6 +28,11 @@ Another way: pick **Custom**, set the fan to **Auto**, then pick
 Picking **Balanced** alone, straight from a manual fan, is not checked
 yet (laptop check 12).
 
+With no Blade Lite running, `blade-lite.exe --reset` sends the same two
+steps (Custom with the fans on auto and the lowest boosts, then Balanced)
+and ends, with no window (ticket 148; laptop check 64). It sends nothing
+while Blade Lite or Razer software runs.
+
 ## Performance stays on, or another preset
 
 Start Blade Lite and pick **Balanced**.
@@ -57,6 +62,10 @@ Blade Lite sends nothing while it sees a Razer updater, but it can miss one.
 
 - **Quit** (tray menu): sends Balanced, or Silent if Silent runs. If Custom
   runs with a manual fan, it first sets the fans to auto.
+- **`blade-lite.exe --quit`** (for an installer, ticket 148): asks the
+  running copy to quit as Quit does, and waits up to 20 s for it to end.
+  It says (exit code 1) when the copy ended but its quit preset was not
+  sent. It reaches only a copy in the same Windows session.
 - **A shutdown, restart or sign-out**: tries to send the same as Quit
   first. Checked on the laptop on AC (checks 23 and 38); on battery with
   the panel at 60 Hz not yet (check 38). It waits at most 10 s
