@@ -8,6 +8,7 @@ use i_slint_backend_testing::ElementHandle;
 use platform::FileDialog;
 use razer_proto::{BLADE_18, PerfMode};
 use slint::ComponentHandle;
+use slint::platform::{Key, WindowEvent};
 use tempfile::TempDir;
 
 use super::clicks::resuming;
@@ -31,7 +32,9 @@ fn header(f: &Fixture, name: &str) -> ElementHandle {
 }
 
 fn is_open(f: &Fixture, name: &str) -> bool {
-    header(f, name).accessible_expanded().unwrap()
+    let state = header(f, name).accessible_description().unwrap();
+    assert!(state == "Open" || state == "Closed", "{state}");
+    state == "Open"
 }
 
 /// Opens the Settings group if it is closed, then clicks its `label` button.
@@ -213,7 +216,6 @@ fn the_settings_and_about_groups_start_closed() {
 
     assert!(!is_open(&f, "Settings"));
     assert!(!is_open(&f, "About"));
-    assert!(header(&f, "Settings").accessible_expandable().unwrap());
     assert!(!shown(&f, "Export…"));
     assert!(!shown(&f, "#MadeWithSlint"));
 }
@@ -230,6 +232,25 @@ fn a_click_on_a_group_header_opens_and_closes_it() {
     click(f.shell.window(), Button, "Settings");
     assert!(!is_open(&f, "Settings"));
     assert!(!shown(&f, "Export…"));
+
+    click(f.shell.window(), Button, "About");
+    assert!(is_open(&f, "About"));
+    assert!(shown(&f, "#MadeWithSlint"));
+    click(f.shell.window(), Button, "About");
+    assert!(!shown(&f, "#MadeWithSlint"));
+}
+
+/// Narrator's invoke opens and closes a group, as a click does.
+#[test]
+fn narrator_opens_and_closes_a_group() {
+    let f = fixture(Config::default());
+
+    header(&f, "Settings").invoke_accessible_default_action();
+    assert!(is_open(&f, "Settings"));
+    assert!(shown(&f, "Export…"));
+
+    header(&f, "Settings").invoke_accessible_default_action();
+    assert!(!is_open(&f, "Settings"));
 }
 
 #[test]
@@ -243,6 +264,41 @@ fn the_groups_are_closed_again_when_the_window_opens_again() {
 
     assert!(!is_open(&f, "Settings"));
     assert!(!is_open(&f, "About"));
+}
+
+/// Presses `key` on the window's keyboard.
+fn key(f: &Fixture, key: Key, shift: bool) {
+    let window = f.shell.window().window();
+    if shift {
+        window.dispatch_event(WindowEvent::KeyPressed {
+            text: Key::Shift.into(),
+        });
+    }
+    window.dispatch_event(WindowEvent::KeyPressed { text: key.into() });
+    window.dispatch_event(WindowEvent::KeyReleased { text: key.into() });
+    if shift {
+        window.dispatch_event(WindowEvent::KeyReleased {
+            text: Key::Shift.into(),
+        });
+    }
+}
+
+/// The headers take the keyboard focus, and Enter or Space opens and closes
+/// them, so Export, Import and Reset can still be reached without a mouse.
+/// Shift+Tab from the start goes to the last control: the About header.
+#[test]
+fn the_keyboard_opens_and_closes_a_group() {
+    let f = fixture(Config::default());
+
+    key(&f, Key::Tab, true);
+    key(&f, Key::Return, false);
+    assert!(is_open(&f, "About"));
+    key(&f, Key::Space, false);
+    assert!(!is_open(&f, "About"));
+
+    key(&f, Key::Tab, true);
+    key(&f, Key::Space, false);
+    assert!(is_open(&f, "Settings"));
 }
 
 /// A second start, or Open window, on a window already open only brings it
