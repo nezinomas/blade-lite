@@ -1,19 +1,23 @@
 // The Settings group of the settings window: export, import and reset;
-// and the About group.
+// and the About group. Both start closed; a click on the title opens them.
 
 import { AboutSlint, Button } from "std-widgets.slint";
-import { Card, GroupTitle, Row } from "parts.slint";
+import { Card, GroupHeader, Row } from "parts.slint";
 
 export component SettingsGroup inherits VerticalLayout {
     callback export-settings();
     callback import-settings();
     callback reset-settings();
+    in-out property <bool> open: false;
 
     // The same spacing as the window's own list, so nothing moves.
     spacing: 4px;
 
-    GroupTitle { text: "Settings"; }
-    Row {
+    GroupHeader {
+        text: "Settings";
+        open <=> root.open;
+    }
+    if root.open: Row {
         title: "Export or import settings";
         note: "A file to keep, or to load again later";
         HorizontalLayout {
@@ -28,7 +32,7 @@ export component SettingsGroup inherits VerticalLayout {
             }
         }
     }
-    Row {
+    if root.open: Row {
         title: "Reset to defaults";
         note: "Balanced, white keys, lid logo on, 60 Hz switch off";
         Button {
@@ -39,11 +43,16 @@ export component SettingsGroup inherits VerticalLayout {
 }
 
 // The Slint credit, which Slint's royalty-free licence asks for (ticket 95).
+// It shows when the user opens the About group.
 export component AboutGroup inherits VerticalLayout {
+    in-out property <bool> open: false;
     spacing: 4px;
 
-    GroupTitle { text: "About"; }
-    Card {
+    GroupHeader {
+        text: "About";
+        open <=> root.open;
+    }
+    if root.open: Card {
         vertical-stretch: 0;
         AboutSlint {}
     }

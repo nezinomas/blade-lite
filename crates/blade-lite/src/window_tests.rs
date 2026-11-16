@@ -338,6 +338,25 @@ pub fn click(root: &impl ElementRoot, role: AccessibleRole, label: &str) {
     control(root, role, label).mock_single_click(PointerEventButton::Left);
 }
 
+/// Presses and lets go `key` in the window, as the keyboard does.
+pub fn press_key(f: &Fixture, key: slint::platform::Key) {
+    let window = f.shell.window().window();
+    let text: slint::SharedString = key.into();
+    window.dispatch_event(slint::platform::WindowEvent::KeyPressed { text: text.clone() });
+    window.dispatch_event(slint::platform::WindowEvent::KeyReleased { text });
+}
+
+/// Shift+Tab in the window: the keyboard focus goes back one control.
+pub fn shift_tab(f: &Fixture) {
+    let window = f.shell.window().window();
+    let shift: slint::SharedString = slint::platform::Key::Shift.into();
+    window.dispatch_event(slint::platform::WindowEvent::KeyPressed {
+        text: shift.clone(),
+    });
+    press_key(f, slint::platform::Key::Tab);
+    window.dispatch_event(slint::platform::WindowEvent::KeyReleased { text: shift });
+}
+
 /// The label of the preset chosen in the window's Performance mode row.
 pub fn selected_preset(f: &Fixture) -> String {
     chosen(&f.shell.window().get_presets())

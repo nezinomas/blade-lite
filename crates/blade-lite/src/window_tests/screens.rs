@@ -18,7 +18,7 @@ use platform::PowerEvent;
 use slint::{ComponentHandle, Rgba8Pixel, SharedPixelBuffer};
 use ui::PowerPill;
 
-use super::{click, fixture};
+use super::{click, fixture, shift_tab};
 
 /// A channel may differ by this much, for rounding.
 const CHANNEL_SLACK: u8 = 4;
@@ -27,6 +27,16 @@ const CHANNEL_SLACK: u8 = 4;
 fn window() {
     let f = fixture(Config::default());
     check("window", f.shell.window().window());
+}
+
+#[test]
+fn window_with_the_groups_open() {
+    let f = fixture(Config::default());
+    click(f.shell.window(), Button, "Settings");
+    click(f.shell.window(), Button, "About");
+    // Shift+Tab puts the keyboard focus on the About header: its focus ring.
+    shift_tab(&f);
+    check("window-groups-open", f.shell.window().window());
 }
 
 #[test]

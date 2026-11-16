@@ -131,6 +131,78 @@ export component GroupTitle inherits VerticalLayout {
     }
 }
 
+// A group title that opens and closes its group (ticket 227): a click on
+// it, Enter or Space while it has the keyboard focus, or Narrator's invoke,
+// switches `open`.
+export component GroupHeader inherits VerticalLayout {
+    in property <string> text;
+    in-out property <bool> open;
+    // Narrator's focus action lands on the header; the keys go to the scope.
+    forward-focus: focus;
+    padding-top: 20px;
+    padding-bottom: 6px;
+    accessible-role: button;
+    accessible-label: root.text;
+    // Not `accessible-expandable`: AccessKit then drops the invoke pattern,
+    // and Slint 1.18 has no collapse action, so Narrator could open the
+    // group but never close it. The state is told in the description.
+    accessible-description: root.open ? "Open" : "Closed";
+    accessible-action-default => { root.open = !root.open; }
+    Rectangle {
+        // The focus ring shows only while the keyboard is on the header. It
+        // stands a little out, so the title stays in line with the others.
+        Rectangle {
+            x: -6px;
+            y: -3px;
+            width: parent.width + 12px;
+            height: parent.height + 6px;
+            border-radius: 4px;
+            border-width: focus.has-focus ? 2px : 0px;
+            border-color: Palette.foreground;
+        }
+        HorizontalLayout {
+            spacing: 8px;
+            Text {
+                text: root.text;
+                font-weight: 600;
+                vertical-alignment: center;
+            }
+            // A chevron: down when closed, up when open.
+            VerticalLayout {
+                alignment: center;
+                Path {
+                    width: 10px;
+                    height: 7px;
+                    // A fixed view box, so the stroke is not scaled.
+                    viewbox-width: 10;
+                    viewbox-height: 7;
+                    commands: root.open ? "M 0 6 L 5 1 L 10 6" : "M 0 1 L 5 6 L 10 1";
+                    stroke: Palette.foreground;
+                    stroke-width: 1px;
+                }
+            }
+            Rectangle { horizontal-stretch: 1; }
+        }
+        focus := FocusScope {
+            key-pressed(event) => {
+                // Not on a held key's repeat, nor with Ctrl or Alt (Alt+Space
+                // is the window menu).
+                if (event.text == Key.Return || event.text == " ") && !event.repeat
+                    && !event.modifiers.control && !event.modifiers.alt {
+                    root.open = !root.open;
+                    return accept;
+                }
+                reject
+            }
+        }
+        // Above the focus scope, so it gets the clicks.
+        TouchArea {
+            mouse-cursor: pointer;
+            clicked => { root.open = !root.open; }
+        }
+    }
+}
+
 export component StatCell inherits VerticalLayout {
     in property <Stat> stat;
     Text {
