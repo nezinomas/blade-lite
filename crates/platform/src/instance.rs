@@ -1,5 +1,5 @@
-//! One running copy, through a named mutex, and a named event that a second
-//! copy sets to wake the first.
+//! One running copy, through a named mutex, and named events that a second
+//! copy sets to wake the first or to ask it to quit.
 
 use std::ffi::c_void;
 use std::io;
@@ -10,7 +10,7 @@ use windows_sys::Win32::Foundation::{
     CloseHandle, ERROR_ALREADY_EXISTS, GetLastError, WAIT_OBJECT_0, WAIT_TIMEOUT,
 };
 use windows_sys::Win32::System::Threading::{
-    CreateEventW, CreateMutexW, INFINITE, SetEvent, WaitForSingleObject,
+    CreateEventW, CreateMutexW, INFINITE, ResetEvent, SetEvent, WaitForSingleObject,
 };
 use windows_sys::Win32::UI::WindowsAndMessaging::{ASFW_ANY, AllowSetForegroundWindow};
 
@@ -40,28 +40,34 @@ impl Drop for Handle {
 }
 
 /// The lock for one app name, across all sessions on this PC, so a copy
-/// in another user's session can't drive the controller too. The wake
-/// stays in this session.
+/// in another user's session can't drive the controller too. The wake and
+/// the ask to quit stay in this session: a copy in another session (such
+/// as an installer's service) can't reach them.
 pub struct WindowsInstance {
     mutex_name: Vec<u16>,
     event_name: Vec<u16>,
     event: Handle,
+    quit_name: Vec<u16>,
+    quit: Handle,
     /// Kept until drop, so the claim lasts as long as this copy runs.
     mutex: Option<Handle>,
 }
 
 impl WindowsInstance {
-    /// Opens the wake event for `app`. Nothing is claimed yet.
+    /// Opens the wake and quit events for `app`. Nothing is claimed yet.
     ///
     /// # Errors
     ///
-    /// The Windows error if the event could not be made.
+    /// The Windows error if an event could not be made.
     pub fn new(app: &str) -> io::Result<Self> {
         let event_name = wide(&format!(r"Local\{app}-open"));
+        let quit_name = wide(&format!(r"Local\{app}-quit"));
         Ok(Self {
             mutex_name: wide(&format!(r"Global\{app}")),
             event: open_event(&event_name)?,
             event_name,
+            quit: open_event(&quit_name)?,
+            quit_name,
             mutex: None,
         })
     }
@@ -73,6 +79,15 @@ impl WindowsInstance {
     /// The Windows error if the event could not be opened.
     pub fn listener(&self) -> io::Result<WakeListener> {
         open_event(&self.event_name).map(WakeListener)
+    }
+
+    /// A second handle to the quit event, to wait on from another thread.
+    ///
+    /// # Errors
+    ///
+    /// The Windows error if the event could not be opened.
+    pub fn quit_listener(&self) -> io::Result<WakeListener> {
+        open_event(&self.quit_name).map(WakeListener)
     }
 }
 
@@ -96,19 +111,36 @@ impl InstanceLock for WindowsInstance {
         // open behind others. If that fails, the wake still goes.
         // SAFETY: no pointers; ASFW_ANY is a plain process id value.
         unsafe { AllowSetForegroundWindow(ASFW_ANY) };
+        set(&self.event)
+    }
+
+    fn ask_first_to_quit(&self) -> io::Result<()> {
+        set(&self.quit)
+    }
+
+    fn withdraw_quit(&self) -> io::Result<()> {
         // SAFETY: the event handle is open until drop.
-        if unsafe { SetEvent(self.event.0) } == 0 {
+        if unsafe { ResetEvent(self.quit.0) } == 0 {
             return Err(io::Error::last_os_error());
         }
         Ok(())
     }
 }
 
-/// Waits for a second copy to ask for the window.
+/// Sets `event`.
+fn set(event: &Handle) -> io::Result<()> {
+    // SAFETY: the event handle is open until drop.
+    if unsafe { SetEvent(event.0) } == 0 {
+        return Err(io::Error::last_os_error());
+    }
+    Ok(())
+}
+
+/// Waits for a second copy to ask for the window, or to quit.
 pub struct WakeListener(Handle);
 
 impl WakeListener {
-    /// Waits up to `timeout` for a wake. `true` means one came. Each wake
+    /// Waits up to `timeout` for an ask. `true` means one came. Each ask
     /// is seen once. A timeout too long for Windows waits for ever.
     ///
     /// # Errors

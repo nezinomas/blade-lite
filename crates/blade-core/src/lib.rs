@@ -32,7 +32,7 @@ mod touchpad;
 
 pub use apply::{
     ApplyError, Controller, RESUME_PAUSE, apply, apply_fan_targets, apply_lighting,
-    apply_performance, check, preset_differs,
+    apply_performance, check, preset_differs, reset,
 };
 pub use autostart::{
     APPROVED_KEY, Autostart, AutostartError, RUN_KEY, RUN_VALUE, SHOWN_COMMAND_CHARS, TRAY_FLAG,
@@ -42,7 +42,7 @@ pub use battery_rate::{BATTERY_RATE, BatteryRate, RESUME_RATE_TRIES};
 pub use charge::{ChargeError, charge_limit_on, set_charge_limit};
 pub use charger::full_power_charger;
 pub use config::{Config, ConfigError, CustomSettings, Lighting, Preset};
-pub use instance::{APP_NAME, Start, start_instance};
+pub use instance::{APP_NAME, Quit, Start, Task, TaskError, quit_first, start_instance, task};
 pub use keyboard_brightness::{keyboard_brightness, set_vapor_light};
 pub use log::{LOG_FILES, LOG_LINE_MAX, LOG_MAX_BYTES, Log, log_line};
 pub use logo::{LogoError, logo_on, set_logo};

@@ -9,7 +9,7 @@ use razer_proto::{
 };
 
 use crate::red_keys::colour_frame;
-use crate::{Config, CustomSettings, Lighting, Query};
+use crate::{Config, CustomSettings, Lighting, Preset, Query};
 
 /// How long to wait after resume before applying again, so the controller is
 /// awake. A guess: the device layer also reads again (never resends) while it replies Busy.
@@ -105,6 +105,33 @@ pub fn apply_performance(
 ) -> Result<(), ApplyError> {
     let commands = preset_commands(*config, model)?;
     controller.run(&commands).map_err(ApplyError::Device)
+}
+
+/// Ends a manual fan that a crash or a kill may have left with no app, then
+/// runs Balanced (`--reset`, ticket 148): Custom with the fans on auto and
+/// the lowest boosts (the quit preset's known way to end a manual fan, also
+/// safe on battery), then Balanced. Each is its own run; a failure stops
+/// the sends after it.
+///
+/// # Errors
+///
+/// See [`ApplyError`].
+pub fn reset(model: &ModelProfile, controller: &mut impl Controller) -> Result<(), ApplyError> {
+    let auto_fans = Config {
+        preset: Preset::Custom,
+        custom: CustomSettings {
+            cpu_boost: 0,
+            gpu_boost: 0,
+            fan_rpm: None,
+        },
+        ..Config::default()
+    };
+    apply_performance(&auto_fans, model, controller)?;
+    let balanced = Config {
+        preset: Preset::Balanced,
+        ..Config::default()
+    };
+    apply_performance(&balanced, model, controller)
 }
 
 /// Sends only the fan targets of `config`'s Custom again, if it is Custom

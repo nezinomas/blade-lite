@@ -149,6 +149,22 @@ pub trait InstanceLock {
     ///
     /// The Windows error if the other copy could not be told.
     fn wake_first(&self) -> io::Result<()>;
+
+    /// Asks the copy that has the app to quit, as the tray's Quit does
+    /// (`--quit`, ticket 148).
+    ///
+    /// # Errors
+    ///
+    /// The Windows error if the other copy could not be told.
+    fn ask_first_to_quit(&self) -> io::Result<()>;
+
+    /// Takes back an ask to quit that no copy has taken yet, so a copy
+    /// that could not take it in time does not quit later by surprise.
+    ///
+    /// # Errors
+    ///
+    /// The Windows error if the ask could not be taken back.
+    fn withdraw_quit(&self) -> io::Result<()>;
 }
 
 /// A key that the app may send. The app never sends any other key.

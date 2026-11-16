@@ -63,3 +63,41 @@ fn one_wake_is_seen_once() {
     assert!(listener.wait(NO_WAIT).unwrap());
     assert!(!listener.wait(NO_WAIT).unwrap());
 }
+
+#[test]
+fn an_ask_to_quit_reaches_the_first_copy_and_not_its_wake() {
+    let name = name("quit");
+    let mut first = WindowsInstance::new(&name).unwrap();
+    assert!(first.claim().unwrap());
+    let quits = first.quit_listener().unwrap();
+    let wakes = first.listener().unwrap();
+
+    WindowsInstance::new(&name).unwrap().ask_first_to_quit().unwrap();
+
+    assert!(quits.wait(NO_WAIT).unwrap());
+    assert!(!wakes.wait(NO_WAIT).unwrap());
+}
+
+#[test]
+fn a_wake_is_no_ask_to_quit() {
+    let name = name("wake-no-quit");
+    let first = WindowsInstance::new(&name).unwrap();
+    let quits = first.quit_listener().unwrap();
+
+    WindowsInstance::new(&name).unwrap().wake_first().unwrap();
+
+    assert!(!quits.wait(NO_WAIT).unwrap());
+}
+
+#[test]
+fn a_withdrawn_ask_to_quit_is_not_seen() {
+    let name = name("withdrawn");
+    let first = WindowsInstance::new(&name).unwrap();
+    let quits = first.quit_listener().unwrap();
+    let second = WindowsInstance::new(&name).unwrap();
+
+    second.ask_first_to_quit().unwrap();
+    second.withdraw_quit().unwrap();
+
+    assert!(!quits.wait(NO_WAIT).unwrap());
+}
