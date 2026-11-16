@@ -571,6 +571,7 @@ dependencies = [
  "platform",
  "razer-device",
  "razer-proto",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

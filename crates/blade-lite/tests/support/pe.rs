@@ -39,6 +39,10 @@ pub fn dependent_load_flags_offset(bytes: &[u8]) -> Option<usize> {
     let coff = pe + 4;
     let optional = coff + 20;
     assert_eq!(u16_at(bytes, optional), 0x20B, "not a 64-bit exe");
+    assert!(
+        u32_at(bytes, optional + 108) > LOAD_CONFIG,
+        "no load config entry"
+    );
     let sections = optional + u16_at(bytes, coff + 16);
     let rva = u32_at(bytes, optional + 112 + LOAD_CONFIG * 8);
     if rva == 0 {
