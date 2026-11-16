@@ -38,7 +38,7 @@ pub use power::{LidAndScreen, SuspendHandled, WindowsPowerEvents, on_battery, sh
 pub use programs::WindowsPrograms;
 pub use registry::{WindowsRegistry, usb_device_ids, usb_interfaces};
 pub use sensors::{WindowsSensors, device_power};
-pub use session::{SessionEndWatch, input_desktop, serve_sent_messages, session_locked};
+pub use session::{SessionEndWatch, serve_sent_messages};
 pub use watch::RegistryWatch;
 
 /// Something Windows tells us about power.
