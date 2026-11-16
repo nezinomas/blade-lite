@@ -36,12 +36,12 @@ pub struct Session {
 }
 
 impl Session {
-    /// Reads both from Windows.
-    #[must_use]
-    pub fn read() -> Self {
+    /// What an app with no shell says: the shell's parts read Windows (or
+    /// fakes in the window tests), so tests of the app alone read nothing.
+    pub(super) fn not_read() -> Self {
         Self {
-            locked: platform::session_locked(),
-            input_desktop: platform::input_desktop(),
+            locked: None,
+            input_desktop: "not read".to_owned(),
         }
     }
 }

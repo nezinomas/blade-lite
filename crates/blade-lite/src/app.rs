@@ -228,7 +228,7 @@ where
             battery_rate: BatteryRate::default(),
             rate_sets: RateSets::default(),
             wake_heard: None,
-            read_session: Session::read,
+            read_session: Session::not_read,
             power: Power::Charger,
             preset_unsure: false,
             fan_targets_due: None,
