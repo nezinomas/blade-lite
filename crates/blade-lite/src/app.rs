@@ -5,12 +5,10 @@ mod clicks;
 mod error;
 mod events;
 mod gate;
-mod rate_log;
 mod settings;
 mod views;
 
 use std::path::PathBuf;
-use std::time::Instant;
 
 use blade_core::{
     ApplyError, BatteryRate, Config, Controller, Lighting, Preset, Query, apply_fan_targets,
@@ -23,7 +21,6 @@ pub use error::{AppError, took_effect};
 pub use gate::Gated;
 
 use crate::report;
-use rate_log::{RateLog, RateSets};
 
 /// How the firmware warning says the version could not be read.
 const UNREAD: &str = "could not be read";
@@ -130,13 +127,6 @@ pub struct App<C, D, R, K> {
     config_path: PathBuf,
     machine: Machine<Gated<C>, D, R, K>,
     battery_rate: BatteryRate,
-    /// The battery rate's sets since the last power event, for their log
-    /// lines (ticket 222).
-    rate_sets: RateSets,
-    /// When the last wake notice came, as the shell last said.
-    wake_heard: Option<Instant>,
-    /// Reads whether the session is locked, for the rate's log lines.
-    session_locked: fn() -> Option<bool>,
     power: Power,
     /// Whether the last start, preset change or power switch failed, so
     /// the controller may not run the preset the app shows. A failed preset
@@ -225,9 +215,6 @@ where
                 keys: machine.keys,
             },
             battery_rate: BatteryRate::default(),
-            rate_sets: RateSets::default(),
-            wake_heard: None,
-            session_locked: platform::session_locked,
             power: Power::Charger,
             preset_unsure: false,
             fan_targets_due: None,
