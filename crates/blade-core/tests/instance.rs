@@ -229,11 +229,12 @@ fn a_failed_claim_while_the_copy_quits_is_still_quitting_never_one_to_end() {
 }
 
 #[test]
-fn a_failed_take_back_of_an_ask_nobody_may_have_taken_is_an_error() {
+fn a_failed_take_back_counts_as_a_copy_that_may_be_quitting() {
     let mut lock = FakeLock::new(true);
     lock.look_fails = Some(Look::TakeBack);
 
-    assert!(quit(&mut lock).0.is_err());
+    // Never one to end: it may be in its quit sends.
+    assert_eq!(quit(&mut lock).0.unwrap(), Quit::Quitting);
 }
 
 #[test]

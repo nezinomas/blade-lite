@@ -141,7 +141,11 @@ fn on_each_ask(listener: WakeListener, part: &'static str, what: &'static str, a
                 }
             }
             // An error: the event loop has ended, so the app is quitting.
-            let _ = slint::invoke_from_event_loop(act);
+            if let Err(error) = slint::invoke_from_event_loop(act) {
+                report(&format!(
+                    "a second start's ask to {what} came as the app ends, so it was dropped: {error}"
+                ));
+            }
         }
     });
 }

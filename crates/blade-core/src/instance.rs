@@ -142,8 +142,8 @@ pub struct QuitWait {
 /// # Errors
 ///
 /// The Windows error if the first claim or the ask failed (nothing is asked
-/// after a failed first claim), if a claim or the take-back failed while no
-/// copy is known to quit, or if the read of whether the quit preset was
+/// after a failed first claim), if a claim failed while the ask was taken
+/// back (so no copy quits), or if the read of whether the quit preset was
 /// sent failed.
 pub fn quit_first(
     lock: &mut impl InstanceLock,
@@ -161,11 +161,11 @@ pub fn quit_first(
     if matches!(ended, Ok(true)) {
         return quit_result(lock);
     }
-    if taken_back? {
+    if matches!(taken_back, Ok(true)) {
         return ended.map(|_| Quit::StillRuns);
     }
-    // The copy took the ask, so it is quitting: even a failed claim must
-    // not report it as one to end.
+    // The copy took the ask (or the look failed, so it may have): it may
+    // be quitting, so even a failed claim must not report it as one to end.
     match wait_for_the_lock(lock, wait.to_end, wait.every, &mut sleep) {
         Ok(true) => quit_result(lock),
         Ok(false) | Err(_) => Ok(Quit::Quitting),

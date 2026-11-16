@@ -43,7 +43,7 @@ use blade_lite::{
     open_log, poll_late, report, report_panics, report_usb_suspend, try_times, try_until_it_works,
 };
 use platform::{
-    InstanceLock, SessionEndWatch, WindowsDisplays, WindowsInstance, WindowsKeys, WindowsPrograms,
+    SessionEndWatch, WindowsDisplays, WindowsInstance, WindowsKeys, WindowsPrograms,
     WindowsRegistry, num_lock_on, serve_sent_messages,
 };
 use razer_device::{Device, HidTransport, Reopening, SystemClock};
@@ -172,9 +172,9 @@ fn quit_running_copy(
         ),
         Quit::Quitting => (
             format!(
-                "the running copy is quitting but has not ended within {all} s (a menu or a \
-                 file box of its own may be open). Do not end it: it sends the quit preset as \
-                 it ends. Whether that works can't be known: once it has ended, run --reset"
+                "the running copy may be quitting but has not ended within {all} s (a menu or \
+                 a file box of its own may be open). Do not end it: it sends the quit preset \
+                 as it ends. Run --quit again until it gives 0 or 1, then run --reset"
             ),
             ExitCode::from(STILL_QUITTING),
         ),
@@ -461,15 +461,10 @@ fn claim_the_app(in_tray: bool) -> Result<Option<WindowsInstance>, Box<dyn std::
         report("another copy runs, so this one ends");
         return Ok(None);
     }
-    // No ask to quit made before this copy held the lock is meant for it,
-    // nor an older copy's word that its quit preset went (ticket 148). An
-    // ask made between the claim and this look is dropped too: its --quit
-    // then says the app is quitting (exit 2), and this line says why.
-    match instance.take_back_quit() {
-        Ok(true) => report("an old --quit ask was dropped"),
-        Ok(false) => {}
-        Err(error) => report(&format!("an old --quit ask may quit the app: {error}")),
-    }
+    // An older copy's word that its quit preset went is not this copy's
+    // (ticket 148). An ask to quit already set is kept: it may be a
+    // `--quit` that asked just after the claim, so this copy quits (the
+    // safe side); only a `--quit` ended mid-wait leaves one that is old.
     if let Err(error) = instance.forget_quit_sent() {
         report(&format!(
             "a --quit start may be told an old quit preset was sent: {error}"
