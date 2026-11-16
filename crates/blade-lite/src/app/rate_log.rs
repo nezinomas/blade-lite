@@ -31,6 +31,8 @@ impl RateSets {
 pub(super) struct RateLog<'a, D> {
     pub(super) displays: &'a mut D,
     pub(super) sets: &'a mut RateSets,
+    /// Reads whether the session is locked.
+    pub(super) locked: fn() -> Option<bool>,
 }
 
 impl<D: DisplayApi> DisplayApi for RateLog<'_, D> {
@@ -39,9 +41,12 @@ impl<D: DisplayApi> DisplayApi for RateLog<'_, D> {
     }
 
     fn set_mode(&mut self, name: &str, mode: DisplayMode, life: ModeLife) -> io::Result<()> {
+        // Read before the set: the call can take a while, and the sign-in
+        // can end meanwhile.
+        let since = self.sets.woke.map(|woke| woke.elapsed());
+        let locked_before = (self.locked)();
         let set = self.displays.set_mode(name, mode, life);
         self.sets.count = self.sets.count.saturating_add(1);
-        let since = self.sets.woke.map(|woke| woke.elapsed());
         let now = self.displays.displays().map(|displays| {
             displays
                 .into_iter()
@@ -54,7 +59,7 @@ impl<D: DisplayApi> DisplayApi for RateLog<'_, D> {
             mode.hz,
             &set,
             &now,
-            platform::session_locked(),
+            [locked_before, (self.locked)()],
         ));
         set
     }
@@ -64,16 +69,17 @@ impl<D: DisplayApi> DisplayApi for RateLog<'_, D> {
     }
 }
 
-/// The log line of one set: its number since the event, the time since
-/// the wake notice, the result, the mode Windows reports after it, and
-/// whether the session is locked.
+/// The log line of one set: its number since the event, the time from the
+/// wake notice (as the app's poll took it) to the set, the result, the mode
+/// Windows reports after it, and whether the session was locked before the
+/// set and after it.
 fn rate_set_line(
     count: u8,
     since_wake: Option<Duration>,
     hz: u32,
     set: &io::Result<()>,
     now: &io::Result<Option<DisplayMode>>,
-    locked: Option<bool>,
+    locked: [Option<bool>; 2],
 ) -> String {
     let since = since_wake.map_or_else(
         || "no wake".to_owned(),
@@ -88,10 +94,14 @@ fn rate_set_line(
         Ok(None) => "the panel is not active".to_owned(),
         Err(error) => format!("not read: {error}"),
     };
-    let locked = match locked {
+    let lock = |locked: Option<bool>| match locked {
         Some(true) => "locked",
         Some(false) => "unlocked",
         None => "lock not known",
+    };
+    let locked = match locked {
+        [before, after] if before == after => lock(before).to_owned(),
+        [before, after] => format!("{} before the set, {} after", lock(before), lock(after)),
     };
     format!("rate set {count} ({since}): {hz} Hz {result}; Windows reports {now}; session {locked}")
 }
@@ -114,7 +124,7 @@ mod tests {
             60,
             &Err(io::Error::other("ChangeDisplaySettingsExW returned -1")),
             &Ok(Some(MODE)),
-            Some(true),
+            [Some(true); 2],
         );
         assert_eq!(
             line,
@@ -125,7 +135,7 @@ mod tests {
 
     #[test]
     fn a_set_with_no_wake_says_so() {
-        let line = rate_set_line(3, None, 60, &Ok(()), &Ok(None), None);
+        let line = rate_set_line(3, None, 60, &Ok(()), &Ok(None), [None; 2]);
         assert_eq!(
             line,
             "rate set 3 (no wake): 60 Hz worked; Windows reports the panel is not active; \
@@ -141,9 +151,15 @@ mod tests {
             60,
             &Ok(()),
             &Err(io::Error::other("gone")),
-            Some(false),
+            [Some(false); 2],
         );
         assert!(line.ends_with("Windows reports not read: gone; session unlocked"));
+    }
+
+    #[test]
+    fn a_lock_that_changed_during_the_set_says_both() {
+        let line = rate_set_line(1, None, 60, &Ok(()), &Ok(None), [Some(true), Some(false)]);
+        assert!(line.ends_with("session locked before the set, unlocked after"));
     }
 
     #[test]

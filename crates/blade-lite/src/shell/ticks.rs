@@ -553,7 +553,7 @@ impl<P: Parts> Shell<P> {
             return;
         }
         if event == PowerEvent::Resumed {
-            self.app.borrow_mut().heard_wake();
+            self.wake_heard.set(Some(Instant::now()));
             report(&format!(
                 "Windows says the laptop woke ({}), so the settings go again after the pause",
                 lid_and_screen(P::lid_open(), P::screen_on())
@@ -697,6 +697,7 @@ impl<P: Parts> Shell<P> {
         {
             let mut app = self.app.borrow_mut();
             app.set_num_lock(P::num_lock_on());
+            app.rate_log_context(self.wake_heard.get(), P::session_locked);
             // The mic is read again at the next tick, not only on notices.
             P::mic_read_again();
             // The charger may have been pulled in the sleep, and the
@@ -758,6 +759,7 @@ impl<P: Parts> Shell<P> {
         // not go is sent again.
         self.awake_run.set(None);
         self.missed_wake_held.set(false);
+        self.wake_heard.set(None);
         // From the last notice: the app ran since an earlier one.
         self.slept_at.set(Some(SystemTime::now()));
         self.woke.set(false);

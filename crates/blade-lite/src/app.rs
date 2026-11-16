@@ -133,8 +133,10 @@ pub struct App<C, D, R, K> {
     /// The battery rate's sets since the last power event, for their log
     /// lines (ticket 222).
     rate_sets: RateSets,
-    /// When the last wake notice came; a sleep notice forgets it.
+    /// When the last wake notice came, as the shell last said.
     wake_heard: Option<Instant>,
+    /// Reads whether the session is locked, for the rate's log lines.
+    session_locked: fn() -> Option<bool>,
     power: Power,
     /// Whether the last start, preset change or power switch failed, so
     /// the controller may not run the preset the app shows. A failed preset
@@ -225,6 +227,7 @@ where
             battery_rate: BatteryRate::default(),
             rate_sets: RateSets::default(),
             wake_heard: None,
+            session_locked: platform::session_locked,
             power: Power::Charger,
             preset_unsure: false,
             fan_targets_due: None,

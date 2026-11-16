@@ -130,7 +130,6 @@ where
     pub fn on_power(&mut self, event: PowerEvent) -> Result<(), AppError> {
         // The rate is not touched, so its held error stays.
         if event == PowerEvent::Suspending {
-            self.wake_heard = None;
             return self.quit_preset();
         }
         self.held_rate_error = None;
@@ -148,6 +147,7 @@ where
                     let displays = &mut RateLog {
                         displays: &mut self.machine.displays,
                         sets: &mut self.rate_sets,
+                        locked: self.session_locked,
                     };
                     let on_battery = self.power == Power::Battery;
                     let rate = self
@@ -297,6 +297,7 @@ where
         Ok(self.battery_rate.put_back(&mut RateLog {
             displays: &mut self.machine.displays,
             sets: &mut self.rate_sets,
+            locked: self.session_locked,
         })?)
     }
 
@@ -428,13 +429,17 @@ where
         let displays = &mut RateLog {
             displays: &mut self.machine.displays,
             sets: &mut self.rate_sets,
+            locked: self.session_locked,
         };
         Ok(self.battery_rate.retry(&self.config, displays)?)
     }
 
-    /// The wake notice came now: the rate's log lines count from it.
-    pub fn heard_wake(&mut self) {
-        self.wake_heard = Some(Instant::now());
+    /// What the rate's log lines say at the next wake: when its notice
+    /// came (`None` for a wake with no notice) and how the session's lock
+    /// is read (ticket 222).
+    pub fn rate_log_context(&mut self, wake_heard: Option<Instant>, locked: fn() -> Option<bool>) {
+        self.wake_heard = wake_heard;
+        self.session_locked = locked;
     }
 
     pub(super) fn follow_power(&mut self, event: PowerEvent) -> Result<(), AppError> {
@@ -442,6 +447,7 @@ where
         let displays = &mut RateLog {
             displays: &mut self.machine.displays,
             sets: &mut self.rate_sets,
+            locked: self.session_locked,
         };
         Ok(self.battery_rate.on_event(event, &self.config, displays)?)
     }

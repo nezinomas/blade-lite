@@ -14,9 +14,9 @@ use slint::winit_030::winit::event::WindowEvent as WinitEvent;
 use slint::{ComponentHandle, LogicalPosition, Model};
 
 use super::{
-    FAKE_MIC, FAKE_NUM_LOCK, FAKE_ON_BATTERY, FAKE_RELEASED, FAKE_SCREEN_ON, FAKE_SOURCE_UNKNOWN,
-    Fixture, assert_the_battery_quit_preset, click, control, fixture, log_path,
-    manual_fan_with_boosts, selected_preset,
+    FAKE_MIC, FAKE_NUM_LOCK, FAKE_ON_BATTERY, FAKE_RELEASED, FAKE_SCREEN_ON, FAKE_SESSION_LOCKED,
+    FAKE_SOURCE_UNKNOWN, Fixture, assert_the_battery_quit_preset, click, control, fixture,
+    log_path, manual_fan_with_boosts, selected_preset,
 };
 use crate::fakes::{FakeCharger, brightness_commands, lighting_commands, logo};
 
@@ -2482,11 +2482,13 @@ fn each_set_of_a_wake_60_hz_is_logged_with_its_number_and_the_time_since_the_wak
     f.shell.tick();
     f.shell.app().machine_mut().displays.0.current.hz = 240;
     f.shell.app().machine_mut().displays.1 = 1;
+    FAKE_SESSION_LOCKED.set(Some(true));
     sender.send(PowerEvent::Resumed).unwrap();
     f.shell.tick();
     i_slint_backend_testing::mock_elapsed_time(
         blade_core::RESUME_PAUSE + std::time::Duration::from_millis(1),
     );
+    FAKE_SESSION_LOCKED.set(Some(false));
 
     f.shell.tick();
 
@@ -2500,13 +2502,13 @@ fn each_set_of_a_wake_60_hz_is_logged_with_its_number_and_the_time_since_the_wak
         "rate set 1 (",
         wake,
         "failed",
-        "reports 3840x2400 240 Hz"
+        "reports 3840x2400 240 Hz; session locked"
     ]));
     assert!(has(&[
         "rate set 2 (",
         wake,
         "worked",
-        "reports 3840x2400 60 Hz"
+        "reports 3840x2400 60 Hz; session unlocked"
     ]));
 }
 

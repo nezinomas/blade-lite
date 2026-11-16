@@ -1824,7 +1824,10 @@ const LOGO_READS_AFTER_WAKE: [Duration; 3] = [
 /// sleep notice at once and reads both at once, 5 s and 30 s after each
 /// wake notice. After a failed read it opens the controller again (a
 /// hibernate may kill the handle). It ends after 5 min awake with no sleep
-/// notice. Fails if no wake was seen or any read gave the logo on.
+/// notice (counted in ticks of at most 2 s, so the time asleep does not
+/// count). Its first read after a wake does not wait the app's 2 s pause
+/// (`RESUME_PAUSE`); it only reads. Fails if no wake was seen or any read
+/// gave the logo on.
 #[test]
 #[ignore = "needs the Blade 18, BLADE_LOGO_PROBE=1 and a person sleeping the laptop; read-only"]
 fn the_lid_logo_across_a_sleep() {
@@ -1906,8 +1909,9 @@ fn the_lid_logo_across_a_sleep() {
             Ok(_) => {}
             Err(_) => match HidTransport::open(&razer_proto::BLADE_18) {
                 Ok(transport) => {
-                    eprintln!("opened the controller again; the next reads use it");
+                    eprintln!("opened the controller again; this read is made again on it");
                     device = Device::new(transport, SystemClock);
+                    next_read -= 1;
                 }
                 Err(error) => eprintln!("could not open the controller again: {error}"),
             },
