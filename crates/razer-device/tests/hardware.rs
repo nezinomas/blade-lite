@@ -1921,11 +1921,63 @@ fn logo_reads<C: Clock>(device: &mut Device<HidTransport, C>) -> Result<[Option<
     Ok([read(set)?, read(stored)?])
 }
 
-/// The longest time awake with no sleep notice before the logo probe ends.
-const LOGO_PROBE_AWAKE: Duration = Duration::from_mins(5);
+/// The longest time awake with no sleep notice before a sleep probe ends.
+const PROBE_AWAKE: Duration = Duration::from_mins(5);
 
 /// The longest tick counted as awake, so the time asleep does not count.
-const LOGO_PROBE_TICK: Duration = Duration::from_secs(2);
+const PROBE_TICK: Duration = Duration::from_secs(2);
+
+/// The time a sleep probe has been awake since its start or the last sleep
+/// notice, counted in ticks of at most [`PROBE_TICK`].
+struct AwakeTime {
+    awake: Duration,
+    last_tick: std::time::Instant,
+}
+
+impl AwakeTime {
+    fn new(now: std::time::Instant) -> Self {
+        Self {
+            awake: Duration::ZERO,
+            last_tick: now,
+        }
+    }
+
+    /// Counts the time since the last tick.
+    fn tick(&mut self, now: std::time::Instant) {
+        self.awake += now.duration_since(self.last_tick).min(PROBE_TICK);
+        self.last_tick = now;
+    }
+
+    fn time(&self) -> Duration {
+        self.awake
+    }
+
+    /// Starts counting again, at a sleep notice.
+    fn restart(&mut self) {
+        self.awake = Duration::ZERO;
+    }
+}
+
+/// Registers for Windows' power events and passes each one on. Each sleep
+/// notice is answered at once, so a probe never holds a sleep back.
+fn answered_power_notices() -> std::sync::mpsc::Receiver<platform::PowerEvent> {
+    use platform::{PowerEvent, PowerEvents, WindowsPowerEvents};
+
+    let mut events = WindowsPowerEvents::register().unwrap();
+    let handled = events.suspend_handled();
+    let (sender, notices) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        while let Some(event) = events.next_event() {
+            if event == PowerEvent::Suspending {
+                handled.done(handled.number());
+            }
+            if sender.send(event).is_err() {
+                return;
+            }
+        }
+    });
+    notices
+}
 
 /// When the logo is read after each wake notice.
 const LOGO_READS_AFTER_WAKE: [Duration; 3] = [
@@ -1957,7 +2009,7 @@ const LOGO_READS_AFTER_WAKE: [Duration; 3] = [
 #[test]
 #[ignore = "needs the Blade 18, BLADE_LOGO_PROBE=1 and a person sleeping the laptop; read-only"]
 fn the_lid_logo_across_a_sleep() {
-    use platform::{PowerEvent, PowerEvents, WindowsPowerEvents};
+    use platform::PowerEvent;
     use std::sync::mpsc;
     use std::time::Instant;
 
@@ -1975,20 +2027,7 @@ fn the_lid_logo_across_a_sleep() {
         "the logo does not read off: set it off in the app, quit it, and start again (this run is void)"
     );
 
-    let mut events = WindowsPowerEvents::register().unwrap();
-    let handled = events.suspend_handled();
-    let (sender, notices) = mpsc::channel();
-    std::thread::spawn(move || {
-        while let Some(event) = events.next_event() {
-            if event == PowerEvent::Suspending {
-                // Answered at once, so the probe never holds a sleep back.
-                handled.done(handled.number());
-            }
-            if sender.send(event).is_err() {
-                return;
-            }
-        }
-    });
+    let notices = answered_power_notices();
 
     let mut wakes = 0;
     let mut turned_on = Vec::new();
@@ -1996,17 +2035,15 @@ fn the_lid_logo_across_a_sleep() {
     let mut next_read = LOGO_READS_AFTER_WAKE.len();
     // Whether this slot's read was made again on a new handle: once only.
     let mut read_again = false;
-    let mut awake = Duration::ZERO;
-    let mut last_tick = Instant::now();
-    while awake < LOGO_PROBE_AWAKE {
+    let mut awake = AwakeTime::new(Instant::now());
+    while awake.time() < PROBE_AWAKE {
         let notice = notices.recv_timeout(Duration::from_secs(1));
         let now = Instant::now();
-        awake += now.duration_since(last_tick).min(LOGO_PROBE_TICK);
-        last_tick = now;
+        awake.tick(now);
         match notice {
             Ok(PowerEvent::Suspending) => {
                 eprintln!("{}  sleep notice (answered)", utc_now());
-                awake = Duration::ZERO;
+                awake.restart();
                 woke = None;
             }
             Ok(PowerEvent::Resumed) => {
@@ -2054,4 +2091,192 @@ fn the_lid_logo_across_a_sleep() {
     eprintln!("{}  5 min awake with no sleep notice: the end", utc_now());
     assert!(wakes > 0, "no wake was seen");
     assert!(turned_on.is_empty(), "the logo came on: {turned_on:?}");
+}
+
+/// How often the wake probe reads the firmware version after a wake notice.
+const WAKE_READ_STEP: Duration = Duration::from_millis(100);
+
+/// How long after a wake notice the wake probe reads. Ends after the app's
+/// pause (`RESUME_PAUSE`, 2 s), with time to spare.
+const WAKE_READS_FOR: Duration = Duration::from_secs(3);
+
+/// The time after a wake notice of the next read after `since`. Reads are
+/// [`WAKE_READ_STEP`] apart by the clock from the notice, so a slow read
+/// skips the times it ran over.
+fn next_wake_read(since: Duration) -> Duration {
+    let steps = since.as_nanos() / WAKE_READ_STEP.as_nanos() + 1;
+    WAKE_READ_STEP * u32::try_from(steps).unwrap_or(u32::MAX)
+}
+
+/// Reads the firmware version on `device`, opening the controller again
+/// first if the last read failed (`device` is `None`), and prints the read
+/// with its start since the wake notice and how long it took. After a
+/// failed read `device` is `None`: that handle is not read again.
+fn wake_read(device: &mut Option<Device<HidTransport, SystemClock>>, woke: std::time::Instant) {
+    use std::time::Instant;
+
+    if device.is_none() {
+        match HidTransport::open(&razer_proto::BLADE_18) {
+            Ok(transport) => {
+                eprintln!("{}  opened the controller again", utc_now());
+                *device = Some(Device::new(transport, SystemClock));
+            }
+            Err(error) => {
+                eprintln!(
+                    "{}  could not open the controller again: {error}",
+                    utc_now()
+                );
+                return;
+            }
+        }
+    }
+    let Some(open) = device.as_mut() else {
+        return;
+    };
+    let start = Instant::now();
+    let read = open.firmware_version();
+    eprintln!(
+        "{}  start {:>4} ms after the notice, took {:>4} ms: {read:?}",
+        utc_now(),
+        start.duration_since(woke).as_millis(),
+        start.elapsed().as_millis()
+    );
+    if read.is_err() {
+        *device = None;
+    }
+}
+
+/// Ticket 219: when does the controller answer after a wake? The app waits
+/// 2 s (`RESUME_PAUSE`) before it sends; that time was never measured.
+/// Read-only: it reads only the firmware version and never sends a set
+/// command.
+///
+/// Quit the app from the tray, then start the probe by its name only, never
+/// with `cargo hw` (that runs every hardware test, also those that send,
+/// while you sleep the laptop):
+///
+/// `$env:BLADE_WAKE_PROBE=1; cargo test -p razer-device --test hardware the_controller_answers_after_a_wake -- --ignored --nocapture --test-threads=1; Remove-Item Env:BLADE_WAKE_PROBE`
+///
+/// Never leave `BLADE_WAKE_PROBE` set. It prints the USB device's power
+/// state and suspend values and Windows' power source, opens the controller
+/// and keeps that handle over the sleep (as the app does), and reads the
+/// firmware version once. Then it answers each sleep notice at once, and
+/// after each wake notice reads at once and then each 100 ms by the clock
+/// until 3 s after the notice (a read itself may take up to 3 s), printing
+/// each read's start, time taken and reply or error. After a failed read it
+/// opens the controller again and reads on the new handle. It ends after
+/// 5 min awake with no sleep notice (counted in ticks of at most 2 s, so the
+/// time asleep does not count). Fails if no wake was seen.
+#[test]
+#[ignore = "needs the Blade 18, BLADE_WAKE_PROBE=1 and a person sleeping the laptop; read-only"]
+fn the_controller_answers_after_a_wake() {
+    use platform::PowerEvent;
+    use std::sync::mpsc::RecvTimeoutError;
+    use std::time::Instant;
+
+    if !opted_in("BLADE_WAKE_PROBE") {
+        return;
+    }
+    print_usb_power_and_suspend(razer_proto::BLADE_18.usb);
+    eprintln!("on battery: {:?}", platform::on_battery());
+    let mut device = Device::new(open(), SystemClock);
+    let first = device.firmware_version().unwrap();
+    eprintln!("{}  before the sleep: {first:?}", utc_now());
+    let mut device = Some(device);
+
+    let notices = answered_power_notices();
+    let mut wakes = 0;
+    let mut woke: Option<Instant> = None;
+    let mut next_read = Duration::ZERO;
+    let mut awake = AwakeTime::new(Instant::now());
+    while awake.time() < PROBE_AWAKE {
+        let wait = woke.map_or(Duration::from_secs(1), |at| {
+            (at + next_read).saturating_duration_since(Instant::now())
+        });
+        let notice = notices.recv_timeout(wait);
+        awake.tick(Instant::now());
+        match notice {
+            Ok(PowerEvent::Suspending) => {
+                eprintln!("{}  sleep notice (answered)", utc_now());
+                awake.restart();
+                woke = None;
+            }
+            Ok(PowerEvent::Resumed) => {
+                eprintln!("{}  wake notice", utc_now());
+                wakes += 1;
+                woke = Some(Instant::now());
+                next_read = Duration::ZERO;
+            }
+            Ok(source) => eprintln!("{}  {source:?}", utc_now()),
+            Err(RecvTimeoutError::Timeout) => {}
+            Err(RecvTimeoutError::Disconnected) => panic!("the power events stopped"),
+        }
+        let Some(at) = woke else {
+            continue;
+        };
+        if at.elapsed() < next_read {
+            continue;
+        }
+        if next_read > WAKE_READS_FOR {
+            eprintln!("{}  3 s of reads after the wake: done", utc_now());
+            woke = None;
+            continue;
+        }
+        wake_read(&mut device, at);
+        next_read = next_wake_read(at.elapsed());
+    }
+    eprintln!("{}  5 min awake with no sleep notice: the end", utc_now());
+    assert!(wakes > 0, "no wake was seen");
+}
+
+#[test]
+fn the_first_wake_read_slot_is_one_step_after_the_notice() {
+    assert_eq!(next_wake_read(Duration::ZERO), Duration::from_millis(100));
+    assert_eq!(
+        next_wake_read(Duration::from_millis(99)),
+        Duration::from_millis(100)
+    );
+}
+
+#[test]
+fn a_wake_read_slot_that_has_come_moves_on() {
+    assert_eq!(
+        next_wake_read(Duration::from_millis(100)),
+        Duration::from_millis(200)
+    );
+}
+
+#[test]
+fn a_slow_wake_read_skips_the_slots_it_ran_over() {
+    assert_eq!(
+        next_wake_read(Duration::from_millis(2_950)),
+        Duration::from_secs(3)
+    );
+}
+
+#[test]
+fn awake_time_counts_each_tick() {
+    let start = std::time::Instant::now();
+    let mut awake = AwakeTime::new(start);
+    awake.tick(start + Duration::from_secs(1));
+    awake.tick(start + Duration::from_millis(1_500));
+    assert_eq!(awake.time(), Duration::from_millis(1_500));
+}
+
+#[test]
+fn awake_time_counts_a_long_tick_as_one_short_one() {
+    let start = std::time::Instant::now();
+    let mut awake = AwakeTime::new(start);
+    awake.tick(start + Duration::from_mins(10));
+    assert_eq!(awake.time(), PROBE_TICK);
+}
+
+#[test]
+fn awake_time_starts_again_at_a_sleep_notice() {
+    let start = std::time::Instant::now();
+    let mut awake = AwakeTime::new(start);
+    awake.tick(start + Duration::from_secs(1));
+    awake.restart();
+    awake.tick(start + Duration::from_secs(2));
+    assert_eq!(awake.time(), Duration::from_secs(1));
 }
