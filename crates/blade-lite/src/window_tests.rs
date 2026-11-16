@@ -112,6 +112,10 @@ impl Parts for Fakes {
     fn session_locked() -> Option<bool> {
         FAKE_SESSION_LOCKED.get()
     }
+
+    fn input_desktop() -> String {
+        FAKE_INPUT_DESKTOP.get().to_owned()
+    }
 }
 
 thread_local! {
@@ -120,6 +124,8 @@ thread_local! {
     pub static FAKE_ON_BATTERY: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
     /// Whether the session reads locked: unlocked unless a test sets it.
     pub static FAKE_SESSION_LOCKED: std::cell::Cell<Option<bool>> = const { std::cell::Cell::new(Some(false)) };
+    /// The input desktop's name: `Default` unless a test sets it.
+    pub static FAKE_INPUT_DESKTOP: std::cell::Cell<&'static str> = const { std::cell::Cell::new("Default") };
     /// Whether the power source can't be told: known unless a test sets it.
     pub static FAKE_SOURCE_UNKNOWN: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
     /// What the user does in a file dialog: cancel unless a test sets it.
@@ -269,6 +275,7 @@ pub fn fixture_with_programs(config: Config, programs: &[&str]) -> Fixture {
     log_path();
     FAKE_ON_BATTERY.set(false);
     FAKE_SESSION_LOCKED.set(Some(false));
+    FAKE_INPUT_DESKTOP.set("Default");
     FAKE_SOURCE_UNKNOWN.set(false);
     FAKE_MIC.set(None);
     FAKE_MIC_READS_AGAIN.set(0);

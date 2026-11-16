@@ -20,8 +20,8 @@ use blade_core::{
     ApplyError, Controller, PollSchedule, Query, RESUME_PAUSE, Readings, ReadingsSampler,
 };
 use blade_lite::{
-    App, AppError, BackgroundGpu, LoopSteps, Rect, SaidLately, ShownErrors, TimedSensors, report,
-    took_effect,
+    App, AppError, BackgroundGpu, LoopSteps, Rect, SaidLately, Session, ShownErrors, TimedSensors,
+    report, took_effect,
 };
 use platform::{
     DisplayApi, FileDialog, KeyInjector, MicWatch, PowerEvent, Programs, Registry, Sensors,
@@ -92,6 +92,17 @@ pub trait Parts: 'static {
     /// Whether Windows says the session is locked; `None` if it can't
     /// say. Read only.
     fn session_locked() -> Option<bool>;
+    /// The name of the desktop that takes the input, or why it could not
+    /// be read (ticket 228). Read only.
+    fn input_desktop() -> String;
+}
+
+/// The session as the parts read it, for the rate's log lines (ticket 228).
+fn read_session<P: Parts>() -> Session {
+    Session {
+        locked: P::session_locked(),
+        input_desktop: P::input_desktop(),
+    }
 }
 
 /// What [`Parts::pick_file`] calls with the user's answer.
@@ -240,6 +251,10 @@ impl Parts for Laptop {
 
     fn session_locked() -> Option<bool> {
         platform::session_locked()
+    }
+
+    fn input_desktop() -> String {
+        platform::input_desktop()
     }
 
     fn toggle_mic_mute() -> Option<bool> {
@@ -480,7 +495,7 @@ impl<P: Parts> Shell<P> {
         popup: ModePopup,
         mut app: AppOn<P>,
     ) -> Rc<Self> {
-        app.read_lock_with(P::session_locked);
+        app.read_session_with(read_session::<P>);
         // The app's start (`Self::start`) sets both again from what it left.
         let mode_watch = Cell::new(ModeWatch::new(app.running_preset()));
         let touchpad_watch = Cell::new(TouchpadWatch::new(app.touchpad_on()));

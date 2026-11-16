@@ -10,7 +10,7 @@ use blade_core::{
 use platform::{DisplayApi, KeyInjector, PowerEvent, Registry};
 use razer_proto::RedKeys;
 
-use super::{App, AppError, NOT_UNDERSTOOD, Power, RateLog};
+use super::{App, AppError, NOT_UNDERSTOOD, Power, RateLog, Session};
 use crate::report;
 
 impl<C, D, R, K> App<C, D, R, K>
@@ -147,7 +147,7 @@ where
                     let displays = &mut RateLog {
                         displays: &mut self.machine.displays,
                         sets: &mut self.rate_sets,
-                        locked: self.session_locked,
+                        session: self.read_session,
                     };
                     let on_battery = self.power == Power::Battery;
                     let rate = self
@@ -297,7 +297,7 @@ where
         Ok(self.battery_rate.put_back(&mut RateLog {
             displays: &mut self.machine.displays,
             sets: &mut self.rate_sets,
-            locked: self.session_locked,
+            session: self.read_session,
         })?)
     }
 
@@ -429,7 +429,7 @@ where
         let displays = &mut RateLog {
             displays: &mut self.machine.displays,
             sets: &mut self.rate_sets,
-            locked: self.session_locked,
+            session: self.read_session,
         };
         Ok(self.battery_rate.retry(&self.config, displays)?)
     }
@@ -440,10 +440,10 @@ where
         self.wake_heard = wake_heard;
     }
 
-    /// How the rate's log lines read whether the session is locked: the
-    /// shell's parts, so the window tests read a fake.
-    pub fn read_lock_with(&mut self, locked: fn() -> Option<bool>) {
-        self.session_locked = locked;
+    /// How the rate's log lines read the session's lock and input desktop:
+    /// the shell's parts, so the window tests read fakes.
+    pub fn read_session_with(&mut self, read: fn() -> Session) {
+        self.read_session = read;
     }
 
     pub(super) fn follow_power(&mut self, event: PowerEvent) -> Result<(), AppError> {
@@ -451,7 +451,7 @@ where
         let displays = &mut RateLog {
             displays: &mut self.machine.displays,
             sets: &mut self.rate_sets,
-            locked: self.session_locked,
+            session: self.read_session,
         };
         Ok(self.battery_rate.on_event(event, &self.config, displays)?)
     }

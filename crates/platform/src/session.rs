@@ -17,6 +17,9 @@ use windows_sys::Win32::System::RemoteDesktop::{
     WTS_CURRENT_SERVER_HANDLE, WTS_CURRENT_SESSION, WTS_SESSIONSTATE_LOCK, WTS_SESSIONSTATE_UNLOCK,
     WTSFreeMemory, WTSINFOEXW, WTSQuerySessionInformationW, WTSSessionInfoEx,
 };
+use windows_sys::Win32::System::StationsAndDesktops::{
+    CloseDesktop, DESKTOP_READOBJECTS, GetUserObjectInformationW, OpenInputDesktop, UOI_NAME,
+};
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     CreateWindowExW, DefWindowProcW, DestroyWindow, DispatchMessageW, GetMessageW, MSG,
     PM_NOREMOVE, PM_QS_SENDMESSAGE, PeekMessageW, PostMessageW, PostQuitMessage, RegisterClassW,
@@ -225,6 +228,45 @@ pub fn session_locked() -> Option<bool> {
     let info = info.filter(|info| info.Level == 1)?;
     // SAFETY: at level 1 the union holds its level 1 type.
     lock_state(unsafe { info.Data.WTSInfoExLevel1.SessionFlags })
+}
+
+/// The name of the desktop that takes the user's input, such as `Default`,
+/// or why it could not be read (ticket 228): an app can change the display
+/// settings only while it runs on the input desktop (Raymond Chen, "Psychic
+/// debugging: Why does my app sometimes fail to change the display
+/// settings?", The Old New Thing, 2020-02-07). Read only.
+#[must_use]
+pub fn input_desktop() -> String {
+    // SAFETY: no pointers in; the handle is closed below.
+    let desktop = unsafe { OpenInputDesktop(0, 0, DESKTOP_READOBJECTS) };
+    if desktop.is_null() {
+        return format!("not opened: {}", io::Error::last_os_error());
+    }
+    let mut name = [0u16; 64];
+    let mut needed = 0;
+    // SAFETY: Windows writes at most the buffer's size in bytes into it.
+    let read = unsafe {
+        GetUserObjectInformationW(
+            desktop,
+            UOI_NAME,
+            name.as_mut_ptr().cast(),
+            u32::try_from(size_of_val(&name)).unwrap_or_default(),
+            &raw mut needed,
+        )
+    };
+    // Read before the close, which can set the last error again.
+    let text = if read == 0 {
+        format!("name not read: {}", io::Error::last_os_error())
+    } else {
+        let end = name
+            .iter()
+            .position(|&unit| unit == 0)
+            .unwrap_or(name.len());
+        String::from_utf16_lossy(&name[..end])
+    };
+    // SAFETY: the handle came from `OpenInputDesktop` and is closed once.
+    unsafe { CloseDesktop(desktop) };
+    text
 }
 
 /// The lock state from `SessionFlags`: `WTS_SESSIONSTATE_LOCK` (0) or
