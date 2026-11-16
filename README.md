@@ -90,6 +90,12 @@ The look follows Windows 11 Settings, so the app feels like part of Windows.
 - Closing the window hides it to the tray. **Quit** in the tray menu ends the
   app and sends Balanced (Silent stays Silent), with a manual fan set to
   auto first while Custom runs. See the limits below.
+- **For an installer:** `blade-lite.exe --quit` asks the running copy to
+  quit as Quit does and waits for it to end; `blade-lite.exe --reset`, with
+  no copy running, sets the fans to auto and sends Balanced. Each must be
+  the only argument, shows no window or box, and ends with exit code 0 if
+  it worked, else 1 (the log says why). See
+  [docs/recovery.md](docs/recovery.md).
 
 The UI toolkit is [Slint](https://slint.dev) with its Fluent style.
 
