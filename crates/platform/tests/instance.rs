@@ -72,7 +72,10 @@ fn an_ask_to_quit_reaches_the_first_copy_and_not_its_wake() {
     let quits = first.quit_listener().unwrap();
     let wakes = first.listener().unwrap();
 
-    WindowsInstance::new(&name).unwrap().ask_first_to_quit().unwrap();
+    WindowsInstance::new(&name)
+        .unwrap()
+        .ask_first_to_quit()
+        .unwrap();
 
     assert!(quits.wait(NO_WAIT).unwrap());
     assert!(!wakes.wait(NO_WAIT).unwrap());
