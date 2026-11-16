@@ -2341,9 +2341,12 @@ impl WakeTally {
         key: &razer_proto::PowerKey,
         woke: Option<std::time::Instant>,
     ) {
+        let after_wake = woke.is_some_and(|at| note.at >= at);
         let handle = if note.kept {
             &mut self.kept
-        } else if note.profiles {
+        } else if note.profiles && after_wake {
+            // A fresh handle of the wake before, stopped at the sleep
+            // notice, may still send a note: it is not this wake's.
             &mut self.fresh
         } else {
             return;
@@ -2351,7 +2354,7 @@ impl WakeTally {
         match &note.read {
             KeyRead::Opened => handle.opened = true,
             KeyRead::Report(report) => {
-                handle.heard |= woke.is_some_and(|at| note.at >= at) && key.is_key_report(report);
+                handle.heard |= after_wake && key.is_key_report(report);
             }
             KeyRead::Failed(error) => {
                 handle.error.get_or_insert_with(|| error.clone());
@@ -2534,7 +2537,9 @@ fn print_key_note(note: &KeyNote, woke: Option<std::time::Instant>) {
 /// handle on each key collection; press Fn once then. It prints each report
 /// and error with its time and handle, and at the next sleep notice (or the
 /// end) a verdict for that wake: kept silent and fresh heard is a stale
-/// handle; a failed kept read or both heard is not; none heard is void. It
+/// handle; a failed kept read or both heard is not; none heard is void, and
+/// so is a wake with the kept handle opened again after the sleep, or with
+/// the fresh handle failed or not opened. It
 /// ends after 5 min awake with no sleep notice. Fails if no wake was seen.
 /// One run covers a Start-menu sleep and a hibernate (lid close). Check 61.
 #[test]
@@ -2859,4 +2864,15 @@ fn a_fresh_failure_is_not_a_kept_one() {
         woke,
     );
     assert_eq!(tally.kept.error, None);
+}
+
+#[test]
+fn a_fresh_failure_before_the_wake_is_not_this_wakes() {
+    let before = std::time::Instant::now();
+    let woke = before + Duration::from_millis(1);
+    let tally = tally_of(
+        &[key_note(before, false, true, KeyRead::Failed("old".into()))],
+        woke,
+    );
+    assert_eq!(tally.fresh.error, None);
 }
