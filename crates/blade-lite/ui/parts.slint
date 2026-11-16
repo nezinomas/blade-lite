@@ -145,8 +145,14 @@ export component GroupHeader inherits VerticalLayout {
     accessible-label: root.text;
     // Not `accessible-expandable`: AccessKit then drops the invoke pattern,
     // and Slint 1.18 has no collapse action, so Narrator could open the
-    // group but never close it. The state is told in the description.
+    // group but never close it. The state is told in the description, and
+    // as a toggle: AccessKit then gives the toggle pattern, whose toggle runs
+    // the default action, and raises a toggle-state event on a change, which
+    // Narrator should say (laptop check, ticket 232). It did not say a
+    // changed description.
     accessible-description: root.open ? "Open" : "Closed";
+    accessible-checkable: true;
+    accessible-checked: root.open;
     accessible-action-default => { root.open = !root.open; }
     Rectangle {
         // The focus ring shows only while the keyboard is on the header. It
