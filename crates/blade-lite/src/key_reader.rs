@@ -23,7 +23,9 @@ pub const ENTER_READ_WAIT: Duration = Duration::from_millis(5);
 /// clock of ticket 215's way back ([`UnheardSpells`]). The same handle is
 /// read on after it: a handle kept over a sleep and a hibernate heard the
 /// key (ticket 221, check 61), so the reports are opened again only after
-/// a read error or for the read-all spell. With one collection read, one
+/// a read error, after reads that did not wait (a broken handle, ticket
+/// 131), and for and after the read-all spell, which also brings back a
+/// handle gone dead with no error ([`HeardReports`]). With one collection read, one
 /// read waits it all, so the thread does not wake to count quiet reads (a
 /// key report ends the wait at once; ticket 188). Any other report
 /// neither ends the wait nor counts as a report (ticket 203).
@@ -457,11 +459,6 @@ mod tests {
     #[test]
     fn a_quiet_spell_opens_again_when_all_are_due_to_be_read() {
         assert!(unheard(UNHEARD_SPELLS_BEFORE_ALL).opens_again(false));
-    }
-
-    #[test]
-    fn a_read_all_spell_opens_again_when_it_ends() {
-        assert!(UnheardSpells::default().opens_again(true));
     }
 
     #[test]

@@ -249,7 +249,8 @@ pub fn follow_the_power_key() {
                         log_read_path(open.read_path(), &mut logged);
                         log_drops(open.take_dropped(), &mut logged_drops);
                         // After a spell the Fn, Enter and mic states start
-                        // unknown, a release lost in a sleep with it.
+                        // unknown, a release lost in a sleep with it (the
+                        // safe side: a Fn still held then gives no Fn up).
                         presses = end.next_presses(ran, &presses);
                         sender = if end.keeps_key_state(ran) {
                             open.sender().map(str::to_owned).or(sender)
