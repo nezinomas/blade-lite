@@ -15,6 +15,9 @@ fn main() {
     slint_build::compile_with_config("ui/window.slint", config)
         .expect("the window markup compiles");
     exe_icon();
+    // The DLLs the exe imports load before `main`, so `limit_dll_search`
+    // can't cover them: look for them only in System32 (ticket 224).
+    println!("cargo:rustc-link-arg-bins=/DEPENDENTLOADFLAG:0x800");
 }
 
 /// Builds the icon into the exe. The accent is read only when the app runs,
