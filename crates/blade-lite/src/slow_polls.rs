@@ -83,7 +83,7 @@ impl StepTime {
 }
 
 /// Times the work the event loop runs outside the poll: the window open,
-/// its fill, a click, a redraw (ticket 214). A step inside another counts
+/// its fill, a click (ticket 214). A step inside another counts
 /// only in the inner one, so no time counts twice. Only logs.
 #[derive(Debug, Default)]
 pub struct LoopSteps {
@@ -114,13 +114,6 @@ impl LoopSteps {
         value
     }
 
-    /// Adds a step timed elsewhere, such as a redraw. One inside a timed
-    /// step (a show can draw before it returns) is taken out of that step.
-    pub fn add(&self, name: &'static str, took: Duration) {
-        self.inner.set(self.inner.get().saturating_add(took));
-        self.note(name, took);
-    }
-
     fn note(&self, name: &'static str, took: Duration) {
         let mut sum = self.took.get();
         sum.total = sum.total.saturating_add(took);
@@ -131,7 +124,7 @@ impl LoopSteps {
     }
 
     /// The steps since the last take. Taken between steps, so no step
-    /// runs: what redraws left in the inner time goes too.
+    /// runs: what the last step left in the inner time goes too.
     pub fn take(&self) -> StepTime {
         self.inner.set(Duration::ZERO);
         self.took.take()
@@ -389,11 +382,10 @@ mod tests {
                 steps.time_with("display view", &read, || pass(&now, 700));
             });
         });
-        steps.add("redraw", MS * 40);
         assert_eq!(
             steps.take(),
             StepTime {
-                total: MS * 820,
+                total: MS * 780,
                 slowest: Some(("display view", MS * 700)),
             }
         );
@@ -401,32 +393,15 @@ mod tests {
     }
 
     #[test]
-    fn a_redraw_inside_a_timed_step_counts_once() {
-        let steps = LoopSteps::default();
-        let (now, read) = clock();
-        steps.time_with("window show", &read, || {
-            pass(&now, 30);
-            pass(&now, 200);
-            steps.add("window redraw", MS * 200);
-        });
-        assert_eq!(
-            steps.take(),
-            StepTime {
-                total: MS * 230,
-                slowest: Some(("window redraw", MS * 200)),
-            }
-        );
-    }
-
-    #[test]
     fn the_same_step_twice_is_not_added_into_one() {
         let steps = LoopSteps::default();
-        steps.add("redraw", MS * 40);
-        steps.add("redraw", MS * 60);
-        steps.add("window fill", MS * 50);
+        let (now, read) = clock();
+        steps.time_with("click", &read, || pass(&now, 40));
+        steps.time_with("click", &read, || pass(&now, 60));
+        steps.time_with("window fill", &read, || pass(&now, 50));
         let took = steps.take();
         assert_eq!(took.total, MS * 150);
-        assert_eq!(took.slowest, Some(("redraw", MS * 60)));
+        assert_eq!(took.slowest, Some(("click", MS * 60)));
     }
 
     #[derive(Default)]
