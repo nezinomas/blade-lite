@@ -2290,10 +2290,20 @@ struct WakeTally {
     kept_heard: bool,
     /// A fresh handle on the profile's collection heard a key report.
     fresh_heard: bool,
+    /// The first error of a fresh handle on the profile's collection.
+    fresh_error: Option<String>,
 }
 
 impl WakeTally {
     fn verdict(&self) -> String {
+        if let (None, false, false, Some(error)) = (
+            &self.kept_error,
+            self.kept_heard,
+            self.fresh_heard,
+            &self.fresh_error,
+        ) {
+            return format!("void: the fresh handle failed ({error})");
+        }
         match (&self.kept_error, self.kept_heard, self.fresh_heard) {
             (Some(error), ..) => {
                 format!("the kept handle failed ({error}): no silent stale handle")
@@ -2309,22 +2319,38 @@ impl WakeTally {
         }
     }
 
-    fn note(&mut self, note: &KeyNote, key: &razer_proto::PowerKey) {
+    /// Counts one note. A key report counts only when it came after the
+    /// wake notice (`woke`), so a press before the sleep or the press that
+    /// woke the laptop does not pass for one heard after the wake. A kept
+    /// handle's error counts from the sleep notice on.
+    fn note(
+        &mut self,
+        note: &KeyNote,
+        key: &razer_proto::PowerKey,
+        woke: Option<std::time::Instant>,
+    ) {
+        let after_wake = woke.is_some_and(|at| note.at >= at);
         match &note.read {
-            KeyRead::Report(report) if key.is_key_report(report) => {
+            KeyRead::Report(report) if after_wake && key.is_key_report(report) => {
                 self.kept_heard |= note.kept;
                 self.fresh_heard |= !note.kept && note.profiles;
             }
             KeyRead::Failed(error) if note.kept && self.kept_error.is_none() => {
                 self.kept_error = Some(error.clone());
             }
+            KeyRead::Failed(error) if !note.kept && note.profiles && self.fresh_error.is_none() => {
+                self.fresh_error = Some(error.clone());
+            }
             _ => {}
         }
     }
 }
 
-/// The paths of the model's key interface collections, each with its tag
-/// (such as `COL04`) and whether it is the one the profile names.
+/// The paths of all collections on the model's key interface (`MI_01`),
+/// each with its tag (such as `COL04`) and whether it is the one the
+/// profile names. All of them on purpose, by path alone, as the ticket 202
+/// probe reads them: more than the app's key collections (which also match
+/// the usage), so some, such as those Windows holds, print a failed read.
 fn key_collection_paths(model: &razer_proto::ModelProfile) -> Vec<(String, String, bool)> {
     let key = model.power_key.expect("the model has a power key");
     let interface = format!(
@@ -2360,17 +2386,21 @@ fn spawn_kept_key_reader(path: String, tag: &str, notes: std::sync::mpsc::Sender
         })
     };
     std::thread::spawn(move || {
+        let mut open_failed = false;
         loop {
             let device = match platform::HidDevice::open(&path) {
                 Ok(device) => device,
                 Err(error) => {
-                    if send(KeyRead::Failed(format!("open: {error}"))).is_err() {
+                    // Only the first failed open in a row is printed.
+                    if !open_failed && send(KeyRead::Failed(format!("open: {error}"))).is_err() {
                         return;
                     }
+                    open_failed = true;
                     std::thread::sleep(KEPT_OPEN_PAUSE);
                     continue;
                 }
             };
+            open_failed = false;
             if send(KeyRead::Opened).is_err() {
                 return;
             }
@@ -2551,7 +2581,7 @@ fn a_kept_key_handle_across_a_sleep() {
         for note in reads.try_iter() {
             print_key_note(&note, woke);
             if let Some(tally) = tally.as_mut() {
-                tally.note(&note, &key);
+                tally.note(&note, &key, woke);
             }
         }
     }
@@ -2650,4 +2680,89 @@ fn a_wake_with_no_key_heard_is_void() {
         ..WakeTally::default()
     };
     assert!(tally.verdict().starts_with("void"));
+}
+
+fn key_note(at: std::time::Instant, kept: bool, profiles: bool, read: KeyRead) -> KeyNote {
+    KeyNote {
+        at,
+        handle: String::new(),
+        kept,
+        profiles,
+        read,
+    }
+}
+
+fn fn_report() -> KeyRead {
+    let mut report = vec![0; 16];
+    report[0] = 0x04;
+    report[1] = 0x0A;
+    KeyRead::Report(report)
+}
+
+fn tally_of(notes: &[KeyNote], woke: std::time::Instant) -> WakeTally {
+    let key = razer_proto::BLADE_18.power_key.unwrap();
+    let mut tally = WakeTally::default();
+    for note in notes {
+        tally.note(note, &key, Some(woke));
+    }
+    tally
+}
+
+#[test]
+fn a_kept_key_report_before_the_wake_is_not_heard() {
+    let before = std::time::Instant::now();
+    let woke = before + Duration::from_millis(1);
+    let tally = tally_of(&[key_note(before, true, true, fn_report())], woke);
+    assert!(!tally.kept_heard);
+}
+
+#[test]
+fn key_reports_after_the_wake_are_heard_on_the_profiles_collection_only() {
+    let woke = std::time::Instant::now();
+    let tally = tally_of(
+        &[
+            key_note(woke, true, true, fn_report()),
+            key_note(woke, false, false, fn_report()),
+        ],
+        woke,
+    );
+    assert!(tally.kept_heard);
+    assert!(!tally.fresh_heard);
+    let fresh = tally_of(&[key_note(woke, false, true, fn_report())], woke);
+    assert!(fresh.fresh_heard);
+}
+
+#[test]
+fn a_report_that_is_not_a_key_report_is_not_heard() {
+    let woke = std::time::Instant::now();
+    let wake_report = KeyRead::Report(vec![0x05, 0x01]);
+    let tally = tally_of(&[key_note(woke, true, true, wake_report)], woke);
+    assert!(!tally.kept_heard);
+}
+
+#[test]
+fn the_first_kept_failure_is_kept_even_before_the_wake() {
+    let before = std::time::Instant::now();
+    let woke = before + Duration::from_millis(1);
+    let tally = tally_of(
+        &[
+            key_note(before, true, true, KeyRead::Failed("first".into())),
+            key_note(woke, true, true, KeyRead::Failed("second".into())),
+        ],
+        woke,
+    );
+    assert_eq!(tally.kept_error.as_deref(), Some("first"));
+}
+
+#[test]
+fn a_failed_fresh_handle_is_named_instead_of_a_missed_press() {
+    let woke = std::time::Instant::now();
+    let tally = WakeTally {
+        woke: true,
+        ..tally_of(
+            &[key_note(woke, false, true, KeyRead::Failed("gone".into()))],
+            woke,
+        )
+    };
+    assert!(tally.verdict().starts_with("void: the fresh handle failed"));
 }
