@@ -117,6 +117,7 @@ Status lives in `docs/PLAN.md` (open) and `docs/PLAN-done.md` (done) only. Comma
 - The user starts one stage or ticket with "next", or asks for a batch run. A batch run stops early if anything needs the user.
 - Tickets that need the user are skipped by "next ticket".
 - Run a retro about every 5 stages, or sooner if the same thing goes wrong twice.
+- Each new probe prints the Razer USB device's power state and its HID interfaces' `SelectiveSuspendEnabled` values first (`print_usb_power_and_suspend` in `crates/razer-device/tests/hardware.rs`), and each note says which sleep it means: Windows sleep (Start menu, Modern Standby), hibernate (lid close), USB sleep (the device's selective suspend), or GPU sleep (D3). The older `cargo hw` tests are not changed (ticket 219).
 - The user hibernates the laptop, not sleeps it. A laptop check after a power change (resume, re-apply) must cover hibernate as well as sleep.
 - Num Lock after a wake comes from Windows, not the app (the app sends no Num Lock key). The lock screen value `HKU\.DEFAULT\Control Panel\Keyboard\InitialKeyboardIndicators` must be `2`; at the default `0x80000000` the numpad woke as arrows. With `2`, Num Lock keeps its state over a hibernate (on stays on, off stays off). Set to `2` on 2026-11-08 (needs admin).
 
