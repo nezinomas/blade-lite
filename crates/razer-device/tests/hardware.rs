@@ -1958,9 +1958,11 @@ impl AwakeTime {
     }
 }
 
-/// Registers for Windows' power events and passes each one on. Each sleep
+/// Registers for Windows' power events and passes each one on, with the
+/// time it came (so a probe busy reading does not move it). Each sleep
 /// notice is answered at once, so a probe never holds a sleep back.
-fn answered_power_notices() -> std::sync::mpsc::Receiver<platform::PowerEvent> {
+fn answered_power_notices() -> std::sync::mpsc::Receiver<(std::time::Instant, platform::PowerEvent)>
+{
     use platform::{PowerEvent, PowerEvents, WindowsPowerEvents};
 
     let mut events = WindowsPowerEvents::register().unwrap();
@@ -1971,7 +1973,7 @@ fn answered_power_notices() -> std::sync::mpsc::Receiver<platform::PowerEvent> {
             if event == PowerEvent::Suspending {
                 handled.done(handled.number());
             }
-            if sender.send(event).is_err() {
+            if sender.send((std::time::Instant::now(), event)).is_err() {
                 return;
             }
         }
@@ -2041,19 +2043,19 @@ fn the_lid_logo_across_a_sleep() {
         let now = Instant::now();
         awake.tick(now);
         match notice {
-            Ok(PowerEvent::Suspending) => {
+            Ok((_, PowerEvent::Suspending)) => {
                 eprintln!("{}  sleep notice (answered)", utc_now());
                 awake.restart();
                 woke = None;
             }
-            Ok(PowerEvent::Resumed) => {
+            Ok((_, PowerEvent::Resumed)) => {
                 eprintln!("{}  wake notice", utc_now());
                 wakes += 1;
                 woke = Some(now);
                 next_read = 0;
                 read_again = false;
             }
-            Ok(source) => eprintln!("{}  {source:?}", utc_now()),
+            Ok((_, source)) => eprintln!("{}  {source:?}", utc_now()),
             Err(mpsc::RecvTimeoutError::Timeout) => {}
             Err(mpsc::RecvTimeoutError::Disconnected) => panic!("the power events stopped"),
         }
@@ -2100,6 +2102,10 @@ const WAKE_READ_STEP: Duration = Duration::from_millis(100);
 /// pause (`RESUME_PAUSE`, 2 s), with time to spare.
 const WAKE_READS_FOR: Duration = Duration::from_secs(3);
 
+/// How long after a wake notice the wake probe goes on reading when no
+/// read has worked yet, so a late first answer is still timed.
+const WAKE_READS_AT_MOST: Duration = Duration::from_secs(10);
+
 /// The time after a wake notice of the next read after `since`. Reads are
 /// [`WAKE_READ_STEP`] apart by the clock from the notice, so a slow read
 /// skips the times it ran over.
@@ -2111,8 +2117,12 @@ fn next_wake_read(since: Duration) -> Duration {
 /// Reads the firmware version on `device`, opening the controller again
 /// first if the last read failed (`device` is `None`), and prints the read
 /// with its start since the wake notice and how long it took. After a
-/// failed read `device` is `None`: that handle is not read again.
-fn wake_read(device: &mut Option<Device<HidTransport, SystemClock>>, woke: std::time::Instant) {
+/// failed read `device` is `None`: that handle is not read again. Returns
+/// whether the read worked.
+fn wake_read(
+    device: &mut Option<Device<HidTransport, SystemClock>>,
+    woke: std::time::Instant,
+) -> bool {
     use std::time::Instant;
 
     if device.is_none() {
@@ -2131,12 +2141,12 @@ fn wake_read(device: &mut Option<Device<HidTransport, SystemClock>>, woke: std::
                     utc_now(),
                     woke.elapsed().as_millis()
                 );
-                return;
+                return false;
             }
         }
     }
     let Some(open) = device.as_mut() else {
-        return;
+        return false;
     };
     let start = Instant::now();
     let read = open.firmware_version();
@@ -2149,6 +2159,7 @@ fn wake_read(device: &mut Option<Device<HidTransport, SystemClock>>, woke: std::
     if read.is_err() {
         *device = None;
     }
+    read.is_ok()
 }
 
 /// Ticket 219: when does the controller answer after a wake? The app waits
@@ -2167,7 +2178,8 @@ fn wake_read(device: &mut Option<Device<HidTransport, SystemClock>>, woke: std::
 /// and keeps that handle over the sleep (as the app does), and reads the
 /// firmware version once. Then it answers each sleep notice at once, and
 /// after each wake notice reads at once and then each 100 ms by the clock
-/// until 3 s after the notice (each HID call of a read may take up to 3 s,
+/// until 3 s after the notice, or until 10 s when no read has worked by 3 s
+/// (each HID call of a read may take up to 3 s,
 /// so one read can take 6 s or more: the printed time taken is the measure),
 /// printing
 /// each read's start, time taken and reply or error. After a failed read it
@@ -2195,6 +2207,7 @@ fn the_controller_answers_after_a_wake() {
     let mut wakes = 0;
     let mut woke: Option<Instant> = None;
     let mut next_read = Duration::ZERO;
+    let mut answered = false;
     let mut awake = AwakeTime::new(Instant::now());
     while awake.time() < PROBE_AWAKE {
         let wait = woke.map_or(Duration::from_secs(1), |at| {
@@ -2203,18 +2216,19 @@ fn the_controller_answers_after_a_wake() {
         let notice = notices.recv_timeout(wait);
         awake.tick(Instant::now());
         match notice {
-            Ok(PowerEvent::Suspending) => {
+            Ok((_, PowerEvent::Suspending)) => {
                 eprintln!("{}  sleep notice (answered)", utc_now());
                 awake.restart();
                 woke = None;
             }
-            Ok(PowerEvent::Resumed) => {
+            Ok((at, PowerEvent::Resumed)) => {
                 eprintln!("{}  wake notice", utc_now());
                 wakes += 1;
-                woke = Some(Instant::now());
+                woke = Some(at);
                 next_read = Duration::ZERO;
+                answered = false;
             }
-            Ok(source) => eprintln!("{}  {source:?}", utc_now()),
+            Ok((_, source)) => eprintln!("{}  {source:?}", utc_now()),
             Err(RecvTimeoutError::Timeout) => {}
             Err(RecvTimeoutError::Disconnected) => panic!("the power events stopped"),
         }
@@ -2224,12 +2238,15 @@ fn the_controller_answers_after_a_wake() {
         if at.elapsed() < next_read {
             continue;
         }
-        if next_read > WAKE_READS_FOR {
-            eprintln!("{}  3 s of reads after the wake: done", utc_now());
+        if next_read > WAKE_READS_FOR && (answered || next_read > WAKE_READS_AT_MOST) {
+            eprintln!(
+                "{}  reads after the wake done; a read worked: {answered}",
+                utc_now()
+            );
             woke = None;
             continue;
         }
-        wake_read(&mut device, at);
+        answered |= wake_read(&mut device, at);
         next_read = next_wake_read(at.elapsed());
     }
     eprintln!("{}  5 min awake with no sleep notice: the end", utc_now());
