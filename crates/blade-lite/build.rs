@@ -20,8 +20,8 @@ fn main() {
     println!("cargo:rustc-link-arg-bins=/DEPENDENTLOADFLAG:0x800");
 }
 
-/// Builds the icon and the version into the exe. The accent is read only when the app runs,
-/// so the exe gets the Windows default blue.
+/// Builds the icon and the version into the exe. The accent is read only
+/// when the app runs, so the exe gets the Windows default blue.
 fn exe_icon() {
     println!("cargo:rerun-if-changed=src/icon.rs");
     let out = std::env::var("OUT_DIR").expect("Cargo sets OUT_DIR");

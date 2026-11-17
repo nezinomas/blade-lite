@@ -184,8 +184,7 @@ fn the_script_compiles() {
     );
     assert!(
         output.status.success(),
-        "ISCC failed:
-{}{}",
+        "ISCC failed:\n{}{}",
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
     );
