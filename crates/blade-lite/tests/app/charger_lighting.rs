@@ -1,6 +1,11 @@
 //! The controller keeps one keyboard level per power source and swaps them
 //! itself at a charger change (ticket 243), so the app sends the saved
-//! lighting again then (ticket 244).
+//! lighting again then (ticket 244), spaced (ticket 246). With none saved
+//! it follows only the app's own dark, per slot (tickets 245, 246).
+
+use std::sync::OnceLock;
+use std::sync::atomic::{AtomicU32, Ordering};
+use std::time::{Duration, Instant};
 
 use blade_core::{Config, Lighting, Preset};
 use platform::PowerEvent;
@@ -31,10 +36,19 @@ fn forget_sent(app: &mut TestApp) {
     app.machine_mut().controller.inner.sent.clear();
 }
 
-/// A power event, then the shell's look that sends a due lighting.
+/// A power event, then the shell's look that sends a due lighting, a
+/// spacing after the last.
 fn power(app: &mut TestApp, event: PowerEvent) {
     app.on_power(event).unwrap();
-    app.send_source_lighting();
+    app.send_source_lighting(later());
+}
+
+/// A look's time, a spacing after every earlier one.
+fn later() -> Instant {
+    static START: OnceLock<Instant> = OnceLock::new();
+    static LOOKS: AtomicU32 = AtomicU32::new(1);
+    let looks = LOOKS.fetch_add(1, Ordering::Relaxed);
+    *START.get_or_init(Instant::now) + looks * blade_lite::SOURCE_LIGHTING_SPACING
 }
 
 #[test]
@@ -118,6 +132,7 @@ fn dark_keys_with_no_saved_lighting_get_only_the_dark_level() {
     forget_sent(&mut app);
 
     power(&mut app, PowerEvent::OnBattery);
+    app.follow_screen(true).unwrap();
 
     assert_eq!(sent(&app), level(0));
     forget_sent(&mut app);
@@ -135,6 +150,7 @@ fn dark_keys_with_no_saved_lighting_put_back_the_new_slots_own_level() {
     forget_sent(&mut app);
 
     power(&mut app, PowerEvent::OnBattery);
+    app.follow_screen(true).unwrap();
     forget_sent(&mut app);
     app.follow_screen(false).unwrap();
 
@@ -148,8 +164,8 @@ fn many_changes_before_a_look_send_the_lighting_once() {
     app.on_power(PowerEvent::OnBattery).unwrap();
     app.on_power(PowerEvent::OnAc).unwrap();
     app.on_power(PowerEvent::OnBattery).unwrap();
-    app.send_source_lighting();
-    app.send_source_lighting();
+    app.send_source_lighting(later());
+    app.send_source_lighting(later());
 
     assert_eq!(sent(&app), lighting_commands(30, WHITE));
 }
@@ -160,7 +176,7 @@ fn a_forgotten_send_sends_nothing() {
     app.on_power(PowerEvent::OnBattery).unwrap();
 
     app.forget_source_lighting();
-    app.send_source_lighting();
+    app.send_source_lighting(later());
 
     assert_eq!(sent(&app), []);
 }
@@ -189,11 +205,11 @@ fn a_failed_send_is_tried_again_at_the_next_look() {
     let (mut app, _dir, _) = lit_app();
     app.on_power(PowerEvent::OnBattery).unwrap();
     app.machine_mut().controller.inner.fails = true;
-    app.send_source_lighting();
+    app.send_source_lighting(later());
     app.machine_mut().controller.inner.fails = false;
     forget_sent(&mut app);
 
-    app.send_source_lighting();
+    app.send_source_lighting(later());
 
     assert_eq!(sent(&app), lighting_commands(30, WHITE));
 }
@@ -205,47 +221,147 @@ fn a_send_that_keeps_failing_is_given_up_after_its_tries() {
     app.machine_mut().controller.inner.fails = true;
     for _ in 0..blade_lite::SOURCE_LIGHTING_TRIES {
         assert!(app.source_lighting_due());
-        app.send_source_lighting();
+        app.send_source_lighting(later());
     }
 
     assert!(!app.source_lighting_due());
 }
 
 #[test]
-fn a_pull_and_plug_with_the_screen_off_still_put_a_level_back() {
-    // The AC slot reads the app's own 0 at the plug: the level kept stays.
+fn a_pull_and_plug_with_the_screen_off_put_each_slots_own_level_back() {
+    // The AC slot holds the app's own 0 at the plug: its level kept from
+    // the screen off comes back to it, the battery's at the next pull.
     let (mut app, _dir, _) = app();
     lit_at(&mut app, 255);
     app.follow_screen(true).unwrap();
     lit_at(&mut app, 102);
     power(&mut app, PowerEvent::OnBattery);
+    app.follow_screen(true).unwrap();
     lit_at(&mut app, 0);
     power(&mut app, PowerEvent::OnAc);
+    app.follow_screen(true).unwrap();
     forget_sent(&mut app);
 
+    app.follow_screen(false).unwrap();
+    assert_eq!(sent(&app), level(100));
+    forget_sent(&mut app);
+    power(&mut app, PowerEvent::OnBattery);
+    app.follow_screen(false).unwrap();
+    assert_eq!(sent(&app), level(40));
+}
+
+#[test]
+fn a_slot_left_dark_gets_its_level_back_at_the_next_swap_into_it() {
+    // Ticket 245: screen off on AC, pull, screen on, plug.
+    let (mut app, _dir, _) = app();
+    lit_at(&mut app, 255);
+    app.follow_screen(true).unwrap();
+    lit_at(&mut app, 102);
+    power(&mut app, PowerEvent::OnBattery);
+    app.follow_screen(true).unwrap();
+    app.follow_screen(false).unwrap();
+    // The AC slot still holds the app's 0.
+    lit_at(&mut app, 0);
+    forget_sent(&mut app);
+
+    power(&mut app, PowerEvent::OnAc);
+    app.follow_screen(false).unwrap();
+
+    assert_eq!(sent(&app), level(100));
+}
+
+#[test]
+fn a_slot_level_is_put_back_only_once() {
+    let (mut app, _dir, _) = app();
+    lit_at(&mut app, 255);
+    app.follow_screen(true).unwrap();
+    lit_at(&mut app, 102);
+    power(&mut app, PowerEvent::OnBattery);
+    app.follow_screen(true).unwrap();
+    app.follow_screen(false).unwrap();
+    power(&mut app, PowerEvent::OnAc);
+    app.follow_screen(false).unwrap();
+    power(&mut app, PowerEvent::OnBattery);
+    app.follow_screen(false).unwrap();
+    forget_sent(&mut app);
+
+    power(&mut app, PowerEvent::OnAc);
+    app.follow_screen(false).unwrap();
+
+    assert_eq!(sent(&app), []);
+}
+
+#[test]
+fn a_swap_with_the_users_own_dark_keys_and_the_screen_off_makes_the_new_slot_dark() {
+    // Ticket 246 (b): the old slot's level is the user's 0, so the app
+    // kept nothing; the new slot's own level lights the keys.
+    let (mut app, _dir, _) = app();
+    lit_at(&mut app, 0);
+    app.follow_screen(true).unwrap();
+    lit_at(&mut app, 102);
+
+    power(&mut app, PowerEvent::OnBattery);
+    assert!(!app.screen_followed(true));
+    app.follow_screen(true).unwrap();
+    assert_eq!(sent(&app), level(0));
+    forget_sent(&mut app);
     app.follow_screen(false).unwrap();
 
     assert_eq!(sent(&app), level(40));
 }
 
 #[test]
-fn a_retry_after_a_lost_reply_still_puts_a_level_back() {
+fn a_swap_with_the_screen_on_and_nothing_kept_sends_nothing() {
     let (mut app, _dir, _) = app();
     lit_at(&mut app, 255);
-    app.follow_screen(true).unwrap();
-    lit_at(&mut app, 102);
-    app.on_power(PowerEvent::OnBattery).unwrap();
-    app.machine_mut().controller.inner.fails = true;
-    app.send_source_lighting();
-    app.machine_mut().controller.inner.fails = false;
-    // The controller took the 0 though its reply was lost.
-    lit_at(&mut app, 0);
-    app.send_source_lighting();
-    forget_sent(&mut app);
-
     app.follow_screen(false).unwrap();
 
-    assert_eq!(sent(&app), level(40));
+    power(&mut app, PowerEvent::OnBattery);
+    app.follow_screen(false).unwrap();
+
+    assert_eq!(sent(&app), []);
+}
+
+#[test]
+fn a_second_change_inside_the_spacing_waits_for_it() {
+    let (mut app, _dir, _) = lit_app();
+    let start = Instant::now();
+    app.on_power(PowerEvent::OnBattery).unwrap();
+    app.send_source_lighting(start);
+    forget_sent(&mut app);
+    app.on_power(PowerEvent::OnAc).unwrap();
+
+    let almost = blade_lite::SOURCE_LIGHTING_SPACING
+        .checked_sub(Duration::from_millis(1))
+        .unwrap();
+    app.send_source_lighting(start + almost);
+    assert_eq!(sent(&app), []);
+    assert!(app.source_lighting_due());
+    app.send_source_lighting(start + blade_lite::SOURCE_LIGHTING_SPACING);
+
+    assert_eq!(sent(&app), lighting_commands(30, WHITE));
+}
+
+#[test]
+fn a_bouncing_plug_sends_once_per_spacing() {
+    let (mut app, _dir, _) = lit_app();
+    let start = Instant::now();
+    let mut on_battery = false;
+    // One swap and one look each second for a minute.
+    for second in 0..60 {
+        on_battery = !on_battery;
+        let event = if on_battery {
+            PowerEvent::OnBattery
+        } else {
+            PowerEvent::OnAc
+        };
+        app.on_power(event).unwrap();
+        app.send_source_lighting(start + Duration::from_secs(second));
+    }
+
+    let sends = 60 / usize::try_from(blade_lite::SOURCE_LIGHTING_SPACING.as_secs()).unwrap();
+    let one = lighting_commands(30, WHITE).len();
+    assert_eq!(sent(&app).len(), sends * one);
 }
 
 #[test]
