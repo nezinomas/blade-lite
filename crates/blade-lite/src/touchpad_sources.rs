@@ -35,7 +35,7 @@ pub struct TouchpadSources {
 impl TouchpadSources {
     /// The log line for `look` at `at`, if it differs from the last look
     /// logged. The first look gives a line. Past [`LINES_PER_HOUR`] in an
-    /// hour, one line says so and the rest of that hour's changes are not
+    /// hour, its last line says so and the rest of that hour's changes are not
     /// logged; the first look after that hour that differs from the last
     /// one logged is.
     pub fn line(&mut self, look: TouchpadLook, at: Instant) -> Option<String> {
@@ -51,10 +51,11 @@ impl TouchpadSources {
             return None;
         }
         self.last = Some(look);
+        let line = describe(look);
         if count == LINES_PER_HOUR {
-            return Some("touchpad: more changes this hour are not logged".to_owned());
+            return Some(format!("{line}; more changes this hour are not logged"));
         }
-        Some(describe(look))
+        Some(line)
     }
 }
 
@@ -120,9 +121,26 @@ mod tests {
         let lines = flap_past_the_share(&mut sources, at());
 
         assert_eq!(lines.len(), LINES_PER_HOUR as usize + 1);
-        assert_eq!(
-            lines.last().map(String::as_str),
-            Some("touchpad: more changes this hour are not logged")
+        assert!(
+            lines
+                .last()
+                .is_some_and(|line| line.ends_with("; more changes this hour are not logged")),
+            "{lines:?}"
+        );
+    }
+
+    /// The look that spends the share is named in its line, so a state
+    /// that settles there is in the log.
+    #[test]
+    fn the_last_line_of_the_hour_names_its_look() {
+        let mut sources = TouchpadSources::default();
+        let lines = flap_past_the_share(&mut sources, at());
+
+        assert!(
+            lines
+                .last()
+                .is_some_and(|line| line.starts_with("touchpad: the registry says ")),
+            "{lines:?}"
         );
     }
 
