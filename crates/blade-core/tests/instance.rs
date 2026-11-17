@@ -316,18 +316,39 @@ fn an_ask_is_marked_even_if_it_fails_as_it_may_have_been_set() {
 }
 
 #[test]
-fn an_error_after_the_ask_comes_with_the_ask_marked() {
-    for look in [None, Some(Look::Sent)] {
+fn a_failed_read_of_the_quit_preset_after_the_copy_ended_is_not_quitting() {
+    // The copy has ended: an error must give 1 and "run --reset", never
+    // the "still quitting" that a later --quit would turn into a clean 0.
+    for ask_taken in [false, true] {
         let mut lock = FakeLock::new(true);
-        lock.frees_after = look.map(|_| 1);
-        lock.fails_at = look.is_none().then_some(3);
-        lock.look_fails = look;
+        lock.ask_taken = ask_taken;
+        lock.frees_after = Some(if ask_taken { 25 } else { 1 });
+        lock.look_fails = Some(Look::Sent);
 
-        let (quit, _, asked) = quit_marked(&mut lock);
+        let (quit, _, may_be_quitting) = quit_marked(&mut lock);
 
         assert!(quit.is_err());
-        assert!(asked);
+        assert!(!may_be_quitting);
     }
+}
+
+#[test]
+fn a_failed_claim_after_the_ask_was_taken_back_is_not_quitting() {
+    let mut lock = FakeLock::new(true);
+    lock.fails_at = Some(3);
+
+    let (quit, _, may_be_quitting) = quit_marked(&mut lock);
+
+    assert!(quit.is_err());
+    assert!(!may_be_quitting);
+}
+
+#[test]
+fn a_copy_that_took_the_ask_and_has_not_ended_stays_marked() {
+    let mut lock = FakeLock::new(true);
+    lock.ask_taken = true;
+
+    assert!(quit_marked(&mut lock).2);
 }
 
 #[test]

@@ -67,12 +67,12 @@ impl Task {
 /// installer script (`installer/blade-lite.iss`) holds it too.
 pub const STILL_QUITTING: u8 = 2;
 
-/// The exit code of a task that failed (an error or a panic): once a
-/// `--quit` may have asked, [`STILL_QUITTING`], as the copy may be quitting
-/// and must not be ended (ticket 235); before that, 1.
+/// The exit code of a task that failed (an error or a panic): while a copy
+/// may be quitting on a `--quit` ask, [`STILL_QUITTING`], as it must not be
+/// ended (ticket 235); else 1.
 #[must_use]
-pub const fn failed_task_code(asked: bool) -> u8 {
-    if asked { STILL_QUITTING } else { 1 }
+pub const fn failed_task_code(may_be_quitting: bool) -> u8 {
+    if may_be_quitting { STILL_QUITTING } else { 1 }
 }
 
 /// What a start of `blade-lite.exe` does.
@@ -151,9 +151,11 @@ pub struct QuitWait {
 /// by surprise. A copy that took the ask is quitting: it gets `wait.to_end`
 /// more, and is never reported as one that can be ended. Once it returns
 /// [`Quit::NoneRan`], [`Quit::Ended`] or [`Quit::EndedUnsent`], this copy
-/// holds the lock, so no new copy can start until it ends. It sets `asked`
-/// just before the ask, so even an error or a panic after it can be told
-/// from one before it (see [`failed_task_code`]).
+/// holds the lock, so no new copy can start until it ends.
+///
+/// `may_be_quitting` is set just before the ask and cleared once no copy can
+/// be quitting on it (the copy ended, or the ask was taken back), so an
+/// error or a panic can be told apart (see [`failed_task_code`]).
 ///
 /// # Errors
 ///
@@ -164,29 +166,34 @@ pub struct QuitWait {
 pub fn quit_first(
     lock: &mut impl InstanceLock,
     wait: QuitWait,
-    asked: &AtomicBool,
+    may_be_quitting: &AtomicBool,
     mut sleep: impl FnMut(Duration),
 ) -> io::Result<Quit> {
     if lock.claim()? {
         return Ok(Quit::NoneRan);
     }
     // Before the call: a failed ask may still have been set.
-    asked.store(true, Ordering::SeqCst);
+    may_be_quitting.store(true, Ordering::SeqCst);
     lock.ask_first_to_quit()?;
     let ended = wait_for_the_lock(lock, wait.to_take, wait.every, &mut sleep);
     // Also after an end or an error: a copy that ended without taking the
     // ask must not leave it to the next one.
     let taken_back = lock.take_back_quit();
     if matches!(ended, Ok(true)) {
+        may_be_quitting.store(false, Ordering::SeqCst);
         return quit_result(lock);
     }
     if matches!(taken_back, Ok(true)) {
+        may_be_quitting.store(false, Ordering::SeqCst);
         return ended.map(|_| Quit::StillRuns);
     }
     // The copy took the ask (or the look failed, so it may have): it may
     // be quitting, so even a failed claim must not report it as one to end.
     match wait_for_the_lock(lock, wait.to_end, wait.every, &mut sleep) {
-        Ok(true) => quit_result(lock),
+        Ok(true) => {
+            may_be_quitting.store(false, Ordering::SeqCst);
+            quit_result(lock)
+        }
         Ok(false) | Err(_) => Ok(Quit::Quitting),
     }
 }
