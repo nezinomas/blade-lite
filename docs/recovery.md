@@ -65,8 +65,8 @@ Blade Lite sends nothing while it sees a Razer updater, but it can miss one.
 - **`blade-lite.exe --quit`** (for an installer, ticket 148): asks the
   running copy to quit as Quit does. It waits up to 20 s for the copy to
   end; a copy that took the ask in that time gets 120 s more (140 s in
-  all). It reaches only a
-  copy in the same Windows session. Exit codes (the log says why):
+  all). It reaches only a copy in the same Windows session. Exit codes
+  (the log says why):
   - 0: no copy ran, or the copy quit with its quit preset sent.
   - 1: it failed, such as when the copy ended but its quit preset was
     not sent, or the copy did not take the ask. If a copy still runs, run
