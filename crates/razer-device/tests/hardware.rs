@@ -2095,33 +2095,41 @@ fn the_lid_logo_across_a_sleep() {
     assert!(turned_on.is_empty(), "the logo came on: {turned_on:?}");
 }
 
-/// How often the wake probe reads the firmware version after a wake notice.
+/// How often the wake probes run their step after a wake notice.
 const WAKE_READ_STEP: Duration = Duration::from_millis(100);
 
-/// How long after a wake notice the wake probe reads. Ends after the app's
-/// pause (`RESUME_PAUSE`, 2 s), with time to spare.
+/// How long after a wake notice the wake probes run their step. Ends after
+/// the app's pause (`RESUME_PAUSE`, 2 s), with time to spare.
 const WAKE_READS_FOR: Duration = Duration::from_secs(3);
 
-/// How long after a wake notice the wake probe goes on reading when no
-/// read has worked yet, so a late first answer is still timed.
+/// How long after a wake notice the wake probes go on when no step has
+/// worked yet, so a late first answer is still timed.
 const WAKE_READS_AT_MOST: Duration = Duration::from_secs(10);
 
-/// The time after a wake notice of the next read after `since`. Reads are
-/// [`WAKE_READ_STEP`] apart by the clock from the notice, so a slow read
+/// The time after a wake notice of the next step after `since`. Steps are
+/// [`WAKE_READ_STEP`] apart by the clock from the notice, so a slow step
 /// skips the times it ran over.
 fn next_wake_read(since: Duration) -> Duration {
     let steps = since.as_nanos() / WAKE_READ_STEP.as_nanos() + 1;
     WAKE_READ_STEP * u32::try_from(steps).unwrap_or(u32::MAX)
 }
 
-/// Reads the firmware version on `device`, opening the controller again
-/// first if the last read failed (`device` is `None`), and prints the read
-/// with its start since the wake notice and how long it took. After a
-/// failed read `device` is `None`: that handle is not read again. Returns
-/// whether the read worked.
-fn wake_read(
+/// One step a wake probe runs on the controller after a wake notice, given
+/// the wake's number (from 1): whether it worked, as the probe asks, and
+/// what it saw; or its error.
+type WakeStep<'a> =
+    dyn FnMut(&mut Device<HidTransport, SystemClock>, u32) -> Result<(bool, String), String> + 'a;
+
+/// Runs `step` on `device`, opening the controller again first if the last
+/// step failed (`device` is `None`), and prints the step with its start
+/// since the wake notice and how long it took. After a failed step
+/// `device` is `None`: that handle is not used again. Returns whether the
+/// step worked.
+fn wake_step(
     device: &mut Option<Device<HidTransport, SystemClock>>,
     woke: std::time::Instant,
+    number: u32,
+    step: &mut WakeStep<'_>,
 ) -> bool {
     use std::time::Instant;
 
@@ -2149,17 +2157,21 @@ fn wake_read(
         return false;
     };
     let start = Instant::now();
-    let read = open.firmware_version();
+    let done = step(open, number);
+    let line = match &done {
+        Ok((_, seen)) => seen.clone(),
+        Err(error) => format!("error: {error}"),
+    };
     eprintln!(
-        "{}  start {:>4} ms after the notice, took {:>4} ms: {read:?}",
+        "{}  start {:>4} ms after the notice, took {:>4} ms: {line}",
         utc_now(),
         start.duration_since(woke).as_millis(),
         start.elapsed().as_millis()
     );
-    if read.is_err() {
+    if done.is_err() {
         *device = None;
     }
-    read.is_ok()
+    matches!(done, Ok((true, _)))
 }
 
 /// Ticket 219: when does the controller answer after a wake? The app waits
@@ -2189,10 +2201,6 @@ fn wake_read(
 #[test]
 #[ignore = "needs the Blade 18, BLADE_WAKE_PROBE=1 and a person sleeping the laptop; read-only"]
 fn the_controller_answers_after_a_wake() {
-    use platform::PowerEvent;
-    use std::sync::mpsc::RecvTimeoutError;
-    use std::time::Instant;
-
     if !opted_in("BLADE_WAKE_PROBE") {
         return;
     }
@@ -2201,6 +2209,28 @@ fn the_controller_answers_after_a_wake() {
     let mut device = Device::new(open(), SystemClock);
     let first = device.firmware_version().unwrap();
     eprintln!("{}  before the sleep: {first:?}", utc_now());
+
+    let wakes = run_wake_steps(device, &mut |device, _| {
+        device
+            .firmware_version()
+            .map(|version| (true, format!("{version:?}")))
+            .map_err(|error| format!("{error:?}"))
+    });
+    assert!(wakes > 0, "no wake was seen");
+}
+
+/// The loop of the wake probes. It answers each sleep notice at once. After
+/// each wake notice it runs `step` at once and then each 100 ms by the
+/// clock until 3 s after the notice, or until 10 s when no step has worked
+/// by 3 s, on the handle kept over the sleep (a new one after a failed
+/// step). It ends after 5 min awake with no sleep notice (counted in ticks
+/// of at most 2 s, so the time asleep does not count). Returns how many
+/// wakes it saw.
+fn run_wake_steps(device: Device<HidTransport, SystemClock>, step: &mut WakeStep<'_>) -> u32 {
+    use platform::PowerEvent;
+    use std::sync::mpsc::RecvTimeoutError;
+    use std::time::Instant;
+
     let mut device = Some(device);
 
     let notices = answered_power_notices();
@@ -2240,17 +2270,209 @@ fn the_controller_answers_after_a_wake() {
         }
         if next_read > WAKE_READS_FOR && (answered || next_read > WAKE_READS_AT_MOST) {
             eprintln!(
-                "{}  reads after the wake done; a read worked: {answered}",
+                "{}  steps after the wake done; a step worked: {answered}",
                 utc_now()
             );
             woke = None;
             continue;
         }
-        answered |= wake_read(&mut device, at);
+        answered |= wake_step(&mut device, at, wakes, step);
         next_read = next_wake_read(at.elapsed());
     }
     eprintln!("{}  5 min awake with no sleep notice: the end", utc_now());
+    wakes
+}
+
+/// Where the wake set probe is: send the set, read once after a failed
+/// step before it sends again, only read after a set was taken, or only
+/// read after [`MAX_WAKE_SETS`] sets went with none taken.
+#[derive(Default, Clone, Copy, PartialEq, Eq, Debug)]
+enum SetPhase {
+    #[default]
+    Send,
+    ReadAfterFailure,
+    Taken,
+    Capped,
+}
+
+/// What the wake set probe sends and how it reads each step's result. A
+/// set is taken when it got a Success reply and the level read back is the
+/// one sent. Since the probe sends the level that is already there, a taken
+/// set shows the controller accepted it, not that it changed anything.
+/// Sets are few: at most [`MAX_WAKE_SETS`] in a wake, none after one is
+/// taken, and none again before a read works after a failed step
+/// (`Device::send` never repeats a command whose result is not known).
+#[derive(Default)]
+struct WakeSet {
+    wake: u32,
+    phase: SetPhase,
+    /// Sets sent in this wake.
+    sets: u32,
+    /// Steps that read back a level other than the one sent.
+    odd: u32,
+}
+
+/// The most sets the wake set probe sends in one wake. After that its
+/// steps only read: three sets not taken already answer the question.
+const MAX_WAKE_SETS: u32 = 3;
+
+impl WakeSet {
+    /// Starts each new wake with a set, unless a failed step still waits
+    /// for its read.
+    fn begin(&mut self, wake: u32) {
+        if wake != self.wake {
+            self.wake = wake;
+            self.sets = 0;
+            if matches!(self.phase, SetPhase::Taken | SetPhase::Capped) {
+                self.phase = SetPhase::Send;
+            }
+        }
+    }
+
+    /// Whether this step sends the set before it reads; counts the set.
+    /// Once [`MAX_WAKE_SETS`] went, the wake's steps only read.
+    fn sends(&mut self) -> bool {
+        if self.phase == SetPhase::Send && self.sets >= MAX_WAKE_SETS {
+            self.phase = SetPhase::Capped;
+        }
+        let sends = self.phase == SetPhase::Send;
+        self.sets += u32::from(sends);
+        sends
+    }
+
+    /// A set or read failed: if a set may have been sent, the next step
+    /// only reads.
+    fn failed(&mut self) {
+        if self.phase == SetPhase::Send {
+            self.phase = SetPhase::ReadAfterFailure;
+        }
+    }
+
+    /// The level read in this step: whether the step counts as worked, and
+    /// its line.
+    fn read(&mut self, sent: u8, read: u8) -> (bool, String) {
+        match self.phase {
+            SetPhase::Send if read == sent => {
+                self.phase = SetPhase::Taken;
+                (true, format!("set {sent}, read back {read}"))
+            }
+            SetPhase::Send => {
+                self.odd += 1;
+                (false, format!("NOT TAKEN: set {sent}, read back {read}"))
+            }
+            SetPhase::ReadAfterFailure if read == sent => {
+                self.phase = SetPhase::Send;
+                (false, format!("after a failed step: read {read}"))
+            }
+            SetPhase::ReadAfterFailure => {
+                self.phase = SetPhase::Send;
+                self.odd += 1;
+                (
+                    false,
+                    format!("LEVEL CHANGED after a failed step: read {read}, set {sent}"),
+                )
+            }
+            SetPhase::Taken if read == sent => (true, format!("read {read}")),
+            SetPhase::Taken => {
+                self.odd += 1;
+                (true, format!("LEVEL CHANGED: read {read}, set {sent}"))
+            }
+            SetPhase::Capped if read == sent => {
+                (false, format!("read {read} (no set: {MAX_WAKE_SETS} went)"))
+            }
+            SetPhase::Capped => {
+                self.odd += 1;
+                (
+                    false,
+                    format!("LEVEL CHANGED, no set: read {read}, set {sent}"),
+                )
+            }
+        }
+    }
+}
+
+/// Reads the level of the keyboard's brightness LED.
+fn keyboard_level(device: &mut Device<HidTransport, SystemClock>, led: u8) -> Result<u8, String> {
+    let query = razer_proto::Brightness::level_query(led);
+    let reply = device
+        .send(query.id, &query.args)
+        .map_err(|error| format!("{error:?}"))?;
+    razer_proto::Brightness::level_from_reply(led, reply.args())
+        .ok_or_else(|| format!("reply for LED {led:02X}: {:02X?}", reply.args()))
+}
+
+/// Ticket 229: does a set work right after a wake? The app waits 2 s
+/// (`RESUME_PAUSE`) before it sends; ticket 219 showed reads answer at
+/// once, but no set was tried.
+///
+/// It sends only one kind of set command: the keyboard brightness
+/// (`0303 [01, 05, level]`, the command and storage the app uses at each
+/// wake), always with the level it read before the sleep, so the level
+/// never changes. The vapor light and every other setting are left alone.
+///
+/// Quit the app from the tray, then start the probe by its name only, never
+/// with `cargo hw` (that runs every hardware test, also those that send,
+/// while you sleep the laptop). Do not press the brightness keys
+/// (Fn + F10 / F11) during the run:
+///
+/// `$env:BLADE_WAKE_SET_PROBE=1; cargo test -p razer-device --test hardware a_set_works_after_a_wake -- --ignored --nocapture --test-threads=1; Remove-Item Env:BLADE_WAKE_SET_PROBE`
+///
+/// Never leave `BLADE_WAKE_SET_PROBE` set. It prints the USB device's power
+/// state and suspend values and Windows' power source, opens the controller
+/// and keeps that handle over the sleep (as the app does), and reads the
+/// keyboard level; it refuses to go on if that read fails. After each wake
+/// notice the first command is the set (a read, if the last step before
+/// the sleep failed), then a read-back, as [`WakeSet`] says: once a set is
+/// taken, the steps only read; after a failed step the next one only
+/// reads, and the set goes once more after a read works; a set not taken
+/// goes again at the next step; and no more than [`MAX_WAKE_SETS`] sets go
+/// in one wake. So a wake that works at once sends one set, and any wake
+/// at most three. Steps run at once and each 100 ms until 3 s
+/// after the notice, or until 10 s when no set was taken by 3 s (as
+/// [`run_wake_steps`] says), and each prints its start, time taken and
+/// result. At the end it reads the level once more. Fails if no wake was
+/// seen, if any step read back another level, or if the level at the end
+/// is not the one before the sleep.
+#[test]
+#[ignore = "needs the Blade 18, BLADE_WAKE_SET_PROBE=1 and a person sleeping the laptop; sends the keyboard level it read"]
+fn a_set_works_after_a_wake() {
+    if !opted_in("BLADE_WAKE_SET_PROBE") {
+        return;
+    }
+    print_usb_power_and_suspend(razer_proto::BLADE_18.usb);
+    eprintln!("on battery: {:?}", platform::on_battery());
+    let led = *razer_proto::BLADE_18
+        .brightness_leds
+        .first()
+        .expect("the model has a keyboard brightness LED");
+    let mut device = Device::new(open(), SystemClock);
+    let level = keyboard_level(&mut device, led)
+        .unwrap_or_else(|error| panic!("refused: the keyboard level read failed: {error}"));
+    eprintln!("{}  before the sleep: keyboard level {level}", utc_now());
+
+    let mut steps = WakeSet::default();
+    let wakes = run_wake_steps(device, &mut |device, wake| {
+        steps.begin(wake);
+        if steps.sends()
+            && let Err(error) = device.send(SET_BRIGHTNESS, &[1, led, level])
+        {
+            steps.failed();
+            return Err(format!("set: {error:?}"));
+        }
+        keyboard_level(device, led)
+            .map(|read| steps.read(level, read))
+            .map_err(|error| {
+                steps.failed();
+                format!("read: {error}")
+            })
+    });
+    let end = HidTransport::open(&razer_proto::BLADE_18)
+        .map_err(|error| format!("open: {error}"))
+        .and_then(|transport| keyboard_level(&mut Device::new(transport, SystemClock), led));
+    eprintln!("{}  at the end: keyboard level {end:?}", utc_now());
     assert!(wakes > 0, "no wake was seen");
+    assert_eq!(steps.odd, 0, "a step read back another level");
+    assert_eq!(end, Ok(level), "the level at the end is not the one before");
 }
 
 /// How long one read on the kept key handle waits, as the app's one read
@@ -2627,6 +2849,134 @@ fn a_kept_key_handle_across_a_sleep() {
     end_tally(&mut tally);
     eprintln!("{}  5 min awake with no sleep notice: the end", utc_now());
     assert!(wakes > 0, "no wake was seen");
+}
+
+#[test]
+fn a_wake_set_sends_at_the_first_step() {
+    let mut steps = WakeSet::default();
+    steps.begin(1);
+    assert!(steps.sends());
+}
+
+#[test]
+fn a_set_read_back_the_same_is_taken_and_not_sent_again() {
+    let mut steps = WakeSet::default();
+    steps.begin(1);
+    assert_eq!(
+        steps.read(128, 128),
+        (true, "set 128, read back 128".into())
+    );
+    assert!(!steps.sends());
+    assert_eq!(steps.read(128, 128), (true, "read 128".into()));
+    assert_eq!(steps.odd, 0);
+}
+
+#[test]
+fn a_set_read_back_other_is_not_taken_and_does_not_count_as_worked() {
+    let mut steps = WakeSet::default();
+    steps.begin(1);
+    assert_eq!(
+        steps.read(128, 0),
+        (false, "NOT TAKEN: set 128, read back 0".into())
+    );
+    assert!(steps.sends());
+    assert_eq!(steps.odd, 1);
+}
+
+#[test]
+fn after_a_failed_set_one_read_comes_before_the_next_set() {
+    let mut steps = WakeSet::default();
+    steps.begin(1);
+    steps.failed();
+    assert!(!steps.sends());
+    assert_eq!(
+        steps.read(128, 128),
+        (false, "after a failed step: read 128".into())
+    );
+    assert!(steps.sends());
+}
+
+#[test]
+fn no_more_than_three_sets_go_in_one_wake() {
+    let mut steps = WakeSet::default();
+    steps.begin(1);
+    for _ in 0..MAX_WAKE_SETS {
+        assert!(steps.sends());
+        steps.read(128, 0);
+    }
+    assert!(!steps.sends());
+    steps.begin(2);
+    assert!(steps.sends());
+}
+
+#[test]
+fn a_read_after_the_cap_is_not_a_taken_set() {
+    let mut steps = WakeSet::default();
+    steps.begin(1);
+    for _ in 0..MAX_WAKE_SETS {
+        steps.sends();
+        steps.read(128, 0);
+    }
+    assert!(!steps.sends());
+    assert_eq!(
+        steps.read(128, 128),
+        (false, "read 128 (no set: 3 went)".into())
+    );
+    assert!(!steps.sends());
+}
+
+#[test]
+fn another_level_after_a_failed_step_is_marked() {
+    let mut steps = WakeSet::default();
+    steps.begin(1);
+    steps.failed();
+    assert_eq!(
+        steps.read(128, 64),
+        (
+            false,
+            "LEVEL CHANGED after a failed step: read 64, set 128".into()
+        )
+    );
+    assert_eq!(steps.odd, 1);
+}
+
+#[test]
+fn a_new_wake_sends_once_more_after_a_taken_set() {
+    let mut steps = WakeSet::default();
+    steps.begin(1);
+    steps.read(128, 128);
+    steps.begin(2);
+    assert!(steps.sends());
+}
+
+#[test]
+fn a_new_wake_still_reads_first_after_a_failed_set() {
+    let mut steps = WakeSet::default();
+    steps.begin(1);
+    steps.failed();
+    steps.begin(2);
+    assert!(!steps.sends());
+}
+
+#[test]
+fn a_failed_read_after_a_taken_set_sends_nothing_more() {
+    let mut steps = WakeSet::default();
+    steps.begin(1);
+    steps.read(128, 128);
+    steps.failed();
+    assert!(!steps.sends());
+}
+
+#[test]
+fn a_level_that_moves_after_a_taken_set_is_marked() {
+    let mut steps = WakeSet::default();
+    steps.begin(1);
+    steps.read(128, 128);
+    assert_eq!(
+        steps.read(128, 64),
+        (true, "LEVEL CHANGED: read 64, set 128".into())
+    );
+    assert_eq!(steps.odd, 1);
 }
 
 #[test]
