@@ -462,6 +462,10 @@ pub fn power_events() -> Receiver<PowerEvent> {
                         // may end the newer wait early (not seen; the send
                         // still goes, as the newer one waits).
                         follow_the_sleep_now(&handled, handled.number());
+                    } else if event == PowerEvent::ScreenChanged {
+                        // The keys go dark or lit at once, not at the next
+                        // poll, up to 10 s later in the tray (ticket 241).
+                        follow_power_now();
                     }
                 }
             });
@@ -516,6 +520,16 @@ fn follow_the_sleep_now(handled: &SuspendHandled, number: u64) {
     if posted.is_err() {
         handled.done(number);
     }
+}
+
+/// Has the event loop follow the power events now. If the loop has ended,
+/// there is nothing left to follow.
+fn follow_power_now() {
+    let _ = slint::invoke_from_event_loop(|| {
+        if let Some(shell) = SHELL.with(|cell| cell.borrow().clone()) {
+            shell.follow_own_power();
+        }
+    });
 }
 
 #[cfg(test)]

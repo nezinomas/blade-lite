@@ -619,6 +619,13 @@ impl<P: Parts> Shell<P> {
                     "Balanced was not sent at quit, so a manual fan or Performance may keep running: {error}"
                 )),
             }
+            // Keys the app made dark for a screen off are not left dark
+            // with no app (ticket 241).
+            if let Err(error) = app.keys_back_on() {
+                report(&format!(
+                    "the keyboard level was not put back at quit, so the keys may stay dark: {error}"
+                ));
+            }
         }));
         // Nothing more may reach the controller: an event still queued, or
         // the call this one came inside, would undo the quit preset.

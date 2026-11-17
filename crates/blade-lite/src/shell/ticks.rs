@@ -566,9 +566,9 @@ impl<P: Parts> Shell<P> {
         });
     }
 
-    /// Acts on one power event. A change of source while a resume waits
-    /// is dropped and sends nothing: the resume reads the source when its pause ends,
-    /// and sends then.
+    /// Acts on one power event. A change of source or of the screen while
+    /// a resume waits is dropped and sends nothing: the resume reads them
+    /// when its pause ends, and sends then.
     fn power_event(self: &Rc<Self>, event: PowerEvent) {
         if event == PowerEvent::Suspending {
             self.suspend();
@@ -582,10 +582,25 @@ impl<P: Parts> Shell<P> {
             self.wake();
             return;
         }
+        if event == PowerEvent::ScreenChanged {
+            if self.resuming.get() == 0 {
+                self.follow_screen();
+            }
+            return;
+        }
         self.forget_charging();
         if self.resuming.get() == 0 {
             self.act(|app| app.on_power(event));
         }
+    }
+
+    /// Makes the keys dark while Windows says the screen is off, and lights
+    /// them again once it is on or not known (ticket 241). A screen not
+    /// known (after a sleep notice, or with no screen notices) counts as
+    /// on, so keys the app made dark are never left so.
+    fn follow_screen(self: &Rc<Self>) {
+        let screen_off = P::screen_on() == Some(false);
+        self.act(|app| app.follow_screen(screen_off));
     }
 
     /// After a sleep notice, counts a run of ticks of
@@ -732,6 +747,9 @@ impl<P: Parts> Shell<P> {
             self.app.borrow_mut().check_firmware();
         }
         self.act(|app| app.on_power(PowerEvent::Resumed));
+        // After the settings, which may light the keys: a screen that went
+        // off or on in the pauses.
+        self.follow_screen();
         // The wake is known now: the fan guard reads at the next tick, not
         // one skipped as late by the sleep and 10 s more (ticket 171).
         self.schedule.borrow_mut().read_heat_now();
