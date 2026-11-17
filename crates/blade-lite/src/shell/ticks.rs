@@ -529,7 +529,9 @@ impl<P: Parts> Shell<P> {
     }
 
     /// Sends the saved lighting once after the charger changes this look
-    /// took (ticket 244), so a bouncing plug sends it once. Dropped in a
+    /// took (ticket 244), at most once a
+    /// [`SOURCE_LIGHTING_SPACING`](blade_lite::SOURCE_LIGHTING_SPACING)
+    /// (ticket 246), so a bouncing plug can't send it at each poll. Dropped in a
     /// pause (its end sends all settings), while Razer's software runs (it
     /// may write its own lighting then) and while an updater holds the
     /// controller (its end sends all settings).
@@ -548,7 +550,9 @@ impl<P: Parts> Shell<P> {
             app.forget_source_lighting();
             return;
         }
-        app.send_source_lighting();
+        // The last tick's clock: a click between ticks sees at most 1 s
+        // less time gone, so it waits longer, never less.
+        app.send_source_lighting(self.tick_now.get());
     }
 
     /// Acts on the power events that came since the last look. Returns

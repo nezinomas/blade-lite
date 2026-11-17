@@ -464,7 +464,7 @@ pub fn power_events() -> Receiver<PowerEvent> {
                         follow_the_sleep_now(&handled, handled.number());
                     } else if event == PowerEvent::ScreenChanged {
                         // The keys go dark or lit at once, not at the next
-                        // poll, up to 10 s later in the tray (ticket 241).
+                        // poll, up to 1 s later (ticket 241).
                         follow_power_now();
                     }
                 }

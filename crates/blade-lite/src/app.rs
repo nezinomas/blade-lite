@@ -9,6 +9,7 @@ mod settings;
 mod views;
 
 use std::path::PathBuf;
+use std::time::{Duration, Instant};
 
 use blade_core::{
     ApplyError, BatteryRate, Config, Controller, Lighting, Preset, Query, apply_fan_targets,
@@ -39,6 +40,11 @@ pub const RESEND_TRIES: u8 = 3;
 /// How many times the lighting after a charger change is sent before it is
 /// given up until the next change, wake or click (ticket 244).
 pub const SOURCE_LIGHTING_TRIES: u8 = 3;
+
+/// The least time between two sends of the lighting after a charger change,
+/// so a plug that bounces can't send its stored writes at each poll (ticket
+/// 246). A change inside it waits, so the last change still gets its send.
+pub const SOURCE_LIGHTING_SPACING: Duration = Duration::from_secs(10);
 
 /// What the window shows before the user sets the lighting.
 const DEFAULT_LIGHTING: Lighting = Lighting {
@@ -205,6 +211,13 @@ pub struct App<C, D, R, K> {
     /// The tries left of the lighting a charger change asks for again
     /// (ticket 244); `None` when none is due.
     source_lighting_due: Option<u8>,
+    /// When the lighting after a charger change was last sent or tried.
+    source_lighting_sent: Option<Instant>,
+    /// The slot (battery or not) the app left at 0 for a screen off when
+    /// the controller swapped it out, with its level to put back at the
+    /// next swap into it (ticket 245). The controller keeps one level per
+    /// power source (ticket 243).
+    left_dark: Option<(bool, Brightness)>,
 }
 
 impl<C, D, R, K> App<C, D, R, K>
@@ -255,6 +268,8 @@ where
             dark_keys: None,
             keys_follow: None,
             source_lighting_due: None,
+            source_lighting_sent: None,
+            left_dark: None,
         }
     }
 
