@@ -150,15 +150,15 @@ fn quit(lock: &mut FakeLock) -> (io::Result<Quit>, u32) {
     (quit, sleeps)
 }
 
-/// As [`quit`], and whether it marked the ask as made.
+/// As [`quit`], and whether a copy may be quitting on its ask.
 fn quit_marked(lock: &mut FakeLock) -> (io::Result<Quit>, u32, bool) {
-    let asked = AtomicBool::new(false);
+    let may_be_quitting = AtomicBool::new(false);
     let mut sleeps = 0;
-    let quit = quit_first(lock, WAIT, &asked, |pause| {
+    let quit = quit_first(lock, WAIT, &may_be_quitting, |pause| {
         assert_eq!(pause, EVERY);
         sleeps += 1;
     });
-    (quit, sleeps, asked.load(Ordering::SeqCst))
+    (quit, sleeps, may_be_quitting.load(Ordering::SeqCst))
 }
 
 #[test]
@@ -309,10 +309,10 @@ fn an_ask_is_marked_even_if_it_fails_as_it_may_have_been_set() {
     let mut lock = FakeLock::new(true);
     lock.look_fails = Some(Look::Ask);
 
-    let (quit, _, asked) = quit_marked(&mut lock);
+    let (quit, _, may_be_quitting) = quit_marked(&mut lock);
 
     assert!(quit.is_err());
-    assert!(asked);
+    assert!(may_be_quitting);
 }
 
 #[test]
