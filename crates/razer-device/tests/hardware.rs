@@ -2095,38 +2095,40 @@ fn the_lid_logo_across_a_sleep() {
     assert!(turned_on.is_empty(), "the logo came on: {turned_on:?}");
 }
 
-/// How often the wake probe reads the firmware version after a wake notice.
+/// How often the wake probes run their step after a wake notice.
 const WAKE_READ_STEP: Duration = Duration::from_millis(100);
 
-/// How long after a wake notice the wake probe reads. Ends after the app's
-/// pause (`RESUME_PAUSE`, 2 s), with time to spare.
+/// How long after a wake notice the wake probes run their step. Ends after
+/// the app's pause (`RESUME_PAUSE`, 2 s), with time to spare.
 const WAKE_READS_FOR: Duration = Duration::from_secs(3);
 
-/// How long after a wake notice the wake probe goes on reading when no
-/// read has worked yet, so a late first answer is still timed.
+/// How long after a wake notice the wake probes go on when no step has
+/// worked yet, so a late first answer is still timed.
 const WAKE_READS_AT_MOST: Duration = Duration::from_secs(10);
 
-/// The time after a wake notice of the next read after `since`. Reads are
-/// [`WAKE_READ_STEP`] apart by the clock from the notice, so a slow read
+/// The time after a wake notice of the next step after `since`. Steps are
+/// [`WAKE_READ_STEP`] apart by the clock from the notice, so a slow step
 /// skips the times it ran over.
 fn next_wake_read(since: Duration) -> Duration {
     let steps = since.as_nanos() / WAKE_READ_STEP.as_nanos() + 1;
     WAKE_READ_STEP * u32::try_from(steps).unwrap_or(u32::MAX)
 }
 
-/// One step a wake probe runs on the controller after a wake notice: what
-/// it saw, or its error.
+/// One step a wake probe runs on the controller after a wake notice, given
+/// the wake's number (from 1): whether it worked, as the probe asks, and
+/// what it saw; or its error.
 type WakeStep<'a> =
-    dyn FnMut(&mut Device<HidTransport, SystemClock>) -> Result<String, String> + 'a;
+    dyn FnMut(&mut Device<HidTransport, SystemClock>, u32) -> Result<(bool, String), String> + 'a;
 
 /// Runs `step` on `device`, opening the controller again first if the last
 /// step failed (`device` is `None`), and prints the step with its start
 /// since the wake notice and how long it took. After a failed step
 /// `device` is `None`: that handle is not used again. Returns whether the
 /// step worked.
-fn wake_read(
+fn wake_step(
     device: &mut Option<Device<HidTransport, SystemClock>>,
     woke: std::time::Instant,
+    number: u32,
     step: &mut WakeStep<'_>,
 ) -> bool {
     use std::time::Instant;
@@ -2155,17 +2157,21 @@ fn wake_read(
         return false;
     };
     let start = Instant::now();
-    let read = step(open);
+    let done = step(open, number);
+    let line = match &done {
+        Ok((_, seen)) => seen.clone(),
+        Err(error) => format!("error: {error}"),
+    };
     eprintln!(
-        "{}  start {:>4} ms after the notice, took {:>4} ms: {read:?}",
+        "{}  start {:>4} ms after the notice, took {:>4} ms: {line}",
         utc_now(),
         start.duration_since(woke).as_millis(),
         start.elapsed().as_millis()
     );
-    if read.is_err() {
+    if done.is_err() {
         *device = None;
     }
-    read.is_ok()
+    matches!(done, Ok((true, _)))
 }
 
 /// Ticket 219: when does the controller answer after a wake? The app waits
@@ -2204,10 +2210,10 @@ fn the_controller_answers_after_a_wake() {
     let first = device.firmware_version().unwrap();
     eprintln!("{}  before the sleep: {first:?}", utc_now());
 
-    let wakes = run_wake_steps(device, &mut |device| {
+    let wakes = run_wake_steps(device, &mut |device, _| {
         device
             .firmware_version()
-            .map(|version| format!("{version:?}"))
+            .map(|version| (true, format!("{version:?}")))
             .map_err(|error| format!("{error:?}"))
     });
     assert!(wakes > 0, "no wake was seen");
@@ -2270,21 +2276,85 @@ fn run_wake_steps(device: Device<HidTransport, SystemClock>, step: &mut WakeStep
             woke = None;
             continue;
         }
-        answered |= wake_read(&mut device, at, step);
+        answered |= wake_step(&mut device, at, wakes, step);
         next_read = next_wake_read(at.elapsed());
     }
     eprintln!("{}  5 min awake with no sleep notice: the end", utc_now());
     wakes
 }
 
-/// The line for one set and its read-back. A level read back that differs
-/// is marked `NOT TAKEN`, not an error: the handle still answers, so it is
-/// kept.
-fn read_back(sent: u8, read: u8) -> String {
-    if read == sent {
-        format!("set {sent}, read back {read}")
-    } else {
-        format!("NOT TAKEN: set {sent}, read back {read}")
+/// Where the wake set probe is: send the set, read once after a failed
+/// step before it sends again, or only read after a set was taken.
+#[derive(Default, Clone, Copy, PartialEq, Eq, Debug)]
+enum SetPhase {
+    #[default]
+    Send,
+    ReadAfterFailure,
+    Taken,
+}
+
+/// What the wake set probe sends and how it reads each step's result. A
+/// set is taken when it got a Success reply and the level read back is the
+/// one sent. Since the probe sends the level that is already there, a taken
+/// set shows the controller accepted it, not that it changed anything.
+/// Sets are few: none after one is taken in a wake, and none again before
+/// a read works after a failed step (`Device::send` never repeats a
+/// command whose result is not known).
+#[derive(Default)]
+struct WakeSet {
+    wake: u32,
+    phase: SetPhase,
+    /// Steps that read back a level other than the one sent.
+    odd: u32,
+}
+
+impl WakeSet {
+    /// Starts each new wake with a set, unless a failed step still waits
+    /// for its read.
+    fn begin(&mut self, wake: u32) {
+        if wake != self.wake {
+            self.wake = wake;
+            if self.phase == SetPhase::Taken {
+                self.phase = SetPhase::Send;
+            }
+        }
+    }
+
+    /// Whether this step sends the set before it reads.
+    fn sends(&self) -> bool {
+        self.phase == SetPhase::Send
+    }
+
+    /// A set or read failed: if a set may have been sent, the next step
+    /// only reads.
+    fn failed(&mut self) {
+        if self.phase == SetPhase::Send {
+            self.phase = SetPhase::ReadAfterFailure;
+        }
+    }
+
+    /// The level read in this step: whether the step counts as worked, and
+    /// its line.
+    fn read(&mut self, sent: u8, read: u8) -> (bool, String) {
+        match self.phase {
+            SetPhase::Send if read == sent => {
+                self.phase = SetPhase::Taken;
+                (true, format!("set {sent}, read back {read}"))
+            }
+            SetPhase::Send => {
+                self.odd += 1;
+                (false, format!("NOT TAKEN: set {sent}, read back {read}"))
+            }
+            SetPhase::ReadAfterFailure => {
+                self.phase = SetPhase::Send;
+                (false, format!("after a failed step: read {read}"))
+            }
+            SetPhase::Taken if read == sent => (true, format!("read {read}")),
+            SetPhase::Taken => {
+                self.odd += 1;
+                (true, format!("LEVEL CHANGED: read {read}, set {sent}"))
+            }
+        }
     }
 }
 
@@ -2302,15 +2372,15 @@ fn keyboard_level(device: &mut Device<HidTransport, SystemClock>, led: u8) -> Re
 /// (`RESUME_PAUSE`) before it sends; ticket 219 showed reads answer at
 /// once, but no set was tried.
 ///
-/// It sends only one set command: the keyboard brightness
-/// (`0303 [01, 05, level]`, storage 1 as the app sends it), always with the
-/// level it read before the sleep. So the level never changes, and the app
-/// sends the same command at each wake anyway. The vapor light and every
-/// other setting are left alone.
+/// It sends only one kind of set command: the keyboard brightness
+/// (`0303 [01, 05, level]`, the command and storage the app uses at each
+/// wake), always with the level it read before the sleep, so the level
+/// never changes. The vapor light and every other setting are left alone.
 ///
 /// Quit the app from the tray, then start the probe by its name only, never
 /// with `cargo hw` (that runs every hardware test, also those that send,
-/// while you sleep the laptop):
+/// while you sleep the laptop). Do not press the brightness keys
+/// (Fn + F10 / F11) during the run:
 ///
 /// `$env:BLADE_WAKE_SET_PROBE=1; cargo test -p razer-device --test hardware a_set_works_after_a_wake -- --ignored --nocapture --test-threads=1; Remove-Item Env:BLADE_WAKE_SET_PROBE`
 ///
@@ -2318,11 +2388,16 @@ fn keyboard_level(device: &mut Device<HidTransport, SystemClock>, led: u8) -> Re
 /// state and suspend values and Windows' power source, opens the controller
 /// and keeps that handle over the sleep (as the app does), and reads the
 /// keyboard level; it refuses to go on if that read fails. After each wake
-/// notice the first command is the set; then it reads the level back. It
-/// does this at once and each 100 ms until 3 s after the notice (as
-/// [`run_wake_steps`] says), and prints each step's start, time taken and
-/// result. A level read back that differs is printed `NOT TAKEN`. At the
-/// end it reads the level once more. Fails if no wake was seen.
+/// notice the first command is the set, then a read-back, as [`WakeSet`]
+/// says: once a set is taken, the steps only read; after a failed step the
+/// next one only reads, and the set goes once more after a read works. So
+/// a wake that works at once sends one set; one that fails sends at most
+/// one set for each two steps. Steps run at once and each 100 ms until 3 s
+/// after the notice, or until 10 s when no set was taken by 3 s (as
+/// [`run_wake_steps`] says), and each prints its start, time taken and
+/// result. At the end it reads the level once more. Fails if no wake was
+/// seen, if any step read back another level, or if the level at the end
+/// is not the one before the sleep.
 #[test]
 #[ignore = "needs the Blade 18, BLADE_WAKE_SET_PROBE=1 and a person sleeping the laptop; sends the keyboard level it read"]
 fn a_set_works_after_a_wake() {
@@ -2340,20 +2415,29 @@ fn a_set_works_after_a_wake() {
         .unwrap_or_else(|error| panic!("refused: the keyboard level read failed: {error}"));
     eprintln!("{}  before the sleep: keyboard level {level}", utc_now());
 
-    let wakes = run_wake_steps(device, &mut |device| {
-        device
-            .send(SET_BRIGHTNESS, &[1, led, level])
-            .map_err(|error| format!("set: {error:?}"))?;
-        let read = keyboard_level(device, led).map_err(|error| format!("read back: {error}"))?;
-        Ok(read_back(level, read))
+    let mut steps = WakeSet::default();
+    let wakes = run_wake_steps(device, &mut |device, wake| {
+        steps.begin(wake);
+        if steps.sends()
+            && let Err(error) = device.send(SET_BRIGHTNESS, &[1, led, level])
+        {
+            steps.failed();
+            return Err(format!("set: {error:?}"));
+        }
+        keyboard_level(device, led)
+            .map(|read| steps.read(level, read))
+            .map_err(|error| {
+                steps.failed();
+                format!("read: {error}")
+            })
     });
-    let mut device = Device::new(open(), SystemClock);
-    eprintln!(
-        "{}  at the end: keyboard level {:?}",
-        utc_now(),
-        keyboard_level(&mut device, led)
-    );
+    let end = HidTransport::open(&razer_proto::BLADE_18)
+        .map_err(|error| format!("open: {error}"))
+        .and_then(|transport| keyboard_level(&mut Device::new(transport, SystemClock), led));
+    eprintln!("{}  at the end: keyboard level {end:?}", utc_now());
     assert!(wakes > 0, "no wake was seen");
+    assert_eq!(steps.odd, 0, "a step read back another level");
+    assert_eq!(end, Ok(level), "the level at the end is not the one before");
 }
 
 /// How long one read on the kept key handle waits, as the app's one read
@@ -2733,13 +2817,87 @@ fn a_kept_key_handle_across_a_sleep() {
 }
 
 #[test]
-fn a_set_level_read_back_the_same_is_taken() {
-    assert_eq!(read_back(128, 128), "set 128, read back 128");
+fn a_wake_set_sends_at_the_first_step() {
+    let mut steps = WakeSet::default();
+    steps.begin(1);
+    assert!(steps.sends());
 }
 
 #[test]
-fn a_set_level_read_back_other_is_marked_not_taken() {
-    assert_eq!(read_back(128, 0), "NOT TAKEN: set 128, read back 0");
+fn a_set_read_back_the_same_is_taken_and_not_sent_again() {
+    let mut steps = WakeSet::default();
+    steps.begin(1);
+    assert_eq!(
+        steps.read(128, 128),
+        (true, "set 128, read back 128".into())
+    );
+    assert!(!steps.sends());
+    assert_eq!(steps.read(128, 128), (true, "read 128".into()));
+    assert_eq!(steps.odd, 0);
+}
+
+#[test]
+fn a_set_read_back_other_is_not_taken_and_does_not_count_as_worked() {
+    let mut steps = WakeSet::default();
+    steps.begin(1);
+    assert_eq!(
+        steps.read(128, 0),
+        (false, "NOT TAKEN: set 128, read back 0".into())
+    );
+    assert!(steps.sends());
+    assert_eq!(steps.odd, 1);
+}
+
+#[test]
+fn after_a_failed_set_one_read_comes_before_the_next_set() {
+    let mut steps = WakeSet::default();
+    steps.begin(1);
+    steps.failed();
+    assert!(!steps.sends());
+    assert_eq!(
+        steps.read(128, 128),
+        (false, "after a failed step: read 128".into())
+    );
+    assert!(steps.sends());
+}
+
+#[test]
+fn a_new_wake_sends_once_more_after_a_taken_set() {
+    let mut steps = WakeSet::default();
+    steps.begin(1);
+    steps.read(128, 128);
+    steps.begin(2);
+    assert!(steps.sends());
+}
+
+#[test]
+fn a_new_wake_still_reads_first_after_a_failed_set() {
+    let mut steps = WakeSet::default();
+    steps.begin(1);
+    steps.failed();
+    steps.begin(2);
+    assert!(!steps.sends());
+}
+
+#[test]
+fn a_failed_read_after_a_taken_set_sends_nothing_more() {
+    let mut steps = WakeSet::default();
+    steps.begin(1);
+    steps.read(128, 128);
+    steps.failed();
+    assert!(!steps.sends());
+}
+
+#[test]
+fn a_level_that_moves_after_a_taken_set_is_marked() {
+    let mut steps = WakeSet::default();
+    steps.begin(1);
+    steps.read(128, 128);
+    assert_eq!(
+        steps.read(128, 64),
+        (true, "LEVEL CHANGED: read 64, set 128".into())
+    );
+    assert_eq!(steps.odd, 1);
 }
 
 #[test]
