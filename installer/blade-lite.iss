@@ -294,7 +294,7 @@ procedure ShowWhatStays();
 begin
   if not Silent() then
     MsgBox('Blade Lite is removed. These stay as they are:' + #13#10#13#10
-      + '- The laptop keeps the charge limit, the keyboard colour and the native mode. '
+      + '- The laptop keeps the charge limit, the keyboard colour and the screen''s native mode. '
       + 'The lid logo comes on again at the next sleep.' + #13#10
       + '- If you turned the touchpad off, Windows keeps it off.' + #13#10
       + '- If you hid the Razer drivers from Windows Update, run '
