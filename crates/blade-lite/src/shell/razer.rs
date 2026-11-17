@@ -47,6 +47,10 @@ impl<P: Parts> Shell<P> {
         }
         self.app.borrow_mut().hold_controller(updater);
         let warning = razer_warning(&found);
+        if warning.is_some() {
+            // Its own lighting may read 0: no guess at the app's dark then.
+            self.app.borrow_mut().forget_dark_slot();
+        }
         let first = warning.is_some() && !self.razer_opened.replace(true);
         let before = self.razer_warning.replace(warning.clone());
         if warning != before {

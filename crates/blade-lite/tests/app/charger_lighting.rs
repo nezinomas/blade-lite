@@ -368,12 +368,67 @@ fn a_screen_off_look_after_an_early_swap_still_puts_the_level_back() {
     lit_at(&mut app, 102);
     app.follow_screen(true).unwrap();
     power(&mut app, PowerEvent::OnBattery);
+    // The battery slot in use is the one the look made dark.
+    lit_at(&mut app, 0);
     app.follow_screen(true).unwrap();
     forget_sent(&mut app);
 
     app.follow_screen(false).unwrap();
 
     assert_eq!(sent(&app), level(40));
+}
+
+#[test]
+fn a_failed_read_for_the_other_slots_level_is_tried_again() {
+    let (mut app, _dir, _) = app();
+    lit_at(&mut app, 255);
+    app.follow_screen(true).unwrap();
+    app.battery_at_quit();
+    lit_at(&mut app, 0);
+    app.machine_mut().controller.inner.fails = true;
+    assert!(app.follow_screen(false).is_err());
+    assert!(!app.screen_followed(false));
+    app.machine_mut().controller.inner.fails = false;
+    forget_sent(&mut app);
+
+    app.follow_screen(false).unwrap();
+
+    assert_eq!(sent(&app), level(100));
+}
+
+#[test]
+fn a_saved_lighting_drops_the_other_slots_guess() {
+    // A saved 0 is the user's own.
+    let (mut app, _dir, _) = app();
+    lit_at(&mut app, 255);
+    app.follow_screen(true).unwrap();
+    power(&mut app, PowerEvent::OnBattery);
+    app.follow_screen(false).unwrap();
+    app.on_keyboard(ui::KeyboardCommand::SetBrightness(
+        Brightness::new(0).unwrap(),
+    ))
+    .unwrap();
+    lit_at(&mut app, 0);
+    forget_sent(&mut app);
+
+    app.keys_back_on().unwrap();
+
+    assert_eq!(sent(&app), []);
+}
+
+#[test]
+fn razer_software_drops_the_other_slots_guess() {
+    let (mut app, _dir, _) = app();
+    lit_at(&mut app, 255);
+    app.follow_screen(true).unwrap();
+    app.battery_at_quit();
+    app.forget_dark_slot();
+    lit_at(&mut app, 0);
+    forget_sent(&mut app);
+
+    app.keys_back_on().unwrap();
+
+    assert_eq!(sent(&app), []);
 }
 
 #[test]

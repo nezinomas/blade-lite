@@ -114,11 +114,19 @@ where
     ///
     /// See [`AppError`]. The level is kept for the next try.
     pub fn keys_back_on(&mut self) -> Result<(), AppError> {
-        let Some(level) = self.dark_keys.or_else(|| self.left_dark_in_use()) else {
-            return Ok(());
+        let (level, guessed) = match self.dark_keys {
+            Some(level) => (level, false),
+            None => match self.left_dark_in_use()? {
+                Some(level) => (level, true),
+                None => return Ok(()),
+            },
         };
         self.machine.controller.run(&level.commands(self.model))?;
         self.dark_keys = None;
+        // Used once: a 0 read after it is the user's own.
+        if guessed {
+            self.left_dark = None;
+        }
         report(&format!(
             "the keyboard is lit again at {} %",
             level.percent()
@@ -130,13 +138,25 @@ where
     /// controller swaps on its own time, up to 0.6 s or more before or
     /// after Windows' notice (tickets 242, 243), so the slot the app made
     /// dark may still be, or already be, the one in use. A user's own 0 is
-    /// lit then too (lit keys are the safe side). A failed read keeps it.
-    fn left_dark_in_use(&mut self) -> Option<Brightness> {
-        let (_, level) = self.left_dark?;
-        match keyboard_brightness(&mut self.machine.controller, self.model) {
-            Ok(Some(read)) if read.percent() == 0 => Some(level),
-            _ => None,
+    /// lit then too (lit keys are the safe side). Never with the lighting
+    /// saved: its send at the charger change puts each slot right, and a
+    /// saved 0 is the user's. A failed read is an error, so the next look
+    /// reads again.
+    fn left_dark_in_use(&mut self) -> Result<Option<Brightness>, AppError> {
+        let Some((_, level)) = self.left_dark else {
+            return Ok(None);
+        };
+        if self.config.lighting.is_some() {
+            return Ok(None);
         }
+        let read = keyboard_brightness(&mut self.machine.controller, self.model)?;
+        Ok(read.filter(|read| read.percent() == 0).map(|_| level))
+    }
+
+    /// Drops the level kept for a slot the app left dark, while Razer's
+    /// software runs: a 0 read then may be its own.
+    pub fn forget_dark_slot(&mut self) {
+        self.left_dark = None;
     }
 
     /// Paints the touchpad key red if the touchpad is now off and Num Lock
@@ -322,12 +342,13 @@ where
     /// a plug that bounces for hours sends 6 a minute (whether the stored
     /// writes wear the controller is not known). Keys dark for a screen off
     /// meanwhile leave the new slot lit at its own level until the send
-    /// (lit keys are the safe side). Keys the app keeps dark for a screen off (ticket 241)
-    /// stay dark: the colour and vapor light go with the keyboard at level
-    /// 0, and the saved level is kept for the put-back. A failed send is
-    /// only logged, and tried again at a later look, [`SOURCE_LIGHTING_TRIES`]
-    /// times in all: the same saved lighting each time, so a send that went
-    /// in part is made whole.
+    /// (lit keys are the safe side), and a Fn press meanwhile takes no
+    /// level, so a press made then is undone by the send. Keys the app
+    /// keeps dark for a screen off (ticket 241) stay dark: the colour and
+    /// vapor light go with the keyboard at level 0, and the saved level is
+    /// kept for the put-back. A failed send is only logged, and tried again
+    /// at a later look, [`SOURCE_LIGHTING_TRIES`] times in all: the same
+    /// saved lighting each time, so a send that went in part is made whole.
     pub fn send_source_lighting(&mut self, now: Instant) {
         let spaced = self
             .source_lighting_sent
