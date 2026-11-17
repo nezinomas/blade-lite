@@ -3230,3 +3230,132 @@ fn a_fresh_failure_before_the_wake_is_not_this_wakes() {
     );
     assert_eq!(tally.fresh.error, None);
 }
+
+/// What [`the_keys_across_a_charger_pull_in_a_sleep`] reads each second,
+/// all read-only: Windows' power source, the Razer USB device's power state
+/// (Windows only, the device is not opened for it), both LED levels
+/// (keyboard, vapor light) and the keyboard effect (storage 1).
+#[derive(Debug, PartialEq, Eq)]
+struct KeysRead {
+    on_battery: Option<bool>,
+    usb: Vec<String>,
+    lights: Result<(Vec<u8>, Vec<u8>), String>,
+}
+
+/// Both LED levels and the keyboard effect (storage 1), read-only.
+fn lights_read<C: Clock>(
+    device: &mut Device<HidTransport, C>,
+) -> Result<(Vec<u8>, Vec<u8>), String> {
+    let levels = levels(device)?;
+    let mut query = [0; EFFECT_ARGS];
+    query[..2].copy_from_slice(&[1, 5]);
+    let effect = device
+        .send(GET_EFFECT, &query)
+        .map_err(|error| format!("{error:?}"))?;
+    Ok((levels, effect.args().to_vec()))
+}
+
+/// Ticket 242: after a charger pull in a Start-menu sleep, Windows woke
+/// with the screen off and slept again a few seconds later, and the keys
+/// went dark with no send from the app; later the keyboard level read 60,
+/// not the 51 the app had set. Does the controller turn the keys off, or
+/// change their level or effect, by itself at a charger pull or plug, a
+/// sleep or a wake? Read-only: it never sends a set command.
+///
+/// Light the keys (the app's lighting, or Fn + F11), quit the app from the
+/// tray, then start the probe by its name only, never with `cargo hw`
+/// (that runs every hardware test, also those that send, while you sleep
+/// the laptop):
+///
+/// `$env:BLADE_KEYS_DARK_PROBE=1; cargo test -p razer-device --test hardware the_keys_across_a_charger_pull_in_a_sleep -- --ignored --nocapture --test-threads=1; Remove-Item Env:BLADE_KEYS_DARK_PROBE`
+///
+/// Never leave `BLADE_KEYS_DARK_PROBE` set. It prints the USB device's power
+/// state and suspend values, opens the controller and keeps that handle
+/// over the sleep (as the app does), and refuses to go on if the first read
+/// fails. Then each second it reads [`KeysRead`] and prints it when it
+/// differs from the last, and prints each power notice; it answers each
+/// sleep notice at once. After a failed read it opens the controller again
+/// at the next second. It ends after 5 min awake with no sleep notice
+/// (counted in ticks of at most 2 s, so the time asleep does not count).
+/// Fails if no wake was seen or Windows' power source never changed.
+#[test]
+#[ignore = "needs the Blade 18, BLADE_KEYS_DARK_PROBE=1 and a person sleeping the laptop and pulling the charger; read-only"]
+fn the_keys_across_a_charger_pull_in_a_sleep() {
+    use platform::PowerEvent;
+    use std::sync::mpsc::RecvTimeoutError;
+    use std::time::Instant;
+
+    if !opted_in("BLADE_KEYS_DARK_PROBE") {
+        return;
+    }
+    let usb = razer_proto::BLADE_18.usb;
+    print_usb_power_and_suspend(usb);
+    let ids = platform::usb_device_ids(usb.vendor_id, usb.product_id).unwrap_or_default();
+    let read_usb = || -> Vec<String> {
+        ids.iter()
+            .map(|id| platform::device_power(id).unwrap_or_else(|error| format!("error: {error}")))
+            .collect()
+    };
+    let mut opened = Device::new(open(), SystemClock);
+    let first = KeysRead {
+        on_battery: platform::on_battery(),
+        usb: read_usb(),
+        lights: lights_read(&mut opened),
+    };
+    let mut device = Some(opened);
+    eprintln!("{}  first  {first:02X?}", utc_now());
+    assert!(first.lights.is_ok(), "the first read failed: not run");
+
+    let notices = answered_power_notices();
+    let mut wakes = 0;
+    let mut sources = vec![first.on_battery];
+    let mut last = first;
+    let mut awake = AwakeTime::new(Instant::now());
+    while awake.time() < PROBE_AWAKE {
+        let notice = notices.recv_timeout(Duration::from_secs(1));
+        awake.tick(Instant::now());
+        match notice {
+            Ok((_, PowerEvent::Suspending)) => {
+                eprintln!("{}  sleep notice (answered)", utc_now());
+                awake.restart();
+            }
+            Ok((_, PowerEvent::Resumed)) => {
+                eprintln!("{}  wake notice", utc_now());
+                wakes += 1;
+            }
+            Ok((_, other)) => eprintln!("{}  {other:?}", utc_now()),
+            Err(RecvTimeoutError::Timeout) => {}
+            Err(RecvTimeoutError::Disconnected) => panic!("the power events stopped"),
+        }
+        if device.is_none() {
+            device = HidTransport::open(&razer_proto::BLADE_18)
+                .ok()
+                .map(|transport| Device::new(transport, SystemClock));
+        }
+        let lights = device.as_mut().map_or_else(
+            || Err("the controller did not open".to_owned()),
+            lights_read,
+        );
+        if lights.is_err() {
+            device = None;
+        }
+        let read = KeysRead {
+            on_battery: platform::on_battery(),
+            usb: read_usb(),
+            lights,
+        };
+        if !sources.contains(&read.on_battery) {
+            sources.push(read.on_battery);
+        }
+        if read != last {
+            eprintln!("{}  {read:02X?}", utc_now());
+        }
+        last = read;
+    }
+    eprintln!("{}  5 min awake with no sleep notice: the end", utc_now());
+    assert!(wakes > 0, "no wake was seen");
+    assert!(
+        sources.contains(&Some(true)) && sources.contains(&Some(false)),
+        "the charger was not pulled and plugged in: saw only {sources:?}"
+    );
+}
