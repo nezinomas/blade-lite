@@ -1963,9 +1963,19 @@ impl AwakeTime {
 /// notice is answered at once, so a probe never holds a sleep back.
 fn answered_power_notices() -> std::sync::mpsc::Receiver<(std::time::Instant, platform::PowerEvent)>
 {
+    answered_power_notices_and_screen().0
+}
+
+/// As [`answered_power_notices`], with what Windows last said of the lid
+/// and the screen.
+fn answered_power_notices_and_screen() -> (
+    std::sync::mpsc::Receiver<(std::time::Instant, platform::PowerEvent)>,
+    platform::LidAndScreen,
+) {
     use platform::{PowerEvent, PowerEvents, WindowsPowerEvents};
 
     let mut events = WindowsPowerEvents::register().unwrap();
+    let seen = events.lid_and_screen();
     let handled = events.suspend_handled();
     let (sender, notices) = std::sync::mpsc::channel();
     std::thread::spawn(move || {
@@ -1978,7 +1988,7 @@ fn answered_power_notices() -> std::sync::mpsc::Receiver<(std::time::Instant, pl
             }
         }
     });
-    notices
+    (notices, seen)
 }
 
 /// When the logo is read after each wake notice.
@@ -3266,8 +3276,9 @@ fn lights_read<C: Clock>(
 /// change their level or effect, by itself at a charger pull or plug, a
 /// sleep or a wake? Read-only: it never sends a set command.
 ///
-/// Light the keys (the app's lighting, or Fn + F11), quit the app from the
-/// tray, then start the probe by its name only, never with `cargo hw`
+/// Quit the app from the tray, light the keys with Fn + F11 only (so the
+/// controller's own effect runs, not the app's frame; say if not), then
+/// start the probe by its name only, never with `cargo hw`
 /// (that runs every hardware test, also those that send, while you sleep
 /// the laptop):
 ///
@@ -3282,7 +3293,18 @@ fn lights_read<C: Clock>(
 /// at the next second, and says so. Unlike the app, it reads at once after
 /// a wake (no 2 s pause) and each second, so the USB device never reaches
 /// its idle sleep (ticket 202) while Windows is awake: a run that shows no
-/// change does not clear the controller for the app's traffic. It ends
+/// change does not clear the controller for the app's traffic. The run
+/// counts only if every printed `SelectiveSuspendEnabled` is 0 (USB sleep
+/// off, as in ticket 242's run). With the app quit it tests only the
+/// controller and Windows acting alone, not the app's wake and sleep
+/// sends. The reads can't see a frame or every dark state (ticket 204: the
+/// effect read stayed `03` when lights fell back), so say what the keys do
+/// and when: keys dark with the same reads means "not the level or the
+/// effect", not "the controller did nothing". Steps as in the ticket:
+/// on AC, a Start-menu sleep; pull the charger in the sleep; let Windows
+/// wake with the screen off and sleep again; wake it with a key; plug the
+/// charger back only after that wake. Each notice line says the lid and
+/// screen as Windows last said them. It ends
 /// after 5 min awake with no sleep notice
 /// (counted in ticks of at most 2 s, so the time asleep does not count).
 /// Fails if no wake was seen or Windows' power source never changed.
@@ -3314,7 +3336,7 @@ fn the_keys_across_a_charger_pull_in_a_sleep() {
     eprintln!("{}  first  {first:02X?}", utc_now());
     assert!(first.lights.is_ok(), "the first read failed: not run");
 
-    let notices = answered_power_notices();
+    let (notices, seen) = answered_power_notices_and_screen();
     let mut wakes = 0;
     let mut sources = vec![first.on_battery];
     let mut last = first;
@@ -3322,16 +3344,23 @@ fn the_keys_across_a_charger_pull_in_a_sleep() {
     while awake.time() < PROBE_AWAKE {
         let notice = notices.recv_timeout(Duration::from_secs(1));
         awake.tick(Instant::now());
+        let lid_screen = || {
+            format!(
+                "lid open {:?}, screen on {:?}",
+                seen.lid_open(),
+                seen.screen_on()
+            )
+        };
         match notice {
             Ok((_, PowerEvent::Suspending)) => {
-                eprintln!("{}  sleep notice (answered)", utc_now());
+                eprintln!("{}  sleep notice (answered), {}", utc_now(), lid_screen());
                 awake.restart();
             }
             Ok((_, PowerEvent::Resumed)) => {
-                eprintln!("{}  wake notice", utc_now());
+                eprintln!("{}  wake notice, {}", utc_now(), lid_screen());
                 wakes += 1;
             }
-            Ok((_, other)) => eprintln!("{}  {other:?}", utc_now()),
+            Ok((_, other)) => eprintln!("{}  {other:?}, {}", utc_now(), lid_screen()),
             Err(RecvTimeoutError::Timeout) => {}
             Err(RecvTimeoutError::Disconnected) => panic!("the power events stopped"),
         }
