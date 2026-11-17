@@ -1,6 +1,8 @@
 //! What the app does at start, on a power change, on a touchpad switch, on
 //! a Num Lock or mic mute change and on quit.
 
+use std::time::Instant;
+
 use blade_core::{
     ApplyError, Config, Controller, DisplayError, Preset, Query, apply, apply_lighting,
     apply_lighting_dark, apply_performance, full_power_charger, keyboard_brightness,
@@ -9,7 +11,7 @@ use blade_core::{
 use platform::{DisplayApi, KeyInjector, PowerEvent, Registry};
 use razer_proto::{Brightness, RedKeys};
 
-use super::{App, AppError, NOT_UNDERSTOOD, Power, SOURCE_LIGHTING_TRIES};
+use super::{App, AppError, NOT_UNDERSTOOD, Power, SOURCE_LIGHTING_SPACING, SOURCE_LIGHTING_TRIES};
 use crate::report;
 
 impl<C, D, R, K> App<C, D, R, K>
@@ -112,16 +114,52 @@ where
     ///
     /// See [`AppError`]. The level is kept for the next try.
     pub fn keys_back_on(&mut self) -> Result<(), AppError> {
-        let Some(level) = self.dark_keys else {
-            return Ok(());
+        let (level, guessed) = match self.dark_keys {
+            Some(level) => (level, false),
+            None => match self.left_dark_in_use()? {
+                Some(level) => (level, true),
+                None => return Ok(()),
+            },
         };
         self.machine.controller.run(&level.commands(self.model))?;
         self.dark_keys = None;
+        // Used once: a 0 read after it is the user's own.
+        if guessed {
+            self.left_dark = None;
+        }
         report(&format!(
             "the keyboard is lit again at {} %",
             level.percent()
         ));
         Ok(())
+    }
+
+    /// The level kept for the other slot, if the slot in use reads 0: the
+    /// controller swaps on its own time, up to 0.6 s or more before or
+    /// after Windows' notice (tickets 242, 243), so the slot the app made
+    /// dark may still be, or already be, the one in use. A user's own 0 is
+    /// lit then too (lit keys are the safe side). Never with the lighting
+    /// saved: its send at the charger change puts each slot right, and a
+    /// saved 0 is the user's. The shell drops it while Razer's software
+    /// runs at the put-back (as last looked, up to 60 s old), not for a
+    /// run that has ended. The level is used once, whichever slot it lands
+    /// in. A failed read is an error, so the next look reads again.
+    fn left_dark_in_use(&mut self) -> Result<Option<Brightness>, AppError> {
+        let Some((_, level)) = self.left_dark else {
+            return Ok(None);
+        };
+        if self.config.lighting.is_some() {
+            return Ok(None);
+        }
+        let read = keyboard_brightness(&mut self.machine.controller, self.model)?;
+        Ok(read.filter(|read| read.percent() == 0).map(|_| level))
+    }
+
+    /// Drops the level kept for a slot the app left dark, for the shell to
+    /// call before each put-back while Razer's software runs: a 0 read
+    /// then may be its own.
+    pub fn forget_dark_slot(&mut self) {
+        self.left_dark = None;
     }
 
     /// Paints the touchpad key red if the touchpad is now off and Num Lock
@@ -247,7 +285,10 @@ where
                 // The rate follows even if the preset send fails.
                 let preset = self.set_on_battery(event == PowerEvent::OnBattery);
                 if swapped {
-                    self.source_lighting_due = Some(SOURCE_LIGHTING_TRIES);
+                    self.follow_dark_slots();
+                    if self.config.lighting.is_some() {
+                        self.source_lighting_due = Some(SOURCE_LIGHTING_TRIES);
+                    }
                 }
                 let rate = self.follow_power(event);
                 let rate = self.quiet_if_tried_again(rate);
@@ -270,65 +311,84 @@ where
     }
 
     /// The controller keeps one keyboard level per power source and swaps
-    /// them itself at a charger change (ticket 243), so the saved lighting
-    /// goes again into the new source's slot (ticket 244), once for any
-    /// number of changes since the last look. Keys the app keeps dark for
-    /// a screen off (ticket 241) stay dark: the colour and vapor light go
-    /// with the keyboard at level 0, and the level put back is the saved
-    /// one, or with no lighting saved the new slot's own level read first
-    /// (a failed or 0 read keeps the old one). With
-    /// no lighting saved, lit keys are left alone. A failed send is only
-    /// logged, and tried again at the next look, [`SOURCE_LIGHTING_TRIES`]
-    /// times in all: the same saved lighting each time, so a send that went
-    /// in part is made whole.
-    pub fn send_source_lighting(&mut self) {
+    /// them itself at a charger change (ticket 243): call this after a
+    /// known source changed to the other known one, by an event, a read at
+    /// a wake or a pause's end, or before a sleep. With the lighting saved,
+    /// its send at the change or the wake puts the level back, so only a
+    /// stale kept level is dropped. With none saved, the app follows its
+    /// own dark: a slot it left at 0 for a screen off keeps its level for
+    /// the next swap into it (ticket 245), a level kept for the new slot is
+    /// the one to put back, and the screen needs a new look, which makes
+    /// the new slot dark for a screen off (ticket 246) or puts that level
+    /// back. A slot the app left at 0 stays so after a quit until the user
+    /// lights it: the app can write only the slot in use.
+    pub(super) fn follow_dark_slots(&mut self) {
+        let on_battery = self.on_battery();
+        let kept = self
+            .left_dark
+            .take_if(|(battery, _)| *battery == on_battery)
+            .map(|(_, level)| level);
+        if self.config.lighting.is_some() {
+            return;
+        }
+        if let Some(level) = self.dark_keys {
+            self.left_dark = Some((!on_battery, level));
+        }
+        self.dark_keys = kept;
+        self.keys_follow = None;
+    }
+
+    /// Sends the saved lighting due after a charger change (ticket 244),
+    /// once for any number of changes since the last send, and not before
+    /// [`SOURCE_LIGHTING_SPACING`] since the last send or try: a change
+    /// inside it waits for a later look. This caps the rate, not the count:
+    /// a plug that bounces for hours sends 6 a minute (whether the stored
+    /// writes wear the controller is not known). Keys dark for a screen off
+    /// meanwhile leave the new slot lit at its own level until the send
+    /// (lit keys are the safe side), and a Fn press meanwhile takes no
+    /// level, so a press made then is undone by the send. Keys the app
+    /// keeps dark for a screen off (ticket 241) stay dark: the colour and
+    /// vapor light go with the keyboard at level 0, and the saved level is
+    /// kept for the put-back. A failed send is only logged, and tried again
+    /// at a later look, [`SOURCE_LIGHTING_TRIES`] times in all: the same
+    /// saved lighting each time, so a send that went in part is made whole.
+    pub fn send_source_lighting(&mut self, now: Instant) {
+        let spaced = self
+            .source_lighting_sent
+            .is_none_or(|sent| now.saturating_duration_since(sent) >= SOURCE_LIGHTING_SPACING);
+        if !spaced {
+            return;
+        }
         let Some(tries) = self.source_lighting_due.take() else {
             return;
         };
-        let dark = self.dark_keys.is_some();
-        let sent = match self.config.lighting {
-            Some(lighting) => {
-                let red = self.key_should_be_red();
-                let controller = &mut self.machine.controller;
-                let applied = if dark {
-                    apply_lighting_dark(lighting, self.model, controller, red)
-                } else {
-                    apply_lighting(lighting, self.model, controller, red)
-                };
-                self.key_red = applied.is_ok().then_some(red);
-                if dark && let Ok(saved) = Brightness::new(lighting.brightness) {
-                    self.dark_keys = Some(saved);
-                }
-                // As at the start: the screen needs a new look.
-                if !dark && applied.is_ok() {
-                    self.keys_lit_by_lighting();
-                }
-                applied.map_err(AppError::from)
-            }
-            None if dark => self.darken_new_slot(),
-            None => Ok(()),
+        // Due only with the lighting saved; a Reset since sends nothing.
+        let Some(lighting) = self.config.lighting else {
+            return;
         };
-        if let Err(error) = sent {
+        self.source_lighting_sent = Some(now);
+        let dark = self.dark_keys.is_some();
+        let red = self.key_should_be_red();
+        let controller = &mut self.machine.controller;
+        let applied = if dark {
+            apply_lighting_dark(lighting, self.model, controller, red)
+        } else {
+            apply_lighting(lighting, self.model, controller, red)
+        };
+        self.key_red = applied.is_ok().then_some(red);
+        if dark && let Ok(saved) = Brightness::new(lighting.brightness) {
+            self.dark_keys = Some(saved);
+        }
+        // As at the start: the screen needs a new look.
+        if !dark && applied.is_ok() {
+            self.keys_lit_by_lighting();
+        }
+        if let Err(error) = applied {
             report(&format!(
                 "the lighting after the charger change failed: {error}"
             ));
             self.source_lighting_due = tries.checked_sub(1).filter(|&left| left > 0);
         }
-    }
-
-    /// Keeps the new slot's own level for the put-back, then makes it dark.
-    /// A failed read or a 0 keeps the old level: a 0 may be the app's own
-    /// dark from earlier in this screen off (or a send whose reply was
-    /// lost), and lit keys at the screen on are the safe side.
-    fn darken_new_slot(&mut self) -> Result<(), AppError> {
-        if let Ok(Some(level)) = keyboard_brightness(&mut self.machine.controller, self.model)
-            && level.percent() > 0
-        {
-            self.dark_keys = Some(level);
-        }
-        let dark = Brightness::new(0).map_err(ApplyError::Brightness)?;
-        self.machine.controller.run(&dark.commands(self.model))?;
-        Ok(())
     }
 
     /// Shows the preset error of a power event before its rate error. A
@@ -521,6 +581,9 @@ where
         }
         let before = self.running(self.config).preset;
         self.power = Power::Battery;
+        if self.source_known {
+            self.follow_dark_slots();
+        }
         if self.running(self.config).preset != before {
             report("the charger is gone, so the battery quit preset is sent");
             self.preset_unsure = true;

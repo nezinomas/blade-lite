@@ -128,8 +128,9 @@ where
             return Ok(false);
         };
         // The app made the keys dark for a screen off: the level read is
-        // its own 0, not the user's (ticket 241).
-        if self.dark_keys.is_some() {
+        // its own 0, not the user's (ticket 241). Or a charger change's send
+        // waits: the level read is the other source's (ticket 246).
+        if self.dark_keys.is_some() || self.source_lighting_due.is_some() {
             return Ok(false);
         }
         let Some(read) = keyboard_brightness(&mut self.machine.controller, self.model)? else {

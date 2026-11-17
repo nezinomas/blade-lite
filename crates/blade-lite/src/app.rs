@@ -9,6 +9,7 @@ mod settings;
 mod views;
 
 use std::path::PathBuf;
+use std::time::{Duration, Instant};
 
 use blade_core::{
     ApplyError, BatteryRate, Config, Controller, Lighting, Preset, Query, apply_fan_targets,
@@ -39,6 +40,11 @@ pub const RESEND_TRIES: u8 = 3;
 /// How many times the lighting after a charger change is sent before it is
 /// given up until the next change, wake or click (ticket 244).
 pub const SOURCE_LIGHTING_TRIES: u8 = 3;
+
+/// The least time between two sends of the lighting after a charger change,
+/// so a plug that bounces can't send its stored writes at each poll (ticket
+/// 246). A change inside it waits, so the last change still gets its send.
+pub const SOURCE_LIGHTING_SPACING: Duration = Duration::from_secs(10);
 
 /// What the window shows before the user sets the lighting.
 const DEFAULT_LIGHTING: Lighting = Lighting {
@@ -205,6 +211,13 @@ pub struct App<C, D, R, K> {
     /// The tries left of the lighting a charger change asks for again
     /// (ticket 244); `None` when none is due.
     source_lighting_due: Option<u8>,
+    /// When the lighting after a charger change was last sent or tried.
+    source_lighting_sent: Option<Instant>,
+    /// The slot (battery or not) the app left at 0 for a screen off when
+    /// the controller swapped it out, with its level to put back at the
+    /// next swap into it (ticket 245). The controller keeps one level per
+    /// power source (ticket 243).
+    left_dark: Option<(bool, Brightness)>,
 }
 
 impl<C, D, R, K> App<C, D, R, K>
@@ -255,6 +268,8 @@ where
             dark_keys: None,
             keys_follow: None,
             source_lighting_due: None,
+            source_lighting_sent: None,
+            left_dark: None,
         }
     }
 
@@ -296,13 +311,22 @@ where
 
     /// Takes the power source without sending, for use before
     /// [`start`](Self::start), so a start on battery sends the battery
-    /// preset, not the saved one. `None` (unknown) counts as battery.
+    /// preset, not the saved one. `None` (unknown) counts as battery. A
+    /// known change from a known source follows the key slots too.
     pub fn take_on_battery(&mut self, on_battery: Option<bool>) {
         if on_battery.is_none() && self.source_known {
             report("the battery presets run");
         }
+        let swapped = self.source_known && on_battery.is_some_and(|now| now != self.on_battery());
         self.power = Power::from_battery(on_battery.unwrap_or(true));
         self.source_known = on_battery.is_some();
+        // A swap may go unseen now: a kept level could be stale later.
+        if on_battery.is_none() {
+            self.left_dark = None;
+        }
+        if swapped {
+            self.follow_dark_slots();
+        }
     }
 
     /// Notes a known read that matches the source the app follows, so a

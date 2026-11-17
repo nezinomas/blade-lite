@@ -3424,6 +3424,31 @@ fn charger_changes_before_a_tick_send_the_lighting_once() {
 }
 
 #[test]
+fn a_plug_inside_the_spacing_sends_at_the_first_tick_after_it() {
+    let (f, sender) = lit_fixture_with_power();
+    let start = (Instant::now(), SystemTime::now());
+    let at = |seconds: u64| {
+        let later = std::time::Duration::from_secs(seconds);
+        f.shell.tick_at(start.0 + later, start.1 + later);
+    };
+    FAKE_ON_BATTERY.set(true);
+    sender.send(PowerEvent::OnBattery).unwrap();
+    at(0);
+    FAKE_ON_BATTERY.set(false);
+    sender.send(PowerEvent::OnAc).unwrap();
+    let before = sent_count(&f);
+
+    at(3);
+    // A click between ticks uses the last tick's clock.
+    f.shell.follow_own_power();
+    at(9);
+    assert_eq!(keyboard_level_writes(&f, before), 0);
+    at(10);
+
+    assert_eq!(keyboard_level_writes(&f, before), 1);
+}
+
+#[test]
 fn no_lighting_at_a_charger_change_while_razer_software_runs() {
     let (f, sender) = lit_fixture_with_power();
     f.shell.programs().set(&["Razer Synapse Service"]);

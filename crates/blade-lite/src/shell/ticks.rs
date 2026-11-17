@@ -529,9 +529,11 @@ impl<P: Parts> Shell<P> {
     }
 
     /// Sends the saved lighting once after the charger changes this look
-    /// took (ticket 244), so a bouncing plug sends it once. Dropped in a
-    /// pause (its end sends all settings), while Razer's software runs (it
-    /// may write its own lighting then) and while an updater holds the
+    /// took (ticket 244), at most once a
+    /// [`SOURCE_LIGHTING_SPACING`](blade_lite::SOURCE_LIGHTING_SPACING)
+    /// (ticket 246), so a bouncing plug can't send it at each poll. Dropped
+    /// in a pause (its end sends all settings), while Razer's software runs
+    /// (it may write its own lighting then) and while an updater holds the
     /// controller (its end sends all settings).
     fn follow_source_lighting(self: &Rc<Self>) {
         // No pause and no Razer software: the same rule as the heat reads,
@@ -548,7 +550,9 @@ impl<P: Parts> Shell<P> {
             app.forget_source_lighting();
             return;
         }
-        app.send_source_lighting();
+        // The last tick's clock: a click between ticks sees at most 1 s
+        // less time gone, so it waits longer, never less.
+        app.send_source_lighting(self.tick_now.get());
     }
 
     /// Acts on the power events that came since the last look. Returns
@@ -640,13 +644,18 @@ impl<P: Parts> Shell<P> {
             return;
         }
         let screen_off = P::screen_on() == Some(false);
-        if screen_off && self.razer_warning.borrow().is_some() {
+        let razer_runs = self.razer_warning.borrow().is_some();
+        if screen_off && razer_runs {
             return;
         }
         let Ok(mut app) = self.app.try_borrow_mut() else {
             // Busy: the next poll or click looks again.
             return;
         };
+        // Its own lighting may read 0: no guess at the app's dark then.
+        if razer_runs {
+            app.forget_dark_slot();
+        }
         // Held for an updater: its end looks again.
         if app.screen_followed(screen_off) || app.controller_held() {
             return;

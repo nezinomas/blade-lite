@@ -202,3 +202,70 @@ fn a_screen_change_read_before_a_sleep_in_one_look_sends_nothing() {
     let sent = sent(&f);
     assert!(!sent.windows(lit.len()).any(|run| run == lit), "{sent:?}");
 }
+
+#[test]
+fn a_charger_pull_with_the_screen_off_makes_the_new_slot_dark_in_the_same_tick() {
+    // No lighting saved: the swap's bookkeeping, then the screen's look
+    // (tickets 245, 246).
+    let f = lit_fixture();
+    let (sender, receiver) = std::sync::mpsc::channel();
+    f.shell.listen_for_power(receiver);
+    screen(&f, false);
+    // The battery slot holds its own level, 40 %.
+    f.shell
+        .app()
+        .machine_mut()
+        .controller
+        .inner
+        .brightness_level = Some(102);
+    forget_sent(&f);
+    super::FAKE_ON_BATTERY.set(true);
+    sender.send(PowerEvent::OnBattery).unwrap();
+
+    f.shell.tick();
+
+    assert_eq!(sent(&f), level(0));
+}
+
+#[test]
+fn no_guess_at_the_other_slot_while_razer_software_runs() {
+    // No lighting saved: dark before Razer's software came, then a pull.
+    // A 0 read at the screen on may be its own lighting.
+    let f = lit_fixture();
+    screen(&f, false);
+    razer_runs(&f);
+    super::FAKE_ON_BATTERY.set(true);
+    power(&f, &[PowerEvent::OnBattery]);
+    f.shell
+        .app()
+        .machine_mut()
+        .controller
+        .inner
+        .brightness_level = Some(0);
+    forget_sent(&f);
+
+    screen(&f, true);
+
+    assert_eq!(sent(&f), []);
+}
+
+#[test]
+fn no_guess_at_the_other_slot_at_a_quit_while_razer_software_runs() {
+    let f = lit_fixture();
+    screen(&f, false);
+    razer_runs(&f);
+    super::FAKE_ON_BATTERY.set(true);
+    power(&f, &[PowerEvent::OnBattery]);
+    f.shell
+        .app()
+        .machine_mut()
+        .controller
+        .inner
+        .brightness_level = Some(0);
+    forget_sent(&f);
+
+    f.shell.quit();
+
+    let levels = level(100);
+    assert!(!sent(&f).iter().any(|command| levels.contains(command)));
+}

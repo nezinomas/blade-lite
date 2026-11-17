@@ -18,7 +18,10 @@ mod usb_suspend;
 mod watchdog;
 
 pub use accent::accent_colour;
-pub use app::{App, AppError, Machine, RESEND_TRIES, SOURCE_LIGHTING_TRIES, took_effect};
+pub use app::{
+    App, AppError, Machine, RESEND_TRIES, SOURCE_LIGHTING_SPACING, SOURCE_LIGHTING_TRIES,
+    took_effect,
+};
 pub use autostart_item::{
     AUTOSTART_LABEL, AUTOSTART_OTHER_LABEL, AUTOSTART_UNKNOWN_LABEL, AutostartItem, autostart_item,
     takeover_note,
