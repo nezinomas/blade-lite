@@ -221,6 +221,37 @@ fn the_wake_sends_the_manual_fan_again_after_its_pause() {
     assert!(sets_a_manual_fan(&sent_since(&f, before)));
 }
 
+#[test]
+fn a_charger_change_in_the_wake_pause_sends_the_lighting_once_at_its_end() {
+    let f = fixture(Config {
+        lighting: Some(blade_core::Lighting {
+            brightness: 30,
+            colour: razer_proto::Rgb::new(0xFF, 0xFF, 0xFF),
+            vapor_light: true,
+        }),
+        ..Config::default()
+    });
+    power(&f, &[PowerEvent::Suspending]);
+    power(&f, &[PowerEvent::Resumed]);
+    let before = sent_count(&f);
+    super::FAKE_ON_BATTERY.set(true);
+    power(&f, &[PowerEvent::OnBattery]);
+    f.shell.tick();
+    pause_ends();
+    f.shell.tick();
+    f.shell.tick();
+
+    let keyboard_level = razer_proto::Brightness::new(30)
+        .unwrap()
+        .commands(&BLADE_18)[0]
+        .clone();
+    let level_writes = sent_since(&f, before)
+        .iter()
+        .filter(|&command| *command == keyboard_level)
+        .count();
+    assert_eq!(level_writes, 1);
+}
+
 /// Where a sleep's quit preset fails (ticket 191).
 #[derive(Clone, Copy)]
 enum Cut {

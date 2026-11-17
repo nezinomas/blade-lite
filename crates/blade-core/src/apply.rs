@@ -220,6 +220,25 @@ pub fn apply_lighting(
     controller.run(&commands).map_err(ApplyError::Device)
 }
 
+/// As [`apply_lighting`], but with the keyboard's level 0 (ticket 244):
+/// keys the app keeps dark for a screen off stay dark, while the vapor
+/// light and the colour are set, so the level put back later shows the
+/// saved lighting.
+///
+/// # Errors
+///
+/// See [`ApplyError`].
+pub fn apply_lighting_dark(
+    lighting: Lighting,
+    model: &ModelProfile,
+    controller: &mut impl Controller,
+    red: RedKeys,
+) -> Result<(), ApplyError> {
+    let dark = Brightness::new(0).map_err(ApplyError::Brightness)?;
+    let commands = lighting_commands_at(lighting, dark, model, red)?;
+    controller.run(&commands).map_err(ApplyError::Device)
+}
+
 /// The commands sent after the preset: the saved lid logo, then the saved
 /// lighting. The logo goes before the long key frame, so a device error in
 /// that frame does not keep it from being sent.
@@ -245,7 +264,19 @@ fn lighting_commands(
     red: RedKeys,
 ) -> Result<Vec<Command>, ApplyError> {
     let brightness = Brightness::new(lighting.brightness).map_err(ApplyError::Brightness)?;
-    let mut commands = brightness.commands(model);
+    lighting_commands_at(lighting, brightness, model, red)
+}
+
+/// The lighting's commands with the keyboard at the level `keys`; the
+/// vapor light follows the saved level.
+fn lighting_commands_at(
+    lighting: Lighting,
+    keys: Brightness,
+    model: &ModelProfile,
+    red: RedKeys,
+) -> Result<Vec<Command>, ApplyError> {
+    let brightness = Brightness::new(lighting.brightness).map_err(ApplyError::Brightness)?;
+    let mut commands = keys.commands(model);
     if let Some(vapor) = model.vapor_light {
         commands.push(vapor.command(brightness, lighting.vapor_light));
     }
