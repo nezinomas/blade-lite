@@ -3,6 +3,7 @@
 
 use std::ffi::OsString;
 use std::io;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use platform::InstanceLock;
@@ -65,6 +66,14 @@ impl Task {
 /// it must not be ended, as it sends the quit preset as it ends. The
 /// installer script (`installer/blade-lite.iss`) holds it too.
 pub const STILL_QUITTING: u8 = 2;
+
+/// The exit code of a task that failed (an error or a panic): once a
+/// `--quit` may have asked, [`STILL_QUITTING`], as the copy may be quitting
+/// and must not be ended (ticket 235); before that, 1.
+#[must_use]
+pub const fn failed_task_code(asked: bool) -> u8 {
+    if asked { STILL_QUITTING } else { 1 }
+}
 
 /// What a start of `blade-lite.exe` does.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -142,7 +151,9 @@ pub struct QuitWait {
 /// by surprise. A copy that took the ask is quitting: it gets `wait.to_end`
 /// more, and is never reported as one that can be ended. Once it returns
 /// [`Quit::NoneRan`], [`Quit::Ended`] or [`Quit::EndedUnsent`], this copy
-/// holds the lock, so no new copy can start until it ends.
+/// holds the lock, so no new copy can start until it ends. It sets `asked`
+/// just before the ask, so even an error or a panic after it can be told
+/// from one before it (see [`failed_task_code`]).
 ///
 /// # Errors
 ///
@@ -153,11 +164,14 @@ pub struct QuitWait {
 pub fn quit_first(
     lock: &mut impl InstanceLock,
     wait: QuitWait,
+    asked: &AtomicBool,
     mut sleep: impl FnMut(Duration),
 ) -> io::Result<Quit> {
     if lock.claim()? {
         return Ok(Quit::NoneRan);
     }
+    // Before the call: a failed ask may still have been set.
+    asked.store(true, Ordering::SeqCst);
     lock.ask_first_to_quit()?;
     let ended = wait_for_the_lock(lock, wait.to_take, wait.every, &mut sleep);
     // Also after an end or an error: a copy that ended without taking the

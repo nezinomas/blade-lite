@@ -98,7 +98,7 @@ The look follows Windows 11 Settings, so the app feels like part of Windows.
   - 0: it worked.
   - 1: it failed.
   - 2 (`--quit` only): the copy may be quitting but has not ended within
-    140 s. Don't end it. Run `--quit` again until it gives 0 or 1, then
+    140 s, or an error came after the ask. Don't end it. Run `--quit` again until it gives 0 or 1, then
     run `--reset`.
 
   See [docs/recovery.md](docs/recovery.md).

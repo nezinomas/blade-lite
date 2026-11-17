@@ -27,15 +27,14 @@ struct FakeLock {
     quit_sent: bool,
     /// The claim with this number fails.
     fails_at: Option<u32>,
-    /// A look that fails.
+    /// A look, or the ask, that fails.
     look_fails: Option<Look>,
-    /// The ask to quit fails.
-    ask_fails: bool,
 }
 
-/// A look at the quit events.
+/// A look at the quit events, or the ask.
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Look {
+    Ask,
     TakeBack,
     Sent,
 }
@@ -57,7 +56,6 @@ impl FakeLock {
             quit_sent: true,
             fails_at: None,
             look_fails: None,
-            ask_fails: false,
         }
     }
 }
@@ -83,8 +81,8 @@ impl InstanceLock for FakeLock {
 
     fn ask_first_to_quit(&self) -> io::Result<()> {
         self.quits_asked.set(self.quits_asked.get() + 1);
-        if self.ask_fails {
-            return Err(io::ErrorKind::PermissionDenied.into());
+        if self.look_fails == Some(Look::Ask) {
+            return Err(failed_look());
         }
         Ok(())
     }
@@ -309,7 +307,7 @@ fn a_failed_first_claim_never_marks_an_ask() {
 #[test]
 fn an_ask_is_marked_even_if_it_fails_as_it_may_have_been_set() {
     let mut lock = FakeLock::new(true);
-    lock.ask_fails = true;
+    lock.look_fails = Some(Look::Ask);
 
     let (quit, _, asked) = quit_marked(&mut lock);
 

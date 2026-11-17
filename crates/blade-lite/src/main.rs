@@ -32,11 +32,13 @@ use std::cell::RefCell;
 use std::path::PathBuf;
 use std::process::ExitCode;
 use std::rc::Rc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
 use blade_core::{
     APP_NAME, Config, Launch, Log, POLL_INTERVAL, Quit, QuitWait, RESUME_PAUSE, STILL_QUITTING,
-    Start, Task, launch, quit_first, razer_software, razer_updater, razer_warning, start_instance,
+    Start, Task, failed_task_code, launch, quit_first, razer_software, razer_updater,
+    razer_warning, start_instance,
 };
 use blade_lite::{
     App, Machine, PollTime, SlowPolls, accent_colour, config_or_defaults, end_on_loop, icon,
@@ -107,14 +109,22 @@ fn show_if_failed(ran: Result<(), Box<dyn std::error::Error>>) -> ExitCode {
 
 /// Runs a task for an installer (ticket 148). It shows no box, so an
 /// installer that runs it is never held: the exit code says how it went
-/// (0 it worked, [`STILL_QUITTING`], else 1), and the log why.
+/// (0 it worked, [`STILL_QUITTING`], else 1), and the log why. An error or
+/// a panic after a `--quit` asked gives [`STILL_QUITTING`] (ticket 235).
 fn do_task(task: Task) -> ExitCode {
+    let asked = AtomicBool::new(false);
     let ran = open_the_log()
         .and_then(|_| limit_dll_search())
-        .and_then(|()| run_caught(move || run_task(task)));
+        .and_then(|()| run_caught(|| run_task(task, &asked)));
     ran.unwrap_or_else(|error| {
-        report(&format!("{}: {error}", task.flag()));
-        ExitCode::FAILURE
+        let asked = asked.load(Ordering::SeqCst);
+        let still = if asked {
+            ". The running copy may be quitting: do not end it. Run --quit again until it              gives 0 or 1, then run --reset"
+        } else {
+            ""
+        };
+        report(&format!("{}: {error}{still}", task.flag()));
+        ExitCode::from(failed_task_code(asked))
     })
 }
 
@@ -131,7 +141,7 @@ const QUIT_WAIT: QuitWait = QuitWait {
     every: Duration::from_millis(100),
 };
 
-fn run_task(task: Task) -> Result<ExitCode, Box<dyn std::error::Error>> {
+fn run_task(task: Task, asked: &AtomicBool) -> Result<ExitCode, Box<dyn std::error::Error>> {
     report(&format!(
         "{} starts, version {}",
         task.flag(),
@@ -139,7 +149,7 @@ fn run_task(task: Task) -> Result<ExitCode, Box<dyn std::error::Error>> {
     ));
     let mut instance = WindowsInstance::new(APP_NAME)?;
     match task {
-        Task::Quit => quit_running_copy(&mut instance),
+        Task::Quit => quit_running_copy(&mut instance, asked),
         Task::Reset => reset_alone(&mut instance).map(|()| ExitCode::SUCCESS),
     }
 }
@@ -148,10 +158,11 @@ fn run_task(task: Task) -> Result<ExitCode, Box<dyn std::error::Error>> {
 /// waits for it to end. Sends nothing itself.
 fn quit_running_copy(
     instance: &mut WindowsInstance,
+    asked: &AtomicBool,
 ) -> Result<ExitCode, Box<dyn std::error::Error>> {
     let take = QUIT_WAIT.to_take.as_secs();
     let all = (QUIT_WAIT.to_take + QUIT_WAIT.to_end).as_secs();
-    let (line, code) = match quit_first(instance, QUIT_WAIT, std::thread::sleep)? {
+    let (line, code) = match quit_first(instance, QUIT_WAIT, asked, std::thread::sleep)? {
         Quit::NoneRan => (
             "no copy of the app runs, so nothing was asked".to_owned(),
             ExitCode::SUCCESS,
