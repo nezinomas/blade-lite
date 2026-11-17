@@ -2297,16 +2297,22 @@ enum SetPhase {
 /// set is taken when it got a Success reply and the level read back is the
 /// one sent. Since the probe sends the level that is already there, a taken
 /// set shows the controller accepted it, not that it changed anything.
-/// Sets are few: none after one is taken in a wake, and none again before
-/// a read works after a failed step (`Device::send` never repeats a
-/// command whose result is not known).
+/// Sets are few: at most [`MAX_WAKE_SETS`] in a wake, none after one is
+/// taken, and none again before a read works after a failed step
+/// (`Device::send` never repeats a command whose result is not known).
 #[derive(Default)]
 struct WakeSet {
     wake: u32,
     phase: SetPhase,
+    /// Sets sent in this wake.
+    sets: u32,
     /// Steps that read back a level other than the one sent.
     odd: u32,
 }
+
+/// The most sets the wake set probe sends in one wake. After that its
+/// steps only read: three sets not taken already answer the question.
+const MAX_WAKE_SETS: u32 = 3;
 
 impl WakeSet {
     /// Starts each new wake with a set, unless a failed step still waits
@@ -2314,15 +2320,18 @@ impl WakeSet {
     fn begin(&mut self, wake: u32) {
         if wake != self.wake {
             self.wake = wake;
+            self.sets = 0;
             if self.phase == SetPhase::Taken {
                 self.phase = SetPhase::Send;
             }
         }
     }
 
-    /// Whether this step sends the set before it reads.
-    fn sends(&self) -> bool {
-        self.phase == SetPhase::Send
+    /// Whether this step sends the set before it reads; counts the set.
+    fn sends(&mut self) -> bool {
+        let sends = self.phase == SetPhase::Send && self.sets < MAX_WAKE_SETS;
+        self.sets += u32::from(sends);
+        sends
     }
 
     /// A set or read failed: if a set may have been sent, the next step
@@ -2345,9 +2354,17 @@ impl WakeSet {
                 self.odd += 1;
                 (false, format!("NOT TAKEN: set {sent}, read back {read}"))
             }
-            SetPhase::ReadAfterFailure => {
+            SetPhase::ReadAfterFailure if read == sent => {
                 self.phase = SetPhase::Send;
                 (false, format!("after a failed step: read {read}"))
+            }
+            SetPhase::ReadAfterFailure => {
+                self.phase = SetPhase::Send;
+                self.odd += 1;
+                (
+                    false,
+                    format!("LEVEL CHANGED after a failed step: read {read}, set {sent}"),
+                )
             }
             SetPhase::Taken if read == sent => (true, format!("read {read}")),
             SetPhase::Taken => {
@@ -2388,11 +2405,13 @@ fn keyboard_level(device: &mut Device<HidTransport, SystemClock>, led: u8) -> Re
 /// state and suspend values and Windows' power source, opens the controller
 /// and keeps that handle over the sleep (as the app does), and reads the
 /// keyboard level; it refuses to go on if that read fails. After each wake
-/// notice the first command is the set, then a read-back, as [`WakeSet`]
-/// says: once a set is taken, the steps only read; after a failed step the
-/// next one only reads, and the set goes once more after a read works. So
-/// a wake that works at once sends one set; one that fails sends at most
-/// one set for each two steps. Steps run at once and each 100 ms until 3 s
+/// notice the first command is the set (a read, if the last step before
+/// the sleep failed), then a read-back, as [`WakeSet`] says: once a set is
+/// taken, the steps only read; after a failed step the next one only
+/// reads, and the set goes once more after a read works; a set not taken
+/// goes again at the next step; and no more than [`MAX_WAKE_SETS`] sets go
+/// in one wake. So a wake that works at once sends one set, and any wake
+/// at most three. Steps run at once and each 100 ms until 3 s
 /// after the notice, or until 10 s when no set was taken by 3 s (as
 /// [`run_wake_steps`] says), and each prints its start, time taken and
 /// result. At the end it reads the level once more. Fails if no wake was
@@ -2859,6 +2878,34 @@ fn after_a_failed_set_one_read_comes_before_the_next_set() {
         (false, "after a failed step: read 128".into())
     );
     assert!(steps.sends());
+}
+
+#[test]
+fn no_more_than_three_sets_go_in_one_wake() {
+    let mut steps = WakeSet::default();
+    steps.begin(1);
+    for _ in 0..MAX_WAKE_SETS {
+        assert!(steps.sends());
+        steps.read(128, 0);
+    }
+    assert!(!steps.sends());
+    steps.begin(2);
+    assert!(steps.sends());
+}
+
+#[test]
+fn another_level_after_a_failed_step_is_marked() {
+    let mut steps = WakeSet::default();
+    steps.begin(1);
+    steps.failed();
+    assert_eq!(
+        steps.read(128, 64),
+        (
+            false,
+            "LEVEL CHANGED after a failed step: read 64, set 128".into()
+        )
+    );
+    assert_eq!(steps.odd, 1);
 }
 
 #[test]
