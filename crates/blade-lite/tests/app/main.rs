@@ -15,6 +15,7 @@ mod power_key;
 mod presets;
 mod props;
 mod rules;
+mod screen_off;
 mod settings;
 mod touchpad_key;
 mod weak_charge;

@@ -127,6 +127,11 @@ where
         let Some(saved) = self.config.lighting else {
             return Ok(false);
         };
+        // The app made the keys dark for a screen off: the level read is
+        // its own 0, not the user's (ticket 241).
+        if self.dark_keys.is_some() {
+            return Ok(false);
+        }
         let Some(read) = keyboard_brightness(&mut self.machine.controller, self.model)? else {
             return Ok(false);
         };
@@ -199,6 +204,8 @@ where
         let applied = apply_lighting(lighting, self.model, &mut self.machine.controller, red);
         self.key_red = applied.is_ok().then_some(red);
         applied?;
+        // The level just sent is the one to keep (ticket 241).
+        self.dark_keys = None;
         self.keep_sent(Config {
             lighting: Some(lighting),
             ..self.config

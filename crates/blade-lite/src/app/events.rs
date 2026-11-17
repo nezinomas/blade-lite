@@ -3,10 +3,10 @@
 
 use blade_core::{
     ApplyError, Config, Controller, DisplayError, Preset, Query, apply, apply_performance,
-    full_power_charger, paint_red_keys, touchpad_on,
+    full_power_charger, keyboard_brightness, paint_red_keys, touchpad_on,
 };
 use platform::{DisplayApi, KeyInjector, PowerEvent, Registry};
-use razer_proto::RedKeys;
+use razer_proto::{Brightness, RedKeys};
 
 use super::{App, AppError, NOT_UNDERSTOOD, Power};
 use crate::report;
@@ -21,7 +21,8 @@ where
     /// Reads the charge limit state, sends the saved settings, then reads
     /// the logo state they leave. The preset that runs in place of the
     /// saved one on battery is sent. The touchpad key is red in that frame
-    /// if the touchpad is off and Num Lock is off.
+    /// if the touchpad is off and Num Lock is off. Saved lighting lights
+    /// the keys again, so a level kept for a screen off is dropped then.
     ///
     /// # Errors
     ///
@@ -33,11 +34,76 @@ where
         let red = self.key_should_be_red();
         let applied = apply(&config, self.model, &mut self.machine.controller, red);
         self.key_red = applied.is_ok().then_some(red);
+        if applied.is_ok() && config.lighting.is_some() {
+            self.dark_keys = None;
+        }
         self.note_preset_send(&config, &applied);
         self.check_preset_if_sent(&config, &applied);
         self.note_fan_targets(&config, &applied);
         self.read_logo();
         Ok(applied?)
+    }
+
+    /// Makes the keys dark while Windows has the screen off, and puts their
+    /// level back once it is on (ticket 241). Windows turns the screen off
+    /// on its idle timeout long before any sleep notice (none at all on AC
+    /// with "sleep after" never), so the keys would stay lit (`NOTES.md`).
+    /// Only the keyboard's level is sent; the vapor light, colour, fans
+    /// and preset stay. The level is read first, so a level the user set
+    /// with Fn + F10 / F11 comes back too; a failed read, a model with no
+    /// level, or keys already dark send nothing. A failed send is tried
+    /// at the next look: the level is kept until it is back.
+    ///
+    /// # Errors
+    ///
+    /// See [`AppError`].
+    pub fn follow_screen(&mut self, screen_off: bool) -> Result<(), AppError> {
+        if screen_off {
+            self.darken_keys()
+        } else {
+            self.keys_back_on()
+        }
+    }
+
+    fn darken_keys(&mut self) -> Result<(), AppError> {
+        if self.dark_keys.is_some() {
+            return Ok(());
+        }
+        let Some(level) = keyboard_brightness(&mut self.machine.controller, self.model)? else {
+            return Ok(());
+        };
+        if level.percent() == 0 {
+            return Ok(());
+        }
+        // Kept before the send: one that fails may have gone in part.
+        self.dark_keys = Some(level);
+        let dark = Brightness::new(0).map_err(ApplyError::Brightness)?;
+        self.machine.controller.run(&dark.commands(self.model))?;
+        report(&format!(
+            "the screen is off, so the keyboard is dark (it was at {} %)",
+            level.percent()
+        ));
+        Ok(())
+    }
+
+    /// Puts back the keyboard's level kept for a screen off, if the app
+    /// made the keys dark: at the screen on, and at the quit, so the keys
+    /// are not left dark with no app.
+    ///
+    /// # Errors
+    ///
+    /// See [`AppError`]. The level is kept for the next try.
+    pub fn keys_back_on(&mut self) -> Result<(), AppError> {
+        let Some(level) = self.dark_keys else {
+            return Ok(());
+        };
+        self.machine.controller.run(&level.commands(self.model))?;
+        self.dark_keys = None;
+        report(&format!(
+            "the keyboard is lit again at {} %",
+            level.percent()
+        ));
+        Ok(())
     }
 
     /// Paints the touchpad key red if the touchpad is now off and Num Lock
@@ -130,10 +196,14 @@ where
         if event == PowerEvent::Suspending {
             return self.quit_preset();
         }
+        // The shell follows the screen with its state (`follow_screen`).
+        if event == PowerEvent::ScreenChanged {
+            return Ok(());
+        }
         self.held_rate_error = None;
         match event {
-            // Sent above.
-            PowerEvent::Suspending => Ok(()),
+            // Done above.
+            PowerEvent::Suspending | PowerEvent::ScreenChanged => Ok(()),
             PowerEvent::Resumed => {
                 // The rate follows even if the start fails.
                 let started = self.start();
