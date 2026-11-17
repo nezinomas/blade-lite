@@ -2284,13 +2284,15 @@ fn run_wake_steps(device: Device<HidTransport, SystemClock>, step: &mut WakeStep
 }
 
 /// Where the wake set probe is: send the set, read once after a failed
-/// step before it sends again, or only read after a set was taken.
+/// step before it sends again, only read after a set was taken, or only
+/// read after [`MAX_WAKE_SETS`] sets went with none taken.
 #[derive(Default, Clone, Copy, PartialEq, Eq, Debug)]
 enum SetPhase {
     #[default]
     Send,
     ReadAfterFailure,
     Taken,
+    Capped,
 }
 
 /// What the wake set probe sends and how it reads each step's result. A
@@ -2321,15 +2323,19 @@ impl WakeSet {
         if wake != self.wake {
             self.wake = wake;
             self.sets = 0;
-            if self.phase == SetPhase::Taken {
+            if matches!(self.phase, SetPhase::Taken | SetPhase::Capped) {
                 self.phase = SetPhase::Send;
             }
         }
     }
 
     /// Whether this step sends the set before it reads; counts the set.
+    /// Once [`MAX_WAKE_SETS`] went, the wake's steps only read.
     fn sends(&mut self) -> bool {
-        let sends = self.phase == SetPhase::Send && self.sets < MAX_WAKE_SETS;
+        if self.phase == SetPhase::Send && self.sets >= MAX_WAKE_SETS {
+            self.phase = SetPhase::Capped;
+        }
+        let sends = self.phase == SetPhase::Send;
         self.sets += u32::from(sends);
         sends
     }
@@ -2370,6 +2376,16 @@ impl WakeSet {
             SetPhase::Taken => {
                 self.odd += 1;
                 (true, format!("LEVEL CHANGED: read {read}, set {sent}"))
+            }
+            SetPhase::Capped if read == sent => {
+                (false, format!("read {read} (no set: {MAX_WAKE_SETS} went)"))
+            }
+            SetPhase::Capped => {
+                self.odd += 1;
+                (
+                    false,
+                    format!("LEVEL CHANGED, no set: read {read}, set {sent}"),
+                )
             }
         }
     }
@@ -2891,6 +2907,22 @@ fn no_more_than_three_sets_go_in_one_wake() {
     assert!(!steps.sends());
     steps.begin(2);
     assert!(steps.sends());
+}
+
+#[test]
+fn a_read_after_the_cap_is_not_a_taken_set() {
+    let mut steps = WakeSet::default();
+    steps.begin(1);
+    for _ in 0..MAX_WAKE_SETS {
+        steps.sends();
+        steps.read(128, 0);
+    }
+    assert!(!steps.sends());
+    assert_eq!(
+        steps.read(128, 128),
+        (false, "read 128 (no set: 3 went)".into())
+    );
+    assert!(!steps.sends());
 }
 
 #[test]
