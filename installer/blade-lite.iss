@@ -186,9 +186,9 @@ begin
       + #13#10#13#10 + 'Then click Retry.', mbError, MB_RETRYCANCEL) = IDRETRY;
 end;
 
-{ Ends every blade-lite.exe of this user. Only after a `--quit` that gave
-  no "still quitting": such a copy did not take the ask, or quit without
-  its preset, so the reset below sends it. }
+{ Ends every blade-lite.exe of this user. Only after a `--quit` that ran
+  and gave 1 while a copy still holds the lock: that copy did not take the
+  ask, so the reset below must then work. }
 procedure EndCopies();
 var
   Code: Integer;
@@ -212,13 +212,18 @@ begin
   Result := not CheckForMutexes(AppMutex);
 end;
 
+function ResetFailedText(Code: Integer): String;
+begin
+  Result := 'Blade Lite could not set the fans to auto (exit code ' + IntToStr(Code)
+    + '). It sends nothing while Razer software runs. Its log says why: '
+    + ExpandConstant('{userappdata}\blade-lite') + '.';
+end;
+
 procedure WarnResetFailed(Code: Integer);
 var
   Text: String;
 begin
-  Text := 'Blade Lite could not set the fans to auto (exit code ' + IntToStr(Code)
-    + '). It sends nothing while Razer software runs. Its log says why: '
-    + ExpandConstant('{userappdata}\blade-lite') + '.' + #13#10#13#10
+  Text := ResetFailedText(Code) + #13#10#13#10
     + 'If the fans stay fast or slow, see docs/recovery.md on the Blade Lite GitHub page.';
   Log(Text);
   if not Silent() then
@@ -227,10 +232,12 @@ end;
 
 { Ends the running copy so that it sends its quit preset, then sets the
   fans to auto (ticket 233). Exe must know --quit and --reset (ticket 148
-  or later). Returns '' when no copy runs any more, else why not. }
+  or later). Returns '' when no copy runs any more and the fans are safe,
+  else why not: the caller then stops, with nothing changed. }
 function StopApp(const Exe: String): String;
 var
   Code, Asks: Integer;
+  Clean: Boolean;
 begin
   Result := '';
   Asks := 0;
@@ -242,14 +249,29 @@ begin
       Exit;
     end;
   until Code <> QuitStillQuitting;
-  if Code <> QuitDone then
+  { An exe that did not start asked nothing: end no copy. }
+  if (Code <> QuitDone) and (Code <> 1) then begin
+    Result := 'Blade Lite could not be asked to quit (code ' + IntToStr(Code)
+      + '). Quit it from its tray menu, then run this again.';
+    Exit;
+  end;
+  { 0: no copy ran, or it quit with its preset sent. }
+  Clean := (Code = QuitDone) and not CheckForMutexes(AppMutex);
+  if (Code <> QuitDone) and CheckForMutexes(AppMutex) then
     EndCopies();
   if not LockFree() then begin
     Result := 'Blade Lite is still running. Quit it from its tray menu, then run this again.';
     Exit;
   end;
   Code := RunApp(Exe, ResetFlag);
-  if Code <> 0 then
+  if Code = 0 then
+    Exit;
+  { A copy that quit without its preset, or was ended, may have left a
+    manual fan: stop rather than go on without the reset. }
+  if not Clean then
+    Result := ResetFailedText(Code) + #13#10#13#10
+      + 'Start Blade Lite and pick Balanced, then run this again.'
+  else
     WarnResetFailed(Code);
 end;
 

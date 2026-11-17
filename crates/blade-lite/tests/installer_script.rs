@@ -132,6 +132,11 @@ fn iscc() -> Option<PathBuf> {
 #[test]
 fn the_script_compiles() {
     let Some(iscc) = iscc() else {
+        // GitHub's Windows runners have it: there a missing one is a fault.
+        assert!(
+            std::env::var_os("CI").is_none(),
+            "Inno Setup 6 not found on CI"
+        );
         eprintln!("Inno Setup 6 not found: the installer script was not compiled");
         return;
     };
