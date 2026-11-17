@@ -24,8 +24,8 @@ jobs:
 
   release:
     needs: deny
-    # A named image, so an image change can't change the Inno Setup that
-    # builds the installer unseen (`windows-latest` moves).
+    # A named image, not `windows-latest`. Its Inno Setup can still change
+    # with image updates; the Installer step's log shows its version.
     runs-on: windows-2025
     permissions:
       # To make the draft release.

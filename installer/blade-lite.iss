@@ -293,7 +293,8 @@ begin
   if Result <> '' then
     Exit;
   { A `--quit` that failed after its ask (an error gives 1) may have left a
-    copy quitting: ask once more, which then gives 2 or 0. }
+    copy quitting: ask once more, which then gives 2 or 0. A 1 again is a
+    copy that can't hear the ask, which is then ended. }
   if (Code = QuitFailed) and CheckForMutexes(AppMutex) then begin
     Result := AskToQuit(Exe, Code);
     if Result <> '' then
