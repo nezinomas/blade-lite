@@ -242,8 +242,9 @@ There is no release yet. When there is, download
 
 To uninstall, use Settings > Apps > Installed apps > Blade Lite. It quits
 Blade Lite and sets the fans to auto as an upgrade does, removes the
-autostart, and asks whether to keep your settings and the log
-(`%APPDATA%\blade-lite`). A silent uninstall keeps them. These stay as
+autostart, and asks whether to delete your settings and the log
+(`%APPDATA%\blade-lite`); only Yes deletes them. A silent uninstall keeps
+them. These stay as
 they are:
 
 - The laptop keeps the charge limit, the keyboard colour and the screen's

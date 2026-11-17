@@ -39,6 +39,8 @@ UninstallDisplayName=Blade Lite
 OutputDir=..\target\installer
 OutputBaseFilename=blade-lite-setup-{#AppVersion}
 SetupLogging=yes
+; The uninstall's log (%TEMP%\Uninstall Log *.txt) keeps its box answers.
+UninstallLogging=yes
 WizardStyle=modern
 Compression=lzma2
 SolidCompression=yes
@@ -350,17 +352,19 @@ begin
   end;
 end;
 
-{ Asks whether to keep the settings and the log (ticket 78). A silent
-  uninstall keeps them. }
+{ Asks whether to delete the settings and the log (ticket 78). Only Yes
+  deletes; No is the default button. A silent uninstall keeps them. }
 procedure AskToRemoveSettings();
 var
   Folder: String;
 begin
   Folder := ExpandConstant('{userappdata}\blade-lite');
   if DirExists(Folder) and not Silent() then
-    if MsgBox('Keep your Blade Lite settings and log?' + #13#10#13#10 + Folder + #13#10#13#10
-      + 'Click No to delete them.', mbConfirmation, MB_YESNO) = IDNO then
+    if MsgBox('Delete your Blade Lite settings and log too?' + #13#10#13#10 + Folder + #13#10#13#10
+      + 'Yes deletes them. No keeps them.', mbConfirmation, MB_YESNO or MB_DEFBUTTON2) = IDYES then begin
+      Log('Deleting ' + Folder);
       DelTree(Folder, True, True, True);
+    end;
 end;
 
 procedure ShowWhatStays();
