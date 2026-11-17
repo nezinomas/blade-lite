@@ -6,7 +6,7 @@ use std::sync::mpsc::{Receiver, TryRecvError};
 use std::time::{Duration, Instant, SystemTime};
 
 use blade_core::{GUARD_HEAT_INTERVAL, HEAT_INTERVAL, RESUME_PAUSE, Readings};
-use blade_lite::{AppError, PollTime, StepTime, report};
+use blade_lite::{AppError, PollTime, StepTime, TouchpadLook, report};
 use platform::PowerEvent;
 use razer_device::{CONTROLLER_CLOSED, CONTROLLER_OPENED_AGAIN};
 use slint::{ComponentHandle, Timer};
@@ -113,6 +113,7 @@ impl<P: Parts> Shell<P> {
             self.retry_battery_rate();
         }
         self.follow_num_lock(P::num_lock_on());
+        self.log_touchpad_sources();
         // A failed read keeps the last state, so a flaky read can't
         // send a frame each poll.
         if let Some(muted) = P::mic_muted() {
@@ -434,6 +435,27 @@ impl<P: Parts> Shell<P> {
         let painted = self.app.borrow_mut().on_num_lock(on);
         if !matches!(painted, Ok(false)) {
             self.act(|_| painted.map(|_| ()));
+        }
+    }
+
+    /// Logs what the registry and Windows' touchpad API say, with Num Lock
+    /// and how the touchpad key was last painted, when one changes (ticket
+    /// 239). Only reads and logs.
+    fn log_touchpad_sources(&self) {
+        let look = {
+            let app = self.app.borrow();
+            TouchpadLook {
+                registry: app.touchpad_on(),
+                api: P::touchpad_api_on(),
+                num_lock: app.num_lock_on(),
+                key_red: app.touchpad_key_red(),
+            }
+        };
+        let mut sources = self.touchpad_sources.get();
+        let line = sources.line(look, self.tick_now.get());
+        self.touchpad_sources.set(sources);
+        if let Some(line) = line {
+            report(&line);
         }
     }
 
