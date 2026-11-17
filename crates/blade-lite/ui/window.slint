@@ -14,6 +14,8 @@ import { AboutGroup, SettingsGroup } from "settings.slint";
 export { Choice, SliderRow, Stat, SwatchItem }
 
 export component MainWindow inherits Window {
+    // The crate's version, set by Rust (ticket 249).
+    in property <string> version;
     // Header
     in property <string> device;
     in property <string> power;
@@ -168,7 +170,9 @@ export component MainWindow inherits Window {
                 reset-settings => { root.reset-settings(); }
             }
 
-            about := AboutGroup {}
+            about := AboutGroup {
+                version: root.version;
+            }
 
             // Takes the spare height, so the groups keep their own.
             Rectangle { vertical-stretch: 1; }

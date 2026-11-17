@@ -211,6 +211,21 @@ fn the_window_shows_the_slint_credit() {
     assert!(shown(&f, "#MadeWithSlint"));
 }
 
+/// Ticket 249: About shows the crate's version, the one the installer
+/// takes from the exe, and the credit.
+#[test]
+fn about_shows_the_version_and_the_credit() {
+    let f = fixture(Config::default());
+
+    click(f.shell.window(), Button, "About");
+
+    assert!(shown(
+        &f,
+        &format!("Blade Lite {}", env!("CARGO_PKG_VERSION"))
+    ));
+    assert!(shown(&f, "Vibe coded with Claude Code"));
+}
+
 /// Ticket 227: the Settings and About groups start closed.
 #[test]
 fn the_settings_and_about_groups_start_closed() {

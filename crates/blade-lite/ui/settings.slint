@@ -42,15 +42,21 @@ export component SettingsGroup inherits VerticalLayout {
     }
 }
 
-// The Slint credit, which Slint's royalty-free licence asks for (ticket 95).
-// It shows when the user opens the About group.
+// The app's version and credit (ticket 249), and the Slint credit, which
+// Slint's royalty-free licence asks for (ticket 95). They show when the
+// user opens the About group.
 export component AboutGroup inherits VerticalLayout {
+    in property <string> version;
     in-out property <bool> open: false;
     spacing: 4px;
 
     GroupHeader {
         text: "About";
         open <=> root.open;
+    }
+    if root.open: Row {
+        title: "Blade Lite " + root.version;
+        note: "Vibe coded with Claude Code";
     }
     if root.open: Card {
         vertical-stretch: 0;
