@@ -248,3 +248,24 @@ fn no_guess_at_the_other_slot_while_razer_software_runs() {
 
     assert_eq!(sent(&f), []);
 }
+
+#[test]
+fn no_guess_at_the_other_slot_at_a_quit_while_razer_software_runs() {
+    let f = lit_fixture();
+    screen(&f, false);
+    razer_runs(&f);
+    super::FAKE_ON_BATTERY.set(true);
+    power(&f, &[PowerEvent::OnBattery]);
+    f.shell
+        .app()
+        .machine_mut()
+        .controller
+        .inner
+        .brightness_level = Some(0);
+    forget_sent(&f);
+
+    f.shell.quit();
+
+    let levels = level(100);
+    assert!(!sent(&f).iter().any(|command| levels.contains(command)));
+}

@@ -141,8 +141,9 @@ where
     /// lit then too (lit keys are the safe side). Never with the lighting
     /// saved: its send at the charger change puts each slot right, and a
     /// saved 0 is the user's. The shell drops it while Razer's software
-    /// runs. The level is used once, whichever slot it lands in. A failed read is an error, so the next look
-    /// reads again.
+    /// runs at the put-back (as last looked, up to 60 s old), not for a
+    /// run that has ended. The level is used once, whichever slot it lands
+    /// in. A failed read is an error, so the next look reads again.
     fn left_dark_in_use(&mut self) -> Result<Option<Brightness>, AppError> {
         let Some((_, level)) = self.left_dark else {
             return Ok(None);
