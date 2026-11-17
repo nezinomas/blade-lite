@@ -170,3 +170,35 @@ fn keys_made_dark_before_razer_software_came_are_still_lit() {
 
     assert_eq!(sent(&f), level(100));
 }
+
+#[test]
+fn a_held_controller_waits_for_its_release_to_light_the_keys() {
+    let f = lit_fixture();
+    screen(&f, false);
+    f.shell.app().hold_controller(true);
+    let runs = f.shell.app().machine().controller.inner.runs;
+
+    screen(&f, true);
+    assert_eq!(f.shell.app().machine().controller.inner.runs, runs);
+
+    f.shell.app().hold_controller(false);
+    forget_sent(&f);
+    f.shell.follow_own_power();
+    assert_eq!(sent(&f), level(100));
+}
+
+#[test]
+fn a_screen_change_read_before_a_sleep_in_one_look_sends_nothing() {
+    // The sleep notice forgot the screen, which then reads as on: the keys
+    // stay dark for the sleep.
+    let f = lit_fixture();
+    screen(&f, false);
+    FAKE_SCREEN_ON.set(None);
+    forget_sent(&f);
+
+    power(&f, &[PowerEvent::ScreenChanged, PowerEvent::Suspending]);
+
+    let lit = level(100);
+    let sent = sent(&f);
+    assert!(!sent.windows(lit.len()).any(|run| run == lit), "{sent:?}");
+}

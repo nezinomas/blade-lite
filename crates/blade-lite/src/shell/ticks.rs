@@ -545,6 +545,12 @@ impl<P: Parts> Shell<P> {
                 report("the sleep was read only after the wake, so nothing was sent for it");
                 continue;
             }
+            // The sleep notice forgot the screen, so it would read as on
+            // and light keys made dark just before the sleep (ticket 241).
+            if event == PowerEvent::ScreenChanged && events[at..].contains(&PowerEvent::Suspending)
+            {
+                continue;
+            }
             self.power_event(event);
         }
         more
@@ -617,13 +623,17 @@ impl<P: Parts> Shell<P> {
             // Busy: the next poll or click looks again.
             return;
         };
-        if app.screen_followed(screen_off) {
+        // Held for an updater: its end looks again.
+        if app.screen_followed(screen_off) || app.controller_held() {
             return;
         }
-        if let Err(error) = app.follow_screen(screen_off) {
-            report(&format!(
+        match app.follow_screen(screen_off) {
+            Ok(()) => self.screen_error_logged.set(false),
+            // Once until one works: a failed put-back is tried each poll.
+            Err(error) if !self.screen_error_logged.replace(true) => report(&format!(
                 "the keyboard could not follow the screen: {error}"
-            ));
+            )),
+            Err(_) => {}
         }
     }
 
