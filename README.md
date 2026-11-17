@@ -219,9 +219,22 @@ cargo fmt --all --check && cargo clippy --workspace --all-targets -- -D warnings
 
 ## Install
 
-There is no release yet. When there is, download
-`blade-lite-setup-<version>.exe` from the GitHub Releases page and run it.
-`SHA256SUMS.txt` beside it holds the files' SHA-256 sums.
+To install, build it on your own PC, or ask the owner of this repo for the
+installer. The installer is not published here.
+
+To build it, you need Rust (1.92 or newer) and Inno Setup 6. Put the version
+from `Cargo.toml` in `AppVersion`:
+
+```powershell
+cargo build --release --locked -p blade-lite
+& "$env:LOCALAPPDATA\Programs\Inno Setup 6\ISCC.exe" /DAppVersion=0.1.0 installer\blade-lite.iss
+```
+
+That is where `winget install --id JRSoftware.InnoSetup -e --scope user`
+puts Inno Setup. A machine-wide install has it in
+`C:\Program Files (x86)\Inno Setup 6`.
+
+Then run `target\installer\blade-lite-setup-<version>.exe`.
 
 - It installs for your Windows user only, with no admin rights, into
   `%LOCALAPPDATA%\Programs\Blade Lite`, and adds a Start menu item.
@@ -254,17 +267,16 @@ they are:
   `tools\Block-RazerDriverUpdates.ps1 -Undo` to show them again.
 - If you turned USB suspend off, run `tools\Set-RazerUsbSuspend.ps1 -Undo`.
 
-### Unsigned releases and SmartScreen
+### Unsigned installer and SmartScreen
 
-Releases are **not code-signed** for now. Windows SmartScreen may show
-"Windows protected your PC" the first time you run the installer.
+The installer is **not code-signed**. Windows SmartScreen may show
+"Windows protected your PC" the first time you run it.
 
 1. Click **More info**.
 2. Click **Run anyway**.
 
-Only do this for files from this repo's Releases page. We plan to apply to
-SignPath Foundation (free signing for open source). If accepted, releases will
-be signed. winget comes after the first signed release.
+Only do this for an installer you built yourself or got from the owner of
+this repo.
 
 ### Removing Synapse
 

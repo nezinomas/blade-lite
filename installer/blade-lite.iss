@@ -1,6 +1,7 @@
 ; The Blade Lite installer (stage 39, tickets 78 and 233), for Inno Setup 6.
 ; Per user, no admin. Build: ISCC /DAppVersion=x.y.z installer\blade-lite.iss
-; (release.yml does it). Upgrade and uninstall end the running copy with
+; after `cargo build --release --locked -p blade-lite` (README, "Install").
+; Upgrade and uninstall end the running copy with
 ; `blade-lite.exe --quit`, so it sends its quit preset, then set the fans
 ; to auto with `--reset` (README, "For an installer").
 
