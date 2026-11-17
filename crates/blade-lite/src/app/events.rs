@@ -114,7 +114,7 @@ where
     ///
     /// See [`AppError`]. The level is kept for the next try.
     pub fn keys_back_on(&mut self) -> Result<(), AppError> {
-        let Some(level) = self.dark_keys else {
+        let Some(level) = self.dark_keys.or_else(|| self.left_dark_in_use()) else {
             return Ok(());
         };
         self.machine.controller.run(&level.commands(self.model))?;
@@ -124,6 +124,19 @@ where
             level.percent()
         ));
         Ok(())
+    }
+
+    /// The level kept for the other slot, if the slot in use reads 0: the
+    /// controller swaps on its own time, up to 0.6 s or more before or
+    /// after Windows' notice (tickets 242, 243), so the slot the app made
+    /// dark may still be, or already be, the one in use. A user's own 0 is
+    /// lit then too (lit keys are the safe side). A failed read keeps it.
+    fn left_dark_in_use(&mut self) -> Option<Brightness> {
+        let (_, level) = self.left_dark?;
+        match keyboard_brightness(&mut self.machine.controller, self.model) {
+            Ok(Some(read)) if read.percent() == 0 => Some(level),
+            _ => None,
+        }
     }
 
     /// Paints the touchpad key red if the touchpad is now off and Num Lock

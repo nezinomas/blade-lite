@@ -346,6 +346,50 @@ fn a_charger_found_gone_before_a_sleep_keeps_the_ac_slot_level() {
 }
 
 #[test]
+fn a_quit_before_a_late_swap_puts_the_dark_slots_level_back() {
+    // Windows says battery, but the controller still runs the AC slot.
+    let (mut app, _dir, _) = app();
+    lit_at(&mut app, 255);
+    app.follow_screen(true).unwrap();
+    app.battery_at_quit();
+    lit_at(&mut app, 0);
+    forget_sent(&mut app);
+
+    app.keys_back_on().unwrap();
+
+    assert_eq!(sent(&app), level(100));
+}
+
+#[test]
+fn a_screen_off_look_after_an_early_swap_still_puts_the_level_back() {
+    // The swap came before Windows' notice: the look darkened the new
+    // slot, which the notice then files under the old one.
+    let (mut app, _dir, _) = app();
+    lit_at(&mut app, 102);
+    app.follow_screen(true).unwrap();
+    power(&mut app, PowerEvent::OnBattery);
+    app.follow_screen(true).unwrap();
+    forget_sent(&mut app);
+
+    app.follow_screen(false).unwrap();
+
+    assert_eq!(sent(&app), level(40));
+}
+
+#[test]
+fn a_lit_slot_in_use_gets_nothing_from_the_other_slot() {
+    let (mut app, _dir, _) = app();
+    lit_at(&mut app, 255);
+    app.follow_screen(true).unwrap();
+    app.battery_at_quit();
+    forget_sent(&mut app);
+
+    app.keys_back_on().unwrap();
+
+    assert_eq!(sent(&app), []);
+}
+
+#[test]
 fn an_unknown_source_read_follows_no_slot() {
     let (mut app, _dir, _) = app();
     lit_at(&mut app, 255);
@@ -356,6 +400,22 @@ fn an_unknown_source_read_follows_no_slot() {
     app.follow_screen(false).unwrap();
 
     assert_eq!(sent(&app), level(100));
+}
+
+#[test]
+fn an_unknown_source_read_drops_a_kept_slot_level() {
+    let (mut app, _dir, _) = app();
+    lit_at(&mut app, 255);
+    app.follow_screen(true).unwrap();
+    power(&mut app, PowerEvent::OnBattery);
+    app.take_on_battery(None);
+    app.take_on_battery(Some(false));
+    lit_at(&mut app, 0);
+    forget_sent(&mut app);
+
+    app.follow_screen(false).unwrap();
+
+    assert_eq!(sent(&app), []);
 }
 
 #[test]
@@ -439,4 +499,15 @@ fn a_fn_press_while_the_send_waits_saves_nothing() {
 
     assert_eq!(sent(&app), []);
     assert_eq!(app.config().lighting.unwrap().brightness, 30);
+}
+
+#[test]
+fn a_start_after_a_charger_change_leaves_no_send_due() {
+    // A pause's end sends all settings, the lighting too.
+    let (mut app, _dir, _) = lit_app();
+    app.on_power(PowerEvent::OnBattery).unwrap();
+
+    app.start().unwrap();
+
+    assert!(!app.source_lighting_due());
 }

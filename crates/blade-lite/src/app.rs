@@ -320,6 +320,10 @@ where
         let swapped = self.source_known && on_battery.is_some_and(|now| now != self.on_battery());
         self.power = Power::from_battery(on_battery.unwrap_or(true));
         self.source_known = on_battery.is_some();
+        // A swap may go unseen now: a kept level could be stale later.
+        if on_battery.is_none() {
+            self.left_dark = None;
+        }
         if swapped {
             self.follow_dark_slots();
         }
