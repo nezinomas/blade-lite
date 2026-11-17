@@ -3381,6 +3381,65 @@ fn no_resend_while_razer_software_runs() {
     assert_eq!(sent_since(&f, sent), []);
 }
 
+/// The keyboard level writes (`0303`, LED `05`) since `before`.
+fn keyboard_level_writes(f: &Fixture, before: usize) -> usize {
+    sent_since(f, before)
+        .iter()
+        .filter(|command| command.id == 0x0303 && command.args.get(1) == Some(&0x05))
+        .count()
+}
+
+/// A fixture with lighting saved, listening for power events.
+fn lit_fixture_with_power() -> (Fixture, std::sync::mpsc::Sender<PowerEvent>) {
+    let f = fixture(Config {
+        lighting: Some(blade_core::Lighting {
+            brightness: 30,
+            colour: razer_proto::Rgb::new(0xFF, 0xFF, 0xFF),
+            vapor_light: true,
+        }),
+        ..Config::default()
+    });
+    let (sender, receiver) = std::sync::mpsc::channel();
+    f.shell.listen_for_power(receiver);
+    (f, sender)
+}
+
+#[test]
+fn charger_changes_before_a_tick_send_the_lighting_once() {
+    let (f, sender) = lit_fixture_with_power();
+    FAKE_ON_BATTERY.set(true);
+    for event in [
+        PowerEvent::OnBattery,
+        PowerEvent::OnAc,
+        PowerEvent::OnBattery,
+    ] {
+        sender.send(event).unwrap();
+    }
+    let before = sent_count(&f);
+
+    f.shell.tick();
+    f.shell.tick();
+
+    assert_eq!(keyboard_level_writes(&f, before), 1);
+}
+
+#[test]
+fn no_lighting_at_a_charger_change_while_razer_software_runs() {
+    let (f, sender) = lit_fixture_with_power();
+    f.shell.programs().set(&["Razer Synapse Service"]);
+    f.shell.look_for_razer();
+    FAKE_ON_BATTERY.set(true);
+    sender.send(PowerEvent::OnBattery).unwrap();
+    let before = sent_count(&f);
+
+    f.shell.tick();
+    f.shell.programs().set(&[]);
+    f.shell.look_for_razer();
+    f.shell.tick();
+
+    assert_eq!(keyboard_level_writes(&f, before), 0);
+}
+
 #[test]
 fn with_no_power_events_an_unknown_source_changes_nothing() {
     let f = fixture(Config {

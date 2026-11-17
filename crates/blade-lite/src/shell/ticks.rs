@@ -524,7 +524,29 @@ impl<P: Parts> Shell<P> {
         {
             self.follow_source();
         }
+        self.follow_source_lighting();
         self.follow_screen();
+    }
+
+    /// Sends the saved lighting once after the charger changes this look
+    /// took (ticket 244), so a bouncing plug sends it once. Dropped in a
+    /// pause (its end sends all settings), while Razer's software runs (it
+    /// may write its own lighting then) and while an updater holds the
+    /// controller (its end sends all settings).
+    fn follow_source_lighting(self: &Rc<Self>) {
+        let allowed = self.heat_reads_allowed();
+        let Ok(mut app) = self.app.try_borrow_mut() else {
+            // Busy: the next poll or click looks again.
+            return;
+        };
+        if !app.source_lighting_due() {
+            return;
+        }
+        if !allowed || app.controller_held() {
+            app.forget_source_lighting();
+            return;
+        }
+        app.send_source_lighting();
     }
 
     /// Acts on the power events that came since the last look. Returns

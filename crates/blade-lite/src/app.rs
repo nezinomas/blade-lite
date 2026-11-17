@@ -198,6 +198,9 @@ pub struct App<C, D, R, K> {
     /// looks again only after a change, a failed put-back or a send of
     /// the saved lighting. `None` until the first look.
     keys_follow: Option<bool>,
+    /// The source (on battery or not) a charger change asks the saved
+    /// lighting again for (ticket 244).
+    source_lighting_due: Option<bool>,
 }
 
 impl<C, D, R, K> App<C, D, R, K>
@@ -247,6 +250,7 @@ where
             preset_check: PresetCheck::Unknown,
             dark_keys: None,
             keys_follow: None,
+            source_lighting_due: None,
         }
     }
 
@@ -729,6 +733,7 @@ where
     fn keys_lit_by_lighting(&mut self) {
         self.dark_keys = None;
         self.keys_follow = None;
+        self.source_lighting_due = None;
     }
 
     fn lighting(&self) -> Lighting {
