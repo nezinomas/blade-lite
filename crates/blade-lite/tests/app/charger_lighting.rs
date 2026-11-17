@@ -185,14 +185,44 @@ fn the_lighting_goes_after_the_battery_preset() {
 }
 
 #[test]
-fn a_failed_send_is_only_logged() {
+fn a_failed_send_is_tried_again_at_the_next_look() {
     let (mut app, _dir, _) = lit_app();
     app.on_power(PowerEvent::OnBattery).unwrap();
     app.machine_mut().controller.inner.fails = true;
+    app.send_source_lighting();
+    app.machine_mut().controller.inner.fails = false;
+    forget_sent(&mut app);
 
     app.send_source_lighting();
 
+    assert_eq!(sent(&app), lighting_commands(30, WHITE));
+}
+
+#[test]
+fn a_send_that_keeps_failing_is_given_up_after_its_tries() {
+    let (mut app, _dir, _) = lit_app();
+    app.on_power(PowerEvent::OnBattery).unwrap();
+    app.machine_mut().controller.inner.fails = true;
+    for _ in 0..blade_lite::SOURCE_LIGHTING_TRIES {
+        assert!(app.source_lighting_due());
+        app.send_source_lighting();
+    }
+
     assert!(!app.source_lighting_due());
+}
+
+#[test]
+fn a_new_slot_the_user_set_to_0_stays_dark_with_nothing_to_put_back() {
+    let (mut app, _dir, _) = app();
+    lit_at(&mut app, 255);
+    app.follow_screen(true).unwrap();
+    lit_at(&mut app, 0);
+    forget_sent(&mut app);
+
+    power(&mut app, PowerEvent::OnBattery);
+    app.follow_screen(false).unwrap();
+
+    assert_eq!(sent(&app), []);
 }
 
 #[test]

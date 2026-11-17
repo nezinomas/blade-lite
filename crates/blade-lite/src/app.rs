@@ -36,6 +36,10 @@ fn firmware_text(version: FirmwareVersion) -> String {
 /// next power event or change sends it.
 pub const RESEND_TRIES: u8 = 3;
 
+/// How many times the lighting after a charger change is sent before it is
+/// given up until the next change, wake or click (ticket 244).
+pub const SOURCE_LIGHTING_TRIES: u8 = 3;
+
 /// What the window shows before the user sets the lighting.
 const DEFAULT_LIGHTING: Lighting = Lighting {
     brightness: 100,
@@ -198,9 +202,9 @@ pub struct App<C, D, R, K> {
     /// looks again only after a change, a failed put-back or a send of
     /// the saved lighting. `None` until the first look.
     keys_follow: Option<bool>,
-    /// The source (on battery or not) a charger change asks the saved
-    /// lighting again for (ticket 244).
-    source_lighting_due: Option<bool>,
+    /// The tries left of the lighting a charger change asks for again
+    /// (ticket 244); `None` when none is due.
+    source_lighting_due: Option<u8>,
 }
 
 impl<C, D, R, K> App<C, D, R, K>

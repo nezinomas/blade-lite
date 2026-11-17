@@ -534,6 +534,8 @@ impl<P: Parts> Shell<P> {
     /// may write its own lighting then) and while an updater holds the
     /// controller (its end sends all settings).
     fn follow_source_lighting(self: &Rc<Self>) {
+        // No pause and no Razer software: the same rule as the heat reads,
+        // kept in step on purpose (both stay off the controller then).
         let allowed = self.heat_reads_allowed();
         let Ok(mut app) = self.app.try_borrow_mut() else {
             // Busy: the next poll or click looks again.
