@@ -3252,7 +3252,11 @@ fn lights_read<C: Clock>(
     let effect = device
         .send(GET_EFFECT, &query)
         .map_err(|error| format!("{error:?}"))?;
-    Ok((levels, effect.args().to_vec()))
+    let args = effect.args();
+    if args.len() != EFFECT_ARGS || !args.starts_with(&[1, 5]) {
+        return Err(format!("effect reply {args:02X?}"));
+    }
+    Ok((levels, args.to_vec()))
 }
 
 /// Ticket 242: after a charger pull in a Start-menu sleep, Windows woke
@@ -3275,7 +3279,11 @@ fn lights_read<C: Clock>(
 /// fails. Then each second it reads [`KeysRead`] and prints it when it
 /// differs from the last, and prints each power notice; it answers each
 /// sleep notice at once. After a failed read it opens the controller again
-/// at the next second. It ends after 5 min awake with no sleep notice
+/// at the next second, and says so. Unlike the app, it reads at once after
+/// a wake (no 2 s pause) and each second, so the USB device never reaches
+/// its idle sleep (ticket 202) while Windows is awake: a run that shows no
+/// change does not clear the controller for the app's traffic. It ends
+/// after 5 min awake with no sleep notice
 /// (counted in ticks of at most 2 s, so the time asleep does not count).
 /// Fails if no wake was seen or Windows' power source never changed.
 #[test]
@@ -3331,6 +3339,9 @@ fn the_keys_across_a_charger_pull_in_a_sleep() {
             device = HidTransport::open(&razer_proto::BLADE_18)
                 .ok()
                 .map(|transport| Device::new(transport, SystemClock));
+            if device.is_some() {
+                eprintln!("{}  the controller is open again", utc_now());
+            }
         }
         let lights = device.as_mut().map_or_else(
             || Err("the controller did not open".to_owned()),
