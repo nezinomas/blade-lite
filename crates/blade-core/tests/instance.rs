@@ -3,9 +3,13 @@
 use std::cell::Cell;
 use std::ffi::OsString;
 use std::io;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
-use blade_core::{Launch, Quit, QuitWait, Start, Task, launch, quit_first, start_instance};
+use blade_core::{
+    Launch, Quit, QuitWait, STILL_QUITTING, Start, Task, failed_task_code, launch, quit_first,
+    start_instance,
+};
 use platform::InstanceLock;
 
 /// A lock that another copy may already hold.
@@ -25,6 +29,8 @@ struct FakeLock {
     fails_at: Option<u32>,
     /// A look that fails.
     look_fails: Option<Look>,
+    /// The ask to quit fails.
+    ask_fails: bool,
 }
 
 /// A look at the quit events.
@@ -51,6 +57,7 @@ impl FakeLock {
             quit_sent: true,
             fails_at: None,
             look_fails: None,
+            ask_fails: false,
         }
     }
 }
@@ -76,6 +83,9 @@ impl InstanceLock for FakeLock {
 
     fn ask_first_to_quit(&self) -> io::Result<()> {
         self.quits_asked.set(self.quits_asked.get() + 1);
+        if self.ask_fails {
+            return Err(io::ErrorKind::PermissionDenied.into());
+        }
         Ok(())
     }
 
@@ -138,12 +148,19 @@ const WAIT: QuitWait = QuitWait {
 
 /// Runs `quit_first` with a sleep that only counts the sleeps.
 fn quit(lock: &mut FakeLock) -> (io::Result<Quit>, u32) {
+    let (quit, sleeps, _) = quit_marked(lock);
+    (quit, sleeps)
+}
+
+/// As [`quit`], and whether it marked the ask as made.
+fn quit_marked(lock: &mut FakeLock) -> (io::Result<Quit>, u32, bool) {
+    let asked = AtomicBool::new(false);
     let mut sleeps = 0;
-    let quit = quit_first(lock, WAIT, |pause| {
+    let quit = quit_first(lock, WAIT, &asked, |pause| {
         assert_eq!(pause, EVERY);
         sleeps += 1;
     });
-    (quit, sleeps)
+    (quit, sleeps, asked.load(Ordering::SeqCst))
 }
 
 #[test]
@@ -272,6 +289,57 @@ fn a_failed_claim_after_the_ask_takes_the_ask_back() {
     assert!(quit(&mut lock).0.is_err());
     assert_eq!(lock.quits_asked.get(), 1);
     assert_eq!(lock.quits_taken_back.get(), 1);
+}
+
+#[test]
+fn a_quit_with_no_copy_running_never_marks_an_ask() {
+    let mut lock = FakeLock::new(false);
+
+    assert!(!quit_marked(&mut lock).2);
+}
+
+#[test]
+fn a_failed_first_claim_never_marks_an_ask() {
+    let mut lock = FakeLock::new(true);
+    lock.fails_at = Some(1);
+
+    assert!(!quit_marked(&mut lock).2);
+}
+
+#[test]
+fn an_ask_is_marked_even_if_it_fails_as_it_may_have_been_set() {
+    let mut lock = FakeLock::new(true);
+    lock.ask_fails = true;
+
+    let (quit, _, asked) = quit_marked(&mut lock);
+
+    assert!(quit.is_err());
+    assert!(asked);
+}
+
+#[test]
+fn an_error_after_the_ask_comes_with_the_ask_marked() {
+    for look in [None, Some(Look::Sent)] {
+        let mut lock = FakeLock::new(true);
+        lock.frees_after = look.map(|_| 1);
+        lock.fails_at = look.is_none().then_some(3);
+        lock.look_fails = look;
+
+        let (quit, _, asked) = quit_marked(&mut lock);
+
+        assert!(quit.is_err());
+        assert!(asked);
+    }
+}
+
+#[test]
+fn a_task_that_failed_after_a_quit_ask_is_still_quitting_never_one_to_end() {
+    assert_eq!(failed_task_code(true), STILL_QUITTING);
+}
+
+#[test]
+fn a_task_that_failed_before_any_ask_gives_1() {
+    assert_eq!(failed_task_code(false), 1);
 }
 
 fn launch_of(args: &[&str]) -> Result<Launch, String> {
