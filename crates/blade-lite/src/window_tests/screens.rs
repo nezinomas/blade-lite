@@ -32,6 +32,8 @@ fn window() {
 #[test]
 fn window_with_the_groups_open() {
     let f = fixture(Config::default());
+    // A fixed version, so a version bump does not change the picture.
+    f.shell.window().set_version("x.y.z".into());
     click(f.shell.window(), Button, "Settings");
     click(f.shell.window(), Button, "About");
     // Shift+Tab puts the keyboard focus on the About header: its focus ring.

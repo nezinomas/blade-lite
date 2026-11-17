@@ -145,34 +145,67 @@ fn iscc() -> Option<PathBuf> {
     places.into_iter().find(|path| path.is_file())
 }
 
-/// Compiles the script with a stand-in exe, so the `[Code]` part is
-/// checked too. Skipped (with a note) where Inno Setup is not installed.
-#[test]
-fn the_script_compiles() {
-    let Some(iscc) = iscc() else {
-        // GitHub's Windows runners have it: there a missing one is a fault.
+/// Inno Setup's compiler, or `None` with a note where it is not installed.
+/// GitHub's Windows runners have it: there a missing one is a fault.
+fn iscc_or_skip() -> Option<PathBuf> {
+    let found = iscc();
+    if found.is_none() {
         assert!(
             std::env::var_os("CI").is_none(),
             "Inno Setup 6 not found on CI"
         );
         eprintln!("Inno Setup 6 not found: the installer script was not compiled");
-        return;
-    };
-    let out = tempfile::tempdir().expect("a temp folder");
-    let exe = out.path().join("blade-lite.exe");
-    std::fs::write(&exe, b"stand-in, never run").expect("the stand-in writes");
-    let output = Command::new(iscc)
+    }
+    found
+}
+
+/// Compiles the script with `exe` as the app into `out`.
+fn compile(iscc: &Path, exe: &Path, out: &Path) -> std::process::Output {
+    Command::new(iscc)
         .arg("/Q")
-        .arg("/DAppVersion=0.0.0")
         .arg(format!("/DAppExe={}", exe.display()))
-        .arg(format!("/O{}", out.path().display()))
+        .arg(format!("/O{}", out.display()))
         .arg(script_path())
         .output()
-        .expect("ISCC starts");
+        .expect("ISCC starts")
+}
+
+/// Compiles the script with the test build of the app (never run), so the
+/// `[Code]` part is checked too, and the setup takes the exe's version
+/// (ticket 249). Skipped where Inno Setup is not installed.
+#[test]
+fn the_script_compiles() {
+    let Some(iscc) = iscc_or_skip() else { return };
+    let out = tempfile::tempdir().expect("a temp folder");
+    let output = compile(
+        &iscc,
+        Path::new(env!("CARGO_BIN_EXE_blade-lite")),
+        out.path(),
+    );
     assert!(
         output.status.success(),
         "ISCC failed:\n{}{}",
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
+    );
+    let setup = format!("blade-lite-setup-{}.exe", env!("CARGO_PKG_VERSION"));
+    assert!(
+        out.path().join(&setup).is_file(),
+        "{setup} is made: the setup has the crate's version"
+    );
+}
+
+/// An exe with no version makes no setup (ticket 249).
+#[test]
+fn an_exe_with_no_version_makes_no_setup() {
+    let Some(iscc) = iscc_or_skip() else { return };
+    let out = tempfile::tempdir().expect("a temp folder");
+    let exe = out.path().join("blade-lite.exe");
+    std::fs::write(&exe, b"stand-in, never run").expect("the stand-in writes");
+    let output = compile(&iscc, &exe, out.path());
+    assert!(!output.status.success(), "ISCC made a setup");
+    assert!(
+        String::from_utf8_lossy(&output.stdout).contains("has no version")
+            || String::from_utf8_lossy(&output.stderr).contains("has no version")
     );
 }

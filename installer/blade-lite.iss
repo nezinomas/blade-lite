@@ -1,15 +1,18 @@
 ; The Blade Lite installer (stage 39, tickets 78 and 233), for Inno Setup 6.
-; Per user, no admin. Build: ISCC /DAppVersion=x.y.z installer\blade-lite.iss
+; Per user, no admin. Build: ISCC installer\blade-lite.iss
 ; after `cargo build --release --locked -p blade-lite` (README, "Install").
 ; Upgrade and uninstall end the running copy with
 ; `blade-lite.exe --quit`, so it sends its quit preset, then set the fans
 ; to auto with `--reset` (README, "For an installer").
 
-#ifndef AppVersion
-  #error Give the version: ISCC /DAppVersion=x.y.z
-#endif
 #ifndef AppExe
   #define AppExe "..\target\release\blade-lite.exe"
+#endif
+; The exe's own version, which its build takes from Cargo.toml (ticket
+; 249): the setup can't name another.
+#define AppVersion GetStringFileInfo(AppExe, PRODUCT_VERSION)
+#if AppVersion == ""
+  #error The app has no version: build it first (README, "Install")
 #endif
 ; Never change it: upgrades and the uninstall find the install by it.
 #define AppGuid "6C78510F-E7B7-4E6D-B543-66FD0C1F6CD1"

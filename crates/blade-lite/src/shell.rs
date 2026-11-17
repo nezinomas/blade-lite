@@ -488,6 +488,8 @@ impl<P: Parts> Shell<P> {
         // The app's start (`Self::start`) sets both again from what it left.
         let mode_watch = Cell::new(ModeWatch::new(app.running_preset()));
         let touchpad_watch = Cell::new(TouchpadWatch::new(app.touchpad_on()));
+        // About shows it; the installer takes the same one from the exe.
+        window.set_version(env!("CARGO_PKG_VERSION").into());
         Rc::new(Self {
             window,
             flyout,

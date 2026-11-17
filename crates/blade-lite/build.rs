@@ -20,8 +20,8 @@ fn main() {
     println!("cargo:rustc-link-arg-bins=/DEPENDENTLOADFLAG:0x800");
 }
 
-/// Builds the icon into the exe. The accent is read only when the app runs,
-/// so the exe gets the Windows default blue.
+/// Builds the icon and the version into the exe. The accent is read only
+/// when the app runs, so the exe gets the Windows default blue.
 fn exe_icon() {
     println!("cargo:rerun-if-changed=src/icon.rs");
     let out = std::env::var("OUT_DIR").expect("Cargo sets OUT_DIR");
@@ -34,8 +34,41 @@ fn exe_icon() {
     // A name, not a path: embed-resource gives the resource compiler OUT_DIR
     // to look in, so no folder name (any letters) goes in the file.
     let rc = out.join("app.rc");
-    std::fs::write(&rc, "1 ICON \"app.ico\"\n").expect("the resource file is written");
+    let resources = format!("1 ICON \"app.ico\"\n{}", version_info());
+    std::fs::write(&rc, resources).expect("the resource file is written");
     embed_resource::compile(&rc, embed_resource::NONE)
         .manifest_required()
-        .expect("the icon is built into the exe");
+        .expect("the icon and the version are built into the exe");
+}
+
+/// The exe's version resource, from the crate's version. The installer
+/// reads its product version (ticket 249), so the two never differ.
+fn version_info() -> String {
+    let version = env!("CARGO_PKG_VERSION");
+    let numbers = format!(
+        "{},{},{},0",
+        env!("CARGO_PKG_VERSION_MAJOR"),
+        env!("CARGO_PKG_VERSION_MINOR"),
+        env!("CARGO_PKG_VERSION_PATCH")
+    );
+    format!(
+        "1 VERSIONINFO
+FILEVERSION {numbers}
+PRODUCTVERSION {numbers}
+BEGIN
+  BLOCK \"StringFileInfo\"
+  BEGIN
+    BLOCK \"040904B0\"
+    BEGIN
+      VALUE \"FileVersion\", \"{version}\"
+      VALUE \"ProductVersion\", \"{version}\"
+    END
+  END
+  BLOCK \"VarFileInfo\"
+  BEGIN
+    VALUE \"Translation\", 0x409, 1200
+  END
+END
+"
+    )
 }
