@@ -2114,14 +2114,20 @@ fn next_wake_read(since: Duration) -> Duration {
     WAKE_READ_STEP * u32::try_from(steps).unwrap_or(u32::MAX)
 }
 
-/// Reads the firmware version on `device`, opening the controller again
-/// first if the last read failed (`device` is `None`), and prints the read
-/// with its start since the wake notice and how long it took. After a
-/// failed read `device` is `None`: that handle is not read again. Returns
-/// whether the read worked.
+/// One step a wake probe runs on the controller after a wake notice: what
+/// it saw, or its error.
+type WakeStep<'a> =
+    dyn FnMut(&mut Device<HidTransport, SystemClock>) -> Result<String, String> + 'a;
+
+/// Runs `step` on `device`, opening the controller again first if the last
+/// step failed (`device` is `None`), and prints the step with its start
+/// since the wake notice and how long it took. After a failed step
+/// `device` is `None`: that handle is not used again. Returns whether the
+/// step worked.
 fn wake_read(
     device: &mut Option<Device<HidTransport, SystemClock>>,
     woke: std::time::Instant,
+    step: &mut WakeStep<'_>,
 ) -> bool {
     use std::time::Instant;
 
@@ -2149,7 +2155,7 @@ fn wake_read(
         return false;
     };
     let start = Instant::now();
-    let read = open.firmware_version();
+    let read = step(open);
     eprintln!(
         "{}  start {:>4} ms after the notice, took {:>4} ms: {read:?}",
         utc_now(),
@@ -2189,10 +2195,6 @@ fn wake_read(
 #[test]
 #[ignore = "needs the Blade 18, BLADE_WAKE_PROBE=1 and a person sleeping the laptop; read-only"]
 fn the_controller_answers_after_a_wake() {
-    use platform::PowerEvent;
-    use std::sync::mpsc::RecvTimeoutError;
-    use std::time::Instant;
-
     if !opted_in("BLADE_WAKE_PROBE") {
         return;
     }
@@ -2201,6 +2203,28 @@ fn the_controller_answers_after_a_wake() {
     let mut device = Device::new(open(), SystemClock);
     let first = device.firmware_version().unwrap();
     eprintln!("{}  before the sleep: {first:?}", utc_now());
+
+    let wakes = run_wake_steps(device, &mut |device| {
+        device
+            .firmware_version()
+            .map(|version| format!("{version:?}"))
+            .map_err(|error| format!("{error:?}"))
+    });
+    assert!(wakes > 0, "no wake was seen");
+}
+
+/// The loop of the wake probes. It answers each sleep notice at once. After
+/// each wake notice it runs `step` at once and then each 100 ms by the
+/// clock until 3 s after the notice, or until 10 s when no step has worked
+/// by 3 s, on the handle kept over the sleep (a new one after a failed
+/// step). It ends after 5 min awake with no sleep notice (counted in ticks
+/// of at most 2 s, so the time asleep does not count). Returns how many
+/// wakes it saw.
+fn run_wake_steps(device: Device<HidTransport, SystemClock>, step: &mut WakeStep<'_>) -> u32 {
+    use platform::PowerEvent;
+    use std::sync::mpsc::RecvTimeoutError;
+    use std::time::Instant;
+
     let mut device = Some(device);
 
     let notices = answered_power_notices();
@@ -2240,17 +2264,17 @@ fn the_controller_answers_after_a_wake() {
         }
         if next_read > WAKE_READS_FOR && (answered || next_read > WAKE_READS_AT_MOST) {
             eprintln!(
-                "{}  reads after the wake done; a read worked: {answered}",
+                "{}  steps after the wake done; a step worked: {answered}",
                 utc_now()
             );
             woke = None;
             continue;
         }
-        answered |= wake_read(&mut device, at);
+        answered |= wake_read(&mut device, at, step);
         next_read = next_wake_read(at.elapsed());
     }
     eprintln!("{}  5 min awake with no sleep notice: the end", utc_now());
-    assert!(wakes > 0, "no wake was seen");
+    wakes
 }
 
 /// How long one read on the kept key handle waits, as the app's one read
