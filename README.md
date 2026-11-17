@@ -219,10 +219,40 @@ cargo fmt --all --check && cargo clippy --workspace --all-targets -- -D warnings
 
 ## Install
 
-There is no release yet. When there is, it will be an installer from the
-GitHub Releases page. It needs no admin rights and sets up autostart. Whether
-its uninstaller keeps or removes the settings and the log
-(`%APPDATA%\blade-lite`) is still to be decided (ticket 78).
+There is no release yet. When there is, download
+`blade-lite-setup-<version>.exe` from the GitHub Releases page and run it.
+`SHA256SUMS.txt` beside it holds the files' SHA-256 sums.
+
+- It installs for your Windows user only, with no admin rights, into
+  `%LOCALAPPDATA%\Programs\Blade Lite`, and adds a Start menu item.
+- At the first install, "Start Blade Lite when I sign in" sets up
+  autostart (the same as the tray menu's "Start with Windows"). An upgrade
+  keeps what the tray menu set.
+- An upgrade first quits the running Blade Lite with `--quit`, so it sends
+  its quit preset, then sets the fans to auto with `--reset` (see "For an
+  installer" above). If Blade Lite is still quitting, such as with its tray
+  menu open, the installer asks you to close the menu and retry; it never
+  ends a copy that is quitting. A copy that does not answer is ended, and
+  `--reset` then sets the fans to auto.
+- Installing an older version asks first: it forgets the settings it does
+  not know the next time it saves them.
+- Each Windows user installs it for themselves, but only one copy runs on
+  the PC at a time. A second user's copy ends at once (not checked with two
+  users).
+
+To uninstall, use Settings > Apps > Installed apps > Blade Lite. It quits
+Blade Lite and sets the fans to auto as an upgrade does, removes the
+autostart, and asks whether to delete your settings and the log
+(`%APPDATA%\blade-lite`); only Yes deletes them. A silent uninstall keeps
+them. These stay as
+they are:
+
+- The laptop keeps the charge limit, the keyboard colour and the screen's
+  native mode. The lid logo comes on again at the next sleep.
+- If you turned the touchpad off, Windows keeps it off.
+- If you hid the Razer drivers from Windows Update, run
+  `tools\Block-RazerDriverUpdates.ps1 -Undo` to show them again.
+- If you turned USB suspend off, run `tools\Set-RazerUsbSuspend.ps1 -Undo`.
 
 ### Unsigned releases and SmartScreen
 

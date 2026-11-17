@@ -61,6 +61,11 @@ impl Task {
     }
 }
 
+/// The exit code of a `--quit` whose copy took the ask but has not ended:
+/// it must not be ended, as it sends the quit preset as it ends. The
+/// installer script (`installer/blade-lite.iss`) holds it too.
+pub const STILL_QUITTING: u8 = 2;
+
 /// What a start of `blade-lite.exe` does.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Launch {
