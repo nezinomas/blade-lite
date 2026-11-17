@@ -20,6 +20,7 @@ mod programs;
 mod registry;
 mod sensors;
 mod session;
+mod touchpad;
 mod watch;
 
 use std::io;
@@ -39,6 +40,7 @@ pub use programs::WindowsPrograms;
 pub use registry::{WindowsRegistry, usb_device_ids, usb_interfaces};
 pub use sensors::{WindowsSensors, device_power};
 pub use session::{SessionEndWatch, serve_sent_messages};
+pub use touchpad::touchpad_enabled;
 pub use watch::RegistryWatch;
 
 /// Something Windows tells us about power.
