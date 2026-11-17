@@ -3,9 +3,13 @@
 use std::cell::Cell;
 use std::ffi::OsString;
 use std::io;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
-use blade_core::{Launch, Quit, QuitWait, Start, Task, launch, quit_first, start_instance};
+use blade_core::{
+    Launch, Quit, QuitWait, STILL_QUITTING, Start, Task, failed_task_code, launch, quit_first,
+    start_instance,
+};
 use platform::InstanceLock;
 
 /// A lock that another copy may already hold.
@@ -23,13 +27,14 @@ struct FakeLock {
     quit_sent: bool,
     /// The claim with this number fails.
     fails_at: Option<u32>,
-    /// A look that fails.
+    /// A look, or the ask, that fails.
     look_fails: Option<Look>,
 }
 
-/// A look at the quit events.
+/// A look at the quit events, or the ask.
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Look {
+    Ask,
     TakeBack,
     Sent,
 }
@@ -76,6 +81,9 @@ impl InstanceLock for FakeLock {
 
     fn ask_first_to_quit(&self) -> io::Result<()> {
         self.quits_asked.set(self.quits_asked.get() + 1);
+        if self.look_fails == Some(Look::Ask) {
+            return Err(failed_look());
+        }
         Ok(())
     }
 
@@ -138,12 +146,19 @@ const WAIT: QuitWait = QuitWait {
 
 /// Runs `quit_first` with a sleep that only counts the sleeps.
 fn quit(lock: &mut FakeLock) -> (io::Result<Quit>, u32) {
+    let (quit, sleeps, _) = quit_marked(lock);
+    (quit, sleeps)
+}
+
+/// As [`quit`], and whether a copy may be quitting on its ask.
+fn quit_marked(lock: &mut FakeLock) -> (io::Result<Quit>, u32, bool) {
+    let may_be_quitting = AtomicBool::new(false);
     let mut sleeps = 0;
-    let quit = quit_first(lock, WAIT, |pause| {
+    let quit = quit_first(lock, WAIT, &may_be_quitting, |pause| {
         assert_eq!(pause, EVERY);
         sleeps += 1;
     });
-    (quit, sleeps)
+    (quit, sleeps, may_be_quitting.load(Ordering::SeqCst))
 }
 
 #[test]
@@ -272,6 +287,78 @@ fn a_failed_claim_after_the_ask_takes_the_ask_back() {
     assert!(quit(&mut lock).0.is_err());
     assert_eq!(lock.quits_asked.get(), 1);
     assert_eq!(lock.quits_taken_back.get(), 1);
+}
+
+#[test]
+fn a_quit_with_no_copy_running_never_marks_an_ask() {
+    let mut lock = FakeLock::new(false);
+
+    assert!(!quit_marked(&mut lock).2);
+}
+
+#[test]
+fn a_failed_first_claim_never_marks_an_ask() {
+    let mut lock = FakeLock::new(true);
+    lock.fails_at = Some(1);
+
+    assert!(!quit_marked(&mut lock).2);
+}
+
+#[test]
+fn an_ask_is_marked_even_if_it_fails_as_it_may_have_been_set() {
+    let mut lock = FakeLock::new(true);
+    lock.look_fails = Some(Look::Ask);
+
+    let (quit, _, may_be_quitting) = quit_marked(&mut lock);
+
+    assert!(quit.is_err());
+    assert!(may_be_quitting);
+}
+
+#[test]
+fn a_failed_read_of_the_quit_preset_after_the_copy_ended_is_not_quitting() {
+    // The copy has ended: an error must give 1 and "run --reset", never
+    // the "still quitting" that a later --quit would turn into a clean 0.
+    for ask_taken in [false, true] {
+        let mut lock = FakeLock::new(true);
+        lock.ask_taken = ask_taken;
+        lock.frees_after = Some(if ask_taken { 25 } else { 1 });
+        lock.look_fails = Some(Look::Sent);
+
+        let (quit, _, may_be_quitting) = quit_marked(&mut lock);
+
+        assert!(quit.is_err());
+        assert!(!may_be_quitting);
+    }
+}
+
+#[test]
+fn a_failed_claim_after_the_ask_was_taken_back_is_not_quitting() {
+    let mut lock = FakeLock::new(true);
+    lock.fails_at = Some(3);
+
+    let (quit, _, may_be_quitting) = quit_marked(&mut lock);
+
+    assert!(quit.is_err());
+    assert!(!may_be_quitting);
+}
+
+#[test]
+fn a_copy_that_took_the_ask_and_has_not_ended_stays_marked() {
+    let mut lock = FakeLock::new(true);
+    lock.ask_taken = true;
+
+    assert!(quit_marked(&mut lock).2);
+}
+
+#[test]
+fn a_task_that_failed_after_a_quit_ask_is_still_quitting_never_one_to_end() {
+    assert_eq!(failed_task_code(true), STILL_QUITTING);
+}
+
+#[test]
+fn a_task_that_failed_before_any_ask_gives_1() {
+    assert_eq!(failed_task_code(false), 1);
 }
 
 fn launch_of(args: &[&str]) -> Result<Launch, String> {

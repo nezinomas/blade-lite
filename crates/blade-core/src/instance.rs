@@ -3,6 +3,7 @@
 
 use std::ffi::OsString;
 use std::io;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use platform::InstanceLock;
@@ -65,6 +66,14 @@ impl Task {
 /// it must not be ended, as it sends the quit preset as it ends. The
 /// installer script (`installer/blade-lite.iss`) holds it too.
 pub const STILL_QUITTING: u8 = 2;
+
+/// The exit code of a task that failed (an error or a panic): while a copy
+/// may be quitting on a `--quit` ask, [`STILL_QUITTING`], as it must not be
+/// ended (ticket 235); else 1.
+#[must_use]
+pub const fn failed_task_code(may_be_quitting: bool) -> u8 {
+    if may_be_quitting { STILL_QUITTING } else { 1 }
+}
 
 /// What a start of `blade-lite.exe` does.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -144,6 +153,10 @@ pub struct QuitWait {
 /// [`Quit::NoneRan`], [`Quit::Ended`] or [`Quit::EndedUnsent`], this copy
 /// holds the lock, so no new copy can start until it ends.
 ///
+/// `may_be_quitting` is set just before the ask and cleared once no copy can
+/// be quitting on it (the copy ended, or the ask was taken back), so an
+/// error or a panic can be told apart (see [`failed_task_code`]).
+///
 /// # Errors
 ///
 /// The Windows error if the first claim or the ask failed (nothing is asked
@@ -153,26 +166,34 @@ pub struct QuitWait {
 pub fn quit_first(
     lock: &mut impl InstanceLock,
     wait: QuitWait,
+    may_be_quitting: &AtomicBool,
     mut sleep: impl FnMut(Duration),
 ) -> io::Result<Quit> {
     if lock.claim()? {
         return Ok(Quit::NoneRan);
     }
+    // Before the call: a failed ask may still have been set.
+    may_be_quitting.store(true, Ordering::SeqCst);
     lock.ask_first_to_quit()?;
     let ended = wait_for_the_lock(lock, wait.to_take, wait.every, &mut sleep);
     // Also after an end or an error: a copy that ended without taking the
     // ask must not leave it to the next one.
     let taken_back = lock.take_back_quit();
     if matches!(ended, Ok(true)) {
+        may_be_quitting.store(false, Ordering::SeqCst);
         return quit_result(lock);
     }
     if matches!(taken_back, Ok(true)) {
+        may_be_quitting.store(false, Ordering::SeqCst);
         return ended.map(|_| Quit::StillRuns);
     }
     // The copy took the ask (or the look failed, so it may have): it may
     // be quitting, so even a failed claim must not report it as one to end.
     match wait_for_the_lock(lock, wait.to_end, wait.every, &mut sleep) {
-        Ok(true) => quit_result(lock),
+        Ok(true) => {
+            may_be_quitting.store(false, Ordering::SeqCst);
+            quit_result(lock)
+        }
         Ok(false) | Err(_) => Ok(Quit::Quitting),
     }
 }

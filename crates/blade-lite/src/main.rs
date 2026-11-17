@@ -32,11 +32,13 @@ use std::cell::RefCell;
 use std::path::PathBuf;
 use std::process::ExitCode;
 use std::rc::Rc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
 use blade_core::{
     APP_NAME, Config, Launch, Log, POLL_INTERVAL, Quit, QuitWait, RESUME_PAUSE, STILL_QUITTING,
-    Start, Task, launch, quit_first, razer_software, razer_updater, razer_warning, start_instance,
+    Start, Task, failed_task_code, launch, quit_first, razer_software, razer_updater,
+    razer_warning, start_instance,
 };
 use blade_lite::{
     App, Machine, PollTime, SlowPolls, accent_colour, config_or_defaults, end_on_loop, icon,
@@ -107,14 +109,37 @@ fn show_if_failed(ran: Result<(), Box<dyn std::error::Error>>) -> ExitCode {
 
 /// Runs a task for an installer (ticket 148). It shows no box, so an
 /// installer that runs it is never held: the exit code says how it went
-/// (0 it worked, [`STILL_QUITTING`], else 1), and the log why.
+/// (0 it worked, [`STILL_QUITTING`], else 1), and the log why. An error or
+/// a panic while a copy may be quitting on a `--quit` ask gives
+/// [`STILL_QUITTING`] (ticket 235).
 fn do_task(task: Task) -> ExitCode {
-    let ran = open_the_log()
-        .and_then(|_| limit_dll_search())
-        .and_then(|()| run_caught(move || run_task(task)));
+    let ready = open_the_log().and_then(|_| limit_dll_search());
+    task_code(task.flag(), ready, move |may_be_quitting| {
+        run_task(task, may_be_quitting)
+    })
+}
+
+/// Runs `run` once `ready` worked, and gives its exit code. An error or a
+/// panic gives [`failed_task_code`] of the flag `run` was given, read after
+/// the run, and is logged with `flag`.
+fn task_code(
+    flag: &str,
+    ready: Result<(), Box<dyn std::error::Error>>,
+    run: impl FnOnce(&AtomicBool) -> Result<ExitCode, Box<dyn std::error::Error>>
+    + std::panic::UnwindSafe,
+) -> ExitCode {
+    let may_be_quitting = AtomicBool::new(false);
+    let ran = ready.and_then(|()| run_caught(|| run(&may_be_quitting)));
     ran.unwrap_or_else(|error| {
-        report(&format!("{}: {error}", task.flag()));
-        ExitCode::FAILURE
+        let may_be_quitting = may_be_quitting.load(Ordering::SeqCst);
+        let still = if may_be_quitting {
+            ". The running copy may be quitting: do not end it. Run --quit again until it \
+             gives 0 or 1, then run --reset"
+        } else {
+            ""
+        };
+        report(&format!("{flag}: {error}{still}"));
+        ExitCode::from(failed_task_code(may_be_quitting))
     })
 }
 
@@ -131,7 +156,10 @@ const QUIT_WAIT: QuitWait = QuitWait {
     every: Duration::from_millis(100),
 };
 
-fn run_task(task: Task) -> Result<ExitCode, Box<dyn std::error::Error>> {
+fn run_task(
+    task: Task,
+    may_be_quitting: &AtomicBool,
+) -> Result<ExitCode, Box<dyn std::error::Error>> {
     report(&format!(
         "{} starts, version {}",
         task.flag(),
@@ -139,7 +167,7 @@ fn run_task(task: Task) -> Result<ExitCode, Box<dyn std::error::Error>> {
     ));
     let mut instance = WindowsInstance::new(APP_NAME)?;
     match task {
-        Task::Quit => quit_running_copy(&mut instance),
+        Task::Quit => quit_running_copy(&mut instance, may_be_quitting),
         Task::Reset => reset_alone(&mut instance).map(|()| ExitCode::SUCCESS),
     }
 }
@@ -148,10 +176,11 @@ fn run_task(task: Task) -> Result<ExitCode, Box<dyn std::error::Error>> {
 /// waits for it to end. Sends nothing itself.
 fn quit_running_copy(
     instance: &mut WindowsInstance,
+    may_be_quitting: &AtomicBool,
 ) -> Result<ExitCode, Box<dyn std::error::Error>> {
     let take = QUIT_WAIT.to_take.as_secs();
     let all = (QUIT_WAIT.to_take + QUIT_WAIT.to_end).as_secs();
-    let (line, code) = match quit_first(instance, QUIT_WAIT, std::thread::sleep)? {
+    let (line, code) = match quit_first(instance, QUIT_WAIT, may_be_quitting, std::thread::sleep)? {
         Quit::NoneRan => (
             "no copy of the app runs, so nothing was asked".to_owned(),
             ExitCode::SUCCESS,
@@ -369,6 +398,51 @@ fn a_panic_in_the_run_ends_with_an_error() {
         ran.map_err(|error| error.to_string()),
         Err(shell::PANICKED.to_owned())
     );
+}
+
+#[cfg(test)]
+#[test]
+fn a_task_that_fails_while_a_copy_may_be_quitting_gives_still_quitting() {
+    // Its reports go to the window tests' log, not to stderr.
+    window_tests::log_path();
+    let marked = |may_be_quitting: &AtomicBool| may_be_quitting.store(true, Ordering::SeqCst);
+    let failed = task_code("--quit", Ok(()), move |may_be_quitting| {
+        marked(may_be_quitting);
+        Err("a failed read".into())
+    });
+    let panicked = task_code("--quit", Ok(()), move |may_be_quitting| {
+        marked(may_be_quitting);
+        panic!("a bug")
+    });
+
+    assert_eq!(failed, ExitCode::from(STILL_QUITTING));
+    assert_eq!(panicked, ExitCode::from(STILL_QUITTING));
+}
+
+#[cfg(test)]
+#[test]
+fn a_task_that_fails_with_no_copy_quitting_gives_1() {
+    // Its reports go to the window tests' log, not to stderr.
+    window_tests::log_path();
+    let failed = task_code("--quit", Ok(()), |_| Err("a failed claim".into()));
+    let panicked = task_code("--quit", Ok(()), |_| panic!("a bug"));
+    let not_ready = task_code("--quit", Err("no APPDATA".into()), |_| {
+        unreachable!("a task runs only once it is ready")
+    });
+
+    for code in [failed, panicked, not_ready] {
+        assert_eq!(code, ExitCode::FAILURE);
+    }
+}
+
+#[cfg(test)]
+#[test]
+fn a_task_that_worked_gives_its_own_code() {
+    // Its reports go to the window tests' log, not to stderr.
+    window_tests::log_path();
+    let code = task_code("--quit", Ok(()), |_| Ok(ExitCode::from(STILL_QUITTING)));
+
+    assert_eq!(code, ExitCode::from(STILL_QUITTING));
 }
 
 #[cfg(test)]

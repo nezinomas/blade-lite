@@ -294,9 +294,10 @@ begin
   Result := AskToQuit(Exe, Code);
   if Result <> '' then
     Exit;
-  { A `--quit` that failed after its ask (an error gives 1) may have left a
-    copy quitting: ask once more, which then gives 2 or 0. A 1 again is a
-    copy that can't hear the ask, which is then ended. }
+  { A `--quit` built before ticket 235 gives 1 for an error after its ask,
+    which may have left a copy quitting (the uninstall runs the installed
+    exe): ask once more, which then gives 2 or 0. A 1 again is a copy that
+    can't hear the ask, which is then ended. }
   if (Code = QuitFailed) and CheckForMutexes(AppMutex) then begin
     Result := AskToQuit(Exe, Code);
     if Result <> '' then
