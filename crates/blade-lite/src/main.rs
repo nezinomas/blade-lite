@@ -35,8 +35,8 @@ use std::rc::Rc;
 use std::time::{Duration, Instant};
 
 use blade_core::{
-    APP_NAME, Config, Launch, Log, POLL_INTERVAL, Quit, QuitWait, RESUME_PAUSE, Start, Task,
-    launch, quit_first, razer_software, razer_updater, razer_warning, start_instance,
+    APP_NAME, Config, Launch, Log, POLL_INTERVAL, Quit, QuitWait, RESUME_PAUSE, STILL_QUITTING,
+    Start, Task, launch, quit_first, razer_software, razer_updater, razer_warning, start_instance,
 };
 use blade_lite::{
     App, Machine, PollTime, SlowPolls, accent_colour, config_or_defaults, end_on_loop, icon,
@@ -104,10 +104,6 @@ fn show_if_failed(ran: Result<(), Box<dyn std::error::Error>>) -> ExitCode {
     show_start_error(&error.to_string());
     ExitCode::FAILURE
 }
-
-/// The exit code of a `--quit` whose copy took the ask but has not ended:
-/// it must not be ended, as it sends the quit preset as it ends.
-const STILL_QUITTING: u8 = 2;
 
 /// Runs a task for an installer (ticket 148). It shows no box, so an
 /// installer that runs it is never held: the exit code says how it went

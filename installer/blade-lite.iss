@@ -76,10 +76,13 @@ const
   RunKey = 'Software\Microsoft\Windows\CurrentVersion\Run';
   ApprovedKey = 'Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run';
   RunValue = 'Blade Lite';
-  UninstallKey = 'Software\Microsoft\Windows\CurrentVersion\Uninstall\{{#AppGuid}}_is1';
-  { `--quit` exit codes (README): 0 done, 1 failed, 2 still quitting. }
+  { `--quit` exit codes (README): 0 done, 1 failed, 2 still quitting
+    (`STILL_QUITTING` in blade-core). }
   QuitDone = 0;
+  QuitFailed = 1;
   QuitStillQuitting = 2;
+  { Held while a setup or the uninstaller runs, so two never run at once. }
+  SetupMutexName = 'blade-lite-setup';
   { A silent run asks a copy that is still quitting this many times. Each
     `--quit` waits up to 140 s. }
   SilentQuitAsks = 3;
@@ -87,11 +90,18 @@ const
   LockWaitMs = 10000;
   LockPollMs = 100;
 
+{ Inno's uninstall key of this app, for this user. }
+function UninstallKey(): String;
+begin
+  Result := 'Software\Microsoft\Windows\CurrentVersion\Uninstall\{' + '{#AppGuid}' + '}_is1';
+end;
+
 { The version of the Blade Lite installed for this user, or '' if none. }
 function InstalledVersion(): String;
 begin
-  if not RegQueryStringValue(HKCU, UninstallKey, 'DisplayVersion', Result) then
+  if not RegQueryStringValue(HKCU, UninstallKey(), 'DisplayVersion', Result) then
     Result := '';
+  Log('Installed version: "' + Result + '"');
 end;
 
 function IsUpgrade(): Boolean;
@@ -127,8 +137,8 @@ begin
   Result := StrToIntDef(Version, -1);
 end;
 
-{ Whether Older is a lower version than Newer. An unreadable part counts
-  as lower, so an odd installed version is asked about. }
+{ Whether Older may be a lower version than Newer. A part that is not a
+  number on either side counts as maybe lower, so it is asked about. }
 function IsLowerVersion(Older, Newer: String): Boolean;
 var
   Index, A, B: Integer;
@@ -137,11 +147,32 @@ begin
   for Index := 0 to 2 do begin
     A := VersionPart(Older, Index);
     B := VersionPart(Newer, Index);
+    if (A < 0) or (B < 0) then begin
+      Result := True;
+      Exit;
+    end;
     if A <> B then begin
       Result := A < B;
       Exit;
     end;
   end;
+end;
+
+{ Takes the setup lock for this run. False, with a box, if another setup
+  or uninstall holds it: two runs could end each other's tasks. }
+function TakeSetupLock(): Boolean;
+begin
+  Result := not CheckForMutexes(SetupMutexName);
+  if Result then
+    CreateMutex(SetupMutexName)
+  else
+    SuppressibleMsgBox('Another Blade Lite setup or uninstall runs. Let it finish first.',
+      mbError, MB_OK, IDOK);
+end;
+
+function InitializeUninstall(): Boolean;
+begin
+  Result := TakeSetupLock();
 end;
 
 { An older version drops the settings it does not know at its next save
@@ -151,10 +182,12 @@ function InitializeSetup(): Boolean;
 var
   Installed: String;
 begin
-  Result := True;
+  Result := TakeSetupLock();
+  if not Result then
+    Exit;
   Installed := InstalledVersion();
   if (Installed <> '') and IsLowerVersion('{#AppVersion}', Installed) then
-    Result := SuppressibleMsgBox('Blade Lite ' + Installed + ' is installed. This is the older '
+    Result := SuppressibleMsgBox('Blade Lite ' + Installed + ' is installed. This may be the older '
       + '{#AppVersion}. It forgets the settings it does not know the next time it saves them.'
       + #13#10#13#10 + 'Install {#AppVersion} anyway?',
       mbConfirmation, MB_YESNO or MB_DEFBUTTON2, IDNO) = IDYES;
@@ -215,8 +248,7 @@ end;
 function ResetFailedText(Code: Integer): String;
 begin
   Result := 'Blade Lite could not set the fans to auto (exit code ' + IntToStr(Code)
-    + '). It sends nothing while Razer software runs. Its log says why: '
-    + ExpandConstant('{userappdata}\blade-lite') + '.';
+    + '). Its log in ' + ExpandConstant('{userappdata}\blade-lite') + ' says why.';
 end;
 
 procedure WarnResetFailed(Code: Integer);
@@ -230,14 +262,11 @@ begin
     MsgBox(Text, mbInformation, MB_OK);
 end;
 
-{ Ends the running copy so that it sends its quit preset, then sets the
-  fans to auto (ticket 233). Exe must know --quit and --reset (ticket 148
-  or later). Returns '' when no copy runs any more and the fans are safe,
-  else why not: the caller then stops, with nothing changed. }
-function StopApp(const Exe: String): String;
+{ Runs `--quit` until it gives no "still quitting". Returns '' with its
+  last code in Code, or why it stopped. }
+function AskToQuit(const Exe: String; var Code: Integer): String;
 var
-  Code, Asks: Integer;
-  Clean: Boolean;
+  Asks: Integer;
 begin
   Result := '';
   Asks := 0;
@@ -249,8 +278,29 @@ begin
       Exit;
     end;
   until Code <> QuitStillQuitting;
+end;
+
+{ Ends the running copy so that it sends its quit preset, then sets the
+  fans to auto (ticket 233). Exe must know --quit and --reset (ticket 148
+  or later). Returns '' when no copy runs any more and the fans are safe,
+  else why not: the caller then stops, with nothing changed. }
+function StopApp(const Exe: String): String;
+var
+  Code: Integer;
+  Clean: Boolean;
+begin
+  Result := AskToQuit(Exe, Code);
+  if Result <> '' then
+    Exit;
+  { A `--quit` that failed after its ask (an error gives 1) may have left a
+    copy quitting: ask once more, which then gives 2 or 0. }
+  if (Code = QuitFailed) and CheckForMutexes(AppMutex) then begin
+    Result := AskToQuit(Exe, Code);
+    if Result <> '' then
+      Exit;
+  end;
   { An exe that did not start asked nothing: end no copy. }
-  if (Code <> QuitDone) and (Code <> 1) then begin
+  if (Code <> QuitDone) and (Code <> QuitFailed) then begin
     Result := 'Blade Lite could not be asked to quit (code ' + IntToStr(Code)
       + '). Quit it from its tray menu, then run this again.';
     Exit;

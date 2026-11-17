@@ -43,7 +43,8 @@ pub use charge::{ChargeError, charge_limit_on, set_charge_limit};
 pub use charger::full_power_charger;
 pub use config::{Config, ConfigError, CustomSettings, Lighting, Preset};
 pub use instance::{
-    APP_NAME, ArgsError, Launch, Quit, QuitWait, Start, Task, launch, quit_first, start_instance,
+    APP_NAME, ArgsError, Launch, Quit, QuitWait, STILL_QUITTING, Start, Task, launch, quit_first,
+    start_instance,
 };
 pub use keyboard_brightness::{keyboard_brightness, set_vapor_light};
 pub use log::{LOG_FILES, LOG_LINE_MAX, LOG_MAX_BYTES, Log, log_line};

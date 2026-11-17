@@ -6,7 +6,7 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use blade_core::{APP_NAME, RUN_KEY, RUN_VALUE, TRAY_FLAG, Task};
+use blade_core::{APP_NAME, RUN_KEY, RUN_VALUE, STILL_QUITTING, TRAY_FLAG, Task};
 
 fn root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..")
@@ -107,6 +107,9 @@ fn the_code_uses_the_apps_names_and_flags() {
         format!("{{userappdata}}\\{APP_NAME}"),
         format!("'{RUN_KEY}'"),
         format!("'{RUN_VALUE}'"),
+        "QuitDone = 0;".to_string(),
+        "QuitFailed = 1;".to_string(),
+        format!("QuitStillQuitting = {STILL_QUITTING};"),
     ] {
         assert!(script.contains(&text), "the script has no {text}");
     }
