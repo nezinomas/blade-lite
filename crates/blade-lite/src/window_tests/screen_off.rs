@@ -226,3 +226,25 @@ fn a_charger_pull_with_the_screen_off_makes_the_new_slot_dark_in_the_same_tick()
 
     assert_eq!(sent(&f), level(0));
 }
+
+#[test]
+fn no_guess_at_the_other_slot_while_razer_software_runs() {
+    // No lighting saved: dark before Razer's software came, then a pull.
+    // A 0 read at the screen on may be its own lighting.
+    let f = lit_fixture();
+    screen(&f, false);
+    razer_runs(&f);
+    super::FAKE_ON_BATTERY.set(true);
+    power(&f, &[PowerEvent::OnBattery]);
+    f.shell
+        .app()
+        .machine_mut()
+        .controller
+        .inner
+        .brightness_level = Some(0);
+    forget_sent(&f);
+
+    screen(&f, true);
+
+    assert_eq!(sent(&f), []);
+}

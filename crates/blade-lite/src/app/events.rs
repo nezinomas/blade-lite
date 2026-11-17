@@ -140,7 +140,8 @@ where
     /// dark may still be, or already be, the one in use. A user's own 0 is
     /// lit then too (lit keys are the safe side). Never with the lighting
     /// saved: its send at the charger change puts each slot right, and a
-    /// saved 0 is the user's. A failed read is an error, so the next look
+    /// saved 0 is the user's. The shell drops it while Razer's software
+    /// runs. The level is used once, whichever slot it lands in. A failed read is an error, so the next look
     /// reads again.
     fn left_dark_in_use(&mut self) -> Result<Option<Brightness>, AppError> {
         let Some((_, level)) = self.left_dark else {
@@ -153,8 +154,9 @@ where
         Ok(read.filter(|read| read.percent() == 0).map(|_| level))
     }
 
-    /// Drops the level kept for a slot the app left dark, while Razer's
-    /// software runs: a 0 read then may be its own.
+    /// Drops the level kept for a slot the app left dark, for the shell to
+    /// call before each put-back while Razer's software runs: a 0 read
+    /// then may be its own.
     pub fn forget_dark_slot(&mut self) {
         self.left_dark = None;
     }

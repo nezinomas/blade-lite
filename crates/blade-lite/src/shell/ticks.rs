@@ -644,13 +644,18 @@ impl<P: Parts> Shell<P> {
             return;
         }
         let screen_off = P::screen_on() == Some(false);
-        if screen_off && self.razer_warning.borrow().is_some() {
+        let razer_runs = self.razer_warning.borrow().is_some();
+        if screen_off && razer_runs {
             return;
         }
         let Ok(mut app) = self.app.try_borrow_mut() else {
             // Busy: the next poll or click looks again.
             return;
         };
+        // Its own lighting may read 0: no guess at the app's dark then.
+        if razer_runs {
+            app.forget_dark_slot();
+        }
         // Held for an updater: its end looks again.
         if app.screen_followed(screen_off) || app.controller_held() {
             return;
