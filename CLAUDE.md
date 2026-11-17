@@ -12,6 +12,7 @@ Blade Lite: a Rust app for Windows 11 that drives the Razer Blade 18 2025 (RZ09-
 - Never start the app to test a script or tool that starts it: a start sends the saved preset to the laptop. Test only the script's guards; the user starts the app for the laptop check.
 - Every stage and ticket is reviewed by subagents before merge (`stage` skill, step 7). The author never reviews their own stage.
 - Claude may run laptop tests itself: first say what is tested, how, how long and what is put back, and wait for the user's yes. The user quits the app from the tray; never kill it.
+- Before any action that touches the laptop's hardware or power state (sleep, hibernate, restart, controller commands, fan, power or light changes, probes, installers, starting the app, boxes on screen): say what will happen and why, ask, and wait for the user's written yes. Act only right after that yes, exactly as said. Never on a timer. This rule is never broken.
 
 ## How to work
 - TDD: red, green, refactor, in small stages, per the plan.
