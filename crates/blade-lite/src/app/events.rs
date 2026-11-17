@@ -35,7 +35,7 @@ where
         let applied = apply(&config, self.model, &mut self.machine.controller, red);
         self.key_red = applied.is_ok().then_some(red);
         if applied.is_ok() && config.lighting.is_some() {
-            self.dark_keys = None;
+            self.keys_lit_by_lighting();
         }
         self.note_preset_send(&config, &applied);
         self.check_preset_if_sent(&config, &applied);
@@ -51,18 +51,35 @@ where
     /// Only the keyboard's level is sent; the vapor light, colour, fans
     /// and preset stay. The level is read first, so a level the user set
     /// with Fn + F10 / F11 comes back too; a failed read, a model with no
-    /// level, or keys already dark send nothing. A failed send is tried
-    /// at the next look: the level is kept until it is back.
+    /// level, or keys already dark send nothing. Nothing is sent if the
+    /// keys already follow this state. A failed put-back is tried at the
+    /// next look (see [`Self::screen_followed`]): the level is kept until
+    /// it is back. A failed read or dark send is not: lit keys are the
+    /// safe side, and a failed dark send is put back at the screen on.
     ///
     /// # Errors
     ///
     /// See [`AppError`].
     pub fn follow_screen(&mut self, screen_off: bool) -> Result<(), AppError> {
-        if screen_off {
+        if self.screen_followed(screen_off) {
+            return Ok(());
+        }
+        let followed = if screen_off {
             self.darken_keys()
         } else {
             self.keys_back_on()
+        };
+        if screen_off || followed.is_ok() {
+            self.keys_follow = Some(screen_off);
         }
+        followed
+    }
+
+    /// Whether the keys already follow this screen state, so
+    /// [`Self::follow_screen`] has nothing to do.
+    #[must_use]
+    pub fn screen_followed(&self, screen_off: bool) -> bool {
+        self.keys_follow == Some(screen_off)
     }
 
     fn darken_keys(&mut self) -> Result<(), AppError> {

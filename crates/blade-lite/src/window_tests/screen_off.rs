@@ -6,7 +6,8 @@ use platform::PowerEvent;
 use razer_proto::{BLADE_18, Brightness, Command};
 
 use super::sleep::{pause_ends, power};
-use super::{FAKE_SCREEN_ON, Fixture, fixture};
+use super::{FAKE_REOPENED, FAKE_SCREEN_ON, Fixture, fixture};
+use crate::shell::Reopened;
 
 fn level(percent: u8) -> Vec<Command> {
     Brightness::new(percent).unwrap().commands(&BLADE_18)
@@ -21,6 +22,11 @@ fn lit_fixture() -> Fixture {
         .inner
         .brightness_level = Some(255);
     f
+}
+
+fn razer_runs(f: &Fixture) {
+    f.shell.programs().set(&["Razer Synapse Service"]);
+    f.shell.look_for_razer();
 }
 
 fn sent(f: &Fixture) -> Vec<Command> {
@@ -111,4 +117,56 @@ fn the_quit_lights_dark_keys_again() {
     f.shell.quit();
 
     assert!(sent(&f).ends_with(&level(100)), "{:?}", sent(&f));
+}
+
+#[test]
+fn a_failed_put_back_is_tried_again_at_the_next_poll() {
+    let f = lit_fixture();
+    screen(&f, false);
+    f.shell.app().machine_mut().controller.inner.fails = true;
+    screen(&f, true);
+    f.shell.app().machine_mut().controller.inner.fails = false;
+    forget_sent(&f);
+
+    f.shell.follow_own_power();
+
+    assert_eq!(sent(&f), level(100));
+}
+
+#[test]
+fn a_screen_change_in_an_open_again_pause_is_followed_at_its_end() {
+    let f = lit_fixture();
+    screen(&f, false);
+    FAKE_REOPENED.set(Reopened::Opened);
+    f.shell.follow_own_power();
+    forget_sent(&f);
+
+    screen(&f, true);
+    assert_eq!(sent(&f), [], "nothing goes in the pause");
+    pause_ends();
+
+    assert!(sent(&f).ends_with(&level(100)), "{:?}", sent(&f));
+}
+
+#[test]
+fn the_keys_are_not_made_dark_while_razer_software_runs() {
+    let f = lit_fixture();
+    razer_runs(&f);
+    forget_sent(&f);
+
+    screen(&f, false);
+
+    assert_eq!(sent(&f), []);
+}
+
+#[test]
+fn keys_made_dark_before_razer_software_came_are_still_lit() {
+    let f = lit_fixture();
+    screen(&f, false);
+    razer_runs(&f);
+    forget_sent(&f);
+
+    screen(&f, true);
+
+    assert_eq!(sent(&f), level(100));
 }

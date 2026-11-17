@@ -194,6 +194,10 @@ pub struct App<C, D, R, K> {
     /// screen off (ticket 241), to put back. `None` while the app has not
     /// made them dark.
     dark_keys: Option<Brightness>,
+    /// The screen state (off or not) the keys last followed, so the shell
+    /// looks again only after a change, a failed put-back or a send of
+    /// the saved lighting. `None` until the first look.
+    keys_follow: Option<bool>,
 }
 
 impl<C, D, R, K> App<C, D, R, K>
@@ -242,6 +246,7 @@ where
             native_mode: None,
             preset_check: PresetCheck::Unknown,
             dark_keys: None,
+            keys_follow: None,
         }
     }
 
@@ -717,6 +722,13 @@ where
         }
         applied?;
         Ok(true)
+    }
+
+    /// The saved lighting was sent, so the keys run its level: none is
+    /// kept to put back, and the screen needs a new look (ticket 241).
+    fn keys_lit_by_lighting(&mut self) {
+        self.dark_keys = None;
+        self.keys_follow = None;
     }
 
     fn lighting(&self) -> Lighting {

@@ -256,6 +256,8 @@ impl<P: Parts> Shell<P> {
                     // As the wake: an unknown source runs the battery presets.
                     shell.app.borrow_mut().take_on_battery(P::on_battery());
                     shell.act(AppOn::<P>::start);
+                    // A screen change in the pause was dropped.
+                    shell.follow_screen();
                 });
                 true
             }
@@ -522,6 +524,7 @@ impl<P: Parts> Shell<P> {
         {
             self.follow_source();
         }
+        self.follow_screen();
     }
 
     /// Acts on the power events that came since the last look. Returns
@@ -583,9 +586,7 @@ impl<P: Parts> Shell<P> {
             return;
         }
         if event == PowerEvent::ScreenChanged {
-            if self.resuming.get() == 0 {
-                self.follow_screen();
-            }
+            self.follow_screen();
             return;
         }
         self.forget_charging();
@@ -597,10 +598,33 @@ impl<P: Parts> Shell<P> {
     /// Makes the keys dark while Windows says the screen is off, and lights
     /// them again once it is on or not known (ticket 241). A screen not
     /// known (after a sleep notice, or with no screen notices) counts as
-    /// on, so keys the app made dark are never left so.
-    fn follow_screen(self: &Rc<Self>) {
+    /// on, so keys the app made dark are never left so. Nothing in a
+    /// pause or a sleep: each pause's end looks again, and so does each
+    /// poll and click, which tries a failed put-back again. The keys are
+    /// not made dark while Razer's own software runs (it may talk to the
+    /// controller at the same time); keys already dark are still lit. An
+    /// error is only logged: the user did not ask for this, and the window
+    /// is not filled again for it.
+    pub(super) fn follow_screen(self: &Rc<Self>) {
+        if self.resuming.get() > 0 {
+            return;
+        }
         let screen_off = P::screen_on() == Some(false);
-        self.act(|app| app.follow_screen(screen_off));
+        if screen_off && self.razer_warning.borrow().is_some() {
+            return;
+        }
+        let Ok(mut app) = self.app.try_borrow_mut() else {
+            // Busy: the next poll or click looks again.
+            return;
+        };
+        if app.screen_followed(screen_off) {
+            return;
+        }
+        if let Err(error) = app.follow_screen(screen_off) {
+            report(&format!(
+                "the keyboard could not follow the screen: {error}"
+            ));
+        }
     }
 
     /// After a sleep notice, counts a run of ticks of

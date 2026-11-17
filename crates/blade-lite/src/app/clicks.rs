@@ -205,7 +205,7 @@ where
         self.key_red = applied.is_ok().then_some(red);
         applied?;
         // The level just sent is the one to keep (ticket 241).
-        self.dark_keys = None;
+        self.keys_lit_by_lighting();
         self.keep_sent(Config {
             lighting: Some(lighting),
             ..self.config

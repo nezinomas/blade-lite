@@ -208,3 +208,70 @@ fn a_brightness_click_while_dark_is_the_new_level() {
 
     assert_eq!(sent(&app), []);
 }
+
+#[test]
+fn a_reset_while_dark_sends_its_own_level_so_nothing_is_put_back() {
+    let (mut app, _dir, _path) = app();
+    lit_at(&mut app, 255);
+    app.follow_screen(true).unwrap();
+    app.reset_settings().unwrap();
+    forget_sent(&mut app);
+
+    app.follow_screen(false).unwrap();
+
+    assert_eq!(sent(&app), []);
+}
+
+#[test]
+fn the_screen_followed_says_what_needs_a_look() {
+    let (mut app, _dir, _path) = app();
+    lit_at(&mut app, 255);
+    assert!(!app.screen_followed(false), "not looked at yet");
+
+    app.follow_screen(true).unwrap();
+    assert!(app.screen_followed(true));
+    assert!(!app.screen_followed(false));
+
+    app.follow_screen(false).unwrap();
+    assert!(app.screen_followed(false));
+}
+
+#[test]
+fn a_failed_put_back_still_needs_a_look() {
+    let (mut app, _dir, _path) = app();
+    lit_at(&mut app, 255);
+    app.follow_screen(true).unwrap();
+    app.machine_mut().controller.inner.fails = true;
+
+    assert!(app.follow_screen(false).is_err());
+
+    assert!(!app.screen_followed(false));
+}
+
+#[test]
+fn a_failed_read_at_the_screen_off_is_not_tried_on_each_poll() {
+    // Keys left lit are the safe side; a read on every poll is not needed.
+    let (mut app, _dir, _path) = app();
+
+    assert!(app.follow_screen(true).is_err());
+
+    assert!(app.screen_followed(true));
+}
+
+#[test]
+fn saved_lighting_sent_again_needs_a_new_look_at_the_screen() {
+    let (mut app, _dir, _path) = app_with(Config {
+        lighting: Some(Lighting {
+            brightness: 40,
+            colour: TEAL,
+            vapor_light: true,
+        }),
+        ..Config::default()
+    });
+    lit_at(&mut app, 255);
+    app.follow_screen(true).unwrap();
+
+    app.start().unwrap();
+
+    assert!(!app.screen_followed(true), "the start lit the keys");
+}

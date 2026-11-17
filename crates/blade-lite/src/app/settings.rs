@@ -88,6 +88,9 @@ where
         };
         self.read_logo();
         applied?;
+        if running.lighting.is_some() {
+            self.keys_lit_by_lighting();
+        }
         // The switch goes through the click's path, which keeps it off if
         // Windows refuses 60 Hz, so the rates don't lock.
         let kept = self.keep_sent(Config {
