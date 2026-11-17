@@ -1525,14 +1525,14 @@ fn a_tick_logs_both_touchpad_sources_and_each_change() {
     assert!(
         log.contains(
             "touchpad: the registry says off, Windows' touchpad API says on, they differ; \
-             the key is painted plain"
+             Num Lock off, the key is painted plain"
         ),
         "{log}"
     );
     assert!(
         log.contains(
             "touchpad: the registry says off, Windows' touchpad API says off; \
-             the key is painted plain"
+             Num Lock off, the key is painted plain"
         ),
         "{log}"
     );
