@@ -63,9 +63,16 @@ Blade Lite sends nothing while it sees a Razer updater, but it can miss one.
 - **Quit** (tray menu): sends Balanced, or Silent if Silent runs. If Custom
   runs with a manual fan, it first sets the fans to auto.
 - **`blade-lite.exe --quit`** (for an installer, ticket 148): asks the
-  running copy to quit as Quit does, and waits up to 20 s for it to end.
-  It says (exit code 1) when the copy ended but its quit preset was not
-  sent. It reaches only a copy in the same Windows session.
+  running copy to quit as Quit does. It waits up to 20 s for the copy to
+  take the ask, then up to 120 s more for it to end. It reaches only a
+  copy in the same Windows session. Exit codes (the log says why):
+  - 0: no copy ran, or the copy quit with its quit preset sent.
+  - 1: it failed, such as when the copy ended but its quit preset was
+    not sent, or the copy did not take the ask. End a copy that still
+    runs in Task Manager, then run `--reset`.
+  - 2: the copy may be quitting but has not ended, or an error came while
+    it may be quitting. Don't end it. Run `--quit` again until it gives 0
+    or 1, then run `--reset`.
 - **A shutdown, restart or sign-out**: tries to send the same as Quit
   first. Checked on the laptop on AC (checks 23 and 38); on battery with
   the panel at 60 Hz not yet (check 38). It waits at most 10 s
