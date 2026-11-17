@@ -241,9 +241,13 @@ fn a_charger_change_in_the_wake_pause_sends_the_lighting_once_at_its_end() {
     f.shell.tick();
     f.shell.tick();
 
+    let keyboard_level = razer_proto::Brightness::new(30)
+        .unwrap()
+        .commands(&BLADE_18)[0]
+        .clone();
     let level_writes = sent_since(&f, before)
         .iter()
-        .filter(|command| command.id == 0x0303 && command.args.get(1) == Some(&0x05))
+        .filter(|&command| *command == keyboard_level)
         .count();
     assert_eq!(level_writes, 1);
 }

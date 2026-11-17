@@ -212,17 +212,40 @@ fn a_send_that_keeps_failing_is_given_up_after_its_tries() {
 }
 
 #[test]
-fn a_new_slot_the_user_set_to_0_stays_dark_with_nothing_to_put_back() {
+fn a_pull_and_plug_with_the_screen_off_still_put_a_level_back() {
+    // The AC slot reads the app's own 0 at the plug: the level kept stays.
     let (mut app, _dir, _) = app();
     lit_at(&mut app, 255);
     app.follow_screen(true).unwrap();
+    lit_at(&mut app, 102);
+    power(&mut app, PowerEvent::OnBattery);
     lit_at(&mut app, 0);
+    power(&mut app, PowerEvent::OnAc);
     forget_sent(&mut app);
 
-    power(&mut app, PowerEvent::OnBattery);
     app.follow_screen(false).unwrap();
 
-    assert_eq!(sent(&app), []);
+    assert_eq!(sent(&app), level(40));
+}
+
+#[test]
+fn a_retry_after_a_lost_reply_still_puts_a_level_back() {
+    let (mut app, _dir, _) = app();
+    lit_at(&mut app, 255);
+    app.follow_screen(true).unwrap();
+    lit_at(&mut app, 102);
+    app.on_power(PowerEvent::OnBattery).unwrap();
+    app.machine_mut().controller.inner.fails = true;
+    app.send_source_lighting();
+    app.machine_mut().controller.inner.fails = false;
+    // The controller took the 0 though its reply was lost.
+    lit_at(&mut app, 0);
+    app.send_source_lighting();
+    forget_sent(&mut app);
+
+    app.follow_screen(false).unwrap();
+
+    assert_eq!(sent(&app), level(40));
 }
 
 #[test]

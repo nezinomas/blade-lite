@@ -276,8 +276,7 @@ where
     /// a screen off (ticket 241) stay dark: the colour and vapor light go
     /// with the keyboard at level 0, and the level put back is the saved
     /// one, or with no lighting saved the new slot's own level read first
-    /// (a failed read keeps the old one; a 0 read, the user's own, is left
-    /// dark with nothing to put back, as at the screen off). With
+    /// (a failed or 0 read keeps the old one). With
     /// no lighting saved, lit keys are left alone. A failed send is only
     /// logged, and tried again at the next look, [`SOURCE_LIGHTING_TRIES`]
     /// times in all: the same saved lighting each time, so a send that went
@@ -318,16 +317,14 @@ where
     }
 
     /// Keeps the new slot's own level for the put-back, then makes it dark.
-    /// A slot already at 0 (the user's own) is left so, with nothing to put
-    /// back, as at a screen off; a failed read keeps the old level.
+    /// A failed read or a 0 keeps the old level: a 0 may be the app's own
+    /// dark from earlier in this screen off (or a send whose reply was
+    /// lost), and lit keys at the screen on are the safe side.
     fn darken_new_slot(&mut self) -> Result<(), AppError> {
-        match keyboard_brightness(&mut self.machine.controller, self.model) {
-            Ok(Some(level)) if level.percent() == 0 => {
-                self.dark_keys = None;
-                return Ok(());
-            }
-            Ok(Some(level)) => self.dark_keys = Some(level),
-            Ok(None) | Err(_) => {}
+        if let Ok(Some(level)) = keyboard_brightness(&mut self.machine.controller, self.model)
+            && level.percent() > 0
+        {
+            self.dark_keys = Some(level);
         }
         let dark = Brightness::new(0).map_err(ApplyError::Brightness)?;
         self.machine.controller.run(&dark.commands(self.model))?;
