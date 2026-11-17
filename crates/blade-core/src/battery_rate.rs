@@ -90,7 +90,7 @@ impl BatteryRate {
                 }
                 self.put_back(api)
             }
-            PowerEvent::Resumed | PowerEvent::Suspending => Ok(()),
+            PowerEvent::Resumed | PowerEvent::Suspending | PowerEvent::ScreenChanged => Ok(()),
         }
     }
 
