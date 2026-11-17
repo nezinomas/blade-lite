@@ -86,6 +86,21 @@ fn ships_the_app_and_its_notices_only() {
 }
 
 #[test]
+fn deletes_the_settings_only_on_an_explicit_yes() {
+    let script = script();
+    assert_eq!(script.matches("DelTree(").count(), 1);
+    // The box's second line holds its buttons and the answer it needs.
+    let answer = script
+        .lines()
+        .skip_while(|line| !line.contains("MsgBox('Delete your Blade Lite settings"))
+        .nth(1)
+        .expect("the delete box");
+    assert!(answer.contains("MB_DEFBUTTON2") && answer.contains("= IDYES"));
+    // Inno logs each box's answer; the uninstall log keeps it.
+    assert_eq!(directive("UninstallLogging").as_deref(), Some("yes"));
+}
+
+#[test]
 fn the_run_value_starts_the_installed_app_in_the_tray() {
     let line = format!(
         r#"Root: HKCU; Subkey: "{RUN_KEY}"; ValueType: string; ValueName: "{RUN_VALUE}"; ValueData: """{{app}}\blade-lite.exe"" {TRAY_FLAG}""#
