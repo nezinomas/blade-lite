@@ -201,7 +201,7 @@ fn the_lighting_goes_after_the_battery_preset() {
 }
 
 #[test]
-fn a_failed_send_is_tried_again_at_the_next_look() {
+fn a_failed_send_is_tried_again_a_spacing_later() {
     let (mut app, _dir, _) = lit_app();
     app.on_power(PowerEvent::OnBattery).unwrap();
     app.machine_mut().controller.inner.fails = true;
@@ -311,6 +311,54 @@ fn a_swap_with_the_users_own_dark_keys_and_the_screen_off_makes_the_new_slot_dar
 }
 
 #[test]
+fn a_charger_pulled_in_a_sleep_still_puts_the_ac_slot_back_at_the_plug() {
+    // The wake reads battery before any power event (or none comes).
+    let (mut app, _dir, _) = app();
+    lit_at(&mut app, 255);
+    app.follow_screen(true).unwrap();
+    lit_at(&mut app, 102);
+    app.take_on_battery(Some(true));
+    app.follow_screen(false).unwrap();
+    assert_eq!(sent(&app), level(0));
+    lit_at(&mut app, 0);
+    forget_sent(&mut app);
+
+    power(&mut app, PowerEvent::OnAc);
+    app.follow_screen(false).unwrap();
+
+    assert_eq!(sent(&app), level(100));
+}
+
+#[test]
+fn a_charger_found_gone_before_a_sleep_keeps_the_ac_slot_level() {
+    let (mut app, _dir, _) = app();
+    lit_at(&mut app, 255);
+    app.follow_screen(true).unwrap();
+    app.battery_at_quit();
+    app.follow_screen(false).unwrap();
+    lit_at(&mut app, 0);
+    forget_sent(&mut app);
+
+    power(&mut app, PowerEvent::OnAc);
+    app.follow_screen(false).unwrap();
+
+    assert_eq!(sent(&app), level(100));
+}
+
+#[test]
+fn an_unknown_source_read_follows_no_slot() {
+    let (mut app, _dir, _) = app();
+    lit_at(&mut app, 255);
+    app.follow_screen(true).unwrap();
+    app.take_on_battery(None);
+    forget_sent(&mut app);
+
+    app.follow_screen(false).unwrap();
+
+    assert_eq!(sent(&app), level(100));
+}
+
+#[test]
 fn a_swap_with_the_screen_on_and_nothing_kept_sends_nothing() {
     let (mut app, _dir, _) = app();
     lit_at(&mut app, 255);
@@ -377,4 +425,18 @@ fn lit_keys_with_the_screen_off_are_looked_at_again() {
     app.follow_screen(true).unwrap();
 
     assert_eq!(sent(&app), level(0));
+}
+
+#[test]
+fn a_fn_press_while_the_send_waits_saves_nothing() {
+    // The new slot still runs the other source's level.
+    let (mut app, _dir, _) = lit_app();
+    app.on_power(PowerEvent::OnBattery).unwrap();
+    lit_at(&mut app, 255);
+    forget_sent(&mut app);
+
+    assert!(!app.on_brightness_keys().unwrap());
+
+    assert_eq!(sent(&app), []);
+    assert_eq!(app.config().lighting.unwrap().brightness, 30);
 }

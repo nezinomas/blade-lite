@@ -1,6 +1,8 @@
 //! What the app does at start, on a power change, on a touchpad switch, on
 //! a Num Lock or mic mute change and on quit.
 
+use std::time::Instant;
+
 use blade_core::{
     ApplyError, Config, Controller, DisplayError, Preset, Query, apply, apply_lighting,
     apply_lighting_dark, apply_performance, full_power_charger, keyboard_brightness,
@@ -8,8 +10,6 @@ use blade_core::{
 };
 use platform::{DisplayApi, KeyInjector, PowerEvent, Registry};
 use razer_proto::{Brightness, RedKeys};
-
-use std::time::Instant;
 
 use super::{App, AppError, NOT_UNDERSTOOD, Power, SOURCE_LIGHTING_SPACING, SOURCE_LIGHTING_TRIES};
 use crate::report;
@@ -249,7 +249,10 @@ where
                 // The rate follows even if the preset send fails.
                 let preset = self.set_on_battery(event == PowerEvent::OnBattery);
                 if swapped {
-                    self.follow_slot_swap();
+                    self.follow_dark_slots();
+                    if self.config.lighting.is_some() {
+                        self.source_lighting_due = Some(SOURCE_LIGHTING_TRIES);
+                    }
                 }
                 let rate = self.follow_power(event);
                 let rate = self.quiet_if_tried_again(rate);
@@ -272,22 +275,24 @@ where
     }
 
     /// The controller keeps one keyboard level per power source and swaps
-    /// them itself at a charger change (ticket 243). With the lighting
-    /// saved, it is due to go again into the new source's slot (ticket
-    /// 244). With none saved, the app follows only its own dark: a slot it
-    /// left at 0 for a screen off keeps its level for the next swap into it
-    /// (ticket 245), a level kept for the new slot is the one to put back,
-    /// and the screen needs a new look, which makes the new slot dark for a
-    /// screen off (ticket 246) or puts that level back. A slot the app left
-    /// at 0 stays so after a quit until the user lights it.
-    fn follow_slot_swap(&mut self) {
+    /// them itself at a charger change (ticket 243): call this after a
+    /// known source changed to the other known one, by an event, a read at
+    /// a wake or a pause's end, or before a sleep. With the lighting saved,
+    /// its send at the change or the wake puts the level back, so only a
+    /// stale kept level is dropped. With none saved, the app follows its
+    /// own dark: a slot it left at 0 for a screen off keeps its level for
+    /// the next swap into it (ticket 245), a level kept for the new slot is
+    /// the one to put back, and the screen needs a new look, which makes
+    /// the new slot dark for a screen off (ticket 246) or puts that level
+    /// back. A slot the app left at 0 stays so after a quit until the user
+    /// lights it: the app can write only the slot in use.
+    pub(super) fn follow_dark_slots(&mut self) {
         let on_battery = self.on_battery();
         let kept = self
             .left_dark
             .take_if(|(battery, _)| *battery == on_battery)
             .map(|(_, level)| level);
         if self.config.lighting.is_some() {
-            self.source_lighting_due = Some(SOURCE_LIGHTING_TRIES);
             return;
         }
         if let Some(level) = self.dark_keys {
@@ -299,8 +304,12 @@ where
 
     /// Sends the saved lighting due after a charger change (ticket 244),
     /// once for any number of changes since the last send, and not before
-    /// [`SOURCE_LIGHTING_SPACING`] since it: a change inside it waits for
-    /// a later look. Keys the app keeps dark for a screen off (ticket 241)
+    /// [`SOURCE_LIGHTING_SPACING`] since the last send or try: a change
+    /// inside it waits for a later look. This caps the rate, not the count:
+    /// a plug that bounces for hours sends 6 a minute (whether the stored
+    /// writes wear the controller is not known). Keys dark for a screen off
+    /// meanwhile leave the new slot lit at its own level until the send
+    /// (lit keys are the safe side). Keys the app keeps dark for a screen off (ticket 241)
     /// stay dark: the colour and vapor light go with the keyboard at level
     /// 0, and the saved level is kept for the put-back. A failed send is
     /// only logged, and tried again at a later look, [`SOURCE_LIGHTING_TRIES`]
@@ -535,6 +544,9 @@ where
         }
         let before = self.running(self.config).preset;
         self.power = Power::Battery;
+        if self.source_known {
+            self.follow_dark_slots();
+        }
         if self.running(self.config).preset != before {
             report("the charger is gone, so the battery quit preset is sent");
             self.preset_unsure = true;

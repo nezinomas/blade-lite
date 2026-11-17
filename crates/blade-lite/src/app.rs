@@ -311,13 +311,18 @@ where
 
     /// Takes the power source without sending, for use before
     /// [`start`](Self::start), so a start on battery sends the battery
-    /// preset, not the saved one. `None` (unknown) counts as battery.
+    /// preset, not the saved one. `None` (unknown) counts as battery. A
+    /// known change from a known source follows the key slots too.
     pub fn take_on_battery(&mut self, on_battery: Option<bool>) {
         if on_battery.is_none() && self.source_known {
             report("the battery presets run");
         }
+        let swapped = self.source_known && on_battery.is_some_and(|now| now != self.on_battery());
         self.power = Power::from_battery(on_battery.unwrap_or(true));
         self.source_known = on_battery.is_some();
+        if swapped {
+            self.follow_dark_slots();
+        }
     }
 
     /// Notes a known read that matches the source the app follows, so a

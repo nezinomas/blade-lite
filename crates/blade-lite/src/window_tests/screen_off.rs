@@ -202,3 +202,27 @@ fn a_screen_change_read_before_a_sleep_in_one_look_sends_nothing() {
     let sent = sent(&f);
     assert!(!sent.windows(lit.len()).any(|run| run == lit), "{sent:?}");
 }
+
+#[test]
+fn a_charger_pull_with_the_screen_off_makes_the_new_slot_dark_in_the_same_tick() {
+    // No lighting saved: the swap's bookkeeping, then the screen's look
+    // (tickets 245, 246).
+    let f = lit_fixture();
+    let (sender, receiver) = std::sync::mpsc::channel();
+    f.shell.listen_for_power(receiver);
+    screen(&f, false);
+    // The battery slot holds its own level, 40 %.
+    f.shell
+        .app()
+        .machine_mut()
+        .controller
+        .inner
+        .brightness_level = Some(102);
+    forget_sent(&f);
+    super::FAKE_ON_BATTERY.set(true);
+    sender.send(PowerEvent::OnBattery).unwrap();
+
+    f.shell.tick();
+
+    assert_eq!(sent(&f), level(0));
+}
