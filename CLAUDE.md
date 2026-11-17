@@ -70,6 +70,7 @@ Blade Lite: a Rust app for Windows 11 that drives the Razer Blade 18 2025 (RZ09-
 - The version lives only in `Cargo.toml` (`[workspace.package]`). About and the installer take it from there (through the exe).
 - Bump it only when you build an installer that the user will install.
 - Patch (0.1.x) for fixes only. Minor (0.x.0) when a feature is added. 1.0.0 when the user is happy to use it every day.
+- Only x.y.z, no pre-release suffix (the installer refuses it). Commit `Cargo.lock` with the bump (a plain `cargo build` updates it), or `--locked` builds fail.
 
 ## Model profiles
 - Design so other Razer laptop models can be added later.
