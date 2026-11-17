@@ -223,12 +223,12 @@ To install, build it on your own PC, or ask the owner of this repo for the
 installer. The installer is not published here.
 
 To build it, you need Rust (1.92 or newer) and Inno Setup 6. Run this in the
-repo's root folder (it reads the version from `Cargo.toml`):
+repo's root folder (the setup takes its version from the exe, which takes it
+from `Cargo.toml`):
 
 ```powershell
 cargo build --release --locked -p blade-lite
-$v = (Select-String '^version = "(.+)"' Cargo.toml).Matches[0].Groups[1].Value
-& "$env:LOCALAPPDATA\Programs\Inno Setup 6\ISCC.exe" /DAppVersion=$v installer\blade-lite.iss
+& "$env:LOCALAPPDATA\Programs\Inno Setup 6\ISCC.exe" installer\blade-lite.iss
 ```
 
 That is where `winget install --id JRSoftware.InnoSetup -e --scope user`

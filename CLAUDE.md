@@ -66,6 +66,11 @@ Blade Lite: a Rust app for Windows 11 that drives the Razer Blade 18 2025 (RZ09-
 - Check the screen yourself with the window tests (look at each changed picture), and add a click test for each new control. Before merge, list only the checks software can't see (`stage` skill, step 8) and ask the user to do them. Checks not done yet go in "Still to check on the laptop" in `docs/PLAN.md`.
 - Every report ends with one plain line: what was blocked (permissions, push, merge, branch delete, cargo), or "nothing was blocked".
 
+## When to bump the version
+- The version lives only in `Cargo.toml` (`[workspace.package]`). About and the installer take it from there (through the exe).
+- Bump it only when you build an installer that the user will install.
+- Patch (0.1.x) for fixes only. Minor (0.x.0) when a feature is added. 1.0.0 when the user is happy to use it every day.
+
 ## Model profiles
 - Design so other Razer laptop models can be added later.
 - Protocol code stays model-agnostic.
