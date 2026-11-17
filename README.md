@@ -9,7 +9,7 @@ background services, no account and no cloud.
 
 > **Status:** works on the author's laptop; some laptop checks are still
 > open (see "Still to check on the laptop" in [docs/PLAN.md](docs/PLAN.md));
-> no release yet.
+> the installer is not published (see [Install](#install)).
 > **Use it at your own risk.** It sets the fans and the power limits of an
 > expensive laptop. Read [Known limits](#known-limits) and
 > [If the fans are stuck](#if-the-fans-are-stuck) first.
@@ -222,12 +222,13 @@ cargo fmt --all --check && cargo clippy --workspace --all-targets -- -D warnings
 To install, build it on your own PC, or ask the owner of this repo for the
 installer. The installer is not published here.
 
-To build it, you need Rust (1.92 or newer) and Inno Setup 6. Put the version
-from `Cargo.toml` in `AppVersion`:
+To build it, you need Rust (1.92 or newer) and Inno Setup 6. Run this in the
+repo's root folder (it reads the version from `Cargo.toml`):
 
 ```powershell
 cargo build --release --locked -p blade-lite
-& "$env:LOCALAPPDATA\Programs\Inno Setup 6\ISCC.exe" /DAppVersion=0.1.0 installer\blade-lite.iss
+$v = (Select-String '^version = "(.+)"' Cargo.toml).Matches[0].Groups[1].Value
+& "$env:LOCALAPPDATA\Programs\Inno Setup 6\ISCC.exe" /DAppVersion=$v installer\blade-lite.iss
 ```
 
 That is where `winget install --id JRSoftware.InnoSetup -e --scope user`
@@ -281,8 +282,7 @@ this repo.
 ### Removing Synapse
 
 The app is made to run with Synapse and its Razer Control Device driver
-removed. Step-by-step removal and rollback notes will be added before the
-first release. Make a restore point and keep the Synapse installer first.
+removed. Step-by-step removal and rollback notes will be added later. Make a restore point and keep the Synapse installer first.
 
 ## Credits
 
