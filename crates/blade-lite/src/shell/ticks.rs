@@ -628,11 +628,16 @@ impl<P: Parts> Shell<P> {
             return;
         }
         match app.follow_screen(screen_off) {
-            Ok(()) => self.screen_error_logged.set(false),
-            // Once until one works: a failed put-back is tried each poll.
-            Err(error) if !self.screen_error_logged.replace(true) => report(&format!(
-                "the keyboard could not follow the screen: {error}"
-            )),
+            Ok(()) => self.screen_error_logged.set(None),
+            // Once per screen state until a look works: a failed put-back
+            // is tried each poll.
+            Err(error)
+                if self.screen_error_logged.replace(Some(screen_off)) != Some(screen_off) =>
+            {
+                report(&format!(
+                    "the keyboard could not follow the screen: {error}"
+                ));
+            }
             Err(_) => {}
         }
     }
