@@ -2277,6 +2277,85 @@ fn run_wake_steps(device: Device<HidTransport, SystemClock>, step: &mut WakeStep
     wakes
 }
 
+/// The line for one set and its read-back. A level read back that differs
+/// is marked `NOT TAKEN`, not an error: the handle still answers, so it is
+/// kept.
+fn read_back(sent: u8, read: u8) -> String {
+    if read == sent {
+        format!("set {sent}, read back {read}")
+    } else {
+        format!("NOT TAKEN: set {sent}, read back {read}")
+    }
+}
+
+/// Reads the level of the keyboard's brightness LED.
+fn keyboard_level(device: &mut Device<HidTransport, SystemClock>, led: u8) -> Result<u8, String> {
+    let query = razer_proto::Brightness::level_query(led);
+    let reply = device
+        .send(query.id, &query.args)
+        .map_err(|error| format!("{error:?}"))?;
+    razer_proto::Brightness::level_from_reply(led, reply.args())
+        .ok_or_else(|| format!("reply for LED {led:02X}: {:02X?}", reply.args()))
+}
+
+/// Ticket 229: does a set work right after a wake? The app waits 2 s
+/// (`RESUME_PAUSE`) before it sends; ticket 219 showed reads answer at
+/// once, but no set was tried.
+///
+/// It sends only one set command: the keyboard brightness
+/// (`0303 [01, 05, level]`, storage 1 as the app sends it), always with the
+/// level it read before the sleep. So the level never changes, and the app
+/// sends the same command at each wake anyway. The vapor light and every
+/// other setting are left alone.
+///
+/// Quit the app from the tray, then start the probe by its name only, never
+/// with `cargo hw` (that runs every hardware test, also those that send,
+/// while you sleep the laptop):
+///
+/// `$env:BLADE_WAKE_SET_PROBE=1; cargo test -p razer-device --test hardware a_set_works_after_a_wake -- --ignored --nocapture --test-threads=1; Remove-Item Env:BLADE_WAKE_SET_PROBE`
+///
+/// Never leave `BLADE_WAKE_SET_PROBE` set. It prints the USB device's power
+/// state and suspend values and Windows' power source, opens the controller
+/// and keeps that handle over the sleep (as the app does), and reads the
+/// keyboard level; it refuses to go on if that read fails. After each wake
+/// notice the first command is the set; then it reads the level back. It
+/// does this at once and each 100 ms until 3 s after the notice (as
+/// [`run_wake_steps`] says), and prints each step's start, time taken and
+/// result. A level read back that differs is printed `NOT TAKEN`. At the
+/// end it reads the level once more. Fails if no wake was seen.
+#[test]
+#[ignore = "needs the Blade 18, BLADE_WAKE_SET_PROBE=1 and a person sleeping the laptop; sends the keyboard level it read"]
+fn a_set_works_after_a_wake() {
+    if !opted_in("BLADE_WAKE_SET_PROBE") {
+        return;
+    }
+    print_usb_power_and_suspend(razer_proto::BLADE_18.usb);
+    eprintln!("on battery: {:?}", platform::on_battery());
+    let led = *razer_proto::BLADE_18
+        .brightness_leds
+        .first()
+        .expect("the model has a keyboard brightness LED");
+    let mut device = Device::new(open(), SystemClock);
+    let level = keyboard_level(&mut device, led)
+        .unwrap_or_else(|error| panic!("refused: the keyboard level read failed: {error}"));
+    eprintln!("{}  before the sleep: keyboard level {level}", utc_now());
+
+    let wakes = run_wake_steps(device, &mut |device| {
+        device
+            .send(SET_BRIGHTNESS, &[1, led, level])
+            .map_err(|error| format!("set: {error:?}"))?;
+        let read = keyboard_level(device, led).map_err(|error| format!("read back: {error}"))?;
+        Ok(read_back(level, read))
+    });
+    let mut device = Device::new(open(), SystemClock);
+    eprintln!(
+        "{}  at the end: keyboard level {:?}",
+        utc_now(),
+        keyboard_level(&mut device, led)
+    );
+    assert!(wakes > 0, "no wake was seen");
+}
+
 /// How long one read on the kept key handle waits, as the app's one read
 /// waits its whole quiet spell (`KEY_QUIET_SPELL`, 120 s), so a read is
 /// waiting when the laptop sleeps.
@@ -2651,6 +2730,16 @@ fn a_kept_key_handle_across_a_sleep() {
     end_tally(&mut tally);
     eprintln!("{}  5 min awake with no sleep notice: the end", utc_now());
     assert!(wakes > 0, "no wake was seen");
+}
+
+#[test]
+fn a_set_level_read_back_the_same_is_taken() {
+    assert_eq!(read_back(128, 128), "set 128, read back 128");
+}
+
+#[test]
+fn a_set_level_read_back_other_is_marked_not_taken() {
+    assert_eq!(read_back(128, 0), "NOT TAKEN: set 128, read back 0");
 }
 
 #[test]
