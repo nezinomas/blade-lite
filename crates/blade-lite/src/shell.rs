@@ -454,6 +454,9 @@ pub struct Shell<P: Parts = Laptop> {
     /// Whether a missed wake was held back since the last sleep notice, as
     /// the lid was shut and the screen off (ticket 184): logged once.
     missed_wake_held: Cell<bool>,
+    /// The screen state (off or not) whose failed look was logged since
+    /// the last look that worked (ticket 241).
+    screen_error_logged: Cell<Option<bool>>,
     /// When the last sleep notice came, by the wall clock, and whether its
     /// wake's pause has ended since: the next tick measures the sleep for
     /// the fan guard (ticket 172).
@@ -527,6 +530,7 @@ impl<P: Parts> Shell<P> {
             sleep_preset_sent: Cell::new(false),
             awake_run: Cell::new(None),
             missed_wake_held: Cell::new(false),
+            screen_error_logged: Cell::new(None),
             slept_at: Cell::new(None),
             woke: Cell::new(false),
             redo_at_wake: Cell::new(false),
@@ -618,6 +622,13 @@ impl<P: Parts> Shell<P> {
                 Err(error) => report(&format!(
                     "Balanced was not sent at quit, so a manual fan or Performance may keep running: {error}"
                 )),
+            }
+            // Keys the app made dark for a screen off are not left dark
+            // with no app (ticket 241).
+            if let Err(error) = app.keys_back_on() {
+                report(&format!(
+                    "the keyboard level was not put back at quit, so the keys may stay dark: {error}"
+                ));
             }
         }));
         // Nothing more may reach the controller: an event still queued, or

@@ -256,6 +256,8 @@ impl<P: Parts> Shell<P> {
                     // As the wake: an unknown source runs the battery presets.
                     shell.app.borrow_mut().take_on_battery(P::on_battery());
                     shell.act(AppOn::<P>::start);
+                    // A screen change in the pause was dropped.
+                    shell.follow_screen();
                 });
                 true
             }
@@ -522,6 +524,7 @@ impl<P: Parts> Shell<P> {
         {
             self.follow_source();
         }
+        self.follow_screen();
     }
 
     /// Acts on the power events that came since the last look. Returns
@@ -540,6 +543,12 @@ impl<P: Parts> Shell<P> {
         for (at, &event) in events.iter().enumerate() {
             if event == PowerEvent::Suspending && events[at..].contains(&PowerEvent::Resumed) {
                 report("the sleep was read only after the wake, so nothing was sent for it");
+                continue;
+            }
+            // The sleep notice forgot the screen, so it would read as on
+            // and light keys made dark just before the sleep (ticket 241).
+            if event == PowerEvent::ScreenChanged && events[at..].contains(&PowerEvent::Suspending)
+            {
                 continue;
             }
             self.power_event(event);
@@ -566,9 +575,9 @@ impl<P: Parts> Shell<P> {
         });
     }
 
-    /// Acts on one power event. A change of source while a resume waits
-    /// is dropped and sends nothing: the resume reads the source when its pause ends,
-    /// and sends then.
+    /// Acts on one power event. A change of source or of the screen while
+    /// a resume waits is dropped and sends nothing: the resume reads them
+    /// when its pause ends, and sends then.
     fn power_event(self: &Rc<Self>, event: PowerEvent) {
         if event == PowerEvent::Suspending {
             self.suspend();
@@ -582,9 +591,54 @@ impl<P: Parts> Shell<P> {
             self.wake();
             return;
         }
+        if event == PowerEvent::ScreenChanged {
+            self.follow_screen();
+            return;
+        }
         self.forget_charging();
         if self.resuming.get() == 0 {
             self.act(|app| app.on_power(event));
+        }
+    }
+
+    /// Makes the keys dark while Windows says the screen is off, and lights
+    /// them again once it is on or not known (ticket 241). A screen not
+    /// known (after a sleep notice, or with no screen notices) counts as
+    /// on, so keys the app made dark are never left so. Nothing in a
+    /// pause or a sleep: each pause's end looks again, and so does each
+    /// poll and click, which tries a failed put-back again. The keys are
+    /// not made dark while Razer's own software runs (it may talk to the
+    /// controller at the same time); keys already dark are still lit. An
+    /// error is only logged: the user did not ask for this, and the window
+    /// is not filled again for it.
+    pub(super) fn follow_screen(self: &Rc<Self>) {
+        if self.resuming.get() > 0 {
+            return;
+        }
+        let screen_off = P::screen_on() == Some(false);
+        if screen_off && self.razer_warning.borrow().is_some() {
+            return;
+        }
+        let Ok(mut app) = self.app.try_borrow_mut() else {
+            // Busy: the next poll or click looks again.
+            return;
+        };
+        // Held for an updater: its end looks again.
+        if app.screen_followed(screen_off) || app.controller_held() {
+            return;
+        }
+        match app.follow_screen(screen_off) {
+            Ok(()) => self.screen_error_logged.set(None),
+            // Once per screen state until a look works: a failed put-back
+            // is tried each poll.
+            Err(error)
+                if self.screen_error_logged.replace(Some(screen_off)) != Some(screen_off) =>
+            {
+                report(&format!(
+                    "the keyboard could not follow the screen: {error}"
+                ));
+            }
+            Err(_) => {}
         }
     }
 
@@ -732,6 +786,9 @@ impl<P: Parts> Shell<P> {
             self.app.borrow_mut().check_firmware();
         }
         self.act(|app| app.on_power(PowerEvent::Resumed));
+        // After the settings, which may light the keys: a screen that went
+        // off or on in the pauses.
+        self.follow_screen();
         // The wake is known now: the fan guard reads at the next tick, not
         // one skipped as late by the sleep and 10 s more (ticket 171).
         self.schedule.borrow_mut().read_heat_now();

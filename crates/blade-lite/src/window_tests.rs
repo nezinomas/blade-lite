@@ -7,6 +7,7 @@ mod clicks;
 mod fan_guard;
 mod fan_targets;
 mod razer;
+mod screen_off;
 mod screens;
 mod settings;
 mod sleep;

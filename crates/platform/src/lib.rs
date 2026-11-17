@@ -54,6 +54,9 @@ pub enum PowerEvent {
     OnBattery,
     /// The laptop now runs on its charger.
     OnAc,
+    /// Windows said the screen is now off, on (or dimmed) or not known:
+    /// read it with [`LidAndScreen::screen_on`].
+    ScreenChanged,
 }
 
 /// Power events from Windows, one at a time.

@@ -3470,7 +3470,15 @@ fn an_open_window_with_the_screen_off_reads_only_the_heat() {
         Duration::from_secs(12),
     );
 
-    assert_eq!(poll_reads_since(&f, before), 0);
+    // The one keyboard level read is the screen off's own (ticket 241):
+    // it is not tried again on each tick.
+    let level = razer_proto::Brightness::query(&BLADE_18).unwrap();
+    let level_reads = f.shell.app().machine().controller.inner.asked[before..]
+        .iter()
+        .filter(|c| **c == level)
+        .count();
+    assert_eq!(level_reads, 1);
+    assert_eq!(poll_reads_since(&f, before), 1);
     assert!(temperature_reads_since(&f, before) > 0);
 }
 

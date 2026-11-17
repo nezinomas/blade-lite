@@ -15,7 +15,9 @@ use blade_core::{
     apply_performance, charge_limit_on, full_power_charger, logo_on, preset_differs, touchpad_on,
 };
 use platform::{DisplayApi, KeyInjector, Registry};
-use razer_proto::{FirmwareVersion, ModelProfile, NativeMode, RedKey, RedKeys, Rgb, Rpm};
+use razer_proto::{
+    Brightness, FirmwareVersion, ModelProfile, NativeMode, RedKey, RedKeys, Rgb, Rpm,
+};
 
 pub use error::{AppError, took_effect};
 pub use gate::Gated;
@@ -188,6 +190,14 @@ pub struct App<C, D, R, K> {
     /// What the read-back after the last preset send found (ticket 152).
     /// A difference is shown and logged; never sent again for it.
     preset_check: PresetCheck,
+    /// The keyboard's level read before the app made the keys dark for a
+    /// screen off (ticket 241), to put back. `None` while the app has not
+    /// made them dark.
+    dark_keys: Option<Brightness>,
+    /// The screen state (off or not) the keys last followed, so the shell
+    /// looks again only after a change, a failed put-back or a send of
+    /// the saved lighting. `None` until the first look.
+    keys_follow: Option<bool>,
 }
 
 impl<C, D, R, K> App<C, D, R, K>
@@ -235,6 +245,8 @@ where
             cpu_celsius: None,
             native_mode: None,
             preset_check: PresetCheck::Unknown,
+            dark_keys: None,
+            keys_follow: None,
         }
     }
 
@@ -710,6 +722,13 @@ where
         }
         applied?;
         Ok(true)
+    }
+
+    /// The saved lighting was sent, so the keys run its level: none is
+    /// kept to put back, and the screen needs a new look (ticket 241).
+    fn keys_lit_by_lighting(&mut self) {
+        self.dark_keys = None;
+        self.keys_follow = None;
     }
 
     fn lighting(&self) -> Lighting {

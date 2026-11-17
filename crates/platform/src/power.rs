@@ -184,14 +184,15 @@ impl LidAndScreen {
         self.0[Self::LID].store(state, Ordering::Relaxed);
     }
 
-    /// The screen's notice: 0 off, 1 on, 2 dimmed.
-    fn screen_said(&self, value: u32) {
+    /// The screen's notice: 0 off, 1 on, 2 dimmed. Returns whether the
+    /// state changed.
+    fn screen_said(&self, value: u32) -> bool {
         let state = match value {
             0 => OFF,
             1 | 2 => ON,
             _ => NOT_KNOWN,
         };
-        self.0[Self::SCREEN].store(state, Ordering::Relaxed);
+        self.0[Self::SCREEN].swap(state, Ordering::Relaxed) != state
     }
 
     /// A sleep notice: the screen is not known until its next notice.
@@ -210,7 +211,8 @@ struct Listener {
 
 /// Power events from Windows, from [`register`](Self::register) until drop.
 ///
-/// Only the sleep and the automatic resume are passed on. Windows sends the
+/// The sleep, the automatic resume, the power source and each change of
+/// the screen's state are passed on. Windows sends the
 /// automatic resume on every resume, with or without a user at the
 /// keyboard, so each resume is one event. On Modern Standby the sleep comes
 /// as Windows is about to freeze the desktop apps, after the screen goes
@@ -383,10 +385,10 @@ unsafe extern "system" fn on_power_event(
                 listener.seen.lid_said(value);
                 None
             }
-            Some(Setting::Screen(value)) => {
-                listener.seen.screen_said(value);
-                None
-            }
+            Some(Setting::Screen(value)) => listener
+                .seen
+                .screen_said(value)
+                .then_some(PowerEvent::ScreenChanged),
             None => None,
         },
         _ => None,
@@ -632,7 +634,7 @@ mod tests {
     }
 
     #[test]
-    fn the_lid_and_the_screen_are_kept_not_passed_on() {
+    fn the_lid_and_the_screen_are_kept_and_a_screen_change_is_passed_on() {
         let (listener, events) = listener();
         let seen = listener.seen.clone();
         assert_eq!((seen.lid_open(), seen.screen_on()), (None, None));
@@ -667,7 +669,28 @@ mod tests {
         assert_eq!(said(GUID_LIDSWITCH_STATE_CHANGE, 2), (None, Some(true)));
         assert_eq!(said(GUID_CONSOLE_DISPLAY_STATE, 3), (None, None));
 
-        assert_eq!(events.try_iter().count(), 0);
+        // Off, dimmed (on) and not known: the on after dimmed is no change.
+        assert_eq!(
+            events.try_iter().collect::<Vec<_>>(),
+            [PowerEvent::ScreenChanged; 3]
+        );
+    }
+
+    #[test]
+    fn the_same_screen_state_again_is_not_passed_on() {
+        let (listener, events) = listener();
+        let screen = |value| {
+            call(
+                &listener,
+                PBT_POWERSETTINGCHANGE,
+                Some(&change(GUID_CONSOLE_DISPLAY_STATE, value)),
+            );
+        };
+
+        screen(0);
+        screen(0);
+
+        assert_eq!(events.try_iter().count(), 1);
     }
 
     #[test]
