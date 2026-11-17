@@ -2,6 +2,7 @@
 
 mod battery;
 mod brightness_keys;
+mod charger_lighting;
 mod display;
 mod fakes;
 mod fan_guard;

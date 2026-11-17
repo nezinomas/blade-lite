@@ -500,8 +500,9 @@ fn a_usual_day_sends_set_commands_only_at_its_events() {
         .filter(|c| STORED.contains(&c.id) && c.args.first() == Some(&VARIABLE_STORAGE))
         .count();
     // The counts in docs/NOTES.md (ticket 147): 7 preset sends of 4 zones,
-    // 2 lighting sends, one lid logo switch.
-    assert_eq!((soak.sent.len(), stored), (50, 32), "{:?}", soak.sent);
+    // 6 lighting sends (start, wake and one at each of the 4 charger
+    // changes, ticket 244), one lid logo switch.
+    assert_eq!((soak.sent.len(), stored), (90, 40), "{:?}", soak.sent);
 }
 
 /// A failed read said lately is forgotten after the quiet time of the

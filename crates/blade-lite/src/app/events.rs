@@ -2,8 +2,9 @@
 //! a Num Lock or mic mute change and on quit.
 
 use blade_core::{
-    ApplyError, Config, Controller, DisplayError, Preset, Query, apply, apply_performance,
-    full_power_charger, keyboard_brightness, paint_red_keys, touchpad_on,
+    ApplyError, Config, Controller, DisplayError, Preset, Query, apply, apply_lighting,
+    apply_lighting_dark, apply_performance, full_power_charger, keyboard_brightness,
+    paint_red_keys, touchpad_on,
 };
 use platform::{DisplayApi, KeyInjector, PowerEvent, Registry};
 use razer_proto::{Brightness, RedKeys};
@@ -241,12 +242,60 @@ where
                 self.hold_rate_error(started, rate, "the rate after the wake failed too")
             }
             PowerEvent::OnBattery | PowerEvent::OnAc => {
+                let swapped =
+                    self.source_known && self.on_battery() != (event == PowerEvent::OnBattery);
                 // The rate follows even if the preset send fails.
                 let preset = self.set_on_battery(event == PowerEvent::OnBattery);
+                if swapped {
+                    self.lighting_to_new_source();
+                }
                 let rate = self.follow_power(event);
                 let rate = self.quiet_if_tried_again(rate);
                 self.hold_rate_error(preset, rate, "the rate change failed too")
             }
+        }
+    }
+
+    /// The controller keeps one keyboard level per power source and swaps
+    /// them itself at a charger change (ticket 243), so the saved lighting
+    /// goes again, after the preset, into the new source's slot (ticket
+    /// 244). Keys the app keeps dark for a screen off (ticket 241) stay
+    /// dark: the colour and vapor light go with the keyboard at level 0,
+    /// and the saved level is the one put back, never the other slot's.
+    /// With no lighting saved only a dark level goes, and lit keys are
+    /// left alone. A failed send is only logged: the user did not ask for
+    /// it, and the next charger change, wake or lighting click sends again.
+    fn lighting_to_new_source(&mut self) {
+        let dark = self.dark_keys.is_some();
+        let sent = match self.config.lighting {
+            Some(lighting) => {
+                let red = self.key_should_be_red();
+                let controller = &mut self.machine.controller;
+                let applied = if dark {
+                    apply_lighting_dark(lighting, self.model, controller, red)
+                } else {
+                    apply_lighting(lighting, self.model, controller, red)
+                };
+                self.key_red = applied.is_ok().then_some(red);
+                if dark && let Ok(saved) = Brightness::new(lighting.brightness) {
+                    self.dark_keys = Some(saved);
+                }
+                applied
+            }
+            None if dark => Brightness::new(0)
+                .map_err(ApplyError::Brightness)
+                .and_then(|level| {
+                    self.machine
+                        .controller
+                        .run(&level.commands(self.model))
+                        .map_err(ApplyError::Device)
+                }),
+            None => Ok(()),
+        };
+        if let Err(error) = sent {
+            report(&format!(
+                "the lighting after the charger change failed: {error}"
+            ));
         }
     }
 
