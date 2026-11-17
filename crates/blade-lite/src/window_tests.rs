@@ -105,6 +105,10 @@ impl Parts for Fakes {
         FAKE_NUM_LOCK.get()
     }
 
+    fn touchpad_api_on() -> Option<bool> {
+        FAKE_TOUCHPAD_API.get()
+    }
+
     fn usb_suspend_on() -> bool {
         FAKE_USB_SUSPEND_ON.get()
     }
@@ -122,6 +126,8 @@ thread_local! {
     pub static FAKE_HOLD: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
     /// The answer of a dialog held open.
     pub static FAKE_HELD: RefCell<Option<Box<dyn FnOnce()>>> = const { RefCell::new(None) };
+    /// What Windows' touchpad API says: not read unless a test sets it.
+    pub static FAKE_TOUCHPAD_API: std::cell::Cell<Option<bool>> = const { std::cell::Cell::new(None) };
     /// The default mic's mute: unknown unless a test sets it.
     pub static FAKE_MIC: std::cell::Cell<Option<bool>> = const { std::cell::Cell::new(None) };
     /// How many times the mic was asked to be read again.

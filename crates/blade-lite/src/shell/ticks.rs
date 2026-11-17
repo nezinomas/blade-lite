@@ -113,6 +113,7 @@ impl<P: Parts> Shell<P> {
             self.retry_battery_rate();
         }
         self.follow_num_lock(P::num_lock_on());
+        self.log_touchpad_sources();
         // A failed read keeps the last state, so a flaky read can't
         // send a frame each poll.
         if let Some(muted) = P::mic_muted() {
@@ -434,6 +435,18 @@ impl<P: Parts> Shell<P> {
         let painted = self.app.borrow_mut().on_num_lock(on);
         if !matches!(painted, Ok(false)) {
             self.act(|_| painted.map(|_| ()));
+        }
+    }
+
+    /// Logs what the registry and Windows' touchpad API say, when either
+    /// changes (ticket 239). Only reads and logs.
+    fn log_touchpad_sources(&self) {
+        let registry = self.app.borrow().touchpad_on();
+        let mut sources = self.touchpad_sources.get();
+        let line = sources.line(registry, P::touchpad_api_on());
+        self.touchpad_sources.set(sources);
+        if let Some(line) = line {
+            report(&line);
         }
     }
 

@@ -20,8 +20,8 @@ use blade_core::{
     ApplyError, Controller, PollSchedule, Query, RESUME_PAUSE, Readings, ReadingsSampler,
 };
 use blade_lite::{
-    App, AppError, BackgroundGpu, LoopSteps, Rect, SaidLately, ShownErrors, TimedSensors, report,
-    took_effect,
+    App, AppError, BackgroundGpu, LoopSteps, Rect, SaidLately, ShownErrors, TimedSensors,
+    TouchpadSources, report, took_effect,
 };
 use platform::{
     DisplayApi, FileDialog, KeyInjector, MicWatch, PowerEvent, Programs, Registry, Sensors,
@@ -85,6 +85,9 @@ pub trait Parts: 'static {
     fn screen_on() -> Option<bool>;
     /// Whether Num Lock is on now. Read only.
     fn num_lock_on() -> bool;
+    /// Whether Windows' touchpad API has the touchpad on (ticket 239);
+    /// `None` if it can't be read. Only logged. Read only.
+    fn touchpad_api_on() -> Option<bool>;
     /// Whether the start's registry read found Windows' USB suspend on for
     /// the Razer device (ticket 220). `false` while it is off, odd or not
     /// read yet. Read only.
@@ -229,6 +232,10 @@ impl Parts for Laptop {
 
     fn num_lock_on() -> bool {
         platform::num_lock_on()
+    }
+
+    fn touchpad_api_on() -> Option<bool> {
+        platform::touchpad_enabled().ok()
     }
 
     fn usb_suspend_on() -> bool {
@@ -380,6 +387,9 @@ pub struct Shell<P: Parts = Laptop> {
     mode_watch: Cell<ModeWatch>,
     /// The touchpad state last seen, for the touchpad popup.
     touchpad_watch: Cell<TouchpadWatch>,
+    /// What the registry and Windows' touchpad API last said, logged on a
+    /// change (ticket 239).
+    touchpad_sources: Cell<TouchpadSources>,
     /// The CPU and GPU hot spells, for the heat popup.
     heat_watch: Cell<HeatWatch>,
     /// The fan guard (ticket 129), fed by the same readings.
@@ -493,6 +503,7 @@ impl<P: Parts> Shell<P> {
             tick_now: Cell::new(Instant::now()),
             mode_watch,
             touchpad_watch,
+            touchpad_sources: Cell::new(TouchpadSources::default()),
             heat_watch: Cell::new(HeatWatch::default()),
             fan_guard: Cell::new(FanGuard::default()),
             gpu_fault_said: Cell::new(false),

@@ -15,7 +15,7 @@ use slint::{ComponentHandle, LogicalPosition, Model};
 
 use super::{
     FAKE_MIC, FAKE_NUM_LOCK, FAKE_ON_BATTERY, FAKE_RELEASED, FAKE_SCREEN_ON, FAKE_SOURCE_UNKNOWN,
-    Fixture, assert_the_battery_quit_preset, click, control, fixture, log_path,
+    FAKE_TOUCHPAD_API, Fixture, assert_the_battery_quit_preset, click, control, fixture, log_path,
     manual_fan_with_boosts, press_key, selected_preset,
 };
 use crate::fakes::{FakeCharger, brightness_commands, lighting_commands, logo};
@@ -1505,6 +1505,30 @@ fn touchpad_off_fixture() -> Fixture {
     });
     f.shell.app().machine_mut().registry.touchpad = Some(0);
     f
+}
+
+/// Ticket 239: a tick logs what the registry and Windows' touchpad API
+/// say, and again when one changes. Only the API's off is unique to this
+/// test in the shared log, so the second line is checked by it.
+#[test]
+fn a_tick_logs_both_touchpad_sources_and_each_change() {
+    let f = touchpad_off_fixture();
+    FAKE_TOUCHPAD_API.set(Some(true));
+
+    f.shell.tick();
+    FAKE_TOUCHPAD_API.set(Some(false));
+    f.shell.tick();
+
+    let log = std::fs::read_to_string(log_path()).unwrap();
+    assert!(
+        log.contains("touchpad: the registry says off, Windows' touchpad API says on, they differ"),
+        "{log}"
+    );
+    assert!(
+        log.contains("touchpad: the registry says off, Windows' touchpad API says off\n")
+            || log.contains("touchpad: the registry says off, Windows' touchpad API says off\r\n"),
+        "{log}"
+    );
 }
 
 #[test]
