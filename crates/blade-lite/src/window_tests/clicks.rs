@@ -1508,8 +1508,10 @@ fn touchpad_off_fixture() -> Fixture {
 }
 
 /// Ticket 239: a tick logs what the registry and Windows' touchpad API
-/// say, and again when one changes. Only the API's off is unique to this
-/// test in the shared log, so the second line is checked by it.
+/// say, with the key's paint, and again when one changes. The fixture
+/// turns the touchpad off after the start painted the key plain, and no
+/// watch event came, so the log shows that stale paint. Other tests leave
+/// the API not read, so both lines are this test's in the shared log.
 #[test]
 fn a_tick_logs_both_touchpad_sources_and_each_change() {
     let f = touchpad_off_fixture();
@@ -1521,12 +1523,17 @@ fn a_tick_logs_both_touchpad_sources_and_each_change() {
 
     let log = std::fs::read_to_string(log_path()).unwrap();
     assert!(
-        log.contains("touchpad: the registry says off, Windows' touchpad API says on, they differ"),
+        log.contains(
+            "touchpad: the registry says off, Windows' touchpad API says on, they differ; \
+             the key is painted plain"
+        ),
         "{log}"
     );
     assert!(
-        log.contains("touchpad: the registry says off, Windows' touchpad API says off\n")
-            || log.contains("touchpad: the registry says off, Windows' touchpad API says off\r\n"),
+        log.contains(
+            "touchpad: the registry says off, Windows' touchpad API says off; \
+             the key is painted plain"
+        ),
         "{log}"
     );
 }

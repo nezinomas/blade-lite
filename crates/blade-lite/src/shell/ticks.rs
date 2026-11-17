@@ -438,12 +438,16 @@ impl<P: Parts> Shell<P> {
         }
     }
 
-    /// Logs what the registry and Windows' touchpad API say, when either
-    /// changes (ticket 239). Only reads and logs.
+    /// Logs what the registry and Windows' touchpad API say, and how the
+    /// touchpad key was last painted, when one changes (ticket 239). Only
+    /// reads and logs.
     fn log_touchpad_sources(&self) {
-        let registry = self.app.borrow().touchpad_on();
+        let (registry, key_red) = {
+            let app = self.app.borrow();
+            (app.touchpad_on(), app.touchpad_key_red())
+        };
         let mut sources = self.touchpad_sources.get();
-        let line = sources.line(registry, P::touchpad_api_on());
+        let line = sources.line(registry, P::touchpad_api_on(), key_red, self.tick_now.get());
         self.touchpad_sources.set(sources);
         if let Some(line) = line {
             report(&line);

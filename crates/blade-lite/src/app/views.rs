@@ -151,6 +151,13 @@ where
         self.read_touchpad().ok()
     }
 
+    /// Whether the app last painted the touchpad key red, or `None` if the
+    /// last paint failed or none was sent.
+    #[must_use]
+    pub fn touchpad_key_red(&self) -> Option<bool> {
+        self.key_red.map(|red| red.touchpad)
+    }
+
     /// Whether the touchpad is on, as Windows has it.
     ///
     /// # Errors

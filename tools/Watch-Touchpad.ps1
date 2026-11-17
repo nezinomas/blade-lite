@@ -4,7 +4,8 @@ Prints, with the UTC time, each change in what Windows says about the
 touchpad (ticket 239): the registry value the app reads
 (HKCU\...\PrecisionTouchPad\Status, Enabled), the touchpad fields of
 SystemParametersInfo(SPI_GETTOUCHPADPARAMETERS) (Windows 11 24H2 and later),
-and the status of the ELAN touchpad device. Read-only: it writes nothing,
+and the status of the ELAN touchpad device (ELAN0406, this laptop's
+touchpad on the Blade 18 2025; elsewhere it prints device=missing). Read-only: it writes nothing,
 sends no keys and opens no device.
 
 .EXAMPLE

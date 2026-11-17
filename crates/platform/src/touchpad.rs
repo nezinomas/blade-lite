@@ -1,5 +1,6 @@
 //! Windows' touchpad API (ticket 239): `SPI_GETTOUCHPADPARAMETERS`, on
-//! Windows 11 24H2 and later. It reads Windows' own state, opens no device.
+//! Windows 11 24H2 and later. A user32 settings read that takes no device
+//! handle; that it opens no device is believed, not measured.
 
 use std::io;
 
@@ -42,5 +43,41 @@ pub fn touchpad_enabled() -> io::Result<bool> {
     if done == 0 {
         return Err(io::Error::last_os_error());
     }
-    Ok(parameters[STATUS] & ENABLED_BIT != 0)
+    Ok(enabled(&parameters))
+}
+
+/// The `touchpadEnabled` bit of the struct Windows filled.
+fn enabled(parameters: &Parameters) -> bool {
+    parameters[STATUS] & ENABLED_BIT != 0
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn with_status(status: u32) -> Parameters {
+        let mut parameters = [0; 11];
+        parameters[STATUS] = status;
+        parameters
+    }
+
+    #[test]
+    fn the_enabled_bit_is_the_fourth_of_the_status_word() {
+        assert!(enabled(&with_status(1 << 3)));
+    }
+
+    /// Present, legacy and mouse (bits 0 to 2) and active (bit 4) are not
+    /// enabled: active stays 1 with the touchpad off (NOTES.md).
+    #[test]
+    fn the_other_status_bits_are_not_enabled() {
+        assert!(!enabled(&with_status(0b111)));
+        assert!(!enabled(&with_status(1 << 4)));
+    }
+
+    #[test]
+    fn the_settings_word_is_not_read() {
+        let mut parameters = [0; 11];
+        parameters[STATUS + 1] = u32::MAX;
+        assert!(!enabled(&parameters));
+    }
 }
