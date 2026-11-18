@@ -77,7 +77,7 @@ fn a_native_mode_is_sent_to_the_controller() {
 
     app.on_display(DisplayCommand::SetNativeMode(FHD)).unwrap();
 
-    assert_eq!(sent(&app), [FHD.command()]);
+    assert_eq!(sent(&app), [FHD.command(&BLADE_18).unwrap()]);
 }
 
 #[test]

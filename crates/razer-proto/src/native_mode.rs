@@ -20,13 +20,14 @@ pub struct NativeMode {
 }
 
 impl NativeMode {
-    /// The command that chooses it for the next boot.
+    /// The command that chooses it for the next boot, or `None` for a mode
+    /// `model` lacks: nothing is built for it (ticket 267).
     #[must_use]
-    pub fn command(self) -> Command {
-        Command {
+    pub fn command(self, model: &ModelProfile) -> Option<Command> {
+        model.native_modes.contains(&self).then(|| Command {
             id: SET_NATIVE_MODE,
             args: vec![self.id],
-        }
+        })
     }
 
     /// The command that reads the chosen mode.

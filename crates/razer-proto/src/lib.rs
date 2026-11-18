@@ -33,7 +33,9 @@ pub use colour::{
     ParseRgbError, Rgb, static_colour, static_colour_red, static_colour_touchpad_off,
 };
 pub use command::Command;
-pub use custom::{CpuBoost, Custom, CustomError, CustomLimits, FanMode, GpuBoost, Rpm, RpmRange};
+pub use custom::{
+    CpuBoost, Custom, CustomError, CustomLimits, FanMode, GpuBoost, RPM_STEP, Rpm, RpmRange,
+};
 pub use firmware::FirmwareVersion;
 pub use logo::Logo;
 pub use native_mode::NativeMode;

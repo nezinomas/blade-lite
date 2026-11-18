@@ -50,8 +50,8 @@ fn each_mode_matches_its_golden_bytes() {
         (88, 0x03),
     ]);
 
-    assert_eq!(to_bytes(&UHD.command()), uhd);
-    assert_eq!(to_bytes(&FHD.command()), fhd);
+    assert_eq!(to_bytes(&UHD.command(&BLADE_18).unwrap()), uhd);
+    assert_eq!(to_bytes(&FHD.command(&BLADE_18).unwrap()), fhd);
 }
 
 #[test]
@@ -72,4 +72,14 @@ fn a_reply_names_the_chosen_mode() {
 fn an_unknown_mode_byte_is_none() {
     assert_eq!(NativeMode::from_reply(&[0x07], &BLADE_18), None);
     assert_eq!(NativeMode::from_reply(&[], &BLADE_18), None);
+}
+
+/// Ticket 267: no command for a mode the model lacks, as every other value
+/// type checks in razer-proto.
+#[test]
+fn a_mode_the_model_lacks_gives_no_command() {
+    let unknown = NativeMode { id: 7, ..UHD };
+
+    assert_eq!(unknown.command(&BLADE_18), None);
+    assert!(UHD.command(&BLADE_18).is_some());
 }

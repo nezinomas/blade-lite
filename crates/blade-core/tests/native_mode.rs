@@ -71,7 +71,7 @@ fn setting_a_mode_sends_its_command() {
 
     set_native_mode(FHD, &mut controller, &BLADE_18).unwrap();
 
-    assert_eq!(controller.0, [FHD.command()]);
+    assert_eq!(controller.0, [FHD.command(&BLADE_18).unwrap()]);
 }
 
 #[test]

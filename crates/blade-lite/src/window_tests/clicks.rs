@@ -680,7 +680,10 @@ fn a_native_mode_click_sends_that_mode() {
 
     click(f.shell.window(), Button, "1920 × 1200, up to 440 Hz");
 
-    assert_eq!(sent_since(&f, before), [BLADE_18.native_modes[1].command()]);
+    assert_eq!(
+        sent_since(&f, before),
+        [BLADE_18.native_modes[1].command(&BLADE_18).unwrap()]
+    );
 }
 
 /// A byte for no native mode of the Blade 18.

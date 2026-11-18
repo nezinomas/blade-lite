@@ -19,7 +19,7 @@ const FAN_MANUAL: u8 = 0x01;
 const CPU_CLUSTER: u8 = 0x01;
 const GPU_CLUSTER: u8 = 0x02;
 /// The controller takes fan speeds in steps of this many RPM.
-const RPM_STEP: u16 = 100;
+pub const RPM_STEP: u16 = 100;
 
 /// What the model accepts in Custom.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
