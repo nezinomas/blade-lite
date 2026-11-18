@@ -422,19 +422,96 @@ fn with_razer_software_at_start_a_saved_manual_fan_goes_on_auto() {
 #[test]
 fn razer_software_found_later_puts_a_manual_fan_on_auto_until_it_ends() {
     let f = fixture(manual_custom());
-    let before = f.shell.app().machine().controller.inner.sent.len();
+    let before = sent_count(&f);
 
     f.shell.programs().set(&[SYNAPSE]);
     look(&f);
+    assert_eq!(sent_count(&f), before, "only noted: a poll sends it");
+    let now = polls(&f, std::time::Instant::now());
     let bytes = fan_bytes_since(&f, before);
     assert!(all_auto(&bytes), "{bytes:?}");
 
-    let gone = f.shell.app().machine().controller.inner.sent.len();
+    let gone = sent_count(&f);
     f.shell.programs().set(&[]);
     look(&f);
+    polls(&f, now);
     let bytes = fan_bytes_since(&f, gone);
     assert!(!bytes.is_empty(), "the manual fan again");
     assert!(bytes.iter().all(|&byte| byte != 0), "{bytes:?}");
+}
+
+fn sent_count(f: &Fixture) -> usize {
+    f.shell.app().machine().controller.inner.sent.len()
+}
+
+/// Ticks a second apart for 10 s from `from`, with no new look (the last
+/// was just now); returns the time after them.
+fn polls(f: &Fixture, from: std::time::Instant) -> std::time::Instant {
+    let mut now = from;
+    f.shell.tick_at(now, std::time::SystemTime::now());
+    for _ in 0..10 {
+        now += Duration::from_secs(1);
+        f.shell.tick_at(now, std::time::SystemTime::now());
+    }
+    now
+}
+
+#[test]
+fn a_failed_send_of_the_fans_on_auto_goes_again_while_razer_software_runs() {
+    let f = fixture(manual_custom());
+    f.shell.programs().set(&[SYNAPSE]);
+    look(&f);
+    f.shell.app().machine_mut().controller.inner.fails = true;
+    let now = polls(&f, std::time::Instant::now());
+    f.shell.app().machine_mut().controller.inner.fails = false;
+    let before = sent_count(&f);
+
+    polls(&f, now);
+
+    let bytes = fan_bytes_since(&f, before);
+    assert!(all_auto(&bytes), "{bytes:?}");
+    assert!(!f.shell.app().preset_unsure());
+}
+
+#[test]
+fn razer_software_gone_at_a_wake_with_the_charger_pulled_sends_no_manual_fan() {
+    let f = fixture_with_programs(manual_custom(), &[SYNAPSE]);
+    super::sleep::power(&f, &[PowerEvent::Suspending]);
+    f.shell.programs().set(&[]);
+    FAKE_ON_BATTERY.set(true);
+    let before = sent_count(&f);
+
+    super::sleep::power(&f, &[PowerEvent::Resumed]);
+    super::sleep::pause_ends();
+
+    let bytes = fan_bytes_since(&f, before);
+    assert!(all_auto(&bytes), "{bytes:?}");
+}
+
+#[test]
+fn a_click_that_finds_razer_software_gone_sends_only_its_own_preset() {
+    let f = fixture_with_programs(manual_custom(), &[SYNAPSE]);
+    f.shell.programs().set(&[]);
+    let before = sent_count(&f);
+
+    click(f.shell.window(), Button, "Balanced");
+
+    let bytes = fan_bytes_since(&f, before);
+    assert!(all_auto(&bytes), "{bytes:?}");
+}
+
+#[test]
+fn a_quit_while_razer_software_runs_sends_no_manual_fan() {
+    let f = fixture_with_programs(manual_custom(), &[SYNAPSE]);
+    let before = sent_count(&f);
+
+    f.shell.quit();
+
+    let bytes = fan_bytes_since(&f, before);
+    assert!(all_auto(&bytes), "{bytes:?}");
+    let app = f.shell.app();
+    let sent = &app.machine().controller.inner.sent;
+    assert!(sent.ends_with(&PerfMode::Balanced.commands(&BLADE_18).unwrap()));
 }
 
 #[test]

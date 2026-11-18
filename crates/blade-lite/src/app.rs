@@ -95,7 +95,8 @@ enum FullSpeed {
     Unsent,
 }
 
-/// Whether Razer software runs, or the look for it failed (ticket 288).
+/// Whether Razer software runs, or the look for it at start failed; a later
+/// failed look keeps the last state (ticket 288).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Razer {
     Absent,
@@ -312,7 +313,7 @@ pub struct App<C, D, R, K> {
     /// Whether the put-back may guess the other slot's level from a 0
     /// read. Refused, the level stays kept for the next swap into its slot.
     slot_guess: SlotGuess,
-    /// Whether Razer software runs (or the look for it failed): the fan
+    /// Whether Razer software runs (or the look at start failed): the fan
     /// guard is off then, so Custom runs with the fans on auto in place of
     /// a manual fan (ticket 288).
     razer: Razer,
@@ -938,7 +939,9 @@ where
     /// The config with the preset that runs in place of its saved one.
     /// While the fan guard is on, a manual Custom fan runs at the model's
     /// top speed; the saved speed is kept. A saved speed the model does not
-    /// take is left as it is, so the send still refuses it.
+    /// take is left as it is, so the send still refuses it, except while
+    /// Razer software runs: Custom then runs with the fans on auto (ticket
+    /// 288), whatever the saved speed.
     fn running(&self, config: Config) -> Config {
         let mut running = Config {
             preset: config.preset.running(self.battery_presets(), self.model),
@@ -962,26 +965,17 @@ where
     /// Notes whether Razer software runs. While it does the fan guard is
     /// off, so Custom runs with the fans on auto in place of a manual fan
     /// (user pick A, ticket 288); the saved fan is kept for its end.
-    /// Nothing is sent. Returns whether that changed what should run: see
-    /// [`Self::send_running_preset`].
-    pub fn set_razer_runs(&mut self, runs: bool) -> bool {
+    /// Nothing is sent here: if that changed what should run, the preset
+    /// is marked unsure with all its resends, so a poll sends it after the
+    /// power events, and a start (a wake's or a pause's end) or a click
+    /// sends it first.
+    pub fn set_razer_runs(&mut self, runs: bool) {
         let before = self.running(self.config);
         self.razer = if runs { Razer::Runs } else { Razer::Absent };
-        self.running(self.config) != before
-    }
-
-    /// Sends the preset that should run now, such as after Razer software
-    /// came or went. A failed send marks the preset unsure, so the polls
-    /// send it again.
-    ///
-    /// # Errors
-    ///
-    /// See [`AppError`].
-    pub fn send_running_preset(&mut self) -> Result<(), AppError> {
-        let running = self.running(self.config);
-        let applied = self.send_preset(&running);
-        self.note_preset_send(&running, &applied);
-        Ok(applied?)
+        if self.running(self.config) != before {
+            self.preset_unsure = true;
+            self.resends_left = RESEND_TRIES;
+        }
     }
 
     /// Brings the fan boost in line with the fan guard (ticket 129), on each
