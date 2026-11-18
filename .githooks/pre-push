@@ -35,6 +35,39 @@ while read -r local_ref local_sha remote_ref remote_sha; do
       exit 1
     fi
   done
+  # Scripted edits through a shell heredoc turned `\b`, `\1` and `\r` into
+  # control bytes in code and docs (retro 2026-11-18). The text files the
+  # push changes must hold none: tab, LF and a CR at a line end are fine.
+  if [ "$remote_sha" = "$zero" ]; then
+    base=$(git merge-base "$local_sha" origin/master) || base=
+  else
+    base=$remote_sha
+  fi
+  if [ -z "$base" ] || ! git rev-parse -q --verify "$base^{commit}" >/dev/null; then
+    echo "pre-push: no base commit for the control-byte check; run git fetch origin." >&2
+    exit 1
+  fi
+  if ! git grep -qP '^set -e$' "$local_sha" -- .githooks/pre-push; then
+    echo "pre-push: git grep -P does not work here, so the control-byte check can't run." >&2
+    exit 1
+  fi
+  changed=$(git diff -z --no-renames --name-only --diff-filter=d "$base" "$local_sha" | tr '\0' '\n')
+  rc=0
+  bad=$(git grep -naP '[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]|\r(?!$)' "$local_sha" -- \
+    '*.rs' '*.md' '*.slint' '*.toml' '*.ps1' '*.py' '*.iss' '*.yml' '*.json' '*.txt' '*.sh' '.githooks/*') || rc=$?
+  if [ "$rc" -gt 1 ]; then
+    echo "pre-push: the control-byte check failed (git grep exit $rc)." >&2
+    exit 1
+  fi
+  bad=$(printf '%s\n' "$bad" | CHANGED="$changed" P="$local_sha:" awk '
+    BEGIN { n = split(ENVIRON["CHANGED"], a, "\n"); for (i = 1; i <= n; i++) c[a[i]] = 1 }
+    { s = substr($0, length(ENVIRON["P"]) + 1); if (substr(s, 1, index(s, ":") - 1) in c) print }')
+  if [ -n "$bad" ]; then
+    printf '%s\n' "$bad" | cut -c1-200 | sed -n l >&2
+    echo "pre-push: control characters in the lines above (often a lost backslash)." >&2
+    echo "pre-push: fix them with the Edit tool." >&2
+    exit 1
+  fi
 done
 [ "$pushes" -eq 0 ] && exit 0
 
