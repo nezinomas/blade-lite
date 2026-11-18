@@ -15,8 +15,9 @@ pub enum DisplayError {
     /// Windows could not list the displays.
     #[error("could not read the displays: {0}")]
     Query(io::Error),
-    /// No active display is the laptop's own panel.
-    #[error("the laptop's own panel is not active")]
+    /// No active display is the laptop's own panel, or two count as it
+    /// (ticket 282).
+    #[error("the laptop's own panel is not active, or two displays count as it")]
     NoInternalPanel,
     /// The panel does not offer this rate at its current resolution.
     #[error("the panel does not offer {} Hz at its current resolution", .0.0)]
@@ -114,9 +115,14 @@ fn rates_at_current_resolution(panel: &Display) -> Vec<RefreshRate> {
     rates
 }
 
-/// The laptop's own panel, picked by how it is connected.
+/// The laptop's own panel, picked by how it is connected (or by its EDID
+/// id, see `platform::WindowsDisplays`). `None` if two displays count as
+/// it, such as a monitor with the panel's EDID ids: which one is the
+/// laptop's is not known, so nothing is set (ticket 282).
 pub(crate) fn internal_panel(displays: &[Display]) -> Option<&Display> {
-    displays
+    let mut internal = displays
         .iter()
-        .find(|display| display.technology == OutputTechnology::Internal)
+        .filter(|display| display.technology == OutputTechnology::Internal);
+    let panel = internal.next()?;
+    internal.next().is_none().then_some(panel)
 }

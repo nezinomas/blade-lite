@@ -26,7 +26,7 @@ mod watch;
 use std::io;
 
 pub use backdrop::{hide_caption_buttons, round_corners, set_mica};
-pub use display::WindowsDisplays;
+pub use display::{PanelId, WindowsDisplays};
 pub use dll_search::limit_dll_search;
 pub use files::{FileDialog, pick_file};
 pub use hid::{HidDetails, HidDevice, hid_details, hid_parent_id, hid_paths};
@@ -220,7 +220,9 @@ pub enum ModeLife {
     UntilRestart,
 }
 
-/// How a display is connected, as Windows reports it.
+/// How a display is connected, as Windows reports it; a display with one
+/// of the model's panel EDID ids counts as the panel however it is
+/// connected (`WindowsDisplays::panels`, ticket 282).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum OutputTechnology {
     /// The laptop's own panel.
