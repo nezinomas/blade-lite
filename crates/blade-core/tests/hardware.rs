@@ -134,6 +134,13 @@ fn panel_rate() -> RefreshRate {
 #[ignore = "needs a laptop with its own panel turned on, and switches its rate"]
 fn the_refresh_rate_is_switched_and_put_back() {
     let before = panel_rate();
+    // The switch and the put-back save the rate they set, so the put-back
+    // saves `before`: refuse a saved rate it would change.
+    let saved = read_saved_rate().unwrap();
+    assert_eq!(
+        saved, before,
+        "the saved rate is not the current one, and the put-back would change it: not run"
+    );
     let rates = refresh_rates(&WindowsDisplays).unwrap();
     let other = *rates.iter().find(|&&rate| rate != before).unwrap();
     eprintln!("rate before: {before:?}, switching to {other:?}");
@@ -146,6 +153,11 @@ fn the_refresh_rate_is_switched_and_put_back() {
 
     // The lasting state first, so its error is never hidden.
     assert_eq!(restored.unwrap(), before, "the old rate was not put back");
+    assert_eq!(
+        read_saved_rate(),
+        Ok(saved),
+        "the saved rate was not put back"
+    );
     assert_eq!(switched.unwrap(), other, "the rate did not change");
 }
 
@@ -262,12 +274,15 @@ fn the_charge_limit_is_flipped_and_put_back() {
     // Put it back even if the flip failed.
     let restored = set_charge_limit(before, &mut device, &BLADE_18);
 
-    flipped.unwrap();
-    restored.unwrap();
+    // The lasting state first, so its error is never hidden.
+    let put_back = format!("the limit may be left on = {}: set it in the app", !before);
+    restored.unwrap_or_else(|error| panic!("{error}; {put_back}"));
     assert_eq!(
         charge_limit_on(&mut device, &BLADE_18).unwrap(),
-        Some(before)
+        Some(before),
+        "{put_back}"
     );
+    flipped.unwrap();
     // Synapse writes these flags back after a change. The app does not, so
     // check that the limit leaves them as they were.
     assert_eq!(device.query(&power_flags()).unwrap(), flags);
