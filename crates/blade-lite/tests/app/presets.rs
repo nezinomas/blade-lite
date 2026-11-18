@@ -195,3 +195,44 @@ fn a_preset_the_controller_did_not_take_shows_the_difference_and_is_not_sent_aga
         "one send only"
     );
 }
+
+#[test]
+fn a_custom_whose_fan_targets_the_controller_took_shows_no_difference() {
+    let (mut app, _dir, _) = crate::app();
+    app.start().unwrap();
+
+    app.on_performance(PerformanceCommand::SetFanRpm(Some(3000)))
+        .unwrap();
+    app.on_performance(PerformanceCommand::SetPreset(Preset::Custom))
+        .unwrap();
+
+    assert_eq!(app.preset_mismatch(), None);
+}
+
+#[test]
+fn a_fan_target_the_controller_did_not_take_shows_the_difference_and_is_not_sent_again() {
+    let (mut app, _dir, _) = crate::app();
+    app.start().unwrap();
+    let controller = &mut app.machine_mut().controller.inner;
+    controller.fan_targets_stuck = true;
+    // The targets the controller keeps, 2000 RPM.
+    for fan in [1, 2] {
+        controller
+            .custom_values
+            .insert((0x0D01, fan), vec![1, fan, 20]);
+    }
+    app.on_performance(PerformanceCommand::SetFanRpm(Some(3000)))
+        .unwrap();
+    let runs = app.machine().controller.inner.runs;
+
+    app.on_performance(PerformanceCommand::SetPreset(Preset::Custom))
+        .unwrap();
+
+    let mismatch = app.preset_mismatch().unwrap();
+    assert!(mismatch.contains("fan 1 target reads"), "{mismatch}");
+    assert_eq!(
+        app.machine().controller.inner.runs,
+        runs + 1,
+        "one send only"
+    );
+}

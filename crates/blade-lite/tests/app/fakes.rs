@@ -83,6 +83,12 @@ pub struct FakeController {
     pub asked: Vec<Command>,
     /// The last mode write of each zone, which the mode query reads back.
     pub modes: std::collections::HashMap<u8, Vec<u8>>,
+    /// The last boost and fan target write of each cluster or fan, by its
+    /// set id and second arg, which their queries read back (ticket 254).
+    /// Kept from changing by `modes_stuck` too.
+    pub custom_values: std::collections::HashMap<(u16, u8), Vec<u8>>,
+    /// Keeps only the fan target writes from changing `custom_values`.
+    pub fan_targets_stuck: bool,
     /// Keeps the mode writes from changing `modes`, as a controller that
     /// did not take them.
     pub modes_stuck: bool,
@@ -120,6 +126,11 @@ impl Controller for FakeController {
             }
             if command.id == 0x0D02 && !self.modes_stuck {
                 self.modes.insert(command.args[1], command.args.clone());
+            }
+            let stuck = self.modes_stuck || (command.id == 0x0D01 && self.fan_targets_stuck);
+            if matches!(command.id, 0x0D07 | 0x0D01) && !stuck {
+                self.custom_values
+                    .insert((command.id, command.args[1]), command.args.clone());
             }
         }
         self.sent.extend_from_slice(taken);
@@ -160,6 +171,12 @@ impl Query for FakeController {
         } else if command.id == 0x0D82 {
             self.modes
                 .get(&command.args[1])
+                .cloned()
+                .ok_or(DeviceError::Busy)
+        } else if matches!(command.id, 0x0D87 | 0x0D81) {
+            // The set id is the get id less 0x80.
+            self.custom_values
+                .get(&(command.id - 0x80, command.args[1]))
                 .cloned()
                 .ok_or(DeviceError::Busy)
         } else if *command == Celsius::query() {

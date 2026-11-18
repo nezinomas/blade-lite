@@ -8,6 +8,12 @@ use crate::{Command, ModelProfile};
 const SET_BOOST: u16 = 0x0D07;
 /// Set a fan's target speed. Args are `[1, fan, rpm / 100]`.
 const SET_FAN: u16 = 0x0D01;
+/// Get a boost level. Args are `[1, cluster, 0]`, the reply args
+/// `[1, cluster, level]` (`cargo hw`, ticket 144).
+const GET_BOOST: u16 = 0x0D87;
+/// Get a fan's target. Args are `[1, fan, 0]`, the reply args
+/// `[1, fan, rpm / 100]` (`cargo hw`, ticket 144).
+const GET_FAN: u16 = 0x0D81;
 /// The fan byte: the fan follows the target set with [`SET_FAN`].
 const FAN_MANUAL: u8 = 0x01;
 const CPU_CLUSTER: u8 = 0x01;
@@ -163,6 +169,29 @@ impl Custom {
             FanMode::Manual(rpm) => fan_commands(rpm, model).collect(),
             FanMode::Auto => Vec::new(),
         }
+    }
+
+    /// For a boost or fan target write, what it sets (such as "CPU boost"),
+    /// the query that reads it back and the args the reply should start
+    /// with (ticket 254); `None` for any other command, mode writes too
+    /// (see `PerfMode::read_back`).
+    #[must_use]
+    pub fn read_back(write: &Command) -> Option<(String, Command, Vec<u8>)> {
+        let [storage, which, ..] = write.args[..] else {
+            return None;
+        };
+        let (id, name) = match (write.id, which) {
+            (SET_BOOST, CPU_CLUSTER) => (GET_BOOST, "CPU boost".to_owned()),
+            (SET_BOOST, GPU_CLUSTER) => (GET_BOOST, "GPU boost".to_owned()),
+            (SET_BOOST, cluster) => (GET_BOOST, format!("boost {cluster}")),
+            (SET_FAN, fan) => (GET_FAN, format!("fan {fan} target")),
+            _ => return None,
+        };
+        let query = Command {
+            id,
+            args: vec![storage, which, 0],
+        };
+        Some((name, query, write.args.clone()))
     }
 
     fn mode_commands(self, model: &ModelProfile) -> Vec<Command> {
