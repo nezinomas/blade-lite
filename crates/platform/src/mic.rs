@@ -87,7 +87,7 @@ fn default_mic_error(error: windows::core::Error) -> windows::core::Error {
     if error.code() == HRESULT::from_win32(ERROR_NOT_FOUND.0) {
         windows::core::Error::new(
             error.code(),
-            "no mic is turned on in Windows (Settings, Sound, Input)",
+            "Windows has no mic turned on (Settings, Sound, Input)",
         )
     } else {
         error
@@ -463,7 +463,7 @@ mod tests {
 
         let said = mic_error(&default_mic_error(not_found)).to_string();
 
-        assert!(said.contains("no mic is turned on in Windows"), "{said}");
+        assert!(said.contains("Windows has no mic turned on"), "{said}");
         assert!(said.contains("0x80070490"), "{said}");
     }
 
