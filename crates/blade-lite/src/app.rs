@@ -791,7 +791,8 @@ where
     }
 
     /// Reads whether the charger is weak, at a start, a wake or the end of
-    /// the full charger's wait: one full read is the full charger. See [`read_charger_at_click`](Self::read_charger_at_click).
+    /// the full charger's wait: one full read is the full charger. See
+    /// [`read_charger_at_click`](Self::read_charger_at_click).
     pub(super) fn read_charger(&mut self) {
         self.read_charger_with(|_| Power::Charger);
     }

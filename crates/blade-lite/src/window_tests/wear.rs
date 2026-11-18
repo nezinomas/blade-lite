@@ -138,6 +138,26 @@ fn a_bouncing_plug_sends_the_battery_preset_once_and_no_performance() {
     assert_eq!(counts(&f), (14, 6));
 }
 
+/// The quit inside the wait: Performance never goes after the quit preset.
+#[test]
+fn the_wait_sends_nothing_after_the_quit() {
+    let f = performance();
+    let power = listening(&f);
+    let start = Instant::now();
+    ticks(&f, start, 0, 1);
+    FAKE_ON_BATTERY.set(true);
+    event(&f, &power, PowerEvent::OnBattery);
+    FAKE_ON_BATTERY.set(false);
+    event(&f, &power, PowerEvent::OnAc);
+    ticks(&f, start, 1, 2);
+
+    f.shell.quit();
+    let at_quit = sent(&f).len();
+    ticks(&f, start, 3, 20);
+
+    assert_eq!(sent(&f).len(), at_quit);
+}
+
 /// The plug's Performance comes once the charger stayed 10 s; a bounce
 /// starts the wait again, and its pull stays instant (Balanced already
 /// runs, so it sends nothing).
