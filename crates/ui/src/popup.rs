@@ -100,6 +100,8 @@ impl Sensor {
 pub struct HeatWatch {
     cpu: Spell,
     gpu: Spell,
+    /// Whether this spell of a CPU not read has warned (ticket 272).
+    cpu_unread_said: bool,
 }
 
 /// One sensor's hot spell.
@@ -126,6 +128,14 @@ impl HeatWatch {
         spell
             .note(celsius, sensor.limit(), now)
             .then(|| format!("{} {celsius}°", sensor.label()))
+    }
+
+    /// Takes whether the CPU has not been read for the fan guard's hold
+    /// (`FanGuard::cpu_unread`): true once a spell, to warn that a hot CPU
+    /// would not show (ticket 272, user pick A). A reading ends the spell.
+    pub fn note_cpu_unread(&mut self, unread: bool) -> bool {
+        let said = std::mem::replace(&mut self.cpu_unread_said, unread);
+        unread && !said
     }
 }
 

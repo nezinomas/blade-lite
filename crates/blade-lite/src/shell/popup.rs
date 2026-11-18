@@ -28,6 +28,10 @@ pub(super) const TOUCHPAD: &str = "Touchpad";
 pub(super) const TOO_HOT: &str = "Too hot";
 /// The fan guard's popup caption.
 pub(super) const FANS: &str = "Fans";
+/// The caption and text when the CPU is not read (ticket 272): "CPU
+/// temperature not read", split so it fits the popup.
+const CPU_TEMPERATURE: &str = "CPU temperature";
+const NOT_READ: &str = "Not read";
 
 impl<P: Parts> Shell<P> {
     /// Notes the CPU and GPU temperatures read at `now`, `None` for one not
@@ -41,7 +45,18 @@ impl<P: Parts> Shell<P> {
             .into_iter()
             .filter_map(|(sensor, celsius)| watch.note(sensor, celsius, now))
             .collect();
+        // The fan guard's count, which leaves out reads not tried (a
+        // resume, Razer's software, after the quit): a hot CPU would not
+        // show, so say so once (ticket 272, user pick A). It sends nothing.
+        let unread = watch.note_cpu_unread(self.fan_guard.get().cpu_unread());
         self.heat_watch.set(watch);
+        if unread {
+            report(&format!(
+                "heat warning: the CPU temperature was not read for {} s",
+                FAN_GUARD_CPU_UNREAD_HOLD.as_secs()
+            ));
+            self.pop_up(CPU_TEMPERATURE, NOT_READ, HEAT_POPUP_HOLD);
+        }
         if warnings.is_empty() {
             return;
         }

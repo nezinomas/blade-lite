@@ -250,6 +250,32 @@ fn a_cpu_not_read_with_the_fans_on_auto_says_so_and_a_manual_fan_set_later_runs_
     assert_eq!(fan_speeds_since(&f, before), [top; 2]);
 }
 
+/// Ticket 272 (user pick A): a CPU not read for 30 s shows in the popup, as
+/// a hot CPU would not; once a spell.
+#[test]
+fn a_cpu_not_read_for_30_s_shows_in_the_popup_once() {
+    let f = fixture(Config::default());
+    let start = Instant::now();
+    let unread = ui::FAN_GUARD_CPU_UNREAD_HOLD.as_secs();
+    for second in 0..unread {
+        f.shell
+            .watch_heat(None, Some(60), start + Duration::from_secs(second));
+    }
+    assert_eq!(f.shell.popup().get_mode(), "");
+
+    f.shell
+        .watch_heat(None, Some(60), start + Duration::from_secs(unread));
+
+    assert_eq!(f.shell.popup().get_caption(), "CPU temperature");
+    assert_eq!(f.shell.popup().get_mode(), "Not read");
+    f.shell.popup().set_mode("".into());
+    for second in unread + 1..unread + 10 {
+        f.shell
+            .watch_heat(None, Some(60), start + Duration::from_secs(second));
+    }
+    assert_eq!(f.shell.popup().get_mode(), "", "once a spell");
+}
+
 /// Not read while Razer's software runs: no read failed, so its end sends
 /// no full speed.
 #[test]

@@ -226,3 +226,20 @@ mod heat {
         assert_eq!(hot_for_the_hold(88), NO_WARNINGS);
     }
 }
+
+/// Ticket 272 (user pick A): a CPU not read for the fan guard's 30 s warns
+/// once, until a reading comes.
+mod cpu_not_read {
+    use ui::HeatWatch;
+
+    #[test]
+    fn a_cpu_not_read_warns_once_until_a_reading_comes() {
+        let mut watch = HeatWatch::default();
+
+        assert!(!watch.note_cpu_unread(false));
+        assert!(watch.note_cpu_unread(true));
+        assert!(!watch.note_cpu_unread(true), "once a spell");
+        assert!(!watch.note_cpu_unread(false));
+        assert!(watch.note_cpu_unread(true), "a new spell");
+    }
+}

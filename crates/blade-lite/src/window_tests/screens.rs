@@ -166,6 +166,24 @@ fn heat_popup() {
     check("popup-heat", popup.window());
 }
 
+/// Ticket 272: the CPU not read for 30 s, the longest popup text.
+#[test]
+fn cpu_not_read_popup() {
+    let f = fixture(Config::default());
+    let start = Instant::now();
+    for second in 0..=ui::FAN_GUARD_CPU_UNREAD_HOLD.as_secs() {
+        f.shell
+            .watch_heat(None, Some(60), start + Duration::from_secs(second));
+    }
+    // Shown here, as in `touchpad_popup`.
+    let popup = f.shell.popup();
+    popup.set_shown(true);
+    popup.show().expect("the popup shows");
+    // Past the fade in.
+    i_slint_backend_testing::mock_elapsed_time(Duration::from_millis(300));
+    check("popup-cpu-not-read", popup.window());
+}
+
 /// Compares a picture of `window` with the saved one called `name`.
 fn check(name: &str, window: &slint::Window) {
     let shot = window.take_snapshot().expect("a picture of the window");
