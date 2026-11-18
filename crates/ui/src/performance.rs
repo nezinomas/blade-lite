@@ -2,12 +2,10 @@
 //! battery charge limit.
 
 use blade_core::{CustomSettings, Preset};
-use razer_proto::ModelProfile;
+use razer_proto::{ModelProfile, RPM_STEP};
 
 use crate::header::preset_label;
 
-/// The steps the fan slider moves in, in rpm.
-const RPM_STEP: u16 = 100;
 /// The fan slider's lowest stop.
 const AUTO: &str = "Auto";
 

@@ -59,12 +59,10 @@ pub fn set_native_mode(
     controller: &mut impl Controller,
     model: &ModelProfile,
 ) -> Result<(), NativeModeError> {
-    if !model.native_modes.contains(&mode) {
-        return Err(NativeModeError::NotOffered(mode));
-    }
-    controller
-        .run(&[mode.command()])
-        .map_err(NativeModeError::Device)
+    let command = mode
+        .command(model)
+        .ok_or(NativeModeError::NotOffered(mode))?;
+    controller.run(&[command]).map_err(NativeModeError::Device)
 }
 
 /// The model's mode that matches the panel's largest resolution.

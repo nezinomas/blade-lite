@@ -154,3 +154,66 @@ fn a_battery_preset_the_model_lacks_is_not_valid() {
 
     assert!(!model.is_valid());
 }
+
+/// Ticket 267: the fan range must be one the protocol can send.
+#[test]
+fn a_fan_range_upside_down_is_not_valid() {
+    let mut model = BLADE_18;
+    model.custom.fan_rpm.min = model.custom.fan_rpm.max + 100;
+
+    assert!(!model.is_valid());
+}
+
+#[test]
+fn a_fan_range_not_in_whole_hundreds_is_not_valid() {
+    let mut low = BLADE_18;
+    low.custom.fan_rpm.min += 50;
+    let mut high = BLADE_18;
+    high.custom.fan_rpm.max -= 50;
+
+    assert!(!low.is_valid());
+    assert!(!high.is_valid());
+}
+
+#[test]
+fn a_fan_speed_that_does_not_fit_a_byte_is_not_valid() {
+    let mut model = BLADE_18;
+    model.custom.fan_rpm.max = 25_600;
+    let mut top = BLADE_18;
+    top.custom.fan_rpm.max = 25_500;
+
+    assert!(!model.is_valid());
+    assert!(top.is_valid(), "byte 255 is sendable");
+}
+
+#[test]
+fn a_fan_range_from_0_is_not_valid() {
+    let mut model = BLADE_18;
+    model.custom.fan_rpm.min = 0;
+
+    assert!(!model.is_valid());
+}
+
+#[test]
+fn a_charge_limit_outside_50_to_80_is_not_valid() {
+    let with = |percent| ModelProfile {
+        charge_limit: Some(razer_proto::ChargeLimit { percent }),
+        ..BLADE_18
+    };
+
+    assert!(with(50).is_valid() && with(80).is_valid());
+    assert!(!with(49).is_valid());
+    assert!(!with(81).is_valid());
+}
+
+/// A frame row is 4 bytes and 3 per column, all in one report.
+#[test]
+fn a_key_row_too_wide_for_a_report_is_not_valid() {
+    let mut fits = BLADE_18;
+    fits.keys.columns = 25;
+    let mut too_wide = BLADE_18;
+    too_wide.keys.columns = 26;
+
+    assert!(fits.is_valid());
+    assert!(!too_wide.is_valid());
+}
