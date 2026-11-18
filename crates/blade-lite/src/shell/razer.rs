@@ -12,7 +12,7 @@ use blade_core::{RESUME_PAUSE, razer_software, razer_updater, razer_warning};
 use blade_lite::report;
 use slint::Timer;
 
-use super::{AppOn, Parts, Shell};
+use super::{Parts, Shell};
 
 /// How often Razer software is looked for, beside the start, each wake
 /// and each open again.
@@ -99,10 +99,7 @@ impl<P: Parts> Shell<P> {
                 shell.controller_gone.set(false);
             }
             shell.app.borrow_mut().check_firmware();
-            // A power event in the pause was dropped.
-            shell.follow_source();
-            shell.app.borrow_mut().take_on_battery(P::on_battery());
-            shell.act(AppOn::<P>::start);
+            shell.source_then_start();
             // A screen change in the pause was dropped.
             shell.follow_screen();
             // No read while the updater ran, so the last is old: the fan

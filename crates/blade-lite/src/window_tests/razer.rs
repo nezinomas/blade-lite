@@ -168,6 +168,13 @@ fn a_charger_pulled_in_the_pause_after_an_open_again_sends_no_ac_preset() {
         "{sent:?}"
     );
     assert!(app.on_battery());
+    // Once, with the start: not also before it (ticket 256).
+    let balanced = PerfMode::Balanced.commands(&BLADE_18).unwrap();
+    let balanced_sends = sent
+        .windows(balanced.len())
+        .filter(|run| *run == balanced)
+        .count();
+    assert_eq!(balanced_sends, 1, "{sent:?}");
 }
 
 #[test]
@@ -279,6 +286,28 @@ fn the_settings_go_again_after_a_pause_when_a_razer_updater_ends() {
     pause_ends();
 
     assert_eq!(balanced_runs_since(&f, before), 1);
+}
+
+#[test]
+fn a_charger_pulled_while_an_updater_runs_sends_the_battery_preset_once_at_its_end() {
+    let f = fixture(Config {
+        preset: Preset::Performance,
+        sixty_hz_on_battery: true,
+        ..Config::default()
+    });
+    f.shell.programs().set(&[UPDATER]);
+    look(&f);
+    FAKE_ON_BATTERY.set(true);
+    f.shell.programs().set(&[]);
+    look(&f);
+    let before = f.shell.app().machine().controller.inner.sent.len();
+
+    f.shell.tick();
+    pause_ends();
+
+    // Once, with the start (ticket 256), and the rate follows the pull.
+    assert_eq!(balanced_runs_since(&f, before), 1);
+    assert_eq!(f.shell.app().machine().displays.0.current.hz, 60);
 }
 
 #[test]

@@ -316,6 +316,31 @@ where
         }
     }
 
+    /// Takes the power source read at the end of an open again's pause,
+    /// before the start that sends every setting: only the rate follows a
+    /// change now, so the preset goes once, with the start (ticket 256).
+    /// `None` (unknown) counts as battery, as at a start.
+    ///
+    /// # Errors
+    ///
+    /// See [`AppError`]: the rate change's.
+    pub fn take_source_before_start(&mut self, on_battery: Option<bool>) -> Result<(), AppError> {
+        let changed = on_battery.is_some_and(|now| now != self.on_battery());
+        self.take_on_battery(on_battery);
+        if !changed {
+            return Ok(());
+        }
+        // As `on_power`: an error held for the old source is stale.
+        self.held_rate_error = None;
+        let event = if self.on_battery() {
+            PowerEvent::OnBattery
+        } else {
+            PowerEvent::OnAc
+        };
+        let rate = self.follow_power(event);
+        self.quiet_if_tried_again(rate)
+    }
+
     /// Whether a charger change since the last send left the saved
     /// lighting due (see [`Self::send_source_lighting`]).
     #[must_use]
