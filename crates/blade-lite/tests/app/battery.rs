@@ -776,3 +776,32 @@ fn a_refused_value_keeps_a_resend_still_due() {
     assert!(app.preset_unsure());
     assert!(app.resend_preset().unwrap());
 }
+
+#[test]
+fn a_start_with_a_bad_lighting_value_still_sends_the_preset_that_runs() {
+    // Out of range, as a hand edit could leave it (ticket 261).
+    let (mut app, _dir, _) = app_with(Config {
+        preset: Preset::Performance,
+        lighting: Some(Lighting {
+            brightness: 200,
+            colour: WHITE,
+            vapor_light: true,
+        }),
+        ..Config::default()
+    });
+    app.take_on_battery(Some(true));
+
+    let result = app.start();
+
+    assert!(
+        matches!(
+            result,
+            Err(blade_lite::AppError::Apply(
+                blade_core::ApplyError::Brightness(_)
+            ))
+        ),
+        "{result:?}"
+    );
+    assert_eq!(sent(&app), PerfMode::Balanced.commands(&BLADE_18).unwrap());
+    assert!(!app.preset_unsure());
+}

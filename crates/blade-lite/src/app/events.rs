@@ -25,7 +25,8 @@ where
     /// the logo state they leave. The preset that runs in place of the
     /// saved one on battery is sent. The touchpad key is red in that frame
     /// if the touchpad is off and Num Lock is off. Saved lighting lights
-    /// the keys again, so a level kept for a screen off is dropped then.
+    /// the keys again, so a level kept for a screen off is dropped then. A
+    /// lighting value out of range still sends the preset, alone.
     ///
     /// # Errors
     ///
@@ -35,9 +36,21 @@ where
         self.read_charger();
         let config = self.running(self.config);
         let red = self.key_should_be_red();
-        let applied = apply(&config, self.model, &mut self.machine.controller, red);
-        self.key_red = applied.is_ok().then_some(red);
-        if applied.is_ok() && config.lighting.is_some() {
+        let (applied, refused) = match apply(&config, self.model, &mut self.machine.controller, red)
+        {
+            // A lighting value out of range, as a hand edit can leave
+            // it, refuses the lighting and the logo, not the preset:
+            // else another one (such as Performance on battery) keeps
+            // running (ticket 261). Its error is shown.
+            Err(ApplyError::Brightness(error)) => (
+                apply_performance(&config, self.model, &mut self.machine.controller),
+                Some(ApplyError::Brightness(error)),
+            ),
+            applied => (applied, None),
+        };
+        let whole = applied.is_ok() && refused.is_none();
+        self.key_red = whole.then_some(red);
+        if whole && config.lighting.is_some() {
             self.keys_lit_by_lighting();
         }
         self.note_preset_send(&config, &applied);
@@ -45,7 +58,8 @@ where
         self.note_fan_targets(&config, &applied);
         self.note_manual_sent(&config, &applied);
         self.read_logo();
-        Ok(applied?)
+        applied?;
+        refused.map_or(Ok(()), |error| Err(error.into()))
     }
 
     /// Makes the keys dark while Windows has the screen off, and puts their

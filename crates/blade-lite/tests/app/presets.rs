@@ -217,7 +217,9 @@ fn a_fan_target_the_controller_did_not_take_shows_the_difference_and_is_not_sent
     controller.fan_targets_stuck = true;
     // The targets the controller keeps, 2000 RPM.
     for fan in [1, 2] {
-        controller.custom_values.insert((0x0D01, fan), vec![1, fan, 20]);
+        controller
+            .custom_values
+            .insert((0x0D01, fan), vec![1, fan, 20]);
     }
     app.on_performance(PerformanceCommand::SetFanRpm(Some(3000)))
         .unwrap();
