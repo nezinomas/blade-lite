@@ -948,9 +948,9 @@ mod tests {
                 return Err(io::Error::other("no parent"));
             }
             Ok(if self.not_usb.iter().any(|known| known == path) {
-                r"RZVIRTUAL\VID_1532&PID_02C7&MI_02".to_owned()
+                r"RZVIRTUAL\VID_1532&PID_02C7&MI_02\1".to_owned()
             } else {
-                r"USB\VID_1532&PID_02C7&MI_02&2a1f".to_owned()
+                r"USB\VID_1532&PID_02C7&MI_02\6&2a1f".to_owned()
             })
         }
 
