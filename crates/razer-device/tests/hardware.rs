@@ -4,11 +4,9 @@ use std::cell::Cell;
 use std::sync::{Mutex, PoisonError};
 use std::time::Duration;
 
+use blade_core::APP_NAME;
 use platform::{InstanceLock, WindowsInstance};
 use razer_device::{Clock, Device, HidKeyReports, HidTransport, PAUSE, SystemClock};
-
-/// The name the app locks, as `blade_core::APP_NAME` has it.
-const APP: &str = "blade-lite";
 
 /// Takes the app's one-copy lock for this test run, so the tests can't drive
 /// the controller while Blade Lite runs. It is held until the run ends.
@@ -16,7 +14,7 @@ fn hold_lock() {
     static LOCK: Mutex<Option<WindowsInstance>> = Mutex::new(None);
     let mut held = LOCK.lock().unwrap_or_else(PoisonError::into_inner);
     if held.is_none() {
-        let mut instance = WindowsInstance::new(APP).unwrap();
+        let mut instance = WindowsInstance::new(APP_NAME).unwrap();
         assert!(
             instance.claim().unwrap(),
             "Blade Lite is running. Quit it from the tray first."
@@ -1627,6 +1625,41 @@ fn the_battery_probe_puts_back_balanced_over_a_missing_zone() {
         modes_to_put_back(&balanced_writes()[..3]),
         balanced_writes()
     );
+}
+
+#[test]
+fn ac_on_the_full_power_charger_runs() {
+    refuse_unless_full_power(Some(false), &Ok(Some(true)));
+}
+
+#[test]
+#[should_panic(expected = "not on AC (or unknown): not run")]
+fn battery_is_refused() {
+    refuse_unless_full_power(Some(true), &Ok(Some(true)));
+}
+
+#[test]
+#[should_panic(expected = "not on AC (or unknown): not run")]
+fn an_unknown_power_source_is_refused() {
+    refuse_unless_full_power(None, &Ok(Some(true)));
+}
+
+#[test]
+#[should_panic(expected = "not the full power charger (or unknown): not run")]
+fn a_weak_charger_is_refused() {
+    refuse_unless_full_power(Some(false), &Ok(Some(false)));
+}
+
+#[test]
+#[should_panic(expected = "not the full power charger (or unknown): not run")]
+fn a_charger_reply_not_understood_is_refused() {
+    refuse_unless_full_power(Some(false), &Ok(None));
+}
+
+#[test]
+#[should_panic(expected = "not the full power charger (or unknown): not run")]
+fn a_failed_charger_read_is_refused() {
+    refuse_unless_full_power(Some(false), &Err("busy".to_owned()));
 }
 
 /// An effect reply as the colour test could read it: storage 1, keyboard

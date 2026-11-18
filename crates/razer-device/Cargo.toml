@@ -12,6 +12,7 @@ platform = { path = "../platform" }
 razer-proto = { path = "../razer-proto" }
 
 [dev-dependencies]
+blade-core = { path = "../blade-core" }
 proptest = "1.11.0"
 
 [lints]
