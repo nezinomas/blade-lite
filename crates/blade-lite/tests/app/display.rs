@@ -159,6 +159,23 @@ fn turning_it_on_on_battery_when_60_hz_fails_keeps_it_off() {
 }
 
 #[test]
+fn a_refused_60_hz_whose_roll_back_save_fails_keeps_the_switch_off_in_memory() {
+    let (mut app, _dir, path) = app();
+    app.on_power(PowerEvent::OnBattery).unwrap();
+    app.machine_mut().displays.1 = 1;
+    app.machine_mut().displays.3 = Some(path);
+
+    assert!(
+        app.on_display(DisplayCommand::SetSixtyHzOnBattery(true))
+            .is_err()
+    );
+
+    // The rates stay free though the file could not be put back (ticket 260).
+    assert!(!app.config().sixty_hz_on_battery);
+    assert!(app.display_view().unwrap().rates_enabled);
+}
+
+#[test]
 fn turning_it_on_on_battery_when_60_hz_is_refused_keeps_it_off_with_no_tries() {
     let (mut app, _dir, _) = app();
     app.on_power(PowerEvent::OnBattery).unwrap();
