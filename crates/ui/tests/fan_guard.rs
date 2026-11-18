@@ -249,8 +249,8 @@ fn a_cpu_not_tried_does_not_count_as_unread() {
     let start = Instant::now();
     let mut now = start;
     while now <= start + FAN_GUARD_CPU_UNREAD_HOLD * 3 {
+        guard.cpu_tried(false);
         guard.note(None, None, now);
-        guard.cpu_not_tried();
         now += SECOND;
     }
     assert!(!guard.on());
@@ -258,6 +258,33 @@ fn a_cpu_not_tried_does_not_count_as_unread() {
     let (_, changes) = feed(&mut guard, now, UNREAD_LESS, None, None);
 
     assert!(changes.is_empty(), "{changes:?}");
+}
+
+/// The read not tried comes just as the unread hold ends (review of 251).
+#[test]
+fn a_cpu_not_tried_at_the_end_of_the_unread_hold_does_not_turn_it_on() {
+    let mut guard = FanGuard::default();
+    let (now, _) = feed(&mut guard, Instant::now(), UNREAD_LESS, None, None);
+
+    guard.cpu_tried(false);
+    assert_eq!(guard.note(None, None, now), None);
+    let (_, changes) = feed(&mut guard, now + SECOND, UNREAD_LESS, None, None);
+
+    assert!(changes.is_empty(), "{changes:?}");
+}
+
+#[test]
+fn a_hot_gpu_with_an_unread_cpu_is_not_on_for_the_unread_cpu() {
+    let mut guard = FanGuard::default();
+    let (_, changes) = feed(
+        &mut guard,
+        Instant::now(),
+        FAN_GUARD_CPU_UNREAD_HOLD,
+        None,
+        Some(90),
+    );
+    assert_eq!(changes, [true]);
+    assert!(!guard.on_for_unread_cpu());
 }
 
 #[test]
@@ -271,6 +298,7 @@ fn a_guard_on_for_an_unread_cpu_goes_off_once_it_reads_cool() {
         None,
     );
     assert!(guard.on());
+    assert!(guard.on_for_unread_cpu());
 
     let (now, changes) = feed(
         &mut guard,

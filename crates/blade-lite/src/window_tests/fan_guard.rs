@@ -163,7 +163,8 @@ fn a_cpu_not_read_for_half_a_minute_puts_a_manual_fan_at_full_speed_and_says_so(
     let now = ticks(&f, start, Duration::from_secs(3), 60);
     f.shell.app().machine_mut().controller.inner.cpu_celsius = None;
     let before = sent_count(&f);
-    let said = "fan guard: Full speed, as the CPU temperature was not read for 30 s";
+    let said = "fan guard: on, as the CPU temperature was not read for 30 s: a manual fan runs at full speed (GPU 61 °C)";
+    FAKE_GPU.set(FakeGpu::Celsius(61));
 
     let mut tick = now;
     while tick < now + ui::FAN_GUARD_CPU_UNREAD_HOLD {
@@ -171,14 +172,64 @@ fn a_cpu_not_read_for_half_a_minute_puts_a_manual_fan_at_full_speed_and_says_so(
         tick += Duration::from_secs(1);
     }
     assert_eq!(fan_speeds_since(&f, before), [], "not yet");
+    // By the next read at the guard's interval.
+    let due = now + ui::FAN_GUARD_CPU_UNREAD_HOLD + blade_core::GUARD_HEAT_INTERVAL;
+    while tick <= due {
+        f.shell.tick_at(tick, SystemTime::now());
+        tick += Duration::from_secs(1);
+    }
+    let top = BLADE_18.custom.fan_rpm.max;
+    assert_eq!(fan_speeds_since(&f, before), [top; 2]);
     while tick <= now + ui::FAN_GUARD_CPU_UNREAD_HOLD * 3 {
         f.shell.tick_at(tick, SystemTime::now());
         tick += Duration::from_secs(1);
     }
 
-    let top = BLADE_18.custom.fan_rpm.max;
     assert_eq!(fan_speeds_since(&f, before), [top; 4]);
     assert_eq!(log_lines(said), 1);
+}
+
+/// Review of 251: after the quit no CPU read is tried, so the closed gate
+/// gets no full speed to refuse.
+#[test]
+fn a_cpu_not_read_after_the_quit_tries_no_full_speed() {
+    let f = manual_fan();
+    f.shell.quit();
+    let before = sent_count(&f);
+    let start = Instant::now();
+
+    for second in 0..=ui::FAN_GUARD_CPU_UNREAD_HOLD.as_secs() * 2 {
+        f.shell
+            .watch_heat(None, Some(60), start + Duration::from_secs(second));
+    }
+
+    assert_eq!(sent_count(&f), before);
+    assert!(!f.shell.app().boost_unsent());
+}
+
+/// Review of 251: with the fans on auto the guard sends nothing, so it
+/// says why a manual fan set later runs at full speed.
+#[test]
+fn a_cpu_not_read_with_the_fans_on_auto_says_so_and_a_manual_fan_set_later_runs_at_full_speed() {
+    let f = fixture(Config {
+        preset: Preset::Custom,
+        ..Config::default()
+    });
+    FAKE_GPU.set(FakeGpu::Celsius(62));
+    let said = "fan guard: on, as the CPU temperature was not read for 30 s: a manual fan runs at full speed (GPU 62 °C)";
+    let start = Instant::now();
+    for second in 0..=ui::FAN_GUARD_CPU_UNREAD_HOLD.as_secs() + 2 {
+        f.shell
+            .watch_heat(None, Some(62), start + Duration::from_secs(second));
+    }
+    assert_eq!(log_lines(said), 1);
+    let before = sent_count(&f);
+
+    f.shell
+        .user_act(|app| app.on_performance(PerformanceCommand::SetFanRpm(Some(2000))));
+
+    let top = BLADE_18.custom.fan_rpm.max;
+    assert_eq!(fan_speeds_since(&f, before), [top; 2]);
 }
 
 /// Not read while Razer's software runs: no read failed, so its end sends

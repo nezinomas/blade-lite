@@ -63,15 +63,19 @@ pub struct FanGuard {
     held_by_gpu_fault: bool,
     /// `Some` after a long sleep while every reading since was cool.
     wake: Option<WakeHold>,
-    /// The CPU's reads that failed since its last reading.
+    /// The CPU's reads that failed since its last reading (ticket 251).
     cpu_unread: Unread,
 }
 
-/// The reads of a sensor that failed in a row: the first and the last.
+/// The CPU's reads that failed in a row: the first and the last.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 struct Unread {
     since: Option<Instant>,
     last: Option<Instant>,
+    /// Whether the next [`note`](FanGuard::note)'s CPU was not tried.
+    untried: bool,
+    /// Whether the guard went on only for them.
+    turned_guard_on: bool,
 }
 
 /// The cool readings since a long sleep's wake: the first and the last.
@@ -135,11 +139,19 @@ impl FanGuard {
             })
     }
 
-    /// The last [`note`](Self::note)'s CPU was not read because the app
-    /// may not read the controller now (a resume waits, or Razer's software
-    /// runs): that is no failed read, so the unread time starts again.
-    pub fn cpu_not_tried(&mut self) {
-        self.cpu_unread = Unread::default();
+    /// Whether it went on only because the CPU was not read for
+    /// [`FAN_GUARD_CPU_UNREAD_HOLD`], with no sensor hot.
+    #[must_use]
+    pub fn on_for_unread_cpu(&self) -> bool {
+        self.on && self.cpu_unread.turned_guard_on
+    }
+
+    /// Notes, before [`note`](Self::note), whether its CPU read was tried:
+    /// not while the app may not read the controller (a resume waits, Razer's
+    /// software runs, or after the quit). A read not tried is no failed
+    /// read, so the unread time starts again.
+    pub fn cpu_tried(&mut self, tried: bool) {
+        self.cpu_unread.untried = !tried;
     }
 
     /// Takes one reading of each sensor at `now` (`None`: not read). Returns
@@ -175,7 +187,10 @@ impl FanGuard {
             self.held_by_gpu_fault = cpu_cool && gpu_fault;
             !(cpu_cool && gpu_cool)
         } else {
-            self.cpu.hot_now(now) || self.gpu.hot_now(now) || self.cpu_unread()
+            let hot = self.cpu.hot_now(now) || self.gpu.hot_now(now);
+            let unread = !hot && self.cpu_unread();
+            self.cpu_unread.turned_guard_on = unread;
+            hot || unread
         };
         let changed = next != self.on;
         self.on = next;
@@ -186,16 +201,22 @@ impl FanGuard {
     }
 
     /// Counts the CPU's failed reads in a row: a reading ends them, and so
-    /// does a gap of over [`HEAT_GAP`], as nothing was read in it (a sleep).
+    /// do a read not tried and a gap of over [`HEAT_GAP`], as nothing was
+    /// read in it. A sleep is such a gap only if `Instant` counts it; if
+    /// not, the reads before and after it count as one run, which errs to
+    /// full speed. So does a gap shorter than [`HEAT_GAP`] with no notes,
+    /// such as a resume's pause with no view open.
     fn note_cpu_read(&mut self, read: bool, now: Instant) {
         let unread = &mut self.cpu_unread;
+        let untried = std::mem::take(&mut unread.untried);
         let gap = unread
             .last
             .is_some_and(|last| now.saturating_duration_since(last) > HEAT_GAP);
-        if read || gap {
-            *unread = Unread::default();
+        if read || gap || untried {
+            unread.since = None;
+            unread.last = None;
         }
-        if !read {
+        if !read && !untried {
             unread.since.get_or_insert(now);
             unread.last = Some(now);
         }

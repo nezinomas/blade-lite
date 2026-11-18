@@ -58,16 +58,22 @@ impl<P: Parts> Shell<P> {
     /// model's top speed, or back to the saved speed; that is logged and
     /// shown in the popup. Nothing is sent while Razer software runs or a
     /// resume waits: the change waits for a later reading, and a CPU not
-    /// read then is no failed read (ticket 251). A failed send shows its
-    /// error.
+    /// read then, or after the quit, is no failed read (ticket 251). A
+    /// failed send shows its error.
     fn guard_fans(self: &Rc<Self>, cpu: Option<u32>, gpu: Option<u32>, now: Instant) {
-        let mut guard = self.fan_guard.get();
-        guard.note(cpu, gpu, now);
         let allowed = self.heat_reads_allowed();
-        if !allowed {
-            guard.cpu_not_tried();
-        }
+        let mut guard = self.fan_guard.get();
+        guard.cpu_tried(allowed && !self.quit_sent.get());
+        let changed = guard.note(cpu, gpu, now);
         self.fan_guard.set(guard);
+        // Whatever the fan: a manual fan set later runs at full speed too.
+        if changed == Some(true) && guard.on_for_unread_cpu() {
+            report(&format!(
+                "fan guard: on, as the CPU temperature was not read for {} s: a manual fan runs at full speed (GPU {})",
+                FAN_GUARD_CPU_UNREAD_HOLD.as_secs(),
+                shown(gpu)
+            ));
+        }
         if !allowed {
             return;
         }
@@ -80,16 +86,8 @@ impl<P: Parts> Shell<P> {
                 } else {
                     "Back to the set speed"
                 };
-                let why = if guard.on() && guard.cpu_unread() {
-                    format!(
-                        ", as the CPU temperature was not read for {} s",
-                        FAN_GUARD_CPU_UNREAD_HOLD.as_secs()
-                    )
-                } else {
-                    String::new()
-                };
                 report(&format!(
-                    "fan guard: {text}{why} (CPU {}, GPU {})",
+                    "fan guard: {text} (CPU {}, GPU {})",
                     shown(cpu),
                     shown(gpu)
                 ));
