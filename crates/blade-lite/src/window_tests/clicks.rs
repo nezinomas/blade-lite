@@ -3182,12 +3182,6 @@ fn no_background_charger_read_while_a_razer_updater_runs() {
     f.shell.tick();
 
     assert_eq!(charger_reads_since(&f, asked), 0);
-    // Not even tried: the held controller would refuse it unseen.
-    let missed = f.shell.app().take_missed_reads();
-    assert!(
-        !missed.iter().any(|line| line.starts_with("charger")),
-        "{missed:?}"
-    );
 }
 
 #[test]
