@@ -100,7 +100,17 @@ impl Sensor {
 pub struct HeatWatch {
     cpu: Spell,
     gpu: Spell,
+    /// Whether this spell of a CPU not read has warned (ticket 272).
+    cpu_unread_said: bool,
+    /// Since when the CPU has been read again with no failed spell, to end
+    /// a warned spell only after [`CPU_READ_AGAIN_HOLD`].
+    cpu_read_since: Option<Instant>,
 }
+
+/// How long the CPU must be read again before a new spell of failed reads
+/// warns again, so reads that fail on and off do not pop up each half
+/// minute (ticket 272 review).
+pub const CPU_READ_AGAIN_HOLD: Duration = Duration::from_secs(600);
 
 /// One sensor's hot spell.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -126,6 +136,39 @@ impl HeatWatch {
         spell
             .note(celsius, sensor.limit(), now)
             .then(|| format!("{} {celsius}°", sensor.label()))
+    }
+
+    /// Takes whether the CPU has not been read for the fan guard's hold
+    /// (`FanGuard::cpu_unread`) at `now`: true once a spell, to warn that a
+    /// hot CPU would not show (ticket 272, user pick A), but only when the
+    /// warning `can_show` (no other popup now, the screen not off); else it
+    /// waits. A warned spell ends after [`CPU_READ_AGAIN_HOLD`] of the CPU
+    /// read again.
+    pub fn note_cpu_unread(&mut self, unread: bool, can_show: bool, now: Instant) -> bool {
+        if !unread {
+            let since = *self.cpu_read_since.get_or_insert(now);
+            if now.saturating_duration_since(since) >= CPU_READ_AGAIN_HOLD {
+                self.cpu_unread_said = false;
+            }
+            return false;
+        }
+        self.cpu_read_since = None;
+        if self.cpu_unread_said || !can_show {
+            return false;
+        }
+        self.cpu_unread_said = true;
+        true
+    }
+
+    /// The watch after a wake: the hot spells start again (the time asleep
+    /// may not count in `Instant`), but a CPU-not-read spell that warned
+    /// stays warned, so a wake alone does not warn again.
+    #[must_use]
+    pub fn after_wake(self) -> Self {
+        Self {
+            cpu_unread_said: self.cpu_unread_said,
+            ..Self::default()
+        }
     }
 }
 

@@ -226,3 +226,53 @@ mod heat {
         assert_eq!(hot_for_the_hold(88), NO_WARNINGS);
     }
 }
+
+/// Ticket 272 (user pick A): a CPU not read for the fan guard's 30 s warns
+/// once, until a reading comes.
+mod cpu_not_read {
+    use std::time::{Duration, Instant};
+
+    use ui::{CPU_READ_AGAIN_HOLD, HeatWatch};
+
+    #[test]
+    fn a_cpu_not_read_warns_once_a_spell() {
+        let (mut watch, now) = (HeatWatch::default(), Instant::now());
+
+        assert!(!watch.note_cpu_unread(false, true, now));
+        assert!(watch.note_cpu_unread(true, true, now));
+        assert!(!watch.note_cpu_unread(true, true, now), "once a spell");
+    }
+
+    #[test]
+    fn a_spell_ends_only_after_the_cpu_is_read_again_for_a_while() {
+        let (mut watch, now) = (HeatWatch::default(), Instant::now());
+        assert!(watch.note_cpu_unread(true, true, now));
+
+        // One good read between failing spells: no new warning.
+        assert!(!watch.note_cpu_unread(false, true, now));
+        assert!(!watch.note_cpu_unread(true, true, now + Duration::from_secs(32)));
+
+        let read_again = now + Duration::from_secs(40);
+        assert!(!watch.note_cpu_unread(false, true, read_again));
+        assert!(!watch.note_cpu_unread(false, true, read_again + CPU_READ_AGAIN_HOLD));
+        assert!(watch.note_cpu_unread(true, true, read_again + CPU_READ_AGAIN_HOLD * 2));
+    }
+
+    #[test]
+    fn a_warning_that_cannot_show_waits() {
+        let (mut watch, now) = (HeatWatch::default(), Instant::now());
+
+        assert!(!watch.note_cpu_unread(true, false, now));
+        assert!(watch.note_cpu_unread(true, true, now), "shown later");
+    }
+
+    #[test]
+    fn a_wake_keeps_a_warned_spell() {
+        let (mut watch, now) = (HeatWatch::default(), Instant::now());
+        assert!(watch.note_cpu_unread(true, true, now));
+
+        let mut woke = watch.after_wake();
+
+        assert!(!woke.note_cpu_unread(true, true, now));
+    }
+}
