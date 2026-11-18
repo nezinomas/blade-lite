@@ -862,3 +862,67 @@ fn a_wake_with_a_bad_lighting_value_still_sends_the_preset_that_runs() {
     assert_eq!(sent(&app), PerfMode::Balanced.commands(&BLADE_18).unwrap());
     assert!(!app.preset_unsure());
 }
+
+/// The app with 60 Hz on battery, on AC, then the source read unknown.
+fn unknown_after_ac() -> (crate::fakes::TestApp, tempfile::TempDir) {
+    let (mut app, dir, _) = app_with(Config {
+        sixty_hz_on_battery: true,
+        ..Config::default()
+    });
+    app.take_on_battery(None);
+    (app, dir)
+}
+
+#[test]
+fn a_known_battery_read_after_an_unknown_source_sets_60_hz_once() {
+    let (mut app, _dir) = unknown_after_ac();
+
+    assert!(app.source_read(true));
+    app.rate_on_battery_read().unwrap();
+
+    assert_eq!(panel_hz(&app), 60);
+    assert!(!app.source_read(true), "known already");
+}
+
+#[test]
+fn the_rate_at_a_battery_read_sends_nothing_while_the_source_is_unknown() {
+    let (mut app, _dir) = unknown_after_ac();
+    let before = panel_hz(&app);
+
+    app.rate_on_battery_read().unwrap();
+
+    assert_eq!(panel_hz(&app), before);
+}
+
+#[test]
+fn the_rate_at_a_battery_read_sends_nothing_on_ac() {
+    let (mut app, _dir) = unknown_after_ac();
+    let before = panel_hz(&app);
+    app.take_on_battery(Some(false));
+
+    app.rate_on_battery_read().unwrap();
+
+    assert_eq!(panel_hz(&app), before);
+}
+
+#[test]
+fn the_rate_at_a_battery_read_keeps_a_rate_set_while_one_is_saved() {
+    // On battery before: a rate set outside the app is kept (ticket 286).
+    let (mut app, _dir, before) = on_battery_at_60_hz();
+    app.take_on_battery(None);
+    app.machine_mut().displays.0.current.hz = before;
+
+    assert!(app.source_read(true));
+    app.rate_on_battery_read().unwrap();
+
+    assert_eq!(panel_hz(&app), before);
+}
+
+#[test]
+fn the_rate_at_a_battery_read_leaves_a_panel_that_is_not_active() {
+    let (mut app, _dir) = unknown_after_ac();
+    app.machine_mut().displays.0.technology = OutputTechnology::External;
+    app.source_read(true);
+
+    assert!(app.rate_on_battery_read().is_ok());
+}
