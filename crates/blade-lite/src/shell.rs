@@ -291,6 +291,7 @@ fn nothing_sent(error: &AppError) -> bool {
     matches!(
         error,
         AppError::Apply(ApplyError::Device(DeviceError::Io(io)))
+            | AppError::Device(DeviceError::Io(io))
             if io.kind() == io::ErrorKind::NotConnected
     )
 }
@@ -463,7 +464,7 @@ pub struct Shell<P: Parts = Laptop> {
     screen_error_logged: Cell<Option<bool>>,
     /// The failed keyboard put-backs in a row since the screen came on,
     /// and when the last was tried (ticket 253).
-    put_back_failed: Cell<(u8, Option<Instant>)>,
+    put_back_tries: Cell<(u8, Option<Instant>)>,
     /// When the last sleep notice came, by the wall clock, and whether its
     /// wake's pause has ended since: the next tick measures the sleep for
     /// the fan guard (ticket 172).
@@ -540,7 +541,7 @@ impl<P: Parts> Shell<P> {
             awake_run: Cell::new(None),
             missed_wake_held: Cell::new(false),
             screen_error_logged: Cell::new(None),
-            put_back_failed: Cell::new((0, None)),
+            put_back_tries: Cell::new((0, None)),
             slept_at: Cell::new(None),
             woke: Cell::new(false),
             redo_at_wake: Cell::new(false),
@@ -663,6 +664,8 @@ impl<P: Parts> Shell<P> {
     pub(super) fn begin_pause(&self) -> u64 {
         self.resuming.set(self.resuming.get().saturating_add(1));
         self.pause_began.set(Some(Instant::now()));
+        // Its end lights the keys again, with tries of its own (ticket 253).
+        self.put_back_tries.set((0, None));
         self.pauses.set(self.pauses.get().wrapping_add(1));
         self.pauses.get()
     }

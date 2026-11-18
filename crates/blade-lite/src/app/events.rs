@@ -74,9 +74,9 @@ where
     /// and preset stay. The level is read first, so a level the user set
     /// with Fn + F10 / F11 comes back too; a failed read, a model with no
     /// level, or keys already dark send nothing. Nothing is sent if the
-    /// keys already follow this state. A failed put-back is tried at the
-    /// next look (see [`Self::screen_followed`]): the level is kept until
-    /// it is back. A failed read or dark send is not: lit keys are the
+    /// keys already follow this state. A failed put-back is tried at a
+    /// later look, as the shell spaces and caps them (ticket 253; see
+    /// [`Self::screen_followed`]): the level is kept until it is back. A failed read or dark send is not: lit keys are the
     /// safe side, and a failed dark send is put back at the screen on.
     ///
     /// # Errors

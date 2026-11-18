@@ -13,7 +13,7 @@ use slint::{ComponentHandle, Timer};
 use ui::{DisplayView, FAN_GUARD_WAKE_HOLD, Header, HeatWatch};
 
 use super::popup::{POPUP_HOLD, TOUCHPAD};
-use super::{AppOn, Parts, Reopened, Shell};
+use super::{AppOn, Parts, Reopened, Shell, nothing_sent};
 use crate::bind;
 
 /// The key under which a closed or held controller's read failure counts
@@ -654,8 +654,11 @@ impl<P: Parts> Shell<P> {
     /// pause or a sleep: each pause's end looks again, and so does each
     /// poll and click. A failed put-back is tried again at a look
     /// [`PUT_BACK_SPACING`] later, [`PUT_BACK_TRIES`] times in all, then
-    /// given up until the screen goes off again or a wake (each one may
-    /// have reached the controller, ticket 253); the quit still tries.
+    /// given up until the screen goes off again, a pause (wake, open again,
+    /// updater end), or a start or charger change that leaves the keys
+    /// following no screen state (each try may have reached the
+    /// controller, ticket 253); the quit still tries. A refusal by a
+    /// closed or held controller is no try.
     /// The keys are not made dark while Razer's own software runs (it may
     /// talk to the controller at the same time); keys already dark are
     /// still lit. An error is only logged: the user did not ask for this,
@@ -667,7 +670,7 @@ impl<P: Parts> Shell<P> {
         let screen_off = P::screen_on() == Some(false);
         // A screen off gives a put-back given up its tries again.
         if screen_off {
-            self.put_back_failed.set((0, None));
+            self.put_back_tries.set((0, None));
         }
         let razer_runs = self.razer_warning.borrow().is_some();
         if screen_off && razer_runs {
@@ -681,20 +684,26 @@ impl<P: Parts> Shell<P> {
         if razer_runs {
             app.forget_dark_slot();
         }
+        // Keys that follow no screen state yet (after a start, a wake or a
+        // charger change) get their tries again.
+        if !app.screen_followed(true) && !app.screen_followed(false) {
+            self.put_back_tries.set((0, None));
+        }
         // Held for an updater: its end looks again.
         if app.screen_followed(screen_off) || app.controller_held() {
             return;
         }
         let now = self.tick_now.get().max(Instant::now());
-        let (failures, tried) = self.put_back_failed.get();
+        let (failures, tried) = self.put_back_tries.get();
         if !screen_off && failures >= PUT_BACK_TRIES
             || tried.is_some_and(|at| now.saturating_duration_since(at) < PUT_BACK_SPACING)
         {
             return;
         }
         let followed = app.follow_screen(screen_off);
-        if !screen_off && followed.is_err() {
-            self.put_back_failed.set((failures + 1, Some(now)));
+        // A refusal by a closed or held controller sent nothing: no try.
+        if !screen_off && followed.as_ref().is_err_and(|error| !nothing_sent(error)) {
+            self.put_back_tries.set((failures + 1, Some(now)));
             if failures + 1 == PUT_BACK_TRIES {
                 report(&format!(
                     "the keyboard put-back failed {PUT_BACK_TRIES} times, so it waits for the screen to go off and on again, a wake or the quit"
@@ -704,10 +713,10 @@ impl<P: Parts> Shell<P> {
         match followed {
             Ok(()) => {
                 self.screen_error_logged.set(None);
-                self.put_back_failed.set((0, None));
+                self.put_back_tries.set((0, None));
             }
             // Once per screen state until a look works: a failed put-back
-            // is tried each poll.
+            // is tried again (see above).
             Err(error)
                 if self.screen_error_logged.replace(Some(screen_off)) != Some(screen_off) =>
             {
@@ -821,8 +830,6 @@ impl<P: Parts> Shell<P> {
         }
         // The last pause sends the wake's settings.
         self.wake_due.set(true);
-        // The wake lights the keys again, with its own tries.
-        self.put_back_failed.set((0, None));
         // The time asleep may not count in `Instant`, so a spell before
         // the sleep is not carried over.
         self.heat_watch.set(HeatWatch::default());

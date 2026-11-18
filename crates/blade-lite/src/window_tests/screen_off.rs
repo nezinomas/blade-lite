@@ -156,13 +156,7 @@ fn a_failed_put_back_is_tried_again_once_its_spacing_passed() {
 fn a_put_back_that_keeps_failing_is_given_up_until_the_screen_goes_off_again() {
     let f = lit_fixture();
     let start = Instant::now();
-    screen(&f, false);
-    f.shell.app().machine_mut().controller.inner.fails = true;
-    screen(&f, true);
-    tick(&f, start, 11);
-    tick(&f, start, 22);
-    f.shell.app().machine_mut().controller.inner.fails = false;
-    forget_sent(&f);
+    put_back_given_up(&f, start);
 
     // Three tries failed: none more.
     tick(&f, start, 33);
@@ -309,4 +303,47 @@ fn no_guess_at_the_other_slot_at_a_quit_while_razer_software_runs() {
 
     let levels = level(100);
     assert!(!sent(&f).iter().any(|command| levels.contains(command)));
+}
+
+/// Fails each put-back try, at 0, 11 and 22 s: the tries run out.
+fn put_back_given_up(f: &Fixture, start: Instant) {
+    screen(f, false);
+    f.shell.app().machine_mut().controller.inner.fails = true;
+    screen(f, true);
+    tick(f, start, 11);
+    tick(f, start, 22);
+    f.shell.app().machine_mut().controller.inner.fails = false;
+    forget_sent(f);
+}
+
+#[test]
+fn the_quit_lights_keys_whose_put_back_was_given_up() {
+    let f = lit_fixture();
+    put_back_given_up(&f, Instant::now());
+
+    f.shell.quit();
+
+    assert!(lit_again(&f), "{:?}", sent(&f));
+}
+
+#[test]
+fn a_put_back_refused_by_a_closed_controller_uses_no_try() {
+    let f = lit_fixture();
+    let start = Instant::now();
+    screen(&f, false);
+    forget_sent(&f);
+    // Refused before it was sent, as a closed or held controller does.
+    f.shell
+        .app()
+        .machine_mut()
+        .controller
+        .inner
+        .not_connected_runs = 4;
+    screen(&f, true);
+    tick(&f, start, 11);
+    tick(&f, start, 22);
+    tick(&f, start, 33);
+    tick(&f, start, 44);
+
+    assert!(lit_again(&f), "{:?}", sent(&f));
 }

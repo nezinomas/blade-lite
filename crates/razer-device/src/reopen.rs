@@ -103,19 +103,24 @@ impl<T: Transport, O: FnMut(bool) -> io::Result<T>> Reopening<T, O> {
         let now = (self.now)();
         self.opened
             .retain(|&at| now.saturating_duration_since(at) < OPENS_WINDOW);
-        let mut gap = if self.worked {
+        let gap = if self.worked {
             self.gap
         } else {
             self.gap * DEAD_HANDLE_GAPS
         };
-        if self.opened.len() >= OPENS_BEFORE_SLOW {
-            gap = gap.max(SLOW_GAP);
-        }
+        let slow = self.opened.len() >= OPENS_BEFORE_SLOW;
         if self
             .opened_at
-            .is_some_and(|at| now.duration_since(at) < gap)
+            .is_some_and(|at| now.duration_since(at) < if slow { gap.max(SLOW_GAP) } else { gap })
         {
-            return closed(&format!("{CONTROLLER_CLOSED}, and was tried a moment ago"));
+            return closed(&if slow {
+                format!(
+                    "{CONTROLLER_CLOSED}, and was opened again {OPENS_BEFORE_SLOW} times in the last hour, so the next open waits {} s",
+                    SLOW_GAP.as_secs()
+                )
+            } else {
+                format!("{CONTROLLER_CLOSED}, and was tried a moment ago")
+            });
         }
         self.opened_at = Some(now);
         match (self.open)(self.worked) {
@@ -431,12 +436,16 @@ mod tests {
         assert_eq!(*s.told.borrow(), [true, false]);
     }
 
-    #[test]
-    fn after_some_opens_in_an_hour_the_gap_is_longer() {
-        let gap = Duration::from_secs(5);
-        // Each new handle works (a send and a read), then dies.
+    /// A controller whose handles each work (a send and a read), then die,
+    /// opened again `OPENS_BEFORE_SLOW` times, `gap` apart.
+    fn opened_often(
+        gap: Duration,
+    ) -> (
+        Setup,
+        Reopening<Fake, impl FnMut(bool) -> io::Result<Fake> + use<>>,
+    ) {
         let mut script = vec![DEAD];
-        for _ in 0..OPENS_BEFORE_SLOW {
+        for _ in 0..=OPENS_BEFORE_SLOW {
             script.extend([None, None, DEAD]);
         }
         let (s, mut controller) = setup(&script, &[], gap);
@@ -450,15 +459,33 @@ mod tests {
             assert!(controller.send_report(&REPORT).is_err());
         }
         assert_eq!(s.told.borrow().len(), OPENS_BEFORE_SLOW);
+        (s, controller)
+    }
 
-        pass(gap * 2);
+    #[test]
+    fn opens_older_than_an_hour_do_not_count() {
+        let gap = Duration::from_secs(5);
+        let (s, mut controller) = opened_often(gap);
+
+        pass(OPENS_WINDOW);
+        assert!(not_connected(controller.send_report(&REPORT)));
+
+        assert_eq!(s.told.borrow().len(), OPENS_BEFORE_SLOW + 1);
+    }
+
+    #[test]
+    fn after_some_opens_in_an_hour_the_gap_is_longer() {
+        let gap = Duration::from_secs(5);
+        let (s, mut controller) = opened_often(gap);
+
+        pass(SLOW_GAP - Duration::from_millis(1));
         assert!(not_connected(controller.send_report(&REPORT)));
         assert_eq!(
             s.told.borrow().len(),
             OPENS_BEFORE_SLOW,
-            "a gap is not enough"
+            "just under the slow gap is not enough"
         );
-        pass(SLOW_GAP);
+        pass(Duration::from_millis(1));
         assert!(not_connected(controller.send_report(&REPORT)));
         assert_eq!(s.told.borrow().len(), OPENS_BEFORE_SLOW + 1);
     }
