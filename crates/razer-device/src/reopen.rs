@@ -2,6 +2,7 @@
 //! such as after a driver install or the USB device going and coming back.
 
 use std::cell::Cell;
+use std::collections::VecDeque;
 use std::io;
 use std::rc::Rc;
 use std::time::{Duration, Instant};
@@ -14,6 +15,17 @@ use crate::Transport;
 /// before any reply was read on it: such a controller opens but can't be
 /// used (still coming up, or held by a driver).
 const DEAD_HANDLE_GAPS: u32 = 6;
+
+/// After this many opens that gave a handle in the last [`OPENS_WINDOW`],
+/// an open waits at least [`SLOW_GAP`]: the app sends every setting after
+/// each one, so a handle that dies again and again can't send them every
+/// few seconds (ticket 262). A guess: up to 2026-11-15 the log showed one
+/// open again.
+const OPENS_BEFORE_SLOW: usize = 3;
+const OPENS_WINDOW: Duration = Duration::from_hours(1);
+/// Short, as nothing is sent while it waits: no fan guard full speed and
+/// no sleep preset (user pick, 2026-11-18).
+const SLOW_GAP: Duration = Duration::from_mins(1);
 
 /// The controller, opened again after a HID error. Any error but a short
 /// feature report drops the handle, a timed-out read too (so a stalled
@@ -29,7 +41,8 @@ const DEAD_HANDLE_GAPS: u32 = 6;
 ///
 /// An open is not tried sooner than `gap` after the last one, whether it
 /// worked or not, as each open lists every HID device; after a handle that
-/// died before any reply was read on it, not sooner than 6 gaps.
+/// died before any reply was read on it, not sooner than 6 gaps; after 3
+/// opens that gave a handle in an hour, not sooner than a minute.
 pub struct Reopening<T, O> {
     transport: Option<T>,
     open: O,
@@ -42,6 +55,8 @@ pub struct Reopening<T, O> {
     worked: bool,
     /// The time now: `Instant::now`, or a fake in the tests.
     now: fn() -> Instant,
+    /// When each open in the last [`OPENS_WINDOW`] gave a handle.
+    opened: VecDeque<Instant>,
 }
 
 impl<T: Transport, O: FnMut(bool) -> io::Result<T>> Reopening<T, O> {
@@ -58,6 +73,7 @@ impl<T: Transport, O: FnMut(bool) -> io::Result<T>> Reopening<T, O> {
             opened_at: None,
             worked: true,
             now: Instant::now,
+            opened: VecDeque::new(),
         }
     }
 
@@ -86,21 +102,32 @@ impl<T: Transport, O: FnMut(bool) -> io::Result<T>> Reopening<T, O> {
     /// Opens the controller, unless the last open was too short a time ago.
     /// The command that asked is never sent: see [`Reopening`].
     fn open_again(&mut self) -> io::Error {
+        let now = (self.now)();
+        self.opened
+            .retain(|&at| now.saturating_duration_since(at) < OPENS_WINDOW);
         let gap = if self.worked {
             self.gap
         } else {
             self.gap * DEAD_HANDLE_GAPS
         };
-        let now = (self.now)();
+        let slow = self.opened.len() >= OPENS_BEFORE_SLOW;
         if self
             .opened_at
-            .is_some_and(|at| now.duration_since(at) < gap)
+            .is_some_and(|at| now.duration_since(at) < if slow { gap.max(SLOW_GAP) } else { gap })
         {
-            return closed(&format!("{CONTROLLER_CLOSED}, and was tried a moment ago"));
+            return closed(&if slow {
+                format!(
+                    "{CONTROLLER_CLOSED}, and was opened again {OPENS_BEFORE_SLOW} times in the last hour, so the next open waits {} s",
+                    SLOW_GAP.as_secs()
+                )
+            } else {
+                format!("{CONTROLLER_CLOSED}, and was tried a moment ago")
+            });
         }
         self.opened_at = Some(now);
         match (self.open)(self.worked) {
             Ok(transport) => {
+                self.opened.push_back(now);
                 self.transport = Some(transport);
                 self.worked = false;
                 self.held.set(true);
@@ -409,5 +436,59 @@ mod tests {
         pass(gap * DEAD_HANDLE_GAPS);
         assert!(controller.send_report(&REPORT).is_err());
         assert_eq!(*s.told.borrow(), [true, false]);
+    }
+
+    /// A controller whose handles each work (a send and a read), then die,
+    /// opened again `OPENS_BEFORE_SLOW` times, `gap` apart.
+    fn opened_often(
+        gap: Duration,
+    ) -> (
+        Setup,
+        Reopening<Fake, impl FnMut(bool) -> io::Result<Fake> + use<>>,
+    ) {
+        let mut script = vec![DEAD];
+        for _ in 0..=OPENS_BEFORE_SLOW {
+            script.extend([None, None, DEAD]);
+        }
+        let (s, mut controller) = setup(&script, &[], gap);
+        assert!(controller.send_report(&REPORT).is_err());
+        for _ in 0..OPENS_BEFORE_SLOW {
+            pass(gap);
+            assert!(not_connected(controller.send_report(&REPORT)));
+            s.held.set(false);
+            controller.send_report(&REPORT).unwrap();
+            controller.read_report().unwrap();
+            assert!(controller.send_report(&REPORT).is_err());
+        }
+        assert_eq!(s.told.borrow().len(), OPENS_BEFORE_SLOW);
+        (s, controller)
+    }
+
+    #[test]
+    fn opens_older_than_an_hour_do_not_count() {
+        let gap = Duration::from_secs(5);
+        let (s, mut controller) = opened_often(gap);
+
+        pass(OPENS_WINDOW);
+        assert!(not_connected(controller.send_report(&REPORT)));
+
+        assert_eq!(s.told.borrow().len(), OPENS_BEFORE_SLOW + 1);
+    }
+
+    #[test]
+    fn after_some_opens_in_an_hour_the_gap_is_longer() {
+        let gap = Duration::from_secs(5);
+        let (s, mut controller) = opened_often(gap);
+
+        pass(SLOW_GAP.checked_sub(Duration::from_millis(1)).unwrap());
+        assert!(not_connected(controller.send_report(&REPORT)));
+        assert_eq!(
+            s.told.borrow().len(),
+            OPENS_BEFORE_SLOW,
+            "just under the slow gap is not enough"
+        );
+        pass(Duration::from_millis(1));
+        assert!(not_connected(controller.send_report(&REPORT)));
+        assert_eq!(s.told.borrow().len(), OPENS_BEFORE_SLOW + 1);
     }
 }

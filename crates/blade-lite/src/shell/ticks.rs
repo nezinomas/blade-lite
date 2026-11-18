@@ -13,7 +13,7 @@ use slint::{ComponentHandle, Timer};
 use ui::{DisplayView, FAN_GUARD_WAKE_HOLD, Header, HeatWatch};
 
 use super::popup::{POPUP_HOLD, TOUCHPAD};
-use super::{AppOn, Parts, Reopened, Shell};
+use super::{AppOn, Parts, Reopened, Shell, nothing_sent};
 use crate::bind;
 
 /// The key under which a closed or held controller's read failure counts
@@ -23,6 +23,13 @@ const GONE_KEY: &str = "controller closed or held";
 /// How long after a manual Custom send its fan targets go once more
 /// (ticket 173; on the laptop 2 s worked).
 const FAN_TARGETS_AGAIN: Duration = Duration::from_secs(2);
+
+/// How many times a keyboard put-back after a screen on is tried before it
+/// is given up until the screen goes off again, a wake or the quit, and the
+/// least time between two tries (ticket 253): as the lighting after a
+/// charger change (`SOURCE_LIGHTING_TRIES`, `SOURCE_LIGHTING_SPACING`).
+const PUT_BACK_TRIES: u8 = blade_lite::SOURCE_LIGHTING_TRIES;
+const PUT_BACK_SPACING: Duration = blade_lite::SOURCE_LIGHTING_SPACING;
 
 /// How long the app runs on after a sleep notice with no wake notice,
 /// with input from the user in that time, before that counts as a wake
@@ -645,16 +652,26 @@ impl<P: Parts> Shell<P> {
     /// known (after a sleep notice, or with no screen notices) counts as
     /// on, so keys the app made dark are never left so. Nothing in a
     /// pause or a sleep: each pause's end looks again, and so does each
-    /// poll and click, which tries a failed put-back again. The keys are
-    /// not made dark while Razer's own software runs (it may talk to the
-    /// controller at the same time); keys already dark are still lit. An
-    /// error is only logged: the user did not ask for this, and the window
-    /// is not filled again for it.
+    /// poll and click. A failed put-back is tried again at a look
+    /// [`PUT_BACK_SPACING`] later, [`PUT_BACK_TRIES`] times in all, then
+    /// given up until the screen goes off again, a pause (wake, open again,
+    /// updater end), or a start or charger change that leaves the keys
+    /// following no screen state (each try may have reached the
+    /// controller, ticket 253); the quit still tries. A refusal by a
+    /// closed or held controller is no try.
+    /// The keys are not made dark while Razer's own software runs (it may
+    /// talk to the controller at the same time); keys already dark are
+    /// still lit. An error is only logged: the user did not ask for this,
+    /// and the window is not filled again for it.
     pub(super) fn follow_screen(self: &Rc<Self>) {
         if self.resuming.get() > 0 {
             return;
         }
         let screen_off = P::screen_on() == Some(false);
+        // A screen off gives a put-back given up its tries again.
+        if screen_off {
+            self.put_back_tries.set((0, None));
+        }
         let razer_runs = self.razer_warning.borrow().is_some();
         if screen_off && razer_runs {
             return;
@@ -667,14 +684,39 @@ impl<P: Parts> Shell<P> {
         if razer_runs {
             app.forget_dark_slot();
         }
+        // Keys that follow no screen state yet (after a start, a wake or a
+        // charger change) get their tries again.
+        if !app.screen_followed(true) && !app.screen_followed(false) {
+            self.put_back_tries.set((0, None));
+        }
         // Held for an updater: its end looks again.
         if app.screen_followed(screen_off) || app.controller_held() {
             return;
         }
-        match app.follow_screen(screen_off) {
-            Ok(()) => self.screen_error_logged.set(None),
+        let now = self.tick_now.get().max(Instant::now());
+        let (failures, tried) = self.put_back_tries.get();
+        if !screen_off && failures >= PUT_BACK_TRIES
+            || tried.is_some_and(|at| now.saturating_duration_since(at) < PUT_BACK_SPACING)
+        {
+            return;
+        }
+        let followed = app.follow_screen(screen_off);
+        // A refusal by a closed or held controller sent nothing: no try.
+        if !screen_off && followed.as_ref().is_err_and(|error| !nothing_sent(error)) {
+            self.put_back_tries.set((failures + 1, Some(now)));
+            if failures + 1 == PUT_BACK_TRIES {
+                report(&format!(
+                    "the keyboard put-back failed {PUT_BACK_TRIES} times, so it waits for the screen to go off and on again, a wake or the quit"
+                ));
+            }
+        }
+        match followed {
+            Ok(()) => {
+                self.screen_error_logged.set(None);
+                self.put_back_tries.set((0, None));
+            }
             // Once per screen state until a look works: a failed put-back
-            // is tried each poll.
+            // is tried again (see above).
             Err(error)
                 if self.screen_error_logged.replace(Some(screen_off)) != Some(screen_off) =>
             {
