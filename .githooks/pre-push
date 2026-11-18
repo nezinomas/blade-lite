@@ -47,7 +47,7 @@ while read -r local_ref local_sha remote_ref remote_sha; do
     echo "pre-push: no base commit for the control-byte check; run git fetch origin." >&2
     exit 1
   fi
-  if ! git grep -qP '^#!/bin/sh$' "$local_sha" -- .githooks/pre-push; then
+  if ! git grep -qP '^set -e$' "$local_sha" -- .githooks/pre-push; then
     echo "pre-push: git grep -P does not work here, so the control-byte check can't run." >&2
     exit 1
   fi
