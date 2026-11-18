@@ -1,6 +1,8 @@
 //! What differs between laptop models, kept as data.
 //! Adding a model means adding a profile, not changing the code.
 
+use crate::charge::SAFE_PERCENT;
+use crate::colour::FRAME_ROW_HEAD;
 use crate::{
     ChargeLimit, Charger, CustomLimits, FirmwareVersion, Logo, MAX_ARGS, NativeMode, PerfMode,
     PerfModeBytes, PowerKey, RPM_STEP, RedKey, RpmRange, VaporLight,
@@ -93,9 +95,11 @@ impl ModelProfile {
     /// differs from the others and from Custom's, and the battery presets
     /// are offered presets that hold Balanced, and at least one firmware
     /// version is listed. Also that the protocol can send what it names
-    /// (ticket 267): the fan range in whole hundreds, low to high, each a
-    /// byte once divided, and a key row's frame in one report. Each profile
-    /// is checked with it at build time.
+    /// (ticket 267): the fan range in whole hundreds, low to high, not 0,
+    /// each a byte once divided, a key row's frame in one report, and a
+    /// charge limit its command takes. Each profile must be checked with it
+    /// at build time (`const _: () = assert!(...is_valid())`, as
+    /// [`BLADE_18`] is): code such as the fan slider relies on it.
     #[must_use]
     pub const fn is_valid(&self) -> bool {
         let bytes = self.mode_bytes;
@@ -122,21 +126,30 @@ impl ModelProfile {
             && !self.firmware.is_empty()
             && fan_range_sendable(self.custom.fan_rpm)
             && frame_row_fits(self.keys.columns)
+            && charge_limit_safe(self.charge_limit)
+    }
+}
+
+/// Whether the charge limit, if any, is in the range its command takes.
+const fn charge_limit_safe(limit: Option<ChargeLimit>) -> bool {
+    match limit {
+        Some(limit) => {
+            *SAFE_PERCENT.start() <= limit.percent && limit.percent <= *SAFE_PERCENT.end()
+        }
+        None => true,
     }
 }
 
 /// Whether each speed in `range` can be sent: low to high, whole
-/// [`RPM_STEP`]s, and the top one a byte once divided by it.
+/// [`RPM_STEP`]s, never 0 (a stopped fan), and the top one a byte once
+/// divided by it.
 const fn fan_range_sendable(range: RpmRange) -> bool {
-    range.min <= range.max
+    range.min >= RPM_STEP
+        && range.min <= range.max
         && range.min.is_multiple_of(RPM_STEP)
         && range.max.is_multiple_of(RPM_STEP)
         && range.max / RPM_STEP <= u8::MAX as u16
 }
-
-/// The bytes of a frame row before its colours: marker, row, first and
-/// last column (`colour.rs`).
-const FRAME_ROW_HEAD: usize = 4;
 
 /// Whether a frame row of `columns` keys, 3 colour bytes each, fits the
 /// args of one report.

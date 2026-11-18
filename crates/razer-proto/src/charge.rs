@@ -13,7 +13,7 @@ const PERCENT_MASK: u8 = 0x7F;
 /// A safe range from the open-source tools (Synapse offers 50 to 80 on
 /// other Blades). The capture of this model saw only 80. Anything else is
 /// refused.
-const SAFE_PERCENT: RangeInclusive<u8> = 50..=80;
+pub(crate) const SAFE_PERCENT: RangeInclusive<u8> = 50..=80;
 
 /// Why a charge-limit command was not built.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

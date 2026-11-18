@@ -11,6 +11,9 @@ const CUSTOM_FRAME: [u8; 2] = [0x05, 0x00];
 const SET_FRAME_ROW: u16 = 0x030B;
 const FRAME_ROW_MARKER: u8 = 0xFF;
 const FIRST_COLUMN: u8 = 0;
+/// The bytes of a frame row before its colours: marker, row, first and
+/// last column. The profile checks a row fits a report with it.
+pub(crate) const FRAME_ROW_HEAD: usize = 4;
 
 const BLACK: Rgb = Rgb::new(0, 0, 0);
 
@@ -112,7 +115,8 @@ fn frame_row(
     model: &ModelProfile,
 ) -> Command {
     let grid = &model.keys;
-    let mut args = vec![FRAME_ROW_MARKER, row, FIRST_COLUMN, last_column];
+    let head: [u8; FRAME_ROW_HEAD] = [FRAME_ROW_MARKER, row, FIRST_COLUMN, last_column];
+    let mut args = head.to_vec();
     for column in 0..grid.columns {
         let rgb = if red.contains(&(row, column)) {
             RED_KEY
