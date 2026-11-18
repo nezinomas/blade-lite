@@ -88,9 +88,18 @@ pub fn apply(
 ///
 /// The [`ApplyError`] for a value the model does not take.
 pub fn check(config: &Config, model: &ModelProfile) -> Result<(), ApplyError> {
-    custom(config.custom, model).map_err(ApplyError::Custom)?;
+    check_custom(config.custom, model)?;
     preset_commands(*config, model)?;
     rest_commands(*config, model, RedKeys::default()).map(drop)
+}
+
+/// Checks that the model takes the Custom values `saved`. Nothing is sent.
+///
+/// # Errors
+///
+/// [`ApplyError::Custom`] for a value the model does not take.
+pub fn check_custom(saved: CustomSettings, model: &ModelProfile) -> Result<(), ApplyError> {
+    custom(saved, model).map(drop).map_err(ApplyError::Custom)
 }
 
 /// Sends only the saved preset, with its Custom values.

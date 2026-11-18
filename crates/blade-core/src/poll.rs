@@ -15,6 +15,11 @@ pub const HEAT_INTERVAL: Duration = Duration::from_secs(10);
 /// the charger and may send the preset again, as a view's poll does.
 pub const GUARD_HEAT_INTERVAL: Duration = Duration::from_secs(2);
 
+/// How early a tick may come and still count as on time (ticket 264): the
+/// tick timer has the same period as the polls, so a tick a moment early
+/// would skip one. Windows' timers run on its clock tick, 15.6 ms by default.
+const TICK_SLACK: Duration = Duration::from_millis(50);
+
 /// A view that shows readings.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum View {
@@ -113,13 +118,14 @@ impl PollSchedule {
         }
     }
 
-    /// Whether to poll now. A `true` moves the next poll one interval on.
+    /// Whether to poll now. A `true` moves the next poll one interval on
+    /// from when this one was due, so a late tick shifts no later one.
     pub fn poll_due(&mut self, now: Instant) -> bool {
-        let due = self.next.is_some_and(|next| now >= next);
-        if due {
-            self.next = Some(now + POLL_INTERVAL);
-        }
-        due
+        let Some(next) = self.next.filter(|&next| on_time(now, next)) else {
+            return false;
+        };
+        self.next = Some(step(next, now, POLL_INTERVAL) + POLL_INTERVAL);
+        true
     }
 
     /// Whether to read only the temperatures now: never while a view
@@ -150,7 +156,7 @@ impl PollSchedule {
             interval
         };
         let next = last.at + gap;
-        if now < next {
+        if !on_time(now, next) {
             return false;
         }
         let late = now > next + HEAT_INTERVAL;
@@ -159,7 +165,7 @@ impl PollSchedule {
             .is_ok_and(|passed| passed > gap + HEAT_INTERVAL);
         let skipped = late || slept;
         self.last_heat = Some(LastHeat {
-            at: now,
+            at: if skipped { now } else { step(next, now, gap) },
             wall,
             skipped,
         });
@@ -177,4 +183,16 @@ impl PollSchedule {
     pub fn next_poll(&self) -> Option<Instant> {
         self.next
     }
+}
+
+/// Whether a tick at `now` is on time for one due at `due`.
+fn on_time(now: Instant, due: Instant) -> bool {
+    now + TICK_SLACK >= due
+}
+
+/// When a read due at `due` and made at `now` counts as made: `due`, so the
+/// next keeps the schedule, unless it is a whole `interval` late (a stall,
+/// or a switch to a shorter interval): then `now`, so no burst follows.
+fn step(due: Instant, now: Instant, interval: Duration) -> Instant {
+    if now < due + interval { due } else { now }
 }

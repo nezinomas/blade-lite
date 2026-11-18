@@ -1,9 +1,9 @@
 //! What each click does.
 
 use blade_core::{
-    ApplyError, Config, Controller, Lighting, Preset, Query, apply_lighting, keyboard_brightness,
-    next_preset, set_charge_limit, set_logo, set_native_mode, set_refresh_rate, set_touchpad,
-    set_vapor_light,
+    ApplyError, Config, Controller, Lighting, Preset, Query, apply_lighting, check_custom,
+    keyboard_brightness, next_preset, set_charge_limit, set_logo, set_native_mode,
+    set_refresh_rate, set_touchpad, set_vapor_light,
 };
 use platform::{DisplayApi, KeyInjector, PowerEvent, Registry};
 use ui::{DisplayCommand, KeyboardCommand, PerformanceCommand};
@@ -24,10 +24,11 @@ where
     /// change that was sent but not saved is kept in memory. A click on a
     /// preset not offered on battery is refused on a weak charge; if the
     /// charger read for it found the weak charge, the battery preset that
-    /// now runs is sent first. A click refused before any send (a saved
-    /// value out of range) whose read changed what runs sends the preset
-    /// that now runs. A Custom slider reads the charger first too, and is
-    /// refused if that read found a weak charge.
+    /// now runs is sent first. A preset click refused before any send (a
+    /// saved value out of range) whose read changed what runs sends the
+    /// preset that now runs. A Custom value the model does not take is
+    /// refused before any read or send. A Custom slider then reads the
+    /// charger first too, and is refused if that read found a weak charge.
     pub fn on_performance(&mut self, command: PerformanceCommand) -> Result<(), AppError> {
         let mut config = self.config;
         // What ran before a charger read, if the click made one.
@@ -48,6 +49,9 @@ where
             PerformanceCommand::SetChargeLimit(on) => return self.set_charge_limit(on),
         }
         if !matches!(command, PerformanceCommand::SetPreset(_)) {
+            // Checked here, as no Custom send checks it while another
+            // preset runs, such as Balanced on battery (ticket 275).
+            check_custom(config.custom, self.model)?;
             // A slider sends Custom while it runs (ticket 257). A read that
             // just found a weak charge refuses it, as a preset click.
             read_from = self.read_charger_before(config.preset);

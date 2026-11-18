@@ -242,6 +242,11 @@ fn a_heat_read_a_little_late_still_runs() {
     clock.now += HEAT_INTERVAL * 2;
 
     assert!(schedule.heat_due(clock.now, clock.wall(), HEAT_INTERVAL));
+    // The next waits a whole interval from this late one: no burst.
+    clock.now += Duration::from_secs(1);
+    assert!(!schedule.heat_due(clock.now, clock.wall(), HEAT_INTERVAL));
+    clock.now += HEAT_INTERVAL.saturating_sub(Duration::from_secs(1));
+    assert!(schedule.heat_due(clock.now, clock.wall(), HEAT_INTERVAL));
 }
 
 #[test]
@@ -282,7 +287,10 @@ fn a_switch_to_the_guard_interval_reads_within_it() {
 
     // A manual fan starts: the read 2 s after the last one is due now.
     assert!(schedule.heat_due(clock.now, clock.wall(), GUARD_HEAT_INTERVAL));
-    clock.now += GUARD_HEAT_INTERVAL;
+    // The next waits 2 s from now, not from when it was due: no burst.
+    clock.now += Duration::from_secs(1);
+    assert!(!schedule.heat_due(clock.now, clock.wall(), GUARD_HEAT_INTERVAL));
+    clock.now += Duration::from_secs(1);
     assert!(schedule.heat_due(clock.now, clock.wall(), GUARD_HEAT_INTERVAL));
 }
 
@@ -423,4 +431,53 @@ fn a_minimised_closed_window_does_not_poll_when_restored() {
     schedule.set_window_minimized(false, clock.now);
 
     assert_eq!(schedule.next_poll(), None);
+}
+
+/// Ticks a second apart from 1 s after the start, each `jitter` ms off the
+/// whole second (ticket 264): returns the ticks at which `due` said yes.
+fn jittered(
+    clock: &mut FakeClock,
+    jitter: &[i64],
+    mut due: impl FnMut(Instant) -> bool,
+) -> Vec<i64> {
+    let mut hits = Vec::new();
+    for (tick, &ms) in (0..).zip(jitter) {
+        let after_start = u64::try_from(1000 * (tick + 1) + ms).unwrap();
+        clock.now = clock.start + Duration::from_millis(after_start);
+        if due(clock.now) {
+            hits.push(tick);
+        }
+    }
+    hits
+}
+
+/// A tick a moment early, or one on time after a late one, still polls:
+/// the tick timer has the same 1 s period (ticket 264).
+#[test]
+fn a_tick_a_moment_early_or_after_a_late_one_still_polls() {
+    let mut clock = FakeClock::new();
+    let mut schedule = PollSchedule::default();
+    schedule.show(View::Window, clock.now);
+
+    let polled = jittered(&mut clock, &[0, 0, -16, 300, 0, 0], |now| {
+        schedule.poll_due(now)
+    });
+
+    assert_eq!(polled, [0, 1, 2, 3, 4, 5]);
+}
+
+/// The 2 s guard read with a tick a moment early, or one on time after a
+/// late one, still reads every 2 s (ticket 264).
+#[test]
+fn a_guard_read_a_moment_early_or_after_a_late_one_still_runs() {
+    let mut clock = FakeClock::new();
+    let mut schedule = PollSchedule::default();
+    let (start, wall_start) = (clock.start, clock.wall());
+
+    let read = jittered(&mut clock, &[0, 0, -16, 0, 300, 0, 0, 0], |now| {
+        let wall = wall_start + now.saturating_duration_since(start);
+        schedule.heat_due(now, wall, GUARD_HEAT_INTERVAL)
+    });
+
+    assert_eq!(read, [0, 2, 4, 6]);
 }
