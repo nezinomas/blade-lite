@@ -339,7 +339,7 @@ mod tests {
 
     #[test]
     fn a_missing_key_has_no_subkeys() {
-        let error = subkeys(r"SOFTWARElade-lite-no-such-key").unwrap_err();
+        let error = subkeys(r"SOFTWARE\blade-lite-no-such-key").unwrap_err();
         assert_eq!(error.kind(), io::ErrorKind::NotFound);
     }
 
