@@ -133,13 +133,16 @@ impl<P: Parts> Shell<P> {
         if self.resuming.get() == 0 && self.schedule.borrow_mut().poll_due(now) {
             self.tick_readings(now);
             self.after_reads();
-        } else if self.heat_reads_allowed()
+        } else if self.resuming.get() == 0
             && self
                 .schedule
                 .borrow_mut()
                 .heat_due(now, wall, self.heat_interval())
         {
-            self.tick_heat(now);
+            // While Razer's software runs, only the charger (ticket 258).
+            if self.heat_reads_allowed() {
+                self.tick_heat(now);
+            }
             self.after_reads();
         }
         self.preset_failures_seen.set(failures);
@@ -274,8 +277,9 @@ impl<P: Parts> Shell<P> {
 
     /// Sends the preset that runs again if its last send failed, so the
     /// laptop does not keep running another one (such as Performance on
-    /// battery) until the next power event. Not while a resume waits or
-    /// Razer's software runs, as for the heat reads, nor in the tick of a
+    /// battery) until the next power event. Not while a resume waits, nor
+    /// while Razer's software runs unless the battery presets run (ticket
+    /// 258), nor in the tick of a
     /// failed send or the one after it: the controller may still run it.
     /// A resend that works is quiet, so the error of the failed send stays
     /// shown (it may not be the preset's), unless a rate error was held
@@ -287,7 +291,10 @@ impl<P: Parts> Shell<P> {
     /// (ticket 163).
     fn resend_preset(self: &Rc<Self>) {
         let quiet = self.app.borrow().preset_failures() == self.preset_failures_seen.get();
-        if !quiet || !self.heat_reads_allowed() {
+        // While Razer's software runs, only a battery preset goes again.
+        let battery = self.app.borrow().battery_presets_run();
+        let allowed = self.heat_reads_allowed() || (battery && self.charger_reads_allowed());
+        if !quiet || !allowed {
             return;
         }
         let unsent = self.app.borrow().boost_unsent();
@@ -324,10 +331,12 @@ impl<P: Parts> Shell<P> {
 
     /// Sends the preset that runs if a weak charge came or went, such as a
     /// USB-C monitor plugged in while the Razer charger is pulled (Windows
-    /// sees no power change then). Not while a resume waits or Razer's
-    /// software runs, as for the heat reads. Returns whether it acted.
+    /// sees no power change then). Also while Razer's software runs, so
+    /// Performance or Custom can't stay on a weak charger (ticket 258, user
+    /// pick A); not while a resume waits or a Razer updater runs. Returns
+    /// whether it acted.
     fn follow_charger(self: &Rc<Self>) -> bool {
-        if !self.heat_reads_allowed() {
+        if !self.charger_reads_allowed() {
             return false;
         }
         let unsent = self.app.borrow().boost_unsent();
@@ -385,6 +394,14 @@ impl<P: Parts> Shell<P> {
     /// runs (it may talk to the controller at the same time).
     pub(super) fn heat_reads_allowed(&self) -> bool {
         self.resuming.get() == 0 && self.razer_warning.borrow().is_none()
+    }
+
+    /// Whether the charger may be read on a poll, and a failed battery
+    /// preset sent again: as the heat reads, but also while Razer's own
+    /// software (not an updater) runs, so the step down to the battery
+    /// preset still comes (ticket 258, user pick A, 2026-11-18).
+    fn charger_reads_allowed(&self) -> bool {
+        self.resuming.get() == 0 && !self.app.borrow().controller_held()
     }
 
     /// How often the temperatures are read with no view open: often while

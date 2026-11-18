@@ -2385,7 +2385,7 @@ fn no_background_temperature_read_while_razer_software_runs() {
 }
 
 #[test]
-fn with_the_window_open_a_tick_reads_no_controller_while_razer_software_runs() {
+fn with_the_window_open_a_tick_reads_only_the_charger_while_razer_software_runs() {
     let f = fixture(Config::default());
     f.shell.programs().set(&["Razer Synapse Service"]);
     f.shell.look_for_razer();
@@ -2396,12 +2396,13 @@ fn with_the_window_open_a_tick_reads_no_controller_while_razer_software_runs() {
     f.shell
         .tick_at(Instant::now() + Duration::from_secs(60), SystemTime::now());
 
-    assert_eq!(asked_count(&f), asked);
+    // The charger only (ticket 258).
+    assert_eq!(asked_count(&f) - asked, charger_reads_since(&f, asked));
     assert_eq!(f.shell.app().cpu_celsius(), None, "not read, so unknown");
 }
 
 #[test]
-fn with_the_flyout_open_a_tick_reads_no_controller_while_razer_software_runs() {
+fn with_the_flyout_open_a_tick_reads_only_the_charger_while_razer_software_runs() {
     let f = fixture(Config::default());
     f.shell.programs().set(&["Razer Synapse Service"]);
     f.shell.look_for_razer();
@@ -2411,7 +2412,7 @@ fn with_the_flyout_open_a_tick_reads_no_controller_while_razer_software_runs() {
     f.shell
         .tick_at(Instant::now() + Duration::from_secs(60), SystemTime::now());
 
-    assert_eq!(asked_count(&f), asked);
+    assert_eq!(asked_count(&f) - asked, charger_reads_since(&f, asked));
 }
 
 #[test]
@@ -3170,9 +3171,9 @@ fn no_charger_read_while_a_wake_waits() {
 }
 
 #[test]
-fn no_background_charger_read_while_razer_software_runs() {
+fn no_background_charger_read_while_a_razer_updater_runs() {
     let f = fixture(Config::default());
-    f.shell.programs().set(&["Razer Synapse Service"]);
+    f.shell.programs().set(&["RazerFirmwareUpdater.exe"]);
     f.shell.look_for_razer();
     let asked = asked_count(&f);
 
@@ -3392,14 +3393,27 @@ fn a_switch_that_fails_in_a_tick_is_not_sent_again_in_that_tick() {
 }
 
 #[test]
-fn no_resend_while_razer_software_runs() {
-    let f = failed_switch_fixture();
+fn a_failed_switch_to_ac_is_not_sent_again_while_razer_software_runs() {
+    let f = fixture(Config {
+        preset: Preset::Performance,
+        ..Config::default()
+    });
+    FAKE_ON_BATTERY.set(true);
+    let (sender, receiver) = std::sync::mpsc::channel();
+    sender.send(PowerEvent::OnBattery).unwrap();
+    f.shell.follow_power(&receiver);
     f.shell.programs().set(&["Razer Synapse Service"]);
     f.shell.look_for_razer();
+    f.shell.app().machine_mut().controller.inner.fails = true;
+    FAKE_ON_BATTERY.set(false);
+    sender.send(PowerEvent::OnAc).unwrap();
+    f.shell.follow_power(&receiver);
+    f.shell.app().machine_mut().controller.inner.fails = false;
     let sent = sent_count(&f);
 
     two_heat_reads(&f);
 
+    // Only a battery preset goes again then (ticket 258).
     assert_eq!(sent_since(&f, sent), []);
 }
 

@@ -616,3 +616,61 @@ fn a_failed_charge_limit_read_at_start_is_logged_at_the_fill() {
     let error = razer_device::DeviceError::Busy;
     assert!(f.shell.said_lately(&format!("charge limit: {error}")));
 }
+
+/// The commands sent since `before` commands.
+fn sent_since(f: &Fixture, before: usize) -> Vec<razer_proto::Command> {
+    f.shell.app().machine().controller.inner.sent[before..].to_vec()
+}
+
+#[test]
+fn while_razer_software_runs_a_weak_charger_on_a_tick_still_runs_balanced() {
+    let f = fixture(Config {
+        preset: Preset::Performance,
+        ..Config::default()
+    });
+    f.shell.programs().set(&[SYNAPSE]);
+    look(&f);
+    f.shell.app().machine_mut().controller.inner.charger = crate::fakes::FakeCharger::UsbC;
+    let before = f.shell.app().machine().controller.inner.sent.len();
+
+    // With a view open and with none (ticket 258, user pick A).
+    let start = std::time::Instant::now();
+    f.shell.tick_at(start, std::time::SystemTime::now());
+    f.shell.tick_at(
+        start + blade_core::HEAT_INTERVAL,
+        std::time::SystemTime::now(),
+    );
+
+    let balanced = PerfMode::Balanced.commands(&BLADE_18).unwrap();
+    assert_eq!(sent_since(&f, before), balanced);
+}
+
+#[test]
+fn while_razer_software_runs_a_failed_battery_preset_is_sent_again() {
+    let f = fixture(Config {
+        preset: Preset::Performance,
+        ..Config::default()
+    });
+    f.shell.programs().set(&[SYNAPSE]);
+    look(&f);
+    f.shell.app().machine_mut().controller.inner.fails = true;
+    FAKE_ON_BATTERY.set(true);
+    super::sleep::power(&f, &[PowerEvent::OnBattery]);
+    f.shell.app().machine_mut().controller.inner.fails = false;
+    let before = f.shell.app().machine().controller.inner.sent.len();
+
+    let start = std::time::Instant::now();
+    for second in [0, 10, 20, 30] {
+        f.shell.tick_at(
+            start + Duration::from_secs(second),
+            std::time::SystemTime::now(),
+        );
+    }
+
+    let balanced = PerfMode::Balanced.commands(&BLADE_18).unwrap();
+    assert!(
+        sent_since(&f, before).starts_with(&balanced),
+        "{:?}",
+        sent_since(&f, before)
+    );
+}

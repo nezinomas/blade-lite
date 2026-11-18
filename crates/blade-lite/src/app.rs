@@ -756,6 +756,12 @@ where
         self.power != Power::Charger
     }
 
+    /// Whether only the battery presets run now, for the shell (ticket 258).
+    #[must_use]
+    pub fn battery_presets_run(&self) -> bool {
+        self.battery_presets()
+    }
+
     /// Whether the app takes the laptop to run on its battery now.
     #[must_use]
     pub fn on_battery(&self) -> bool {

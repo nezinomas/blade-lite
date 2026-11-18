@@ -1,8 +1,9 @@
 //! Looks for Razer's own software, such as Synapse or a Razer driver from
 //! Windows Update, which would talk to the controller beside the app. While
 //! it runs the background reads and the fan guard stop (the user picked
-//! that over a guard that could fight Synapse, 2026-11-12); while a Razer
-//! updater runs nothing at all is sent (ticket 145).
+//! that over a guard that could fight Synapse, 2026-11-12), but not the
+//! charger poll and the step down to the battery preset (ticket 258); while
+//! a Razer updater runs nothing at all is sent (ticket 145).
 
 use std::rc::Rc;
 use std::time::{Duration, Instant};
