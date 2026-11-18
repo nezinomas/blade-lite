@@ -134,8 +134,11 @@ impl<P: Parts> Shell<P> {
         // then stays due, so the first tick after the pause reads it.
         if self.resuming.get() == 0 && self.schedule.borrow_mut().poll_due(now) {
             self.tick_readings(now);
-            self.follow_displays();
             self.after_reads();
+            // After an open again's pause began, if one did.
+            if self.resuming.get() == 0 {
+                self.follow_displays();
+            }
         } else if self.resuming.get() == 0
             && self
                 .schedule
@@ -521,9 +524,34 @@ impl<P: Parts> Shell<P> {
         let mut app = self.app.borrow_mut();
         let mut errors = Vec::new();
         if let Some(view) = self.display_view(&mut app, &mut errors) {
-            bind::display(&self.window, &view);
+            self.show_display(view);
         }
         self.say_read_errors(&errors);
+    }
+
+    /// Shows `view` in the window's and the flyout's display groups, and
+    /// keeps it for [`Self::follow_displays`].
+    pub(super) fn show_display(&self, view: DisplayView) {
+        bind::display(&self.window, &view);
+        bind::flyout_display(&self.flyout, &view);
+        self.display_shown.replace(Some(view));
+    }
+
+    /// Shows the display view again if Windows' displays changed it since
+    /// it was last shown, such as at a switch between NVIDIA-only and
+    /// Optimus mode, which brings no click (ticket 287). The app takes no
+    /// display change notice, so each poll (only while a view can be seen)
+    /// reads Windows' display list. Only Windows is read: the native mode is
+    /// the one last read or set, and only the display groups are filled, so
+    /// errors shown stay. A failed read shows nothing new; the next fill
+    /// shows its error.
+    fn follow_displays(&self) {
+        let Ok(view) = self.app.borrow().display_view_unread() else {
+            return;
+        };
+        if self.display_shown.borrow().as_ref() != Some(&view) {
+            self.show_display(view);
+        }
     }
 
     /// Paints the touchpad key again if Num Lock changed since the last look.
@@ -1113,19 +1141,6 @@ impl<P: Parts> Shell<P> {
         drop(app);
         let gpu = readings.gpu.map(|gpu| gpu.celsius);
         self.watch_heat(cpu, gpu, now);
-    }
-
-    /// Fills the windows again if the panel Windows lists changed since the
-    /// last fill, such as at a switch between NVIDIA-only and
-    /// Optimus mode, which brings no click (ticket 287). The app takes no
-    /// display change notice, so a poll (only while a view can be seen)
-    /// reads the display list: Windows only, no controller; the fill it
-    /// may cause reads the native mode as any fill does.
-    fn follow_displays(self: &Rc<Self>) {
-        let panel = self.app.borrow().panel();
-        if *self.panel_seen.borrow() != panel {
-            self.refresh(None);
-        }
     }
 
     /// Runs `read`, adding its time to the controller reads' (ticket 206).

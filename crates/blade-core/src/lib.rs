@@ -61,7 +61,5 @@ pub use query::{
 pub use razer_software::{razer_software, razer_updater, razer_warning};
 pub use readings::{HEALTH_EVERY, Readings, ReadingsSampler};
 pub use red_keys::paint_red_keys;
-pub use refresh::{
-    DisplayError, RefreshRate, current_rate, panel, refresh_rates, set_refresh_rate,
-};
+pub use refresh::{DisplayError, RefreshRate, current_rate, refresh_rates, set_refresh_rate};
 pub use touchpad::{TOUCHPAD_KEY, TOUCHPAD_VALUE, TouchpadError, set_touchpad, touchpad_on};

@@ -111,14 +111,6 @@ where
         self.display_view_with(self.native_mode)
     }
 
-    /// The panel as Windows lists it now, or `None` if it can't be read
-    /// or found: what the display view shows of Windows. Reads only
-    /// Windows, so a poll can tell a display change (ticket 287).
-    #[must_use]
-    pub fn panel(&self) -> Option<platform::Display> {
-        blade_core::panel(&self.machine.displays)
-    }
-
     fn display_view_with(&self, chosen: Option<NativeMode>) -> Result<DisplayView, AppError> {
         let displays = &self.machine.displays;
         Ok(DisplayView::new(&DisplayState {

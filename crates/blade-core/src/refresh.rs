@@ -115,13 +115,6 @@ fn rates_at_current_resolution(panel: &Display) -> Vec<RefreshRate> {
     rates
 }
 
-/// The laptop's own panel as Windows lists it now (its name, mode and
-/// modes), or `None` if it can't be read or found. Reads only Windows.
-#[must_use]
-pub fn panel(api: &impl DisplayApi) -> Option<Display> {
-    internal_panel(&api.displays().ok()?).cloned()
-}
-
 /// The laptop's own panel, picked by how it is connected (or by its EDID
 /// id, see `platform::WindowsDisplays`). `None` if two displays count as
 /// it, such as a monitor with the panel's EDID ids: which one is the
