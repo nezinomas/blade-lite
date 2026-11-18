@@ -102,11 +102,7 @@ fn the_panel_offers_its_current_rate() {
     let rates = refresh_rates(&displays()).unwrap();
     eprintln!("rates on offer: {rates:?}");
 
-    let displays = displays().displays().unwrap();
-    let panel = displays
-        .iter()
-        .find(|display| display.technology == OutputTechnology::Internal)
-        .unwrap();
+    let panel = read_panel().unwrap();
     assert!(rates.contains(&RefreshRate(panel.current.hz)));
 }
 
@@ -124,12 +120,17 @@ fn read_saved_rate() -> Result<RefreshRate, String> {
         .ok_or_else(|| "no saved mode for the panel".to_string())
 }
 
+/// The one internal display, as the app picks it (two count as none).
 fn read_panel() -> Result<Display, String> {
     let displays = displays().displays().map_err(text)?;
-    displays
+    let mut panels = displays
         .into_iter()
-        .find(|display| display.technology == OutputTechnology::Internal)
-        .ok_or_else(|| "no internal panel found".to_string())
+        .filter(|display| display.technology == OutputTechnology::Internal);
+    match (panels.next(), panels.next()) {
+        (Some(panel), None) => Ok(panel),
+        (None, _) => Err("no internal panel found".to_string()),
+        (Some(_), Some(_)) => Err("two displays count as the panel".to_string()),
+    }
 }
 
 /// The panel's current refresh rate.

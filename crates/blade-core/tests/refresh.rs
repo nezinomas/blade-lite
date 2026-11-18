@@ -71,6 +71,18 @@ fn two_internal_panels_are_no_panel() {
 }
 
 #[test]
+fn no_rate_is_set_when_two_displays_count_as_the_panel() {
+    let mut two = panel(mode(1920, 1200, 60));
+    two.name = r"\\.\DISPLAY9".to_string();
+    let mut api = FakeDisplays::new(Some(vec![panel(mode(3840, 2400, 240)), two]));
+
+    let set = set_refresh_rate(&mut api, RefreshRate(60));
+
+    assert!(matches!(set, Err(DisplayError::NoInternalPanel)), "{set:?}");
+    assert_eq!(api.set, []);
+}
+
+#[test]
 fn a_failed_query_is_an_error() {
     let api = FakeDisplays::new(None);
 

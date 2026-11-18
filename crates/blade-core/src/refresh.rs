@@ -15,8 +15,9 @@ pub enum DisplayError {
     /// Windows could not list the displays.
     #[error("could not read the displays: {0}")]
     Query(io::Error),
-    /// No active display is the laptop's own panel.
-    #[error("the laptop's own panel is not active")]
+    /// No active display is the laptop's own panel, or two count as it
+    /// (ticket 282).
+    #[error("the laptop's own panel is not active, or two displays count as it")]
     NoInternalPanel,
     /// The panel does not offer this rate at its current resolution.
     #[error("the panel does not offer {} Hz at its current resolution", .0.0)]

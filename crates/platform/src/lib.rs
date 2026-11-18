@@ -220,7 +220,9 @@ pub enum ModeLife {
     UntilRestart,
 }
 
-/// How a display is connected, as Windows reports it.
+/// How a display is connected, as Windows reports it; a display with one
+/// of the model's panel EDID ids counts as the panel however it is
+/// connected (`WindowsDisplays::panels`, ticket 282).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum OutputTechnology {
     /// The laptop's own panel.

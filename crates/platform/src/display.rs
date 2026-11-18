@@ -234,6 +234,10 @@ const EDID_IDS_VALID: u32 = 0b100;
 /// A. `None` if one is not a letter.
 fn maker_letters(raw: u16) -> Option<[u8; 3]> {
     let id = raw.swap_bytes();
+    // EDID keeps the top bit 0.
+    if id & 0x8000 != 0 {
+        return None;
+    }
     let letter = |shift: u16| {
         let code = u8::try_from((id >> shift) & 0x1F).ok()?;
         (1..=26).contains(&code).then(|| b'A' + code - 1)
@@ -300,6 +304,35 @@ mod tests {
     fn an_edid_maker_out_of_the_letters_is_none() {
         assert_eq!(maker_letters(0), None);
         assert_eq!(maker_letters(0xFFFF), None);
+        // BOE with the reserved top bit set.
+        assert_eq!(maker_letters(0xE589), None);
+    }
+
+    /// Prints what Windows says of each active display's target: the
+    /// call's status, the flags and the raw EDID ids (laptop check 75).
+    #[test]
+    #[ignore = "reads the laptop's displays"]
+    #[allow(clippy::print_stderr, reason = "a probe for a person to read")]
+    fn each_target_s_edid_ids_are_printed() {
+        for path in active_paths().unwrap() {
+            let mut request = DISPLAYCONFIG_TARGET_DEVICE_NAME::default();
+            request.header.r#type = DISPLAYCONFIG_DEVICE_INFO_GET_TARGET_NAME;
+            request.header.size =
+                u32::try_from(size_of::<DISPLAYCONFIG_TARGET_DEVICE_NAME>()).unwrap();
+            request.header.adapterId = path.targetInfo.adapterId;
+            request.header.id = path.targetInfo.id;
+            // SAFETY: as in `target_edid`.
+            let status = unsafe { DisplayConfigGetDeviceInfo(&raw mut request.header) };
+            // SAFETY: as in `target_edid`.
+            let flags = unsafe { request.flags.Anonymous.value };
+            eprintln!(
+                "technology {} status {status} flags {flags:#x} maker {:#06x} product {:#06x} read as {:?}",
+                path.targetInfo.outputTechnology,
+                request.edidManufactureId,
+                request.edidProductCodeId,
+                target_edid(&path),
+            );
+        }
     }
 
     #[test]
