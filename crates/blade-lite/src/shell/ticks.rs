@@ -377,7 +377,7 @@ impl<P: Parts> Shell<P> {
 
     /// Sends the preset the full charger brings back once it stayed
     /// [`CHARGER_STEADY`](blade_lite::CHARGER_STEADY) (ticket 263, see
-    /// `App::follow_charger_back`). Never after the quit preset. Not while
+    /// `App::follow_charger_back`). Never once the quit began. Not while
     /// a resume waits, a Razer updater runs, or Razer's software runs (the
     /// full charger back sends nothing then, ticket 258): the wait starts
     /// again from the next allowed tick.

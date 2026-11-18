@@ -139,6 +139,8 @@ fn a_bouncing_plug_sends_the_battery_preset_once_and_no_performance() {
 }
 
 /// The quit inside the wait: Performance never goes after the quit preset.
+/// The quit closes the controller, so this pins that; the shell's
+/// `quit_sent` check in `follow_charger_back` is a second lock it can't see.
 #[test]
 fn the_wait_sends_nothing_after_the_quit() {
     let f = performance();
@@ -153,8 +155,12 @@ fn the_wait_sends_nothing_after_the_quit() {
 
     f.shell.quit();
     let at_quit = sent(&f).len();
+    let modes_at_quit = modes(&f);
     ticks(&f, start, 3, 20);
 
+    // The same ticks with no quit send Performance
+    // (`performance_comes_after_ten_steady_seconds_of_charger`).
+    assert_eq!(modes(&f), modes_at_quit);
     assert_eq!(sent(&f).len(), at_quit);
 }
 
