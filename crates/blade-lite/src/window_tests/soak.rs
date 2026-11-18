@@ -11,7 +11,7 @@ use blade_core::{Config, Lighting, Preset};
 use i_slint_backend_testing::AccessibleRole::{self, Button, Switch};
 use i_slint_backend_testing::ElementHandle;
 use platform::PowerEvent;
-use razer_proto::{Charger, Command, Rgb};
+use razer_proto::{BLADE_18, Charger, Command, Rgb};
 use slint::platform::PointerEventButton;
 
 use super::{
@@ -23,6 +23,7 @@ use crate::rules::{
     SET_BOOST, SET_FAN, SET_PRESET, VARIABLE_STORAGE, Zones, assert_battery_safe, assert_in_range,
 };
 use crate::shell::Reopened;
+use blade_lite::CHARGER_STEADY;
 
 /// The set commands with a storage byte first (the logo's is 0).
 const STORED: [u16; 5] = [SET_PRESET, SET_FAN, SET_BOOST, 0x0303, 0x0300];
@@ -83,6 +84,12 @@ struct Soak {
     may_cut: bool,
     /// Steps left of a spell of failed reads.
     reads_failing_left: u32,
+    /// Whether the last step ran the battery presets, as the run knows it.
+    battery_presets: bool,
+    /// When the full charger came back from the battery presets, while its
+    /// wait (ticket 263) is checked; a sleep, wake or open again ends the
+    /// check, as each sends the saved preset at once.
+    charger_back: Option<Instant>,
     seen: Seen,
 }
 
@@ -97,6 +104,7 @@ struct Seen {
     battery_sends: u32,
     read_spells: u32,
     gpu_fails: u32,
+    charger_waits: u32,
 }
 
 impl Soak {
@@ -118,6 +126,8 @@ impl Soak {
             zones: Zones::default(),
             may_cut: false,
             reads_failing_left: 0,
+            battery_presets: false,
+            charger_back: None,
             seen: Seen::default(),
         }
     }
@@ -208,6 +218,7 @@ impl Soak {
     /// Goes to sleep, or wakes. Sometimes both are read at one tick, and
     /// sometimes the charger is swapped in the sleep, with no event.
     fn sleep_or_wake(&mut self) {
+        self.charger_back = None;
         if self.asleep {
             if self.rng.chance(300) {
                 FAKE_ON_BATTERY.set(!FAKE_ON_BATTERY.get());
@@ -264,6 +275,7 @@ impl Soak {
             Reopened::Opened
         };
         FAKE_REOPENED.set(opened);
+        self.charger_back = None;
         self.seen.opens_again += 1;
     }
 
@@ -326,6 +338,34 @@ impl Soak {
         self.power.send(event).unwrap();
     }
 
+    /// No Performance or Custom mode write within [`CHARGER_STEADY`] of the
+    /// full charger coming back from the battery presets, by an `OnAc` or
+    /// on the polls (ticket 263); the step that starts the wait may send
+    /// the battery preset. The app starts its wait at the first tick that
+    /// sees the charger, never before this step, so it waits at least as
+    /// long as checked here.
+    fn check_charger_wait(&mut self, sent: &[Command], battery_presets: bool) {
+        if std::mem::replace(&mut self.battery_presets, battery_presets) && !battery_presets {
+            self.charger_back = Some(self.now);
+            return;
+        }
+        let Some(back) = self.charger_back else {
+            return;
+        };
+        if self.now.saturating_duration_since(back) >= CHARGER_STEADY {
+            self.charger_back = None;
+            self.seen.charger_waits += 1;
+            return;
+        }
+        let full = [BLADE_18.mode_bytes.performance, BLADE_18.custom.mode];
+        assert!(
+            !sent
+                .iter()
+                .any(|c| c.id == SET_PRESET && full.contains(&c.args[2])),
+            "Performance or Custom within the charger's wait: {sent:?}"
+        );
+    }
+
     /// The rules of ticket 146 for what this step sent, and the kept lists.
     fn check(&mut self, clicked: Option<(&str, bool)>) {
         let may_cut = std::mem::take(&mut self.may_cut);
@@ -341,6 +381,7 @@ impl Soak {
             assert_battery_safe(&sent, may_cut);
             self.seen.battery_sends += u32::from(sent.iter().any(|c| c.id == SET_PRESET));
         }
+        self.check_charger_wait(&sent, battery_presets);
         if self.weak == Weak::Unread && asked.contains(&Charger::query()) {
             self.weak = Weak::Read;
             self.seen.weak_reads += 1;
@@ -446,6 +487,7 @@ fn soak(preset: Preset, seed: u64) {
         met.battery_sends,
         met.read_spells,
         met.gpu_fails,
+        met.charger_waits,
     ];
     assert!(each.iter().all(|&count| count >= 5), "{met:?}");
 }
