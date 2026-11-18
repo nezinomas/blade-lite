@@ -835,7 +835,12 @@ where
         }
         // As `on_power`: an error held for the old source is stale.
         self.held_rate_error = None;
-        let rate = self.follow_power(PowerEvent::OnBattery);
+        // A panel that is not active (lid shut on a monitor) is left
+        // alone, as the wake it stands in for does.
+        let rate = match self.follow_power(PowerEvent::OnBattery) {
+            Err(AppError::Display(DisplayError::NoInternalPanel)) => Ok(()),
+            other => other,
+        };
         self.quiet_if_tried_again(rate)
     }
 

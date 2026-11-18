@@ -704,8 +704,8 @@ impl<P: Parts> Shell<P> {
             return;
         };
         if on_battery == self.app.borrow().on_battery() {
-            // Left to a pause's end, which reads the source again and takes
-            // a change to known with its rate (ticket 281).
+            // Left to a pause's or a sleep's end, which reads the source
+            // again and takes a change to known with its rate (ticket 281).
             if self.resuming.get() > 0 {
                 return;
             }
