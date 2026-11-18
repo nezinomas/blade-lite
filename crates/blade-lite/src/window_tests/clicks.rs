@@ -3835,5 +3835,5 @@ fn an_unchanged_display_list_reads_no_native_mode_at_the_polls() {
     assert!(temperature_reads_since(&f, asked) > 0, "the polls ran");
     assert_eq!(native_reads(&f), natives);
     // Not shown again: the same rate model (it equals only itself).
-    assert!(f.shell.window().get_rates() == rates_before);
+    assert_eq!(f.shell.window().get_rates(), rates_before);
 }
