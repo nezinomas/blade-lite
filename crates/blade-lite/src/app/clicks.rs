@@ -24,10 +24,11 @@ where
     /// change that was sent but not saved is kept in memory. A click on a
     /// preset not offered on battery is refused on a weak charge; if the
     /// charger read for it found the weak charge, the battery preset that
-    /// now runs is sent first. A click refused before any send (a saved
-    /// value out of range) whose read changed what runs sends the preset
-    /// that now runs. A Custom slider reads the charger first too, and is
-    /// refused if that read found a weak charge.
+    /// now runs is sent first. A preset click refused before any send (a
+    /// saved value out of range) whose read changed what runs sends the
+    /// preset that now runs. A Custom value the model does not take is
+    /// refused before any read or send. A Custom slider then reads the
+    /// charger first too, and is refused if that read found a weak charge.
     pub fn on_performance(&mut self, command: PerformanceCommand) -> Result<(), AppError> {
         let mut config = self.config;
         // What ran before a charger read, if the click made one.
