@@ -262,7 +262,7 @@ impl HidDevice {
         feature_sent(finish(
             &self.handle,
             ok != 0,
-            &raw const overlapped,
+            &raw mut overlapped,
             FEATURE_WAIT,
         )?)
     }
@@ -297,7 +297,7 @@ impl HidDevice {
         let read = feature_count(finish(
             &self.handle,
             ok != 0,
-            &raw const overlapped,
+            &raw mut overlapped,
             FEATURE_WAIT,
         )?)?;
         let read = usize::try_from(read).map_err(io::Error::other)?;
@@ -332,7 +332,7 @@ impl HidDevice {
                 &raw mut overlapped,
             )
         };
-        let Some(read) = finish(&self.handle, ok != 0, &raw const overlapped, wait)? else {
+        let Some(read) = finish(&self.handle, ok != 0, &raw mut overlapped, wait)? else {
             return Ok(0);
         };
         let read = usize::try_from(read).map_err(io::Error::other)?;
@@ -359,9 +359,9 @@ impl HidDevice {
 
 /// Waits up to `wait` for a request on `handle` to end and gives its byte
 /// count. A request still running then is cancelled and waited for, and
-/// gives `None` unless it ended first. `overlapped` is a raw pointer:
-/// Windows writes it while the request runs, which a shared reference
-/// would forbid (ticket 271).
+/// gives `None` unless it ended first. `overlapped` is a raw pointer from
+/// `&raw mut`, the one the request got: Windows writes it while the
+/// request runs, which a shared reference would forbid (ticket 271).
 fn finish(
     handle: &Handle,
     started: bool,
@@ -378,8 +378,8 @@ fn finish(
     // u32::MAX is no limit: the longest real wait is one less.
     let millis =
         u32::try_from(wait.as_millis()).map_or(u32::MAX - 1, |millis| millis.min(u32::MAX - 1));
-    // SAFETY: the overlapped is the running request's; Windows writes
-    // only the count.
+    // SAFETY: the overlapped is the running request's and outlives it;
+    // no reference to it is alive.
     if unsafe { GetOverlappedResultEx(handle.0, overlapped, &raw mut count, millis, 0) } != 0 {
         return Ok(Some(count));
     }
@@ -610,7 +610,7 @@ mod tests {
                 &raw mut overlapped,
             )
         };
-        finish(handle, ok != 0, &raw const overlapped, wait)
+        finish(handle, ok != 0, &raw mut overlapped, wait)
     }
 
     #[test]
@@ -658,7 +658,7 @@ mod tests {
         let sent = finish(
             &client,
             ok != 0,
-            &raw const overlapped,
+            &raw mut overlapped,
             Duration::from_millis(200),
         )
         .unwrap();

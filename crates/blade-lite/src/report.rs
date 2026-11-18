@@ -4,7 +4,7 @@
 use std::cell::Cell;
 use std::collections::HashMap;
 use std::io::{self, Write};
-use std::sync::{Mutex, OnceLock, PoisonError};
+use std::sync::{Mutex, OnceLock, PoisonError, TryLockError};
 use std::time::{Duration, Instant, SystemTime};
 
 use blade_core::Log;
@@ -44,25 +44,46 @@ impl Reporter {
         // One thread at a time, so a file is never moved aside mid-line.
         // A thread that panicked while holding it left nothing half done.
         let log = self.log.lock().unwrap_or_else(PoisonError::into_inner);
-        let _writing = Writing::start();
-        write(log.as_ref(), text, self.stderr);
+        self.write_held(log.as_ref(), text);
     }
 
     /// Reports `text`, but to stderr only if this thread's own report is
     /// under way (it panicked in it): waiting for itself would hang. A
-    /// line another thread writes is waited for (ticket 266).
+    /// line another thread writes is waited for (ticket 266), up to
+    /// [`PANIC_LOG_WAIT`]: a stalled write must not hold a panicking thread.
     fn report_if_free(&self, text: &str) {
-        if WRITING.get() {
-            write(None, text, self.stderr);
-            return;
+        let start = Instant::now();
+        while !WRITING.get() {
+            match self.log.try_lock() {
+                Ok(log) => return self.write_held(log.as_ref(), text),
+                Err(TryLockError::Poisoned(poisoned)) => {
+                    return self.write_held(poisoned.into_inner().as_ref(), text);
+                }
+                Err(TryLockError::WouldBlock) if start.elapsed() < PANIC_LOG_WAIT => {
+                    std::thread::sleep(Duration::from_millis(1));
+                }
+                Err(TryLockError::WouldBlock) => break,
+            }
         }
-        self.report(text);
+        write(None, text, self.stderr);
+    }
+
+    /// Writes `text` to the held `log`, marked as this thread's report.
+    fn write_held(&self, log: Option<&Log>, text: &str) {
+        let _writing = Writing::start();
+        write(log, text, self.stderr);
     }
 }
 
 thread_local! {
-    /// Whether this thread holds the log for a report.
+    /// Whether this thread holds a reporter's log for a report.
     static WRITING: Cell<bool> = const { Cell::new(false) };
+}
+
+#[cfg(test)]
+thread_local! {
+    /// Whether this thread was marked at its last write, for the tests.
+    static SEEN_WRITING: Cell<bool> = const { Cell::new(false) };
 }
 
 /// Marks this thread as writing a report until it is dropped, a panic too.
@@ -90,12 +111,17 @@ fn write(log: Option<&Log>, text: &str, stderr: bool) {
         }
     };
     say(text);
+    #[cfg(test)]
+    SEEN_WRITING.set(WRITING.get());
     if let Some(log) = log
         && let Err(error) = log.write(SystemTime::now(), text)
     {
         say(&format!("the log file can't be written: {error}"));
     }
 }
+
+/// How long a panic's report waits for another thread's log line.
+const PANIC_LOG_WAIT: Duration = Duration::from_secs(1);
 
 static REPORTER: OnceLock<Reporter> = OnceLock::new();
 
@@ -211,7 +237,7 @@ mod tests {
 
     use blade_core::Log;
 
-    use super::{Reporter, Writing};
+    use super::{Reporter, SEEN_WRITING, WRITING, Writing};
 
     fn reporter_in(dir: &tempfile::TempDir) -> (Reporter, std::path::PathBuf) {
         let path = dir.path().join("blade-lite.log");
@@ -241,16 +267,56 @@ mod tests {
         );
     }
 
-    /// A panic in this thread's own report must not wait for itself.
+    /// A write that stalls past the wait does not hold the panicking thread.
+    #[test]
+    fn a_panic_text_does_not_wait_for_a_stalled_line() {
+        let dir = tempfile::tempdir().unwrap();
+        let (reporter, path) = reporter_in(&dir);
+        let (held, wait) = mpsc::channel();
+        let (done, end) = mpsc::channel::<()>();
+        let reporter = &reporter;
+        std::thread::scope(|scope| {
+            scope.spawn(move || {
+                let _log = reporter.log.lock().unwrap();
+                held.send(()).unwrap();
+                end.recv().unwrap();
+            });
+            wait.recv().unwrap();
+            reporter.report_if_free("panic: boom");
+            done.send(()).unwrap();
+        });
+        assert!(!path.exists());
+    }
+
+    /// A report marks its thread while it writes, so a panic in it is not
+    /// waited for.
+    #[test]
+    fn a_report_marks_its_thread_while_it_writes() {
+        let dir = tempfile::tempdir().unwrap();
+        let (reporter, _path) = reporter_in(&dir);
+
+        reporter.report("one");
+
+        assert!(SEEN_WRITING.get());
+        assert!(!WRITING.get(), "cleared after");
+    }
+
+    /// A panic in this thread's own report must not wait for itself: it
+    /// goes to stderr at once (a hang here fails, not stalls, the test).
     #[test]
     fn a_panic_inside_this_thread_s_report_does_not_wait() {
         let dir = tempfile::tempdir().unwrap();
         let (reporter, path) = reporter_in(&dir);
-        let _log = reporter.log.lock().unwrap();
-        let _writing = Writing::start();
-
-        reporter.report_if_free("panic: boom");
-
+        let (done, end) = mpsc::channel();
+        std::thread::scope(|scope| {
+            scope.spawn(|| {
+                let _log = reporter.log.lock().unwrap();
+                let _writing = Writing::start();
+                reporter.report_if_free("panic: boom");
+                done.send(()).unwrap();
+            });
+            assert!(end.recv_timeout(Duration::from_millis(500)).is_ok());
+        });
         assert!(!path.exists());
     }
 }
