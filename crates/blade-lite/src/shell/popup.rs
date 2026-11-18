@@ -8,7 +8,7 @@ use blade_lite::{Rect, popup_position, report};
 use platform::{raise_topmost, work_area};
 use slint::winit_030::{WinitWindowAccessor, winit};
 use slint::{ComponentHandle, PhysicalPosition, Timer};
-use ui::{HEAT_HOLD, Sensor};
+use ui::{FAN_GUARD_CPU_UNREAD_HOLD, HEAT_HOLD, Sensor};
 use winit::platform::windows::WindowExtWindows;
 
 use super::windows::hwnd;
@@ -57,13 +57,24 @@ impl<P: Parts> Shell<P> {
     /// from the guard and Custom with a manual fan runs, the fans go to the
     /// model's top speed, or back to the saved speed; that is logged and
     /// shown in the popup. Nothing is sent while Razer software runs or a
-    /// resume waits: the change waits for a later reading. A failed send
-    /// shows its error.
+    /// resume waits: the change waits for a later reading, and a CPU not
+    /// read then, or after the quit, is no failed read (ticket 251). A
+    /// failed send shows its error.
     fn guard_fans(self: &Rc<Self>, cpu: Option<u32>, gpu: Option<u32>, now: Instant) {
+        let allowed = self.heat_reads_allowed();
         let mut guard = self.fan_guard.get();
-        guard.note(cpu, gpu, now);
+        guard.cpu_tried(allowed && !self.quit_sent.get());
+        let changed = guard.note(cpu, gpu, now);
         self.fan_guard.set(guard);
-        if !self.heat_reads_allowed() {
+        // Whatever the fan: a manual fan set later runs at full speed too.
+        if changed == Some(true) && guard.on_for_unread_cpu() {
+            report(&format!(
+                "fan guard: on, as the CPU temperature was not read for {} s: a manual fan runs at full speed (GPU {})",
+                FAN_GUARD_CPU_UNREAD_HOLD.as_secs(),
+                shown(gpu)
+            ));
+        }
+        if !allowed {
             return;
         }
         let sent = self.app.borrow_mut().set_fan_boost(guard.on());

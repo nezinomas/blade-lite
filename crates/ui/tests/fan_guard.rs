@@ -3,7 +3,7 @@
 
 use std::time::{Duration, Instant};
 
-use ui::{FAN_GUARD_COOL_HOLD, FAN_GUARD_WAKE_HOLD, FanGuard, Sensor};
+use ui::{FAN_GUARD_COOL_HOLD, FAN_GUARD_CPU_UNREAD_HOLD, FAN_GUARD_WAKE_HOLD, FanGuard, Sensor};
 
 const SECOND: Duration = Duration::from_secs(1);
 /// A hot spell long enough for any test.
@@ -190,11 +190,127 @@ fn a_gpu_whose_reads_fail_keeps_it_on_until_read_cool() {
     assert_eq!(changes, [false]);
 }
 
+/// Not believed: it does not turn the guard on at once, but counts as no
+/// reading (ticket 251).
 #[test]
-fn a_reading_past_any_real_heat_is_not_believed() {
+fn a_cpu_reading_past_any_real_heat_counts_as_no_reading() {
     let mut guard = FanGuard::default();
-    let (_, changes) = feed(&mut guard, Instant::now(), HOT_TIME * 2, Some(200), None);
+    let start = Instant::now();
+    let (now, changes) = feed(&mut guard, start, UNREAD_LESS, Some(200), None);
     assert!(changes.is_empty(), "{changes:?}");
+    assert_eq!(guard.note(Some(200), None, now), Some(true));
+}
+
+/// Just under [`FAN_GUARD_CPU_UNREAD_HOLD`] of readings a second apart.
+const UNREAD_LESS: Duration = FAN_GUARD_CPU_UNREAD_HOLD.saturating_sub(SECOND);
+
+/// Ticket 251: a guard that is off turns on when the CPU can't be read.
+#[test]
+fn a_cpu_not_read_for_the_unread_hold_turns_the_guard_on() {
+    let mut guard = FanGuard::default();
+    let (now, changes) = feed(&mut guard, Instant::now(), UNREAD_LESS, None, Some(60));
+    assert!(changes.is_empty(), "{changes:?}");
+    assert!(!guard.cpu_unread());
+
+    assert_eq!(guard.note(None, Some(60), now), Some(true));
+    assert!(guard.cpu_unread());
+}
+
+#[test]
+fn a_cpu_reading_starts_the_unread_hold_again() {
+    let mut guard = FanGuard::default();
+    let (now, _) = feed(&mut guard, Instant::now(), UNREAD_LESS, None, None);
+    guard.note(Some(60), None, now);
+
+    let (_, changes) = feed(&mut guard, now + SECOND, UNREAD_LESS, None, None);
+
+    assert!(changes.is_empty(), "{changes:?}");
+}
+
+/// After a sleep: the app read nothing for a while, so the time between
+/// does not count.
+#[test]
+fn a_gap_in_the_readings_starts_the_unread_hold_again() {
+    let mut guard = FanGuard::default();
+    let start = Instant::now();
+    guard.note(None, None, start);
+
+    let later = start + FAN_GUARD_CPU_UNREAD_HOLD * 10;
+    let (_, changes) = feed(&mut guard, later, UNREAD_LESS, None, None);
+
+    assert!(changes.is_empty(), "{changes:?}");
+}
+
+/// While the app may not read the controller (a resume waits, or Razer's
+/// software runs), a CPU not read is not a read that failed.
+#[test]
+fn a_cpu_not_tried_does_not_count_as_unread() {
+    let mut guard = FanGuard::default();
+    let start = Instant::now();
+    let mut now = start;
+    while now <= start + FAN_GUARD_CPU_UNREAD_HOLD * 3 {
+        guard.cpu_tried(false);
+        guard.note(None, None, now);
+        now += SECOND;
+    }
+    assert!(!guard.on());
+
+    let (_, changes) = feed(&mut guard, now, UNREAD_LESS, None, None);
+
+    assert!(changes.is_empty(), "{changes:?}");
+}
+
+/// The read not tried comes just as the unread hold ends (review of 251).
+#[test]
+fn a_cpu_not_tried_at_the_end_of_the_unread_hold_does_not_turn_it_on() {
+    let mut guard = FanGuard::default();
+    let (now, _) = feed(&mut guard, Instant::now(), UNREAD_LESS, None, None);
+
+    guard.cpu_tried(false);
+    assert_eq!(guard.note(None, None, now), None);
+    let (_, changes) = feed(&mut guard, now + SECOND, UNREAD_LESS, None, None);
+
+    assert!(changes.is_empty(), "{changes:?}");
+}
+
+#[test]
+fn a_hot_gpu_with_an_unread_cpu_is_not_on_for_the_unread_cpu() {
+    let mut guard = FanGuard::default();
+    let (_, changes) = feed(
+        &mut guard,
+        Instant::now(),
+        FAN_GUARD_CPU_UNREAD_HOLD,
+        None,
+        Some(90),
+    );
+    assert_eq!(changes, [true]);
+    assert!(!guard.on_for_unread_cpu());
+}
+
+#[test]
+fn a_guard_on_for_an_unread_cpu_goes_off_once_it_reads_cool() {
+    let mut guard = FanGuard::default();
+    let (now, _) = feed(
+        &mut guard,
+        Instant::now(),
+        FAN_GUARD_CPU_UNREAD_HOLD,
+        None,
+        None,
+    );
+    assert!(guard.on());
+    assert!(guard.on_for_unread_cpu());
+
+    let (now, changes) = feed(
+        &mut guard,
+        now,
+        FAN_GUARD_COOL_HOLD.saturating_sub(2 * SECOND),
+        Some(60),
+        None,
+    );
+    assert!(changes.is_empty(), "{changes:?}");
+    assert!(!guard.cpu_unread());
+    let (_, changes) = feed(&mut guard, now, 3 * SECOND, Some(60), None);
+    assert_eq!(changes, [false]);
 }
 
 #[test]
