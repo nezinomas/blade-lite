@@ -16,13 +16,18 @@ use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     CreateWindowExW, DefWindowProcW, DestroyWindow, DispatchMessageW, GetMessageW, MSG,
     PM_NOREMOVE, PM_QS_SENDMESSAGE, PeekMessageW, PostMessageW, PostQuitMessage, RegisterClassW,
-    WM_CLOSE, WM_DESTROY, WM_ENDSESSION, WNDCLASSW, WS_OVERLAPPED,
+    WM_APP, WM_CLOSE, WM_DESTROY, WM_ENDSESSION, WNDCLASSW, WS_OVERLAPPED,
 };
 
 use crate::wide;
 
-/// What runs when the session ends. Set once per run.
-static ON_END: OnceLock<fn()> = OnceLock::new();
+/// What runs when the session ends, and when another program asks the
+/// window to close. Set once per run.
+static ON_END: OnceLock<(fn(), fn())> = OnceLock::new();
+
+/// The watch's own stop, posted by its drop: a `WM_CLOSE` can come from
+/// any program, so it can't be the stop (ticket 255).
+const WM_STOP: u32 = WM_APP + 1;
 
 /// The hidden window, on its own thread. Dropping it stops the watch.
 pub struct SessionEndWatch {
@@ -35,13 +40,15 @@ impl SessionEndWatch {
     /// for good (not on the question before, which can still be
     /// cancelled), before it returns: Windows may end the process right
     /// after. A panic in it is caught (it can't leave the window
-    /// procedure).
+    /// procedure). `on_close` runs on that thread, the same way, when
+    /// another program asks the window to close: the close is refused, as
+    /// the watch would end with no sign (ticket 255).
     ///
     /// # Errors
     ///
     /// The Windows error if the window or its thread can't be made, or an
     /// error if a watch was already started in this run (one per run).
-    pub fn start(on_end: fn()) -> io::Result<Self> {
+    pub fn start(on_end: fn(), on_close: fn()) -> io::Result<Self> {
         if ON_END.get().is_some() {
             return Err(io::Error::other("the session end is already watched"));
         }
@@ -60,7 +67,7 @@ impl SessionEndWatch {
                 // As a number: a window handle can't cross threads.
                 let _ = made.send(Ok(hwnd as isize));
                 // Only once the callback is set: no message is read before.
-                // The reads end when Close has destroyed the window.
+                // The reads end when the stop has destroyed the window.
                 if told.recv() == Ok(true) {
                     read_messages();
                 } else {
@@ -73,7 +80,7 @@ impl SessionEndWatch {
             .map_err(|_| io::Error::other("the session end thread stopped"))??;
         // Only now: a failed start leaves no callback behind. A start that
         // lost a race for the slot drops its window.
-        if ON_END.set(on_end).is_err() {
+        if ON_END.set((on_end, on_close)).is_err() {
             let _ = go.send(false);
             return Err(io::Error::other("the session end is already watched"));
         }
@@ -155,12 +162,12 @@ fn read_messages() {
 
 impl Drop for SessionEndWatch {
     fn drop(&mut self) {
-        // Only its own thread can destroy the window: Close does it there,
-        // and the destroy ends the reads. Not waited for: a session end
+        // Only its own thread can destroy the window: the stop does it
+        // there, and the destroy ends the reads. Not waited for: a session end
         // there may wait for the event loop that has just ended, and the
         // quit after the loop must not wait for it (ticket 159 review).
         // SAFETY: the window this watch made.
-        unsafe { PostMessageW(self.hwnd, WM_CLOSE, 0, 0) };
+        unsafe { PostMessageW(self.hwnd, WM_STOP, 0, 0) };
     }
 }
 
@@ -172,10 +179,21 @@ unsafe extern "system" fn on_message(
     lparam: LPARAM,
 ) -> LRESULT {
     if message == WM_ENDSESSION && wparam != 0 {
-        if let Some(on_end) = ON_END.get() {
+        if let Some((on_end, _)) = ON_END.get() {
             // A panic can't unwind out of this `extern "system"` function.
             let _ = catch_unwind(AssertUnwindSafe(on_end));
         }
+        return 0;
+    }
+    if message == WM_CLOSE {
+        if let Some((_, on_close)) = ON_END.get() {
+            let _ = catch_unwind(AssertUnwindSafe(on_close));
+        }
+        return 0;
+    }
+    if message == WM_STOP {
+        // SAFETY: this thread's own window; the destroy ends the reads.
+        unsafe { DestroyWindow(hwnd) };
         return 0;
     }
     if message == WM_DESTROY {
@@ -195,12 +213,14 @@ mod tests {
 
     use windows_sys::Win32::Foundation::HWND;
     use windows_sys::Win32::UI::WindowsAndMessaging::{
-        DestroyWindow, SMTO_NORMAL, SendMessageTimeoutW, WM_ENDSESSION, WM_NULL, WM_QUERYENDSESSION,
+        DestroyWindow, SMTO_NORMAL, SendMessageTimeoutW, WM_CLOSE, WM_ENDSESSION, WM_NULL,
+        WM_QUERYENDSESSION,
     };
 
     use super::{SessionEndWatch, make_window, serve_sent_messages};
 
     static ENDS: AtomicU32 = AtomicU32::new(0);
+    static CLOSES: AtomicU32 = AtomicU32::new(0);
     /// Whether a session end waits, as one waits for the event loop.
     static HOLD: AtomicBool = AtomicBool::new(false);
 
@@ -209,6 +229,10 @@ mod tests {
         if HOLD.load(Ordering::SeqCst) {
             std::thread::sleep(Duration::from_millis(800));
         }
+    }
+
+    fn count_close() {
+        CLOSES.fetch_add(1, Ordering::SeqCst);
     }
 
     /// Sends `message` to `hwnd` as Windows does, and whether it was
@@ -233,8 +257,13 @@ mod tests {
     // One test: the callback can be set once per run.
     #[test]
     fn only_a_session_that_really_ends_runs_the_callback_while_the_starting_thread_is_busy() {
-        let watch = SessionEndWatch::start(count_end).unwrap();
+        let watch = SessionEndWatch::start(count_end, count_close).unwrap();
         let hwnd = watch.hwnd as isize;
+
+        // Another program's close is told, and the watch goes on
+        // (ticket 255).
+        assert!(answered(hwnd, WM_CLOSE, 0));
+        assert_eq!(CLOSES.load(Ordering::SeqCst), 1);
 
         // The thread that started the watch waits here and reads no
         // messages, as the app's thread does inside a Windows call
@@ -262,6 +291,8 @@ mod tests {
 
         assert!(began.elapsed() < Duration::from_millis(500));
         assert!(waiting.join().unwrap());
+        // Its own stop is no stranger's close.
+        assert_eq!(CLOSES.load(Ordering::SeqCst), 1);
     }
 
     #[test]

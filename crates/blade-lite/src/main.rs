@@ -507,6 +507,13 @@ const SESSION_END_WAIT: Duration = Duration::from_secs(10);
 
 /// Windows ends the session, heard on the watch's own thread: the quit
 /// preset goes on the event loop before this returns (ticket 159).
+/// Another program asked the hidden session-end window to close, such as
+/// a `taskkill` without `/F`: refused, so a later shutdown still sends the
+/// quit preset (ticket 255). On the watch's thread.
+fn on_session_window_close() {
+    report("a program asked the shutdown watch to close; it stays");
+}
+
 fn on_session_end() {
     end_on_loop(
         slint::invoke_from_event_loop,
@@ -652,7 +659,7 @@ fn run(in_tray: bool) -> Result<(), Box<dyn std::error::Error>> {
         quit_when_asked(instance.quit_listener()?);
         // Held to the end of the run: dropping it stops the watch. Without
         // it the app runs on, as before it had one.
-        let _session = SessionEndWatch::start(on_session_end)
+        let _session = SessionEndWatch::start(on_session_end, on_session_window_close)
             .inspect_err(|error| {
                 report(&format!(
                     "a shutdown or sign-out will send nothing: {error}"
