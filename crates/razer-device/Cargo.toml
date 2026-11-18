@@ -12,6 +12,9 @@ platform = { path = "../platform" }
 razer-proto = { path = "../razer-proto" }
 
 [dev-dependencies]
+# For tests/hardware.rs only (the app's lock name, the charger read).
+# blade-core depends on this crate: a unit test in src/ that used it would
+# see two copies of its types.
 blade-core = { path = "../blade-core" }
 proptest = "1.11.0"
 

@@ -249,6 +249,7 @@ fn each_preset_is_set_and_read_back_and_the_old_one_restored() {
     let before = preset_args(&mut device);
     // The put-back writes the replies as read.
     refuse_unknown_modes(&before);
+    refuse_manual_fans(&before);
 
     // Every command list is made before the first send.
     let presets: Vec<_> = [PerfMode::Silent, PerfMode::Balanced, PerfMode::Performance]
@@ -655,7 +656,7 @@ fn a_custom_mode_write_alone_and_what_the_fans_do() {
                 .map_err(|error| error.to_string())
         })
         .collect();
-    let after = custom_state(&mut device);
+    let after = try_custom_state(&mut device);
 
     eprintln!("before {before:02X?}\nset {set:?}\nmodes after the writes {modes_read:02X?}");
     for (second, target, real) in &seen {
@@ -664,7 +665,7 @@ fn a_custom_mode_write_alone_and_what_the_fans_do() {
     eprintln!("put back {put_back:?}\nafter {after:02X?}");
     // The lasting state first, so its error is never hidden.
     assert!(put_back.iter().all(Result::is_ok), "check the fans by hand");
-    assert_eq!(after, before);
+    assert_eq!(after.as_ref(), Ok(&before));
     set.unwrap();
     read_error.unwrap();
     // What ticket 144 measured: the mode took, the target was kept, and
@@ -704,6 +705,16 @@ fn refuse_unknown_modes(modes: &[Vec<u8>]) {
             "zone {zone} mode reply {args:02X?} not understood: not run"
         );
     }
+}
+
+/// Refuses to run when a mode reply has the fan byte manual: the preset
+/// test puts back only the modes, not the fan targets and boosts a manual
+/// Custom runs at, and the presets it sends may change them.
+fn refuse_manual_fans(modes: &[Vec<u8>]) {
+    assert!(
+        modes.iter().all(|args| args.get(3) == Some(&FAN_AUTO)),
+        "mode replies {modes:02X?} have a manual fan: set fans on auto first: not run"
+    );
 }
 
 /// The mode writes that put back what the battery probe read before it
@@ -852,7 +863,7 @@ fn custom_from_balanced_and_again_and_what_the_fans_do() {
         .and_then(|()| watch_fans(&mut device));
 
     let put_back = put_back_custom(&mut device, &before);
-    let after = custom_state(&mut device);
+    let after = try_custom_state(&mut device);
 
     eprintln!("before {before:02X?}");
     for (name, seen) in [("from Balanced", &first), ("sent again", &again)] {
@@ -871,7 +882,7 @@ fn custom_from_balanced_and_again_and_what_the_fans_do() {
     eprintln!("put back {put_back:?}\nafter {after:02X?}");
     // The lasting state first, so its error is never hidden.
     assert!(put_back.iter().all(Result::is_ok), "check the fans by hand");
-    assert_eq!(after, before);
+    assert_eq!(after, Ok(before));
     first.unwrap();
     again.unwrap();
 }
@@ -946,7 +957,7 @@ fn the_users_custom_with_and_without_the_app_reads() {
         .and_then(|_| from_performance(&mut device, true));
 
     let put_back = put_back_custom(&mut device, &before);
-    let after = custom_state(&mut device);
+    let after = try_custom_state(&mut device);
 
     eprintln!("before {before:02X?}");
     for (name, seen) in [("no app reads", &quiet), ("app reads", &polled)] {
@@ -965,7 +976,7 @@ fn the_users_custom_with_and_without_the_app_reads() {
     eprintln!("put back {put_back:?}\nafter {after:02X?}");
     // The lasting state first, so its error is never hidden.
     assert!(put_back.iter().all(Result::is_ok), "check the fans by hand");
-    assert_eq!(after, before);
+    assert_eq!(after, Ok(before));
     quiet.unwrap();
     polled.unwrap();
 }
@@ -1004,7 +1015,7 @@ fn which_boost_holds_a_manual_fan_back() {
     }
 
     let put_back = put_back_custom(&mut device, &before);
-    let after = custom_state(&mut device);
+    let after = try_custom_state(&mut device);
 
     eprintln!("before {before:02X?}");
     for (case, watched) in &seen {
@@ -1023,7 +1034,7 @@ fn which_boost_holds_a_manual_fan_back() {
     eprintln!("put back {put_back:?}\nafter {after:02X?}");
     // The lasting state first, so its error is never hidden.
     assert!(put_back.iter().all(Result::is_ok), "check the fans by hand");
-    assert_eq!(after, before);
+    assert_eq!(after, Ok(before));
     assert_eq!(seen.len(), cases.len());
     for (_, watched) in seen {
         watched.unwrap();
@@ -1081,7 +1092,7 @@ fn what_frees_a_manual_fan_stalled_after_a_custom_from_auto() {
     }
 
     let put_back = put_back_custom(&mut device, &before);
-    let after = custom_state(&mut device);
+    let after = try_custom_state(&mut device);
 
     eprintln!("before {before:02X?}");
     for (name, sent_at, watched) in &seen {
@@ -1100,7 +1111,7 @@ fn what_frees_a_manual_fan_stalled_after_a_custom_from_auto() {
     eprintln!("put back {put_back:?}\nafter {after:02X?}");
     // The lasting state first, so its error is never hidden.
     assert!(put_back.iter().all(Result::is_ok), "check the fans by hand");
-    assert_eq!(after, before);
+    assert_eq!(after, Ok(before));
     assert_eq!(seen.len(), cases.len());
     for (_, _, watched) in seen {
         watched.unwrap();
@@ -1163,13 +1174,19 @@ fn load_test_asked() -> bool {
     true
 }
 
-/// Refuses to run, sending nothing, unless the laptop is on AC and on the
+/// Refuses to run, sending no write, unless the laptop is on AC and on the
 /// model's full power charger, as the app needs for Performance or a manual
-/// Custom fan. Call it before the first send of such a test.
+/// Custom fan. Call it before the first write of such a test. The charger
+/// is read only on AC. Checked once: a charger pulled during a test is
+/// ticket 274.
 fn require_full_power<C: Clock>(device: &mut Device<HidTransport, C>) {
-    let full_power =
-        blade_core::full_power_charger(device, &razer_proto::BLADE_18).map_err(|e| e.to_string());
-    refuse_unless_full_power(platform::on_battery(), &full_power);
+    let on_battery = platform::on_battery();
+    let full_power = if on_battery == Some(false) {
+        blade_core::full_power_charger(device, &razer_proto::BLADE_18).map_err(|e| e.to_string())
+    } else {
+        Ok(None)
+    };
+    refuse_unless_full_power(on_battery, &full_power);
 }
 
 /// What [`require_full_power`] decides from the power source Windows reports
@@ -1258,7 +1275,7 @@ impl Drop for Load {
 }
 
 #[test]
-#[ignore = "needs the Blade 18 on AC and BLADE_LOAD_TEST=1; loads half the CPU cores for about 5 min"]
+#[ignore = "needs the Blade 18 on its full power charger and BLADE_LOAD_TEST=1; loads half the CPU cores for about 5 min"]
 fn the_sleep_and_wake_sends_under_load() {
     use razer_proto::{BLADE_18, CpuBoost, Custom, FanMode, GpuBoost, PerfMode, Rpm};
 
@@ -1353,7 +1370,7 @@ fn the_sleep_and_wake_sends_under_load() {
 
     phases.push(("cooling", cool_down(&mut device)));
     let put_back = put_back_custom(&mut device, &before);
-    let after = custom_state(&mut device);
+    let after = try_custom_state(&mut device);
 
     eprintln!("before {before:02X?}");
     for (name, seen) in &phases {
@@ -1367,7 +1384,7 @@ fn the_sleep_and_wake_sends_under_load() {
     eprintln!("result {result:?}\nput back {put_back:?}\nafter {after:02X?}");
     // The lasting state first, so its error is never hidden.
     assert!(put_back.iter().all(Result::is_ok), "check the fans by hand");
-    assert_eq!(after, before);
+    assert_eq!(after, Ok(before));
     result.unwrap();
 }
 
@@ -1406,7 +1423,7 @@ fn watch_modes_and_fans<C: Clock>(
 }
 
 #[test]
-#[ignore = "needs the Blade 18 on AC and idle, and runs the fans on manual for about 30 s; about 3 min"]
+#[ignore = "needs the Blade 18 on its full power charger and idle, and runs the fans on manual for about 30 s; about 3 min"]
 fn the_sleeps_quit_preset_leaves_the_fans_on_auto() {
     use razer_proto::{BLADE_18, CpuBoost, Custom, FanMode, GpuBoost, PerfMode, Rpm};
 
@@ -1446,7 +1463,7 @@ fn the_sleeps_quit_preset_leaves_the_fans_on_auto() {
         .and_then(|()| watch_modes_and_fans(&mut device, 120, &mut sleep_seen));
 
     let put_back = put_back_custom(&mut device, &before);
-    let after = custom_state(&mut device);
+    let after = try_custom_state(&mut device);
 
     eprintln!("before {before:02X?}");
     for (name, seen) in [
@@ -1463,7 +1480,7 @@ fn the_sleeps_quit_preset_leaves_the_fans_on_auto() {
     eprintln!("result {result:?}\nput back {put_back:?}\nafter {after:02X?}");
     // The lasting state first, so its error is never hidden.
     assert!(put_back.iter().all(Result::is_ok), "check the fans by hand");
-    assert_eq!(after, before);
+    assert_eq!(after, Ok(before));
     result.unwrap();
     // The manual phase took: every zone Custom with the fan byte manual,
     // both targets 3600 RPM. Else the reads after prove nothing.
@@ -1680,6 +1697,20 @@ fn the_battery_probe_puts_back_balanced_over_a_missing_zone() {
         modes_to_put_back(&balanced_writes()[..3]),
         balanced_writes()
     );
+}
+
+#[test]
+fn the_preset_test_runs_with_fans_on_auto() {
+    refuse_manual_fans(&balanced_writes());
+}
+
+#[test]
+#[should_panic(expected = "have a manual fan")]
+fn the_preset_test_refuses_a_manual_fan() {
+    let mut modes = balanced_writes();
+    modes[2] = vec![1, 3, 0x04, 0x01];
+
+    refuse_manual_fans(&modes);
 }
 
 #[test]

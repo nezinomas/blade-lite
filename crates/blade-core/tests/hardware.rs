@@ -133,6 +133,8 @@ fn panel_rate() -> RefreshRate {
 #[test]
 #[ignore = "needs a laptop with its own panel turned on, and switches its rate"]
 fn the_refresh_rate_is_switched_and_put_back() {
+    // The app's battery rate would switch it too.
+    hold_lock();
     let before = panel_rate();
     // The switch and the put-back save the rate they set, so the put-back
     // saves `before`: refuse a saved rate it would change.
@@ -278,7 +280,8 @@ fn the_charge_limit_is_flipped_and_put_back() {
     let put_back = format!("the limit may be left on = {}: set it in the app", !before);
     restored.unwrap_or_else(|error| panic!("{error}; {put_back}"));
     assert_eq!(
-        charge_limit_on(&mut device, &BLADE_18).unwrap(),
+        charge_limit_on(&mut device, &BLADE_18)
+            .unwrap_or_else(|error| panic!("{error}; {put_back}")),
         Some(before),
         "{put_back}"
     );
