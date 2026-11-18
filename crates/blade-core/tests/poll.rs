@@ -242,6 +242,11 @@ fn a_heat_read_a_little_late_still_runs() {
     clock.now += HEAT_INTERVAL * 2;
 
     assert!(schedule.heat_due(clock.now, clock.wall(), HEAT_INTERVAL));
+    // The next waits a whole interval from this late one: no burst.
+    clock.now += Duration::from_secs(1);
+    assert!(!schedule.heat_due(clock.now, clock.wall(), HEAT_INTERVAL));
+    clock.now += HEAT_INTERVAL - Duration::from_secs(1);
+    assert!(schedule.heat_due(clock.now, clock.wall(), HEAT_INTERVAL));
 }
 
 #[test]
@@ -282,7 +287,10 @@ fn a_switch_to_the_guard_interval_reads_within_it() {
 
     // A manual fan starts: the read 2 s after the last one is due now.
     assert!(schedule.heat_due(clock.now, clock.wall(), GUARD_HEAT_INTERVAL));
-    clock.now += GUARD_HEAT_INTERVAL;
+    // The next waits 2 s from now, not from when it was due: no burst.
+    clock.now += Duration::from_secs(1);
+    assert!(!schedule.heat_due(clock.now, clock.wall(), GUARD_HEAT_INTERVAL));
+    clock.now += Duration::from_secs(1);
     assert!(schedule.heat_due(clock.now, clock.wall(), GUARD_HEAT_INTERVAL));
 }
 
