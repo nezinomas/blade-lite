@@ -263,6 +263,42 @@ fn a_charger_pull_with_the_screen_off_makes_the_new_slot_dark_in_the_same_tick()
 }
 
 #[test]
+fn a_failing_put_back_after_a_charger_change_keeps_its_spacing_and_cap() {
+    // No lighting saved: the charger change leaves the keys following
+    // nothing, which once gave the tries again at each look (ticket 285).
+    // The AC slot is left dark with its level kept, then lit on battery.
+    let f = lit_fixture();
+    let start = Instant::now();
+    screen(&f, false);
+    super::FAKE_ON_BATTERY.set(true);
+    power(&f, &[PowerEvent::OnBattery]);
+    screen(&f, true);
+    f.shell.app().machine_mut().controller.inner.fails = true;
+    let runs = || f.shell.app().machine().controller.inner.runs;
+
+    // The plug, then the next look: the AC slot's kept level goes back,
+    // and fails.
+    super::FAKE_ON_BATTERY.set(false);
+    power(&f, &[PowerEvent::OnAc]);
+    let plugged = runs();
+    f.shell.follow_own_power();
+    assert_eq!(runs(), plugged + 1, "the first try");
+    f.shell.follow_own_power();
+    f.shell.follow_own_power();
+    assert_eq!(runs(), plugged + 1, "no try before the spacing");
+
+    tick(&f, start, 11);
+    assert_eq!(runs(), plugged + 2, "the second try");
+    tick(&f, start, 22);
+    let capped = runs();
+    assert_eq!(capped, plugged + 3, "the third try");
+    tick(&f, start, 33);
+    tick(&f, start, 60);
+    f.shell.follow_own_power();
+    assert_eq!(runs(), capped, "no try after 3");
+}
+
+#[test]
 fn no_guess_at_the_other_slot_while_razer_software_runs() {
     // No lighting saved: dark before Razer's software came, then a pull.
     // A 0 read at the screen on may be its own lighting.

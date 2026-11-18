@@ -279,6 +279,10 @@ pub struct App<C, D, R, K> {
     /// looks again only after a change, a failed put-back or a send of
     /// the saved lighting. `None` until the first look.
     keys_follow: Option<bool>,
+    /// How many times the keys were set to follow nothing since the start
+    /// (wrapping), so the shell gives the put-back its tries again only
+    /// then, not at each look a failed put-back leaves so (ticket 285).
+    keys_follow_resets: u32,
     /// The tries left of the lighting a charger change asks for again
     /// (ticket 244); `None` when none is due.
     source_lighting_due: Option<u8>,
@@ -352,6 +356,7 @@ where
             preset_check: PresetCheck::Unknown,
             dark_keys: None,
             keys_follow: None,
+            keys_follow_resets: 0,
             source_lighting_due: None,
             source_lighting_sent: None,
             left_dark: None,
@@ -981,7 +986,7 @@ where
     /// kept to put back, and the screen needs a new look (ticket 241).
     fn keys_lit_by_lighting(&mut self) {
         self.dark_keys = None;
-        self.keys_follow = None;
+        self.follow_no_screen();
         self.source_lighting_due = None;
     }
 
