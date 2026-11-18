@@ -183,6 +183,7 @@ impl Custom {
         let (id, name) = match (write.id, which) {
             (SET_BOOST, CPU_CLUSTER) => (GET_BOOST, "CPU boost".to_owned()),
             (SET_BOOST, GPU_CLUSTER) => (GET_BOOST, "GPU boost".to_owned()),
+            (SET_BOOST, cluster) => (GET_BOOST, format!("boost {cluster}")),
             (SET_FAN, fan) => (GET_FAN, format!("fan {fan} target")),
             _ => return None,
         };

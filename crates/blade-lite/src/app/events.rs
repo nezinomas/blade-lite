@@ -58,6 +58,10 @@ where
         self.note_fan_targets(&config, &applied);
         self.note_manual_sent(&config, &applied);
         self.read_logo();
+        if let (Err(_), Some(error)) = (&applied, &refused) {
+            // The send's error is the one shown; this one is still said.
+            report(&format!("the lighting and lid logo were not sent: {error}"));
+        }
         applied?;
         refused.map_or(Ok(()), |error| Err(error.into()))
     }

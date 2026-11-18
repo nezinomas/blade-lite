@@ -135,3 +135,24 @@ fn a_fan_target_the_controller_did_not_take_is_named() {
 
     assert_eq!(differs, "fan 1 target reads 01 01 14, sent 01 01 1E");
 }
+
+#[test]
+fn a_failed_read_after_a_difference_keeps_the_difference() {
+    /// Zone 2 differs, then every boost read fails.
+    struct BoostFails;
+    impl Query for BoostFails {
+        fn query(&mut self, command: &Command) -> Result<Vec<u8>, DeviceError> {
+            let zone = command.args[1];
+            match command.id {
+                0x0D82 => Ok(vec![1, zone, if zone == 2 { 0 } else { 0x04 }, 0x01]),
+                _ => Err(DeviceError::Busy),
+            }
+        }
+    }
+
+    let differs = preset_differs(&custom_3000(), &BLADE_18, &mut BoostFails)
+        .unwrap()
+        .unwrap();
+
+    assert_eq!(differs, "zone 2 reads 01 02 00 01, sent 01 02 04 01");
+}

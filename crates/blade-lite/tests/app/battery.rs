@@ -805,3 +805,22 @@ fn a_start_with_a_bad_lighting_value_still_sends_the_preset_that_runs() {
     assert_eq!(sent(&app), PerfMode::Balanced.commands(&BLADE_18).unwrap());
     assert!(!app.preset_unsure());
 }
+
+#[test]
+fn a_wake_with_a_bad_lighting_value_still_sends_the_preset_that_runs() {
+    let (mut app, _dir, _) = app_with(Config {
+        preset: Preset::Performance,
+        lighting: Some(Lighting {
+            brightness: 200,
+            colour: WHITE,
+            vapor_light: true,
+        }),
+        ..Config::default()
+    });
+    app.take_on_battery(Some(true));
+
+    assert!(app.on_power(PowerEvent::Resumed).is_err());
+
+    assert_eq!(sent(&app), PerfMode::Balanced.commands(&BLADE_18).unwrap());
+    assert!(!app.preset_unsure());
+}

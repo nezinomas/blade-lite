@@ -163,7 +163,8 @@ pub fn apply_fan_targets(
 /// run sets (ticket 152), and in Custom its boosts and fan targets too
 /// (ticket 254), and names those that differ from what was sent, such as
 /// "zone 1 reads 01 01 00 00, sent 01 01 05 00". Reads only: a difference
-/// is never sent again. A value the model refuses gives no
+/// is never sent again. A failed read after a difference was found ends
+/// the reads with that difference. A value the model refuses gives no
 /// commands, so nothing to read.
 ///
 /// # Errors
@@ -188,7 +189,12 @@ pub fn preset_differs(
     });
     let mut differs = Vec::new();
     for (name, query, sent) in read_backs {
-        let read = controller.query(&query)?;
+        let read = match controller.query(&query) {
+            Ok(read) => read,
+            // A difference already found says more than the failed read.
+            Err(_) if !differs.is_empty() => break,
+            Err(error) => return Err(error),
+        };
         if read.len() < sent.len() {
             return Err(DeviceError::ShortReply);
         }
