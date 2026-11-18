@@ -8,7 +8,7 @@ use blade_lite::{Rect, popup_position, report};
 use platform::{raise_topmost, work_area};
 use slint::winit_030::{WinitWindowAccessor, winit};
 use slint::{ComponentHandle, PhysicalPosition, Timer};
-use ui::{HEAT_HOLD, Sensor};
+use ui::{FAN_GUARD_CPU_UNREAD_HOLD, HEAT_HOLD, Sensor};
 use winit::platform::windows::WindowExtWindows;
 
 use super::windows::hwnd;
@@ -57,13 +57,18 @@ impl<P: Parts> Shell<P> {
     /// from the guard and Custom with a manual fan runs, the fans go to the
     /// model's top speed, or back to the saved speed; that is logged and
     /// shown in the popup. Nothing is sent while Razer software runs or a
-    /// resume waits: the change waits for a later reading. A failed send
-    /// shows its error.
+    /// resume waits: the change waits for a later reading, and a CPU not
+    /// read then is no failed read (ticket 251). A failed send shows its
+    /// error.
     fn guard_fans(self: &Rc<Self>, cpu: Option<u32>, gpu: Option<u32>, now: Instant) {
         let mut guard = self.fan_guard.get();
         guard.note(cpu, gpu, now);
+        let allowed = self.heat_reads_allowed();
+        if !allowed {
+            guard.cpu_not_tried();
+        }
         self.fan_guard.set(guard);
-        if !self.heat_reads_allowed() {
+        if !allowed {
             return;
         }
         let sent = self.app.borrow_mut().set_fan_boost(guard.on());
@@ -75,8 +80,16 @@ impl<P: Parts> Shell<P> {
                 } else {
                     "Back to the set speed"
                 };
+                let why = if guard.on() && guard.cpu_unread() {
+                    format!(
+                        ", as the CPU temperature was not read for {} s",
+                        FAN_GUARD_CPU_UNREAD_HOLD.as_secs()
+                    )
+                } else {
+                    String::new()
+                };
                 report(&format!(
-                    "fan guard: {text} (CPU {}, GPU {})",
+                    "fan guard: {text}{why} (CPU {}, GPU {})",
                     shown(cpu),
                     shown(gpu)
                 ));

@@ -263,7 +263,13 @@ fn a_cpu_not_tried_does_not_count_as_unread() {
 #[test]
 fn a_guard_on_for_an_unread_cpu_goes_off_once_it_reads_cool() {
     let mut guard = FanGuard::default();
-    let (now, _) = feed(&mut guard, Instant::now(), FAN_GUARD_CPU_UNREAD_HOLD, None, None);
+    let (now, _) = feed(
+        &mut guard,
+        Instant::now(),
+        FAN_GUARD_CPU_UNREAD_HOLD,
+        None,
+        None,
+    );
     assert!(guard.on());
 
     let (now, changes) = feed(
