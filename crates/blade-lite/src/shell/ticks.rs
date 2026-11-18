@@ -673,8 +673,10 @@ impl<P: Parts> Shell<P> {
     }
 
     /// Passes on a change of the power source read now as its event, for
-    /// when no power events come or the source was read unknown. An
-    /// unknown read changes nothing, so a
+    /// when no power events come or the source was read unknown: a known
+    /// read that differs then sends what its event would, such as the AC
+    /// preset. In a pause its event is dropped, and the pause's end takes
+    /// the source. An unknown read changes nothing, so a
     /// read that flickers to unknown does not switch the preset back and
     /// forth. A wake is not seen then.
     pub(super) fn follow_source(self: &Rc<Self>) {

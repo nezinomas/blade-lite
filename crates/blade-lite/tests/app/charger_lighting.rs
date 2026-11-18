@@ -346,6 +346,24 @@ fn a_charger_found_gone_before_a_sleep_keeps_the_ac_slot_level() {
 }
 
 #[test]
+fn a_charger_found_gone_before_a_sleep_files_the_ac_level_under_the_ac_slot() {
+    // With the guess refused, only the slot bookkeeping puts it back.
+    let (mut app, _dir, _) = app();
+    lit_at(&mut app, 255);
+    app.follow_screen(true).unwrap();
+    app.battery_at_quit();
+    app.refuse_slot_guess(true);
+    app.follow_screen(false).unwrap();
+    lit_at(&mut app, 0);
+    forget_sent(&mut app);
+
+    power(&mut app, PowerEvent::OnAc);
+    app.follow_screen(false).unwrap();
+
+    assert_eq!(sent(&app), level(100));
+}
+
+#[test]
 fn a_quit_before_a_late_swap_puts_the_dark_slots_level_back() {
     // Windows says battery, but the controller still runs the AC slot.
     let (mut app, _dir, _) = app();
@@ -460,6 +478,31 @@ fn keys_made_dark_while_the_source_is_unknown_stay_for_the_slot_in_use() {
 
     app.source_read(true);
     forget_sent(&mut app);
+    app.follow_screen(false).unwrap();
+
+    assert_eq!(sent(&app), level(40));
+}
+
+#[test]
+fn a_dark_made_while_unknown_with_a_level_kept_for_the_new_slot_loses_neither() {
+    // The AC slot holds the app's 0 from before the pull; the battery
+    // slot is made dark while the source reads unknown.
+    let (mut app, _dir, _) = app();
+    lit_at(&mut app, 255);
+    app.follow_screen(true).unwrap();
+    lit_at(&mut app, 102);
+    power(&mut app, PowerEvent::OnBattery);
+    app.follow_screen(false).unwrap();
+    app.take_on_battery(None);
+    app.follow_screen(true).unwrap();
+    lit_at(&mut app, 0);
+    app.take_on_battery(Some(false));
+    forget_sent(&mut app);
+
+    app.follow_screen(false).unwrap();
+    assert_eq!(sent(&app), level(100));
+    forget_sent(&mut app);
+    power(&mut app, PowerEvent::OnBattery);
     app.follow_screen(false).unwrap();
 
     assert_eq!(sent(&app), level(40));

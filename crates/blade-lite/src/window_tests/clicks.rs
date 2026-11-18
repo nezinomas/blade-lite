@@ -3582,6 +3582,28 @@ fn a_pull_told_in_a_wake_pause_read_unknown_at_its_end_is_followed_at_a_later_re
 }
 
 #[test]
+fn an_ac_read_after_an_unknown_one_at_a_wake_follows_ac_once() {
+    // The poll's read sends what the event would; the event after it
+    // sends nothing more.
+    let (f, sender) = lit_fixture_with_power();
+    sender.send(PowerEvent::Resumed).unwrap();
+    f.shell.tick();
+    FAKE_SOURCE_UNKNOWN.set(true);
+    super::sleep::pause_ends();
+    assert!(f.shell.app().on_battery());
+    FAKE_SOURCE_UNKNOWN.set(false);
+    FAKE_ON_BATTERY.set(false);
+
+    f.shell.tick();
+    assert!(!f.shell.app().on_battery());
+    let before = sent_count(&f);
+    sender.send(PowerEvent::OnAc).unwrap();
+    f.shell.tick();
+
+    assert_eq!(sent_since(&f, before), []);
+}
+
+#[test]
 fn with_no_power_events_an_unknown_source_changes_nothing() {
     let f = fixture(Config {
         preset: Preset::Performance,

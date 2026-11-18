@@ -382,8 +382,17 @@ where
         self.keys_follow = None;
         // Made dark while the source was unknown, the keys may be in either
         // slot: their level stays for the slot in use (lit keys are the
-        // safe side; ticket 247).
-        if self.dark_keys.is_some() && self.dark_slot.is_none() {
+        // safe side; ticket 247). With a level kept for the new slot, that
+        // slot holds the app's 0 (a dark read 0 sends nothing), so the
+        // later dark was in the other one: it becomes the guess.
+        if let Some(level) = self.dark_keys
+            && self.dark_slot.is_none()
+        {
+            if let Some(kept) = kept {
+                self.left_dark = Some((!on_battery, level));
+                self.dark_keys = Some(kept);
+                self.dark_slot = Some(Slot::of(on_battery));
+            }
             return;
         }
         if let Some(level) = self.dark_keys {
@@ -708,14 +717,16 @@ where
     /// charger, so a change of the preset that runs marks it unsure. Never
     /// toward the charger: a weak charge would be missed.
     pub fn battery_at_quit(&mut self) {
-        // First: after unknown reads the app runs battery, but the slot
-        // may still be the AC one (ticket 247).
-        self.note_slot(true);
+        // After unknown reads the app runs battery, but the slot may still
+        // be the AC one (ticket 247). Noted after the power: the slots
+        // follow `on_battery`.
         if self.on_battery() {
+            self.note_slot(true);
             return;
         }
         let before = self.running(self.config).preset;
         self.power = Power::Battery;
+        self.note_slot(true);
         if self.running(self.config).preset != before {
             report("the charger is gone, so the battery quit preset is sent");
             self.preset_unsure = true;
