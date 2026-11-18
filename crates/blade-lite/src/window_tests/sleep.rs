@@ -1422,3 +1422,57 @@ fn a_known_battery_read_in_the_wake_pause_leaves_the_rate_to_its_end() {
     pause_ends();
     assert_eq!(hz(), 60);
 }
+
+#[test]
+fn a_known_battery_read_at_an_open_again_s_end_after_an_unknown_source_gets_60_hz() {
+    let f = fixture(Config {
+        sixty_hz_on_battery: true,
+        ..Config::default()
+    });
+    let (_sender, receiver) = std::sync::mpsc::channel();
+    f.shell.listen_for_power(receiver);
+    let hz = || f.shell.app().machine().displays.0.current.hz;
+    power(&f, &[PowerEvent::Suspending]);
+    power(&f, &[PowerEvent::Resumed]);
+    FAKE_SOURCE_UNKNOWN.set(true);
+    pause_ends();
+    FAKE_REOPENED.set(Reopened::Opened);
+    f.shell.follow_own_power();
+    FAKE_SOURCE_UNKNOWN.set(false);
+    FAKE_ON_BATTERY.set(true);
+    f.shell.follow_own_power();
+    assert_eq!(hz(), 240, "nothing in the pause");
+
+    pause_ends();
+
+    assert_eq!(hz(), 60);
+}
+
+#[test]
+fn a_start_with_the_source_unknown_gets_60_hz_at_the_first_known_battery_read() {
+    let f = fixture(Config {
+        sixty_hz_on_battery: true,
+        ..Config::default()
+    });
+    let (_sender, receiver) = std::sync::mpsc::channel();
+    f.shell.listen_for_power(receiver);
+    f.shell.app().take_on_battery(None);
+    FAKE_ON_BATTERY.set(true);
+
+    f.shell.follow_own_power();
+
+    assert_eq!(f.shell.app().machine().displays.0.current.hz, 60);
+}
+
+#[test]
+fn a_known_battery_read_after_an_unknown_source_sets_nothing_with_the_option_off() {
+    let f = fixture(Config::default());
+    let (_sender, receiver) = std::sync::mpsc::channel();
+    f.shell.listen_for_power(receiver);
+    f.shell.app().take_on_battery(None);
+    FAKE_ON_BATTERY.set(true);
+
+    f.shell.follow_own_power();
+
+    assert_eq!(f.shell.app().machine().displays.0.current.hz, 240);
+}

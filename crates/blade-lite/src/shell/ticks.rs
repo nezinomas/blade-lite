@@ -497,10 +497,27 @@ impl<P: Parts> Shell<P> {
             self.act(|_| Err(error));
             return;
         }
-        let mut app = self.app.borrow_mut();
-        if app.battery_rate_pending() {
+        if self.app.borrow().battery_rate_pending() {
             return;
         }
+        self.show_rate();
+    }
+
+    /// Takes the rate for a known battery read after an unknown source
+    /// (ticket 281). As a rate try: an error is shown, otherwise only the
+    /// rate buttons are filled again, so the other errors stay.
+    fn rate_on_battery_read(self: &Rc<Self>) {
+        let taken = self.app.borrow_mut().rate_on_battery_read();
+        if let Err(error) = taken {
+            self.act(|_| Err(error));
+            return;
+        }
+        self.show_rate();
+    }
+
+    /// Fills the window's rate buttons with the panel's rate.
+    fn show_rate(&self) {
+        let mut app = self.app.borrow_mut();
         let mut errors = Vec::new();
         if let Some(view) = self.display_view(&mut app, &mut errors) {
             bind::display(&self.window, &view);
@@ -681,16 +698,19 @@ impl<P: Parts> Shell<P> {
     /// read that flickers to unknown does not switch the preset back and
     /// forth. A wake is not seen then. As an unknown source counts as
     /// battery, a known battery read after it sends no event: it takes the
-    /// rate as a wake would, out of a pause (ticket 281).
+    /// rate as a battery event would (ticket 281).
     pub(super) fn follow_source(self: &Rc<Self>) {
         let Some(on_battery) = P::on_battery() else {
             return;
         };
         if on_battery == self.app.borrow().on_battery() {
-            let known_now = self.app.borrow_mut().source_read(on_battery);
-            // In a pause its end takes the rate (ticket 281).
-            if known_now && self.resuming.get() == 0 {
-                self.act(blade_lite::App::rate_on_battery_read);
+            // Left to a pause's end, which reads the source again and takes
+            // a change to known with its rate (ticket 281).
+            if self.resuming.get() > 0 {
+                return;
+            }
+            if self.app.borrow_mut().source_read(on_battery) {
+                self.rate_on_battery_read();
             }
             return;
         }

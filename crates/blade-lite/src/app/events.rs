@@ -341,13 +341,15 @@ where
     /// Takes the power source read at the end of an open again's pause,
     /// before the start that sends every setting: only the rate follows a
     /// change now, so the preset goes once, with the start (ticket 256).
-    /// `None` (unknown) counts as battery, as at a start.
+    /// `None` (unknown) counts as battery, as at a start, so a known battery
+    /// read after an unknown one counts as a change too (ticket 281).
     ///
     /// # Errors
     ///
     /// See [`AppError`]: the rate change's.
     pub fn take_source_before_start(&mut self, on_battery: Option<bool>) -> Result<(), AppError> {
-        let changed = on_battery.is_some_and(|now| now != self.on_battery());
+        let was_known = self.source_known;
+        let changed = on_battery.is_some_and(|now| now != self.on_battery() || !was_known);
         self.take_on_battery(on_battery);
         if !changed {
             return Ok(());
@@ -754,7 +756,9 @@ where
     /// At the app's start on AC, follows AC, so the rate a crash on
     /// battery left at 60 Hz is put back (see
     /// [`blade_core::BatteryRate::on_event`]). On battery or an unknown
-    /// source nothing is sent: the first power event takes the rate then.
+    /// source nothing is sent: the first power event, or a known battery
+    /// read after an unknown one ([`Self::rate_on_battery_read`]), takes
+    /// the rate then.
     ///
     /// # Errors
     ///
@@ -811,10 +815,16 @@ where
     }
 
     /// Takes the rate for a battery read that made the source known, as a
-    /// wake does with a known source: a charger pulled in a wake's pause
-    /// sends no event again, and the pause's end read the source unknown,
-    /// so it left the rate (ticket 281). A refused set is tried again on
-    /// the polls. Nothing on AC or with the source unknown.
+    /// battery event would: an unknown source counts as battery, so such a
+    /// read sends no event. A charger pulled in a wake's pause sends no
+    /// event again, and the pause's end read the source unknown, so it left
+    /// the rate (ticket 281); a start with the source unknown gets its
+    /// 60 Hz here too, if no event came first. A rate already saved (the
+    /// switch to battery was seen) sends nothing, so a rate set outside the
+    /// app while the source was unknown is kept; so is one Windows put
+    /// back in a wake whose pause ended with the source unknown (ticket
+    /// 286). A refused set is tried again from the next poll on. Nothing
+    /// on AC or with the source unknown (a guard).
     ///
     /// # Errors
     ///
@@ -823,11 +833,9 @@ where
         if !self.on_battery() || !self.source_known {
             return Ok(());
         }
-        let displays = &mut self.machine.displays;
-        let rate = self
-            .battery_rate
-            .on_resume(true, &self.config, displays)
-            .map_err(AppError::from);
+        // As `on_power`: an error held for the old source is stale.
+        self.held_rate_error = None;
+        let rate = self.follow_power(PowerEvent::OnBattery);
         self.quiet_if_tried_again(rate)
     }
 
