@@ -2397,6 +2397,7 @@ fn with_the_window_open_a_tick_reads_only_the_charger_while_razer_software_runs(
         .tick_at(Instant::now() + Duration::from_secs(60), SystemTime::now());
 
     // The charger only (ticket 258).
+    assert!(charger_reads_since(&f, asked) >= 1);
     assert_eq!(asked_count(&f) - asked, charger_reads_since(&f, asked));
     assert_eq!(f.shell.app().cpu_celsius(), None, "not read, so unknown");
 }
@@ -2412,6 +2413,7 @@ fn with_the_flyout_open_a_tick_reads_only_the_charger_while_razer_software_runs(
     f.shell
         .tick_at(Instant::now() + Duration::from_secs(60), SystemTime::now());
 
+    assert!(charger_reads_since(&f, asked) >= 1);
     assert_eq!(asked_count(&f) - asked, charger_reads_since(&f, asked));
 }
 
@@ -3180,6 +3182,12 @@ fn no_background_charger_read_while_a_razer_updater_runs() {
     f.shell.tick();
 
     assert_eq!(charger_reads_since(&f, asked), 0);
+    // Not even tried: the held controller would refuse it unseen.
+    let missed = f.shell.app().take_missed_reads();
+    assert!(
+        !missed.iter().any(|line| line.starts_with("charger")),
+        "{missed:?}"
+    );
 }
 
 #[test]

@@ -455,6 +455,22 @@ where
     ///
     /// See [`AppError`].
     pub fn follow_charger(&mut self) -> Result<bool, AppError> {
+        self.follow_charger_with(true)
+    }
+
+    /// As [`follow_charger`](Self::follow_charger), but a weak charge
+    /// never ends: only the step down goes, as while Razer's software runs
+    /// (ticket 258, user pick A), where nothing in the background sends
+    /// Performance or Custom.
+    ///
+    /// # Errors
+    ///
+    /// See [`AppError`].
+    pub fn follow_charger_down_only(&mut self) -> Result<bool, AppError> {
+        self.follow_charger_with(false)
+    }
+
+    fn follow_charger_with(&mut self, step_up: bool) -> Result<bool, AppError> {
         if self.on_battery() {
             return Ok(false);
         }
@@ -470,7 +486,11 @@ where
             }
         };
         let (was_weak, before) = (self.power.is_weak(), self.running(self.config).preset);
-        self.power = self.power.after_poll(full);
+        let after = self.power.after_poll(full);
+        if was_weak && !after.is_weak() && !step_up {
+            return Ok(false);
+        }
+        self.power = after;
         if self.running(self.config).preset != before {
             self.send_if_changed(before)?;
         }

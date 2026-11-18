@@ -96,7 +96,7 @@ impl<P: Parts> Shell<P> {
     /// the temperatures now and then if none does; neither while a resume
     /// waits. Each such read also reads the charger, and sends the preset
     /// again if a send failed before the last tick began and none failed
-    /// since.
+    /// since. While Razer's software runs only the charger is read.
     pub fn tick(self: &Rc<Self>) {
         self.tick_at(Instant::now(), SystemTime::now());
     }
@@ -139,7 +139,8 @@ impl<P: Parts> Shell<P> {
                 .borrow_mut()
                 .heat_due(now, wall, self.heat_interval())
         {
-            // While Razer's software runs, only the charger (ticket 258).
+            // While Razer's software runs, only the charger and a battery
+            // preset resend (`charger_reads_allowed`, ticket 258).
             if self.heat_reads_allowed() {
                 self.tick_heat(now);
             }
@@ -331,16 +332,22 @@ impl<P: Parts> Shell<P> {
 
     /// Sends the preset that runs if a weak charge came or went, such as a
     /// USB-C monitor plugged in while the Razer charger is pulled (Windows
-    /// sees no power change then). Also while Razer's software runs, so
-    /// Performance or Custom can't stay on a weak charger (ticket 258, user
-    /// pick A); not while a resume waits or a Razer updater runs. Returns
-    /// whether it acted.
+    /// sees no power change then). While Razer's software runs, only a
+    /// weak charge that comes, so Performance or Custom can't stay on a
+    /// weak charger (ticket 258, user pick A): the full charger back sends
+    /// nothing then. Not while a resume waits or a Razer updater runs.
+    /// Returns whether it acted.
     fn follow_charger(self: &Rc<Self>) -> bool {
         if !self.charger_reads_allowed() {
             return false;
         }
         let unsent = self.app.borrow().boost_unsent();
-        let changed = self.app.borrow_mut().follow_charger();
+        let razer_runs = self.razer_warning.borrow().is_some();
+        let changed = if razer_runs {
+            self.app.borrow_mut().follow_charger_down_only()
+        } else {
+            self.app.borrow_mut().follow_charger()
+        };
         let missed = self.app.borrow_mut().take_missed_reads();
         self.say_read_errors(&missed);
         self.say_full_speed_sent_again(unsent, WITH_THE_PRESET);
@@ -407,7 +414,9 @@ impl<P: Parts> Shell<P> {
     /// How often the temperatures are read with no view open: often while
     /// a manual Custom fan runs, as only the fan guard can then speed it up.
     fn heat_interval(&self) -> Duration {
-        if self.app.borrow().manual_fan_runs() {
+        // The fan guard is off while Razer's software runs: the charger
+        // alone needs no 2 s reads (ticket 258).
+        if self.heat_reads_allowed() && self.app.borrow().manual_fan_runs() {
             GUARD_HEAT_INTERVAL
         } else {
             HEAT_INTERVAL

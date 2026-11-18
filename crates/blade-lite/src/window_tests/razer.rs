@@ -633,7 +633,7 @@ fn while_razer_software_runs_a_weak_charger_on_a_tick_still_runs_balanced() {
     f.shell.app().machine_mut().controller.inner.charger = crate::fakes::FakeCharger::UsbC;
     let before = f.shell.app().machine().controller.inner.sent.len();
 
-    // With a view open and with none (ticket 258, user pick A).
+    // With no view open (ticket 258, user pick A).
     let start = std::time::Instant::now();
     f.shell.tick_at(start, std::time::SystemTime::now());
     f.shell.tick_at(
@@ -673,4 +673,30 @@ fn while_razer_software_runs_a_failed_battery_preset_is_sent_again() {
         "{:?}",
         sent_since(&f, before)
     );
+}
+
+#[test]
+fn while_razer_software_runs_the_full_charger_back_sends_nothing() {
+    let f = fixture(Config {
+        preset: Preset::Performance,
+        ..Config::default()
+    });
+    f.shell.programs().set(&[SYNAPSE]);
+    look(&f);
+    f.shell.app().machine_mut().controller.inner.charger = crate::fakes::FakeCharger::UsbC;
+    let start = std::time::Instant::now();
+    f.shell.tick_at(start, std::time::SystemTime::now());
+    f.shell.app().machine_mut().controller.inner.charger = crate::fakes::FakeCharger::Razer;
+    let before = f.shell.app().machine().controller.inner.sent.len();
+
+    for step in 1..=4 {
+        f.shell.tick_at(
+            start + blade_core::HEAT_INTERVAL * step,
+            std::time::SystemTime::now(),
+        );
+    }
+
+    // No step up with the fan guard off (ticket 258).
+    assert_eq!(sent_since(&f, before), []);
+    assert_eq!(f.shell.app().running_preset(), Preset::Balanced);
 }
