@@ -62,8 +62,6 @@ const DEFAULT_LIGHTING: Lighting = Lighting {
     vapor_light: true,
 };
 
-/// Whether the fan guard's own full-speed send reached the controller
-/// (ticket 163).
 /// One of the two keyboard level slots the controller keeps, one per power
 /// source (ticket 243).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -87,6 +85,8 @@ enum SlotGuess {
     Refused,
 }
 
+/// Whether the fan guard's own full-speed send reached the controller
+/// (ticket 163).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum FullSpeed {
     /// Sent, or nothing is left to send.
@@ -291,8 +291,12 @@ pub struct App<C, D, R, K> {
     left_dark: Option<(bool, Brightness)>,
     /// The slot the last known source read or event put in use, kept
     /// across unknown reads, so a known one after them that differs still
-    /// follows the slots (ticket 247).
-    slot: Slot,
+    /// follows the slots (ticket 247). `None` until the first known one:
+    /// a first read is no swap.
+    slot: Option<Slot>,
+    /// The slot the keys in `dark_keys` were made dark in. `None` if the
+    /// source was unknown then: the controller may have swapped unseen.
+    dark_slot: Option<Slot>,
     /// Whether the put-back may guess the other slot's level from a 0
     /// read. Refused, the level stays kept for the next swap into its slot.
     slot_guess: SlotGuess,
@@ -351,7 +355,8 @@ where
             source_lighting_due: None,
             source_lighting_sent: None,
             left_dark: None,
-            slot: Slot::Ac,
+            slot: None,
+            dark_slot: None,
             slot_guess: SlotGuess::Allowed,
         }
     }
@@ -408,11 +413,19 @@ where
         }
     }
 
+    /// Whether the power source was known at the last read or event.
+    #[must_use]
+    pub fn source_known(&self) -> bool {
+        self.source_known
+    }
+
     /// Notes a known read that matches the source the app follows, so a
     /// wake after it follows the rate again. After unknown reads it may
     /// still differ from the last known one: the key slots follow, and
     /// with the lighting saved its send is due (ticket 247). Nothing is
-    /// sent.
+    /// sent. A read in a pause after a wake only moves the bookkeeping
+    /// early: the shell neither looks at the screen nor sends the due
+    /// lighting then, and the pause's end sends all settings.
     pub fn source_read(&mut self, on_battery: bool) {
         if on_battery == self.on_battery() {
             self.source_known = true;
@@ -425,8 +438,8 @@ where
     /// Returns whether it did.
     fn note_slot(&mut self, on_battery: bool) -> bool {
         let slot = Slot::of(on_battery);
-        let swapped = self.slot != slot;
-        self.slot = slot;
+        let swapped = self.slot.is_some_and(|last| last != slot);
+        self.slot = Some(slot);
         if swapped {
             self.follow_dark_slots();
         }

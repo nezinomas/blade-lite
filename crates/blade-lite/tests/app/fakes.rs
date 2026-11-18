@@ -277,6 +277,14 @@ impl KeyInjector for FakeKeys {
 pub type TestApp = App<FakeController, FakeDisplays, FakeRegistry, FakeKeys>;
 
 pub fn app_on(model: &'static ModelProfile, config: Config) -> (TestApp, TempDir, PathBuf) {
+    let (mut app, dir, path) = app_unread(model, config);
+    // As the app's start: the source is read before the first event.
+    app.take_on_battery(Some(false));
+    (app, dir, path)
+}
+
+/// An app that has read no power source yet.
+pub fn app_unread(model: &'static ModelProfile, config: Config) -> (TestApp, TempDir, PathBuf) {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("config.toml");
     let machine = Machine {

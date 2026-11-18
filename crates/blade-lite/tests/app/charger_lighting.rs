@@ -432,6 +432,40 @@ fn razer_software_refuses_the_other_slots_guess() {
 }
 
 #[test]
+fn a_guess_allowed_again_after_razer_software_puts_the_level_back() {
+    let (mut app, _dir, _) = app();
+    lit_at(&mut app, 255);
+    app.follow_screen(true).unwrap();
+    app.battery_at_quit();
+    app.refuse_slot_guess(true);
+    lit_at(&mut app, 0);
+    app.keys_back_on().unwrap();
+    forget_sent(&mut app);
+
+    app.refuse_slot_guess(false);
+    app.keys_back_on().unwrap();
+
+    assert_eq!(sent(&app), level(100));
+}
+
+#[test]
+fn keys_made_dark_while_the_source_is_unknown_stay_for_the_slot_in_use() {
+    // The controller may have swapped unseen before the dark: at the
+    // known read, the level is not filed under the other slot.
+    let (mut app, _dir, _) = app();
+    app.take_on_battery(None);
+    lit_at(&mut app, 102);
+    app.follow_screen(true).unwrap();
+    app.refuse_slot_guess(true);
+
+    app.source_read(true);
+    forget_sent(&mut app);
+    app.follow_screen(false).unwrap();
+
+    assert_eq!(sent(&app), level(40));
+}
+
+#[test]
 fn a_guess_refused_for_razer_software_keeps_the_level_for_the_swap() {
     // Ticket 247 (round 5): the AC slot gets its level back at the plug.
     let (mut app, _dir, _) = app();
@@ -511,6 +545,40 @@ fn a_charger_pulled_in_a_sleep_whose_wake_reads_unknown_keeps_each_slots_level()
 
     power(&mut app, PowerEvent::OnAc);
     app.follow_screen(false).unwrap();
+
+    assert_eq!(sent(&app), level(100));
+}
+
+#[test]
+fn a_first_known_read_after_a_start_on_an_unknown_source_is_no_swap() {
+    // The start's slot is not known, so the kept level is the slot's own.
+    let (mut app, _dir, _) = crate::fakes::app_unread(&BLADE_18, Config::default());
+    app.take_on_battery(None);
+    lit_at(&mut app, 255);
+    app.follow_screen(true).unwrap();
+    forget_sent(&mut app);
+
+    app.source_read(true);
+    app.follow_screen(false).unwrap();
+
+    assert_eq!(sent(&app), level(100));
+}
+
+#[test]
+fn a_quit_read_as_battery_after_an_unknown_one_follows_the_slots() {
+    // The battery slot gets no AC level; it is kept for the AC slot.
+    let (mut app, _dir, _) = app();
+    lit_at(&mut app, 255);
+    app.follow_screen(true).unwrap();
+    app.take_on_battery(None);
+    app.battery_at_quit();
+    lit_at(&mut app, 102);
+    forget_sent(&mut app);
+
+    app.keys_back_on().unwrap();
+    assert_eq!(sent(&app), []);
+    lit_at(&mut app, 0);
+    app.keys_back_on().unwrap();
 
     assert_eq!(sent(&app), level(100));
 }

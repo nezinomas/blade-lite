@@ -12,7 +12,7 @@ use platform::{DisplayApi, KeyInjector, PowerEvent, Registry};
 use razer_proto::{Brightness, RedKeys};
 
 use super::{
-    App, AppError, CHARGER_STEADY, NOT_UNDERSTOOD, Power, SOURCE_LIGHTING_SPACING, SlotGuess,
+    App, AppError, CHARGER_STEADY, NOT_UNDERSTOOD, Power, SOURCE_LIGHTING_SPACING, Slot, SlotGuess,
 };
 use crate::report;
 
@@ -118,6 +118,7 @@ where
         }
         // Kept before the send: one that fails may have gone in part.
         self.dark_keys = Some(level);
+        self.dark_slot = if self.source_known { self.slot } else { None };
         let dark = Brightness::new(0).map_err(ApplyError::Brightness)?;
         self.machine.controller.run(&dark.commands(self.model))?;
         report(&format!(
@@ -180,7 +181,9 @@ where
     /// for the shell to set before each put-back: refused while Razer's
     /// software runs (as last looked, up to 60 s old), as a 0 read then
     /// may be its own. The level stays kept for the next swap into its
-    /// slot (ticket 247).
+    /// slot (ticket 247), and goes in then with no read, also while
+    /// Razer's software runs: a level it set in that slot meanwhile is
+    /// lost, and the keys are lit (the safe side).
     pub fn refuse_slot_guess(&mut self, refuse: bool) {
         self.slot_guess = if refuse {
             SlotGuess::Refused
@@ -376,11 +379,18 @@ where
         if self.config.lighting.is_some() {
             return;
         }
+        self.keys_follow = None;
+        // Made dark while the source was unknown, the keys may be in either
+        // slot: their level stays for the slot in use (lit keys are the
+        // safe side; ticket 247).
+        if self.dark_keys.is_some() && self.dark_slot.is_none() {
+            return;
+        }
         if let Some(level) = self.dark_keys {
             self.left_dark = Some((!on_battery, level));
         }
         self.dark_keys = kept;
-        self.keys_follow = None;
+        self.dark_slot = Some(Slot::of(on_battery));
     }
 
     /// Sends the saved lighting due after a charger change (ticket 244),
@@ -395,8 +405,10 @@ where
     /// keeps dark for a screen off (ticket 241) stay dark: the colour and
     /// vapor light go with the keyboard at level 0, and the saved level is
     /// kept for the put-back. A failed send is only logged, and tried again
-    /// at a later look, [`SOURCE_LIGHTING_TRIES`](super::SOURCE_LIGHTING_TRIES) times in all: the same
-    /// saved lighting each time, so a send that went in part is made whole.
+    /// at a later look,
+    /// [`SOURCE_LIGHTING_TRIES`](super::SOURCE_LIGHTING_TRIES) times in
+    /// all: the same saved lighting each time, so a send that went in part
+    /// is made whole.
     pub fn send_source_lighting(&mut self, now: Instant) {
         let spaced = self
             .source_lighting_sent
@@ -696,12 +708,14 @@ where
     /// charger, so a change of the preset that runs marks it unsure. Never
     /// toward the charger: a weak charge would be missed.
     pub fn battery_at_quit(&mut self) {
+        // First: after unknown reads the app runs battery, but the slot
+        // may still be the AC one (ticket 247).
+        self.note_slot(true);
         if self.on_battery() {
             return;
         }
         let before = self.running(self.config).preset;
         self.power = Power::Battery;
-        self.note_slot(true);
         if self.running(self.config).preset != before {
             report("the charger is gone, so the battery quit preset is sent");
             self.preset_unsure = true;
