@@ -289,6 +289,28 @@ fn the_settings_go_again_after_a_pause_when_a_razer_updater_ends() {
 }
 
 #[test]
+fn a_charger_pulled_while_an_updater_runs_sends_the_battery_preset_once_at_its_end() {
+    let f = fixture(Config {
+        preset: Preset::Performance,
+        sixty_hz_on_battery: true,
+        ..Config::default()
+    });
+    f.shell.programs().set(&[UPDATER]);
+    look(&f);
+    FAKE_ON_BATTERY.set(true);
+    f.shell.programs().set(&[]);
+    look(&f);
+    let before = f.shell.app().machine().controller.inner.sent.len();
+
+    f.shell.tick();
+    pause_ends();
+
+    // Once, with the start (ticket 256), and the rate follows the pull.
+    assert_eq!(balanced_runs_since(&f, before), 1);
+    assert_eq!(f.shell.app().machine().displays.0.current.hz, 60);
+}
+
+#[test]
 fn an_updater_that_ends_at_a_wake_gets_the_wake_send_only() {
     let f = fixture(Config::default());
     f.shell.programs().set(&[UPDATER]);

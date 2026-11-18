@@ -261,19 +261,35 @@ impl<P: Parts> Shell<P> {
                     shell.controller_gone.set(false);
                     // A firmware update may be what killed the old handle.
                     shell.app.borrow_mut().check_firmware();
-                    // A power event in the pause was dropped: read the
-                    // source, so a pulled charger sets the rate, and the
-                    // start sends the battery preset once (ticket 256). As
-                    // the wake: an unknown source runs the battery presets.
-                    shell.forget_charging();
-                    shell.act(|app| app.take_source_before_start(P::on_battery()));
-                    shell.act(AppOn::<P>::start);
+                    shell.source_then_start();
                     // A screen change in the pause was dropped.
                     shell.follow_screen();
                 });
                 true
             }
         }
+    }
+
+    /// At the end of an open again's or an updater's pause: a power event
+    /// in it was dropped, so the source is read again; a change sets only
+    /// the rate, and the start then sends every setting, the preset once
+    /// (ticket 256). As at a wake, an unknown source runs the battery
+    /// presets. One fill, after the start, so the mode popup shows only a
+    /// preset that went; a rate error that fails beside the start is
+    /// logged.
+    pub(super) fn source_then_start(self: &Rc<Self>) {
+        let source = P::on_battery();
+        if source.is_some_and(|now| now != self.app.borrow().on_battery()) {
+            self.forget_charging();
+        }
+        let rate = self.app.borrow_mut().take_source_before_start(source);
+        self.act(move |app| {
+            let started = app.start();
+            if let (Err(_), Err(error)) = (&started, &rate) {
+                report(&format!("the rate change failed too: {error}"));
+            }
+            started.and(rate)
+        });
     }
 
     /// Sends the preset that runs again if its last send failed, so the

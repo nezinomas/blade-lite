@@ -330,6 +330,8 @@ where
         if !changed {
             return Ok(());
         }
+        // As `on_power`: an error held for the old source is stale.
+        self.held_rate_error = None;
         let event = if self.on_battery() {
             PowerEvent::OnBattery
         } else {
