@@ -19,4 +19,4 @@ pub use performance::{
     ChargeLimitSwitch, PerformanceCommand, PerformanceState, PerformanceView, PresetOption, Slider,
     SliderKind,
 };
-pub use popup::{HEAT_HOLD, HeatWatch, ModeWatch, Sensor, TouchpadWatch};
+pub use popup::{CPU_READ_AGAIN_HOLD, HEAT_HOLD, HeatWatch, ModeWatch, Sensor, TouchpadWatch};

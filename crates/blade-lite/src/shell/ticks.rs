@@ -10,7 +10,7 @@ use blade_lite::{AppError, PollTime, StepTime, TouchpadLook, report};
 use platform::PowerEvent;
 use razer_device::{CONTROLLER_CLOSED, CONTROLLER_OPENED_AGAIN};
 use slint::{ComponentHandle, Timer};
-use ui::{DisplayView, FAN_GUARD_WAKE_HOLD, Header, HeatWatch};
+use ui::{DisplayView, FAN_GUARD_WAKE_HOLD, Header};
 
 use super::popup::{POPUP_HOLD, TOUCHPAD};
 use super::{AppOn, Parts, Reopened, Shell, nothing_sent};
@@ -873,8 +873,8 @@ impl<P: Parts> Shell<P> {
         // The last pause sends the wake's settings.
         self.wake_due.set(true);
         // The time asleep may not count in `Instant`, so a spell before
-        // the sleep is not carried over.
-        self.heat_watch.set(HeatWatch::default());
+        // the sleep is not carried over (a warned CPU-not-read spell is).
+        self.heat_watch.set(self.heat_watch.get().after_wake());
         // The controller needs a moment after the wake.
         let pause = self.begin_pause();
         let shell = Rc::clone(self);

@@ -189,6 +189,27 @@ fn a_cpu_not_read_for_half_a_minute_puts_a_manual_fan_at_full_speed_and_says_so(
     assert_eq!(log_lines(said), 1);
 }
 
+/// Review of 272: the fan guard's full speed shows first; the CPU warning
+/// waits for the next reading, so neither is hidden in the same look.
+#[test]
+fn a_cpu_not_read_shows_the_full_speed_first_then_the_warning() {
+    let f = manual_fan();
+    let start = Instant::now();
+    let unread = ui::FAN_GUARD_CPU_UNREAD_HOLD.as_secs();
+    for second in 0..=unread {
+        f.shell
+            .watch_heat(None, Some(60), start + Duration::from_secs(second));
+    }
+    assert_eq!(f.shell.popup().get_caption(), "Fans");
+    assert_eq!(f.shell.popup().get_mode(), "Full speed");
+
+    f.shell
+        .watch_heat(None, Some(60), start + Duration::from_secs(unread + 2));
+
+    assert_eq!(f.shell.popup().get_caption(), "CPU temperature");
+    assert_eq!(f.shell.popup().get_mode(), "Not read");
+}
+
 /// Review of 251: after the quit no CPU read is tried, so the closed gate
 /// gets no full speed to refuse.
 #[test]
@@ -205,6 +226,7 @@ fn a_cpu_not_read_after_the_quit_tries_no_full_speed() {
 
     assert_eq!(sent_count(&f), before);
     assert!(!f.shell.app().boost_unsent());
+    assert_eq!(f.shell.popup().get_mode(), "", "no read tried, no warning");
 }
 
 /// Ticket 273: after the quit a hot GPU (its sampler has no gate) tries no
@@ -223,6 +245,7 @@ fn a_hot_gpu_after_the_quit_tries_no_full_speed() {
 
     assert_eq!(sent_count(&f), before);
     assert!(!f.shell.app().boost_unsent());
+    assert_eq!(f.shell.popup().get_mode(), "", "no read tried, no warning");
 }
 
 /// Review of 251: with the fans on auto the guard sends nothing, so it
@@ -297,6 +320,7 @@ fn a_cpu_not_read_while_razer_software_runs_sends_no_full_speed_after() {
         .watch_heat(None, None, start + unread + Duration::from_secs(1));
 
     assert_eq!(fan_speeds_since(&f, before), []);
+    assert_ne!(f.shell.popup().get_mode(), "Not read", "no read tried");
 }
 
 /// The guard's lines that say its failed full-speed send went later.

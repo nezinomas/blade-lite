@@ -37,9 +37,11 @@ impl<P: Parts> Shell<P> {
     /// Notes the CPU and GPU temperatures read at `now`, `None` for one not
     /// read, and shows and logs the warnings of the sensors that have stayed
     /// hot, in one popup. Feeds the fan guard too, which may send a fan
-    /// speed, only while `heat_reads_allowed`.
+    /// speed, only while `heat_reads_allowed`. A CPU not read for the
+    /// guard's hold is said too (ticket 272), but only when no other popup
+    /// shows from this reading and the screen is not off; else it waits.
     pub fn watch_heat(self: &Rc<Self>, cpu: Option<u32>, gpu: Option<u32>, now: Instant) {
-        self.guard_fans(cpu, gpu, now);
+        let fans_popped = self.guard_fans(cpu, gpu, now);
         let mut watch = self.heat_watch.get();
         let warnings: Vec<String> = [(Sensor::Cpu, cpu), (Sensor::Gpu, gpu)]
             .into_iter()
@@ -48,7 +50,8 @@ impl<P: Parts> Shell<P> {
         // The fan guard's count, which leaves out reads not tried (a
         // resume, Razer's software, after the quit): a hot CPU would not
         // show, so say so once (ticket 272, user pick A). It sends nothing.
-        let unread = watch.note_cpu_unread(self.fan_guard.get().cpu_unread());
+        let can_show = !fans_popped && warnings.is_empty() && P::screen_on() != Some(false);
+        let unread = watch.note_cpu_unread(self.fan_guard.get().cpu_unread(), can_show, now);
         self.heat_watch.set(watch);
         if unread {
             report(&format!(
@@ -75,7 +78,7 @@ impl<P: Parts> Shell<P> {
     /// resume waits: the change waits for a later reading, and a CPU not
     /// read then, or after the quit, is no failed read (ticket 251). A
     /// failed send shows its error.
-    fn guard_fans(self: &Rc<Self>, cpu: Option<u32>, gpu: Option<u32>, now: Instant) {
+    fn guard_fans(self: &Rc<Self>, cpu: Option<u32>, gpu: Option<u32>, now: Instant) -> bool {
         let allowed = self.heat_reads_allowed();
         let mut guard = self.fan_guard.get();
         guard.cpu_tried(allowed && !self.quit_sent.get());
@@ -92,9 +95,10 @@ impl<P: Parts> Shell<P> {
         // After the quit the gate is closed: a hot GPU (its sampler has no
         // gate) would only mark a refused full speed unsent (ticket 273).
         if !allowed || self.quit_sent.get() {
-            return;
+            return false;
         }
         let sent = self.app.borrow_mut().set_fan_boost(guard.on());
+        let popped = matches!(sent, Ok(true));
         match sent {
             Ok(false) => {}
             Ok(true) => {
@@ -113,6 +117,7 @@ impl<P: Parts> Shell<P> {
             Err(error) => self.act(|_| Err(error)),
         }
         self.say_gpu_fault(guard.held_by_gpu_fault(), cpu, gpu);
+        popped
     }
 
     /// Logs once when the guard starts to hold a manual fan at full speed
