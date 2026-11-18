@@ -154,6 +154,56 @@ fn a_poll_that_takes_the_guard_s_failed_full_speed_says_so_once() {
     assert_eq!(sent_again(), [BY_A_POLL]);
 }
 
+/// Ticket 251: the controller's CPU reads fail, so only the guard's unread
+/// hold can speed a manual fan up.
+#[test]
+fn a_cpu_not_read_for_half_a_minute_puts_a_manual_fan_at_full_speed_and_says_so() {
+    let f = manual_fan();
+    let start = Instant::now();
+    let now = ticks(&f, start, Duration::from_secs(3), 60);
+    f.shell.app().machine_mut().controller.inner.cpu_celsius = None;
+    let before = sent_count(&f);
+    let said = "fan guard: Full speed, as the CPU temperature was not read for 30 s";
+
+    let mut tick = now;
+    while tick < now + ui::FAN_GUARD_CPU_UNREAD_HOLD {
+        f.shell.tick_at(tick, SystemTime::now());
+        tick += Duration::from_secs(1);
+    }
+    assert_eq!(fan_speeds_since(&f, before), [], "not yet");
+    while tick <= now + ui::FAN_GUARD_CPU_UNREAD_HOLD * 3 {
+        f.shell.tick_at(tick, SystemTime::now());
+        tick += Duration::from_secs(1);
+    }
+
+    let top = BLADE_18.custom.fan_rpm.max;
+    assert_eq!(fan_speeds_since(&f, before), [top; 4]);
+    assert_eq!(log_lines(said), 1);
+}
+
+/// Not read while Razer's software runs: no read failed, so its end sends
+/// no full speed.
+#[test]
+fn a_cpu_not_read_while_razer_software_runs_sends_no_full_speed_after() {
+    let f = manual_fan();
+    f.shell.programs().set(&["Razer Synapse Service"]);
+    f.shell.look_for_razer();
+    let start = Instant::now();
+    let unread = ui::FAN_GUARD_CPU_UNREAD_HOLD * 3;
+    for second in 0..=unread.as_secs() {
+        f.shell
+            .watch_heat(None, None, start + Duration::from_secs(second));
+    }
+    f.shell.programs().set(&[]);
+    f.shell.look_for_razer();
+    let before = sent_count(&f);
+
+    f.shell
+        .watch_heat(None, None, start + unread + Duration::from_secs(1));
+
+    assert_eq!(fan_speeds_since(&f, before), []);
+}
+
 /// The guard's lines that say its failed full-speed send went later.
 fn sent_again() -> Vec<&'static str> {
     FULL_SPEED_SENT_AGAIN.with_borrow(Clone::clone)
