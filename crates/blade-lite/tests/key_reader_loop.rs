@@ -201,8 +201,11 @@ fn a_short_run_pauses_says_nothing_and_starts_the_key_anew() {
 }
 
 #[test]
-fn a_failed_open_is_said_once_and_pauses() {
-    let mut harness = Harness::new([quit()]);
+fn a_failed_open_is_said_once_pauses_and_starts_the_key_and_sender_anew() {
+    // An hour unheard ends in a reopen that keeps the key and the sender.
+    let mut harness = Harness::new(unheard_hour().chain([quit()]));
+    harness.opener.next.sender = Some("col02".to_owned());
+    assert_eq!(harness.open_and_read(), Some(Duration::ZERO));
     harness.opener.fails = Some("no keyboard".to_owned());
 
     assert_eq!(harness.open_and_read(), Some(KEY_REOPEN_PAUSE));
@@ -210,8 +213,16 @@ fn a_failed_open_is_said_once_and_pauses() {
     harness.opener.fails = None;
     assert_eq!(harness.open_and_read(), None);
 
-    assert_eq!(harness.said, ["no power-mode key for now: no keyboard"]);
-    assert_eq!(harness.pressed, [true]);
+    assert_eq!(
+        harness.opener.opens[1..],
+        ["all", "preferring None", "preferring None"]
+    );
+    assert_eq!(
+        harness.said.last().map(String::as_str),
+        Some("no power-mode key for now: no keyboard")
+    );
+    assert_eq!(harness.said.len(), 2, "{:?}", harness.said);
+    assert_eq!(harness.pressed.last(), Some(&true));
 }
 
 /// The runs of an hour of quiet spells with no key report heard.
