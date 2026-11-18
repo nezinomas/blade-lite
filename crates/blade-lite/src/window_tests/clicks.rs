@@ -203,6 +203,7 @@ fn a_panic_in_the_run_sends_the_quit_preset_and_ends_with_an_error() {
     assert_eq!(last, balanced);
     let modes: Vec<_> = auto_fans.iter().filter(|c| c.id == 0x0D02).collect();
     assert!(!modes.is_empty(), "{sent:?}");
+    assert!(auto_fans.iter().all(|c| c.id != 0x0D01), "{sent:?}");
     assert!(
         modes
             .iter()

@@ -273,6 +273,8 @@ impl<P: Parts> Shell<P> {
     /// A resend that works is quiet, so the error of the failed send stays
     /// shown (it may not be the preset's), unless a rate error was held
     /// behind that send: it is shown then, with the windows filled again.
+    /// One that ends a manual fan the window does not show fills the
+    /// windows again, so its warning goes, with the old error (ticket 250).
     /// A failed one is shown. If the guard's own full-speed send failed,
     /// its log line said nothing went: a resend that takes it says so
     /// (ticket 163).
@@ -285,7 +287,8 @@ impl<P: Parts> Shell<P> {
         let unshown = self.app.borrow().manual_fan_unshown();
         let sent = self.app.borrow_mut().resend_preset();
         self.say_full_speed_sent_again(unsent, BY_A_POLL);
-        // Its warning goes once a resend ends it (ticket 250).
+        // Its warning goes once a resend ends it (ticket 250). The fill
+        // drops the failed send's error too: a whole send went since.
         if unshown && matches!(sent, Ok(true)) && !self.app.borrow().manual_fan_unshown() {
             self.refresh(None);
         }
