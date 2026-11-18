@@ -461,6 +461,9 @@ pub struct Shell<P: Parts = Laptop> {
     /// The screen state (off or not) whose failed look was logged since
     /// the last look that worked (ticket 241).
     screen_error_logged: Cell<Option<bool>>,
+    /// The failed keyboard put-backs in a row since the screen came on,
+    /// and when the last was tried (ticket 253).
+    put_back_failed: Cell<(u8, Option<Instant>)>,
     /// When the last sleep notice came, by the wall clock, and whether its
     /// wake's pause has ended since: the next tick measures the sleep for
     /// the fan guard (ticket 172).
@@ -537,6 +540,7 @@ impl<P: Parts> Shell<P> {
             awake_run: Cell::new(None),
             missed_wake_held: Cell::new(false),
             screen_error_logged: Cell::new(None),
+            put_back_failed: Cell::new((0, None)),
             slept_at: Cell::new(None),
             woke: Cell::new(false),
             redo_at_wake: Cell::new(false),

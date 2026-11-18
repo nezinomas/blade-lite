@@ -1,6 +1,8 @@
 //! The keys go dark while Windows has the screen off, as the idle timeout
 //! turns it off with no sleep notice (ticket 241).
 
+use std::time::{Duration, Instant, SystemTime};
+
 use blade_core::Config;
 use platform::PowerEvent;
 use razer_proto::{BLADE_18, Brightness, Command};
@@ -119,18 +121,57 @@ fn the_quit_lights_dark_keys_again() {
     assert!(sent(&f).ends_with(&level(100)), "{:?}", sent(&f));
 }
 
+/// Runs a tick `secs` seconds after `start`.
+fn tick(f: &Fixture, start: Instant, secs: u64) {
+    f.shell
+        .tick_at(start + Duration::from_secs(secs), SystemTime::now());
+}
+
+/// Whether the keys were lit again since the last forget.
+fn lit_again(f: &Fixture) -> bool {
+    sent(f)
+        .windows(level(100).len())
+        .any(|run| run == level(100))
+}
+
 #[test]
-fn a_failed_put_back_is_tried_again_at_the_next_poll() {
+fn a_failed_put_back_is_tried_again_once_its_spacing_passed() {
     let f = lit_fixture();
+    let start = Instant::now();
     screen(&f, false);
     f.shell.app().machine_mut().controller.inner.fails = true;
     screen(&f, true);
     f.shell.app().machine_mut().controller.inner.fails = false;
     forget_sent(&f);
 
+    // Not at each poll (ticket 253).
     f.shell.follow_own_power();
+    assert!(!lit_again(&f));
 
-    assert_eq!(sent(&f), level(100));
+    tick(&f, start, 11);
+    assert!(lit_again(&f));
+}
+
+#[test]
+fn a_put_back_that_keeps_failing_is_given_up_until_the_screen_goes_off_again() {
+    let f = lit_fixture();
+    let start = Instant::now();
+    screen(&f, false);
+    f.shell.app().machine_mut().controller.inner.fails = true;
+    screen(&f, true);
+    tick(&f, start, 11);
+    tick(&f, start, 22);
+    f.shell.app().machine_mut().controller.inner.fails = false;
+    forget_sent(&f);
+
+    // Three tries failed: none more.
+    tick(&f, start, 33);
+    tick(&f, start, 60);
+    assert!(!lit_again(&f));
+
+    screen(&f, false);
+    screen(&f, true);
+    assert!(lit_again(&f));
 }
 
 #[test]
