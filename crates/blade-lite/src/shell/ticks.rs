@@ -491,9 +491,9 @@ impl<P: Parts> Shell<P> {
     /// the first AC, again: Windows can refuse a set just after a wake, and
     /// a refused one would leave the panel at the wrong rate. Only the last
     /// failed try is shown, so a quiet try does not clear the other errors
-    /// or read the controller. When the tries end, the window's rate buttons
-    /// show the panel's rate (one display view, so one native mode read);
-    /// the flyout is filled when it opens. A native mode the model lacks
+    /// or read the controller. When the tries end, the window's and the
+    /// flyout's display groups show the panel's rate (one display view, so
+    /// one native mode read). A native mode the model lacks
     /// shows none chosen; its error is logged, and shown at the next fill.
     fn retry_battery_rate(self: &Rc<Self>) {
         let tried = self.app.borrow_mut().retry_battery_rate();
@@ -519,7 +519,7 @@ impl<P: Parts> Shell<P> {
         self.show_rate();
     }
 
-    /// Fills the window's rate buttons with the panel's rate.
+    /// Fills the window's and the flyout's display groups again.
     fn show_rate(&self) {
         let mut app = self.app.borrow_mut();
         let mut errors = Vec::new();
@@ -543,8 +543,10 @@ impl<P: Parts> Shell<P> {
     /// display change notice, so each poll (only while a view can be seen)
     /// reads Windows' display list. Only Windows is read: the native mode is
     /// the one last read or set, and only the display groups are filled, so
-    /// errors shown stay. A failed read shows nothing new; the next fill
-    /// shows its error.
+    /// errors shown stay. A failed Windows read shows nothing new; the next
+    /// fill shows its error. A fill whose native mode read failed keeps its
+    /// old view but forgets the mode, so the next poll shows none chosen
+    /// ("Unknown"; a click on a mode still sends it).
     fn follow_displays(&self) {
         let Ok(view) = self.app.borrow().display_view_unread() else {
             return;

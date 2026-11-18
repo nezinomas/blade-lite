@@ -3825,6 +3825,7 @@ fn an_unchanged_display_list_reads_no_native_mode_at_the_polls() {
     let f = polled_window(start);
     let natives = native_reads(&f);
     let asked = asked_count(&f);
+    let rates_before = f.shell.window().get_rates();
 
     for second in 2..10 {
         f.shell
@@ -3833,4 +3834,6 @@ fn an_unchanged_display_list_reads_no_native_mode_at_the_polls() {
 
     assert!(temperature_reads_since(&f, asked) > 0, "the polls ran");
     assert_eq!(native_reads(&f), natives);
+    // Not shown again: the same rate model (it equals only itself).
+    assert!(f.shell.window().get_rates() == rates_before);
 }
