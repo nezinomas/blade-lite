@@ -1,9 +1,10 @@
 //! Where the app's errors go: stderr for a debug build, and the log file,
 //! since a release build has no console.
 
+use std::cell::Cell;
 use std::collections::HashMap;
 use std::io::{self, Write};
-use std::sync::{Mutex, OnceLock, PoisonError, TryLockError};
+use std::sync::{Mutex, OnceLock, PoisonError};
 use std::time::{Duration, Instant, SystemTime};
 
 use blade_core::Log;
@@ -43,19 +44,40 @@ impl Reporter {
         // One thread at a time, so a file is never moved aside mid-line.
         // A thread that panicked while holding it left nothing half done.
         let log = self.log.lock().unwrap_or_else(PoisonError::into_inner);
+        let _writing = Writing::start();
         write(log.as_ref(), text, self.stderr);
     }
 
-    /// Reports `text`, but to stderr only if another report is under way,
-    /// such as one that panicked: waiting for it could hang.
+    /// Reports `text`, but to stderr only if this thread's own report is
+    /// under way (it panicked in it): waiting for itself would hang. A
+    /// line another thread writes is waited for (ticket 266).
     fn report_if_free(&self, text: &str) {
-        match self.log.try_lock() {
-            Ok(log) => write(log.as_ref(), text, self.stderr),
-            Err(TryLockError::Poisoned(poisoned)) => {
-                write(poisoned.into_inner().as_ref(), text, self.stderr);
-            }
-            Err(TryLockError::WouldBlock) => write(None, text, self.stderr),
+        if WRITING.get() {
+            write(None, text, self.stderr);
+            return;
         }
+        self.report(text);
+    }
+}
+
+thread_local! {
+    /// Whether this thread holds the log for a report.
+    static WRITING: Cell<bool> = const { Cell::new(false) };
+}
+
+/// Marks this thread as writing a report until it is dropped, a panic too.
+struct Writing;
+
+impl Writing {
+    fn start() -> Self {
+        WRITING.set(true);
+        Self
+    }
+}
+
+impl Drop for Writing {
+    fn drop(&mut self) {
+        WRITING.set(false);
     }
 }
 
@@ -180,4 +202,55 @@ impl SaidLately {
 /// transaction ID, since they can change on each read.
 fn kind(error: &str) -> &str {
     error.find(['{', '(']).map_or(error, |at| &error[..at])
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::mpsc;
+    use std::time::Duration;
+
+    use blade_core::Log;
+
+    use super::{Reporter, Writing};
+
+    fn reporter_in(dir: &tempfile::TempDir) -> (Reporter, std::path::PathBuf) {
+        let path = dir.path().join("blade-lite.log");
+        (Reporter::quiet(Some(Log::new(path.clone()))), path)
+    }
+
+    /// Ticket 266: a panic while another thread writes a line waits for it,
+    /// so the panic text still reaches the log file.
+    #[test]
+    fn a_panic_text_waits_for_another_thread_s_line() {
+        let dir = tempfile::tempdir().unwrap();
+        let (reporter, path) = reporter_in(&dir);
+        let (held, wait) = mpsc::channel();
+        std::thread::scope(|scope| {
+            scope.spawn(|| {
+                let _log = reporter.log.lock().unwrap();
+                held.send(()).unwrap();
+                std::thread::sleep(Duration::from_millis(100));
+            });
+            wait.recv().unwrap();
+            reporter.report_if_free("panic: boom");
+        });
+        assert!(
+            std::fs::read_to_string(path)
+                .unwrap()
+                .contains("panic: boom")
+        );
+    }
+
+    /// A panic in this thread's own report must not wait for itself.
+    #[test]
+    fn a_panic_inside_this_thread_s_report_does_not_wait() {
+        let dir = tempfile::tempdir().unwrap();
+        let (reporter, path) = reporter_in(&dir);
+        let _log = reporter.log.lock().unwrap();
+        let _writing = Writing::start();
+
+        reporter.report_if_free("panic: boom");
+
+        assert!(!path.exists());
+    }
 }
