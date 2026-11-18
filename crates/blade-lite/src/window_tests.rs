@@ -13,6 +13,7 @@ mod settings;
 mod sleep;
 mod soak;
 mod usb_suspend;
+mod wear;
 
 use std::cell::RefCell;
 use std::io;
