@@ -22,16 +22,21 @@ fn key_down() -> Vec<u8> {
 }
 
 /// Key reports as opened: each read gives the key down; they name a
-/// sender, a read path and drops as set.
+/// sender, a read path and drops as set. A path to `read_on` is the read
+/// path once a report is read, as when one of many collections sends.
 #[derive(Default)]
 struct FakeReports {
     sender: Option<String>,
     path: Option<String>,
+    read_on: Option<String>,
     dropped: Vec<DroppedReport>,
 }
 
 impl KeyReportSource for FakeReports {
     fn read(&mut self, _wait: Duration) -> io::Result<Option<Vec<u8>>> {
+        if let Some(path) = self.read_on.take() {
+            self.path = Some(path);
+        }
         Ok(Some(key_down()))
     }
 
@@ -72,6 +77,7 @@ impl FakeOpener {
         Ok(FakeReports {
             sender: self.next.sender.clone(),
             path: self.next.path.clone(),
+            read_on: self.next.read_on.clone(),
             dropped: self.next.dropped.clone(),
         })
     }
@@ -315,4 +321,49 @@ fn a_drop_is_said_once_over_reopens() {
         .filter(|line| line.contains("not a key report"))
         .count();
     assert_eq!(drops, 1, "{:?}", harness.said);
+}
+
+#[test]
+fn the_last_sender_is_kept_when_the_read_all_spell_hears_none() {
+    let mut harness = Harness::new(unheard_hour().chain([quiet(false), quit()]));
+    harness.opener.next.sender = Some("col03".to_owned());
+
+    assert_eq!(harness.open_and_read(), Some(Duration::ZERO));
+    harness.opener.next.sender = None;
+    assert_eq!(harness.open_and_read(), Some(Duration::ZERO));
+    assert_eq!(harness.open_and_read(), None);
+
+    assert_eq!(
+        harness.opener.opens,
+        ["preferring None", "all", "preferring Some(\"col03\")"]
+    );
+}
+
+#[test]
+fn the_read_path_is_said_when_a_collection_sends_on_the_same_open() {
+    let mut harness = Harness::new([quiet(true), quit()]);
+    harness.opener.next.read_on = Some("col04".to_owned());
+
+    assert_eq!(harness.open_and_read(), None);
+
+    assert_eq!(harness.opener.opens.len(), 1);
+    assert_eq!(harness.said, ["the power-mode key is read on col04"]);
+}
+
+#[test]
+fn a_failure_is_said_again_after_a_run_that_ended_without_one() {
+    let mut harness = Harness::new([failed("gone"), short(), failed("gone"), quit()]);
+
+    for _ in 0..3 {
+        assert_eq!(harness.open_and_read(), Some(KEY_REOPEN_PAUSE));
+    }
+    assert_eq!(harness.open_and_read(), None);
+
+    assert_eq!(
+        harness.said,
+        [
+            "the key reports stopped: gone",
+            "the key reports stopped: gone"
+        ]
+    );
 }
