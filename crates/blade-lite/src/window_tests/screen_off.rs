@@ -288,8 +288,10 @@ fn a_failing_put_back_after_a_charger_change_keeps_its_spacing_and_cap() {
     assert_eq!(runs(), plugged + 1, "no try before the spacing");
 
     tick(&f, start, 11);
+    assert_eq!(runs(), plugged + 2, "the second try");
     tick(&f, start, 22);
     let capped = runs();
+    assert_eq!(capped, plugged + 3, "the third try");
     tick(&f, start, 33);
     tick(&f, start, 60);
     f.shell.follow_own_power();

@@ -25,9 +25,10 @@ const GONE_KEY: &str = "controller closed or held";
 const FAN_TARGETS_AGAIN: Duration = Duration::from_secs(2);
 
 /// How many times a keyboard put-back after a screen on is tried before it
-/// is given up until the screen goes off again, a wake or the quit, and the
-/// least time between two tries (ticket 253): as the lighting after a
-/// charger change (`SOURCE_LIGHTING_TRIES`, `SOURCE_LIGHTING_SPACING`).
+/// is given up until the screen goes off again, a wake, a charger change or
+/// the quit, and the least time between two tries (ticket 253): as the
+/// lighting after a charger change (`SOURCE_LIGHTING_TRIES`,
+/// `SOURCE_LIGHTING_SPACING`).
 const PUT_BACK_TRIES: u8 = blade_lite::SOURCE_LIGHTING_TRIES;
 const PUT_BACK_SPACING: Duration = blade_lite::SOURCE_LIGHTING_SPACING;
 
@@ -729,8 +730,9 @@ impl<P: Parts> Shell<P> {
     /// [`PUT_BACK_SPACING`] later, [`PUT_BACK_TRIES`] times in all, then
     /// given up until the screen goes off again, a pause (wake, open again,
     /// updater end), or a send of the saved lighting or a charger change
-    /// that sets the keys to follow no screen state (each try may have
-    /// reached the controller, tickets 253, 285); the quit still tries. A refusal by a
+    /// that sets the keys to follow no screen state, still spaced (each
+    /// try may have reached the controller, tickets 253, 285); the quit
+    /// still tries. A refusal by a
     /// closed or held controller is no try.
     /// The keys are not made dark while Razer's own software runs (it may
     /// talk to the controller at the same time); keys already dark are
@@ -757,10 +759,12 @@ impl<P: Parts> Shell<P> {
         app.refuse_slot_guess(razer_runs);
         // Keys newly set to follow no screen state (a send of the saved
         // lighting or a charger change) get their tries again; a failed
-        // put-back that leaves them so does not (ticket 285).
+        // put-back that leaves them so does not (ticket 285). The spacing
+        // stays, so a bouncing plug can't send at each change.
         let resets = app.keys_follow_resets();
         if self.keys_follow_resets.replace(resets) != resets {
-            self.put_back_tries.set((0, None));
+            let (_, tried) = self.put_back_tries.get();
+            self.put_back_tries.set((0, tried));
         }
         // Held for an updater: its end looks again.
         if app.screen_followed(screen_off) || app.controller_held() {
@@ -779,7 +783,7 @@ impl<P: Parts> Shell<P> {
             self.put_back_tries.set((failures + 1, Some(now)));
             if failures + 1 == PUT_BACK_TRIES {
                 report(&format!(
-                    "the keyboard put-back failed {PUT_BACK_TRIES} times, so it waits for the screen to go off and on again, a wake or the quit"
+                    "the keyboard put-back failed {PUT_BACK_TRIES} times, so it waits for the screen to go off and on again, a wake, a charger change or the quit"
                 ));
             }
         }
