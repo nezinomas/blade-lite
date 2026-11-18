@@ -181,3 +181,61 @@ fn the_custom_mode_byte_comes_from_the_model() {
 
     assert_eq!(sent, [0x09; 4]);
 }
+
+#[test]
+fn boost_and_fan_target_writes_read_back_their_own_value_and_mode_writes_do_not() {
+    let custom = Custom {
+        cpu: CpuBoost::new(1, &BLADE_18).unwrap(),
+        gpu: GpuBoost::new(2, &BLADE_18).unwrap(),
+        fan: FanMode::Manual(Rpm::new(3000, &BLADE_18).unwrap()),
+    };
+    let commands = custom.commands(&BLADE_18);
+    let zones = BLADE_18.perf_zones.len();
+
+    let read_backs: Vec<_> = commands.iter().filter_map(Custom::read_back).collect();
+
+    // As `cargo hw` read them (ticket 254): `0D87 [1, cluster, 0]` replies
+    // `[1, cluster, level]`, `0D81 [1, fan, 0]` replies `[1, fan, rpm / 100]`.
+    assert_eq!(
+        read_backs,
+        [
+            (
+                "CPU boost".to_owned(),
+                Command {
+                    id: 0x0D87,
+                    args: vec![1, 1, 0]
+                },
+                vec![1, 1, 1]
+            ),
+            (
+                "GPU boost".to_owned(),
+                Command {
+                    id: 0x0D87,
+                    args: vec![1, 2, 0]
+                },
+                vec![1, 2, 2]
+            ),
+            (
+                "fan 1 target".to_owned(),
+                Command {
+                    id: 0x0D81,
+                    args: vec![1, 1, 0]
+                },
+                vec![1, 1, 30]
+            ),
+            (
+                "fan 2 target".to_owned(),
+                Command {
+                    id: 0x0D81,
+                    args: vec![1, 2, 0]
+                },
+                vec![1, 2, 30]
+            ),
+        ]
+    );
+    assert!(
+        commands[..zones]
+            .iter()
+            .all(|c| Custom::read_back(c).is_none())
+    );
+}

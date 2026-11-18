@@ -160,9 +160,10 @@ pub fn apply_fan_targets(
 }
 
 /// Reads back the mode and fan byte of each zone that `config`'s preset
-/// run sets (ticket 152), and names the zones that differ from what was
-/// sent, such as "zone 1 reads 01 01 00 00, sent 01 01 05 00". Reads only:
-/// a difference is never sent again. A value the model refuses gives no
+/// run sets (ticket 152), and in Custom its boosts and fan targets too
+/// (ticket 254), and names those that differ from what was sent, such as
+/// "zone 1 reads 01 01 00 00, sent 01 01 05 00". Reads only: a difference
+/// is never sent again. A value the model refuses gives no
 /// commands, so nothing to read.
 ///
 /// # Errors
@@ -177,19 +178,22 @@ pub fn preset_differs(
     let Ok(commands) = preset_commands(*config, model) else {
         return Ok(None);
     };
+    let read_backs = commands.iter().filter_map(|write| {
+        PerfMode::read_back(write)
+            .map(|(query, sent)| {
+                let zone = sent.get(1).copied().unwrap_or_default();
+                (format!("zone {zone}"), query, sent)
+            })
+            .or_else(|| Custom::read_back(write))
+    });
     let mut differs = Vec::new();
-    for (query, sent) in commands.iter().filter_map(PerfMode::read_back) {
+    for (name, query, sent) in read_backs {
         let read = controller.query(&query)?;
         if read.len() < sent.len() {
             return Err(DeviceError::ShortReply);
         }
         if read.get(..sent.len()) != Some(sent.as_slice()) {
-            differs.push(format!(
-                "zone {} reads {}, sent {}",
-                sent.get(1).copied().unwrap_or_default(),
-                hex(&read),
-                hex(&sent)
-            ));
+            differs.push(format!("{name} reads {}, sent {}", hex(&read), hex(&sent)));
         }
     }
     Ok((!differs.is_empty()).then(|| differs.join("; ")))
