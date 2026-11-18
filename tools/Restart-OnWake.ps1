@@ -14,6 +14,9 @@
 # taken as new. The times it saw the line and asked for the restart go to
 # %TEMP%\Restart-OnWake.txt, as its window is gone after the restart.
 # Blade Lite must run (started with tools\Start-CheckApp.ps1, ticket 166).
+# Windows refuses a normal restart while the screen is locked (shutdown.exe
+# exit 1271, check 30 try 2), so set "If you've been away, when should
+# Windows require you to sign in again?" to Never for the try, and back after.
 
 param(
     [switch]$Armed,
