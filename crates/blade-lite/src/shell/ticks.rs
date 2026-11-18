@@ -728,9 +728,9 @@ impl<P: Parts> Shell<P> {
     /// poll and click. A failed put-back is tried again at a look
     /// [`PUT_BACK_SPACING`] later, [`PUT_BACK_TRIES`] times in all, then
     /// given up until the screen goes off again, a pause (wake, open again,
-    /// updater end), or a start or charger change that leaves the keys
-    /// following no screen state (each try may have reached the
-    /// controller, ticket 253); the quit still tries. A refusal by a
+    /// updater end), or a send of the saved lighting or a charger change
+    /// that sets the keys to follow no screen state (each try may have
+    /// reached the controller, tickets 253, 285); the quit still tries. A refusal by a
     /// closed or held controller is no try.
     /// The keys are not made dark while Razer's own software runs (it may
     /// talk to the controller at the same time); keys already dark are
@@ -755,9 +755,11 @@ impl<P: Parts> Shell<P> {
         };
         // Its own lighting may read 0: no guess at the app's dark then.
         app.refuse_slot_guess(razer_runs);
-        // Keys that follow no screen state yet (after a start, a wake or a
-        // charger change) get their tries again.
-        if !app.screen_followed(true) && !app.screen_followed(false) {
+        // Keys newly set to follow no screen state (a send of the saved
+        // lighting or a charger change) get their tries again; a failed
+        // put-back that leaves them so does not (ticket 285).
+        let resets = app.keys_follow_resets();
+        if self.keys_follow_resets.replace(resets) != resets {
             self.put_back_tries.set((0, None));
         }
         // Held for an updater: its end looks again.

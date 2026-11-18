@@ -106,6 +106,21 @@ where
         self.keys_follow == Some(screen_off)
     }
 
+    /// How many times the keys were set to follow no screen state (after
+    /// a send of the saved lighting or a charger change), wrapping: the
+    /// shell gives a failed put-back its tries again only when it changes
+    /// (ticket 285).
+    #[must_use]
+    pub fn keys_follow_resets(&self) -> u32 {
+        self.keys_follow_resets
+    }
+
+    /// The screen needs a new look: the keys follow no state now.
+    pub(super) fn follow_no_screen(&mut self) {
+        self.keys_follow = None;
+        self.keys_follow_resets = self.keys_follow_resets.wrapping_add(1);
+    }
+
     fn darken_keys(&mut self) -> Result<(), AppError> {
         if self.dark_keys.is_some() {
             return Ok(());
@@ -382,7 +397,7 @@ where
         if self.config.lighting.is_some() {
             return;
         }
-        self.keys_follow = None;
+        self.follow_no_screen();
         // Made dark while the source was unknown, the keys may be in either
         // slot: their level stays for the slot in use (lit keys are the
         // safe side; ticket 247). With a level kept for the new slot, that

@@ -465,6 +465,8 @@ pub struct Shell<P: Parts = Laptop> {
     /// The failed keyboard put-backs in a row since the screen came on,
     /// and when the last was tried (ticket 253).
     put_back_tries: Cell<(u8, Option<Instant>)>,
+    /// The app's [`App::keys_follow_resets`] at the last look (ticket 285).
+    keys_follow_resets: Cell<u32>,
     /// When the last sleep notice came, by the wall clock, and whether its
     /// wake's pause has ended since: the next tick measures the sleep for
     /// the fan guard (ticket 172).
@@ -542,6 +544,7 @@ impl<P: Parts> Shell<P> {
             missed_wake_held: Cell::new(false),
             screen_error_logged: Cell::new(None),
             put_back_tries: Cell::new((0, None)),
+            keys_follow_resets: Cell::new(0),
             slept_at: Cell::new(None),
             woke: Cell::new(false),
             redo_at_wake: Cell::new(false),
