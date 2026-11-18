@@ -325,6 +325,8 @@ impl<P: Parts> Shell<P> {
         }
         let unsent = self.app.borrow().boost_unsent();
         let changed = self.app.borrow_mut().follow_charger();
+        let missed = self.app.borrow_mut().take_missed_reads();
+        self.say_read_errors(&missed);
         self.say_full_speed_sent_again(unsent, WITH_THE_PRESET);
         let acted = !matches!(changed, Ok(false));
         if acted {

@@ -591,3 +591,17 @@ fn read_failures_while_the_controller_is_gone_are_said_once() {
     }
     assert_eq!(log_lines() - before, 1);
 }
+
+#[test]
+fn a_failed_look_is_said_once_per_quiet_time() {
+    let f = fixture(Config::default());
+    f.shell.programs().fail();
+
+    look(&f);
+
+    let error = std::io::Error::from(std::io::ErrorKind::PermissionDenied);
+    assert!(
+        f.shell
+            .said_lately(&format!("look for Razer software: {error}"))
+    );
+}

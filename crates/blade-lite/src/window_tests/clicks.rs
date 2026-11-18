@@ -3105,6 +3105,17 @@ fn a_weak_charge_seen_on_a_tick_runs_balanced_and_says_so() {
 }
 
 #[test]
+fn a_failed_charger_read_on_a_tick_is_logged() {
+    let f = fixture(Config::default());
+    f.shell.app().machine_mut().controller.inner.charger = FakeCharger::Fails;
+
+    f.shell.tick();
+
+    let error = razer_device::DeviceError::Busy;
+    assert!(f.shell.said_lately(&format!("charger: {error}")));
+}
+
+#[test]
 fn the_start_sets_the_mode_watch_from_what_it_left() {
     let f = fixture(Config {
         preset: Preset::Performance,

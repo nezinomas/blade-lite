@@ -25,8 +25,8 @@ where
     /// preset not offered on battery is refused on a weak charge; if the
     /// charger read for it found the weak charge, the battery preset that
     /// now runs is sent first. A click refused before any send (a saved
-    /// value out of range) whose read found the full charger sends the
-    /// saved preset that now runs.
+    /// value out of range) whose read changed what runs sends the preset
+    /// that now runs. A Custom slider reads the charger first too.
     pub fn on_performance(&mut self, command: PerformanceCommand) -> Result<(), AppError> {
         let mut config = self.config;
         // What ran before a charger read, if the click made one.
@@ -34,11 +34,8 @@ where
         match command {
             PerformanceCommand::SetPreset(preset) => {
                 if !preset.offered_on_battery(self.model) {
-                    // A charger swap gives no power event, and the last
-                    // poll may be 10 s old.
-                    let before = self.running_preset();
+                    let before = self.read_charger_before_send();
                     read_from = Some(before);
-                    self.read_charger_at_click();
                     if self.battery_presets() {
                         self.send_if_read_changed(before);
                         return Err(AppError::NotOnBattery(preset));
@@ -46,9 +43,19 @@ where
                 }
                 config.preset = preset;
             }
-            PerformanceCommand::SetCpuBoost(level) => config.custom.cpu_boost = level,
-            PerformanceCommand::SetGpuBoost(level) => config.custom.gpu_boost = level,
-            PerformanceCommand::SetFanRpm(rpm) => config.custom.fan_rpm = rpm,
+            // A slider may send Custom (ticket 257).
+            PerformanceCommand::SetCpuBoost(level) => {
+                read_from = Some(self.read_charger_before_send());
+                config.custom.cpu_boost = level;
+            }
+            PerformanceCommand::SetGpuBoost(level) => {
+                read_from = Some(self.read_charger_before_send());
+                config.custom.gpu_boost = level;
+            }
+            PerformanceCommand::SetFanRpm(rpm) => {
+                read_from = Some(self.read_charger_before_send());
+                config.custom.fan_rpm = rpm;
+            }
             // The controller keeps the limit, so nothing is saved.
             PerformanceCommand::SetChargeLimit(on) => return self.set_charge_limit(on),
         }
@@ -72,7 +79,7 @@ where
     /// app show Performance while Balanced runs). A failed
     /// send is logged, and marks the preset unsure, so the polls send it
     /// again; the caller's own error is the one shown.
-    fn send_if_read_changed(&mut self, before: Preset) {
+    pub(super) fn send_if_read_changed(&mut self, before: Preset) {
         if self.running_preset() == before {
             return;
         }

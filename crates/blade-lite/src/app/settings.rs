@@ -58,14 +58,21 @@ where
     }
 
     /// Checks `config` and the one that runs in its place, sends it all as
-    /// a start does, then keeps and saves it. Nothing is sent if the model
-    /// does not take a value. A failed send keeps the old config, and the
+    /// a start does, then keeps and saves it. The charger is read first, as
+    /// at a preset click. Nothing of `config` is sent if the model does not
+    /// take a value; a read that changed what runs still sends that preset. A failed send keeps the old config, and the
     /// next poll or power event sends the preset again. The 60 Hz switch acts at
     /// once, as a click on it does, and stays off if 60 Hz can't be set.
     fn replace_config(&mut self, config: Config) -> Result<(), AppError> {
+        // It may send Performance or Custom (ticket 257).
+        let before = self.read_charger_before_send();
         let running = self.running(config);
-        check(&config, self.model)?;
-        check(&running, self.model)?;
+        if let Err(error) = check(&config, self.model).and_then(|()| check(&running, self.model)) {
+            // Refused before any send: the read may still have changed
+            // what runs, as at a refused click.
+            self.send_if_read_changed(before);
+            return Err(error.into());
+        }
         let red = self.key_should_be_red();
         let applied = apply(&running, self.model, &mut self.machine.controller, red);
         self.key_red = applied.is_ok().then_some(red);
