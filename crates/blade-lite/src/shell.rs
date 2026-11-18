@@ -877,6 +877,7 @@ impl<P: Parts> Shell<P> {
         let mut errors: Vec<String> = error.iter().map(ToString::to_string).collect();
         let header = self.header(&mut app, self.readings.get());
         self.say_read_errors(app.read_errors());
+        self.say_read_errors(&app.take_missed_reads());
         let performance = app.performance_view();
         bind::header(&self.window, &header);
         bind::performance(&self.window, &performance);

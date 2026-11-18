@@ -591,3 +591,28 @@ fn read_failures_while_the_controller_is_gone_are_said_once() {
     }
     assert_eq!(log_lines() - before, 1);
 }
+
+#[test]
+fn a_failed_look_is_said_once_per_quiet_time() {
+    let f = fixture(Config::default());
+    f.shell.programs().fail();
+
+    look(&f);
+
+    let error = std::io::Error::from(std::io::ErrorKind::PermissionDenied);
+    assert!(f.shell.said_lately(&format!(
+        "running programs, to look for Razer software: {error}"
+    )));
+}
+
+#[test]
+fn a_failed_charge_limit_read_at_start_is_logged_at_the_fill() {
+    let f = fixture(Config::default());
+    f.shell.app().machine_mut().controller.inner.charge = None;
+
+    f.shell.start().unwrap();
+    f.shell.refresh(None);
+
+    let error = razer_device::DeviceError::Busy;
+    assert!(f.shell.said_lately(&format!("charge limit: {error}")));
+}

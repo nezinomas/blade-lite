@@ -7,6 +7,8 @@ use razer_proto::{BLADE_18, PerfMode};
 use tempfile::TempDir;
 use ui::PerformanceCommand;
 
+use blade_lite::AppError;
+
 use crate::fakes::{FakeCharger, TestApp};
 use crate::{performance_app, sent};
 
@@ -329,4 +331,126 @@ fn a_full_read_at_a_power_key_press_does_not_end_a_weak_charge() {
 
     assert_eq!(app.running_preset(), Preset::Balanced);
     assert!(!ran(&app, PerfMode::Performance));
+}
+
+/// An app started on the Razer charger, then swapped to USB-C with no poll
+/// since (ticket 257).
+fn swapped_to_usb_c(config: Config) -> (TestApp, TempDir) {
+    let (mut app, dir, _) = crate::app_with(config);
+    app.start().unwrap();
+    app.machine_mut().controller.inner.sent.clear();
+    app.machine_mut().controller.inner.charger = FakeCharger::UsbC;
+    (app, dir)
+}
+
+#[test]
+fn import_reads_the_charger_first() {
+    let (mut app, dir) = swapped_to_usb_c(Config::default());
+    let picked = dir.path().join("performance.toml");
+    Config {
+        preset: Preset::Performance,
+        ..Config::default()
+    }
+    .save(&picked)
+    .unwrap();
+
+    app.import_settings(&picked).unwrap();
+
+    assert!(ran(&app, PerfMode::Balanced));
+    assert!(!ran(&app, PerfMode::Performance));
+    assert_eq!(app.config().preset, Preset::Performance);
+}
+
+#[test]
+fn a_refused_import_whose_charger_read_finds_a_weak_charger_sends_balanced() {
+    let (mut app, dir) = swapped_to_usb_c(Config {
+        preset: Preset::Performance,
+        ..Config::default()
+    });
+    let picked = dir.path().join("too-fast.toml");
+    std::fs::write(
+        &picked,
+        "preset = \"custom\"\n[custom]\ncpu_boost = 99\ngpu_boost = 1\n",
+    )
+    .unwrap();
+
+    assert!(app.import_settings(&picked).is_err());
+
+    assert_eq!(sent(&app), PerfMode::Balanced.commands(&BLADE_18).unwrap());
+    assert_eq!(app.running_preset(), Preset::Balanced);
+}
+
+#[test]
+fn a_custom_slider_whose_charger_read_finds_a_weak_charger_sends_balanced_and_is_refused() {
+    let (mut app, _dir) = swapped_to_usb_c(Config {
+        preset: Preset::Custom,
+        ..Config::default()
+    });
+
+    let result = app.on_performance(PerformanceCommand::SetCpuBoost(1));
+
+    assert!(
+        matches!(result, Err(AppError::NotOnBattery(Preset::Custom))),
+        "{result:?}"
+    );
+    assert_eq!(sent(&app), PerfMode::Balanced.commands(&BLADE_18).unwrap());
+    assert_eq!(app.config().custom, Config::default().custom);
+}
+
+#[test]
+fn import_whose_charger_read_fails_sends_balanced_and_saves_the_file() {
+    let (mut app, dir) = swapped_to_usb_c(Config::default());
+    app.machine_mut().controller.inner.charger = FakeCharger::Fails;
+    let picked = dir.path().join("performance.toml");
+    Config {
+        preset: Preset::Performance,
+        ..Config::default()
+    }
+    .save(&picked)
+    .unwrap();
+
+    app.import_settings(&picked).unwrap();
+
+    assert!(ran(&app, PerfMode::Balanced));
+    assert!(!ran(&app, PerfMode::Performance));
+    assert_eq!(app.config().preset, Preset::Performance);
+}
+
+#[test]
+fn no_charger_read_while_a_razer_updater_holds_the_controller() {
+    let (mut app, dir) = swapped_to_usb_c(Config::default());
+    app.hold_controller(true);
+    let picked = dir.path().join("performance.toml");
+    Config {
+        preset: Preset::Performance,
+        ..Config::default()
+    }
+    .save(&picked)
+    .unwrap();
+
+    assert!(app.import_settings(&picked).is_err());
+    app.on_power_key().ok();
+
+    let missed = app.take_missed_reads();
+    assert!(
+        !missed.iter().any(|line| line.starts_with("charger")),
+        "{missed:?}"
+    );
+}
+
+#[test]
+fn a_failed_charger_read_on_a_poll_is_kept_for_the_log() {
+    let (mut app, _dir) = weak_performance_app();
+    app.start().unwrap();
+    // This fake has no charge limit or logo reply: those reads failed.
+    app.take_missed_reads();
+    app.machine_mut().controller.inner.charger = FakeCharger::Fails;
+
+    app.follow_charger().unwrap();
+    app.follow_charger().unwrap();
+
+    let missed = app.take_missed_reads();
+    assert_eq!(missed.len(), 1, "{missed:?}");
+    assert!(missed[0].starts_with("charger: "), "{missed:?}");
+    assert_eq!(app.take_missed_reads(), Vec::<String>::new());
 }

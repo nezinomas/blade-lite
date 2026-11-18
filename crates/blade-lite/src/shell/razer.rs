@@ -19,15 +19,19 @@ const RAZER_LOOK_GAP: Duration = Duration::from_secs(60);
 
 impl<P: Parts> Shell<P> {
     /// Looks for Razer software. The next refresh shows the warning while
-    /// it runs, and drops it once it is gone. A failed look is logged and
-    /// keeps the warning as it was. Called at start and after each resume,
-    /// before the refresh. True only the first time something is found in
+    /// it runs, and drops it once it is gone. A failed look is logged once
+    /// per quiet time and keeps the warning as it was. Called at start and
+    /// after each resume, before the refresh. True only the first time something is found in
     /// this run, so the caller opens the window once.
     pub fn look_for_razer(&self) -> bool {
         let found = match razer_software(&self.programs) {
             Ok(found) => found,
             Err(error) => {
-                report(&format!("can't look for Razer software: {error}"));
+                // Once per quiet time, as a failed read: it is looked for
+                // each minute and at each click (ticket 259).
+                self.say_read_errors(&[format!(
+                    "running programs, to look for Razer software: {error}"
+                )]);
                 return false;
             }
         };

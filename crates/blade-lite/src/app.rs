@@ -213,6 +213,10 @@ pub struct App<C, D, R, K> {
     mic_muted: Option<bool>,
     /// The controller reads that failed when the header was last made.
     read_errors: Vec<String>,
+    /// Reads that failed outside a view, each once, until the shell takes
+    /// them to log (ticket 259): the charger on a poll, the charge limit
+    /// and the lid logo.
+    missed_reads: Vec<String>,
     /// The CPU temperature read when the header was last made, in °C.
     cpu_celsius: Option<u32>,
     /// The native mode last read or set, for a display view made without
@@ -286,6 +290,7 @@ where
             num_lock_on: false,
             mic_muted: None,
             read_errors: Vec::new(),
+            missed_reads: Vec::new(),
             cpu_celsius: None,
             native_mode: None,
             preset_check: PresetCheck::Unknown,
@@ -636,10 +641,38 @@ where
         self.num_lock_on && key.is_some_and(|key| key.plain_with_num_lock)
     }
 
+    /// Reads whether the charge limit is on. `None` if the read fails; the
+    /// failure is kept for the log.
     fn read_charge_limit(&mut self) {
-        self.charge_limit_on = charge_limit_on(&mut self.machine.controller, self.model)
-            .ok()
-            .flatten();
+        let read = charge_limit_on(&mut self.machine.controller, self.model);
+        self.charge_limit_on = self.unless_missed("charge limit", read);
+    }
+
+    /// The value of a read, or `None` if it failed: the failure is kept
+    /// for the shell to log, once per quiet time, as a view's failed reads
+    /// are (ticket 259).
+    pub(super) fn unless_missed<T>(
+        &mut self,
+        what: &str,
+        read: Result<Option<T>, impl std::fmt::Display>,
+    ) -> Option<T> {
+        read.unwrap_or_else(|error| {
+            self.note_missed_read(format!("{what}: {error}"));
+            None
+        })
+    }
+
+    /// Keeps a failed read's `line` for the log, once until it is taken.
+    fn note_missed_read(&mut self, line: String) {
+        if !self.missed_reads.contains(&line) {
+            self.missed_reads.push(line);
+        }
+    }
+
+    /// The reads that failed outside a view since the last take, for the
+    /// shell to log (ticket 259).
+    pub fn take_missed_reads(&mut self) -> Vec<String> {
+        std::mem::take(&mut self.missed_reads)
     }
 
     /// Reads the controller's firmware version and logs it. A version the
@@ -710,11 +743,11 @@ where
         self.firmware_warning.as_deref()
     }
 
-    /// Reads the lid logo state. `None` if the read fails.
+    /// Reads the lid logo state. `None` if the read fails; the failure is
+    /// kept for the log.
     fn read_logo(&mut self) {
-        self.logo_on = logo_on(&mut self.machine.controller, self.model)
-            .ok()
-            .flatten();
+        let read = logo_on(&mut self.machine.controller, self.model);
+        self.logo_on = self.unless_missed("lid logo", read);
     }
 
     /// Whether only the battery presets run: on battery or a weak charge.
@@ -739,15 +772,32 @@ where
     /// press (ticket 136): a weak or failed read counts at once, but a full
     /// read changes nothing, so only the polls, 1 s or more apart, take the
     /// full charger back (two full reads in a row). Two quick presses can't
-    /// count as those two reads.
+    /// count as those two reads. Not while a Razer updater holds the
+    /// controller: the read would fail and count as a weak charge, and
+    /// nothing is sent then; the start after the updater reads it.
     pub(super) fn read_charger_at_click(&mut self) {
-        self.read_charger_with(|power| power);
+        if !self.controller_held() {
+            self.read_charger_with(|power| power);
+        }
+    }
+
+    /// Reads the charger as at a click before a send of `preset`, if it
+    /// is not offered on battery (tickets 136, 257): a charger swap gives
+    /// no power event, and the last poll may be 10 s old. Returns the
+    /// preset that ran before the read, if it read.
+    pub(super) fn read_charger_before(&mut self, preset: Preset) -> Option<Preset> {
+        if preset.offered_on_battery(self.model) || self.controller_held() {
+            return None;
+        }
+        let before = self.running_preset();
+        self.read_charger_at_click();
+        Some(before)
     }
 
     /// Reads the charger; `full` gives the power after a full read. On
     /// battery nothing is read. A failed read or a reply not understood
     /// counts as a weak charge (fail safe) until the next read, with a log
-    /// line.
+    /// line; a failed read's line is said once per quiet time (ticket 259).
     fn read_charger_with(&mut self, full: fn(Power) -> Power) {
         if self.on_battery() {
             return;
@@ -760,9 +810,7 @@ where
                 WEAK
             }
             Err(error) => {
-                report(&format!(
-                    "charger read failed: the battery presets run: {error}"
-                ));
+                self.note_missed_read(format!("charger, so the battery presets run: {error}"));
                 WEAK
             }
         };
