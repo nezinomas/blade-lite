@@ -9,8 +9,9 @@
 # it restarts at the first wake of any kind (a sleep too), so save your work
 # first, and stop it with Ctrl + C if the try is called off. It acts once,
 # then ends; it ends with nothing done when Blade Lite quits, or after
-# -WaitMinutes of wall time (time asleep counts; the log is read once more
-# at the end). The times it saw the line and started the restart go to
+# -WaitMinutes of wall time (time asleep counts). A log roll skips what the
+# old file got after the last read: a try may be missed, never an old line
+# taken as new. The times it saw the line and asked for the restart go to
 # %TEMP%\Restart-OnWake.txt, as its window is gone after the restart.
 # Blade Lite must run (started with tools\Start-CheckApp.ps1, ticket 166).
 
@@ -63,23 +64,24 @@ function Read-NewLines([string]$path, [long]$from) {
 
 # Reads what is new since $script:offset; true if it holds the wake line.
 function Test-NewWakeLine {
-    $length = (Get-Item -LiteralPath $LogPath).Length
-    $text = ''
-    if ($length -lt $script:offset) {
-        # Rolled: the rest of the old file is in .1, then the new file.
-        $old = "$LogPath.1"
-        if (Test-Path -LiteralPath $old -PathType Leaf) {
-            $text += (Read-NewLines $old $script:offset)[0]
+    try {
+        $length = (Get-Item -LiteralPath $LogPath).Length
+        if ($length -lt $script:offset) {
+            # Rolled or emptied: the new file from its start. The old one is
+            # not read, as `.1` may be an older file (an emptied log).
+            Write-Host "The log was rolled at $((Get-Date).ToUniversalTime().ToString('HH:mm:ss.fff'))Z."
+            $script:offset = 0
         }
-        Write-Host "The log was rolled at $((Get-Date).ToUniversalTime().ToString('HH:mm:ss.fff'))Z."
-        $script:offset = 0
-    }
-    if ($length -gt $script:offset) {
+        if ($length -le $script:offset) {
+            return $false
+        }
         $read = Read-NewLines $LogPath $script:offset
-        $text += $read[0]
-        $script:offset += $read[1]
+    } catch [System.IO.IOException], [System.Management.Automation.ItemNotFoundException] {
+        # Mid-roll the log is gone for a moment: the next poll reads it.
+        return $false
     }
-    $text -match $wakeLine
+    $script:offset += $read[1]
+    $read[0] -match $wakeLine
 }
 
 # Lines already in the log are old: only new ones count.
@@ -101,10 +103,6 @@ while (-not $found -and (Get-Date) -lt $until) {
         Start-Sleep -Milliseconds 20
     }
 }
-# A wake after the time ran out in a sleep still counts.
-if (-not $found) {
-    $found = Test-NewWakeLine
-}
 if (-not $found) {
     "No wake line in $WaitMinutes min. Nothing was done."
     exit 0
@@ -114,7 +112,7 @@ if (-not $Armed) {
     "Wake line seen at ${seen}Z. Dry run, so no restart."
     exit 0
 }
-Add-Content -LiteralPath $record -Value "wake line seen at ${seen}Z, restart started" -Encoding utf8
+Add-Content -LiteralPath $record -Value "wake line seen at ${seen}Z, restart asked" -Encoding utf8
 "Wake line seen at ${seen}Z. Restarting Windows now."
 shutdown.exe /r /t 0
 $started = $LASTEXITCODE
