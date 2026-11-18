@@ -37,6 +37,10 @@ fn firmware_text(version: FirmwareVersion) -> String {
 /// next power event or change sends it.
 pub const RESEND_TRIES: u8 = 3;
 
+/// How often the preset is sent again, once its tries ran out, while a
+/// manual fan the window does not show may run (ticket 250).
+pub const MANUAL_RESEND_SPACING: Duration = Duration::from_mins(1);
+
 /// How many times the lighting after a charger change is sent before it is
 /// given up until the next change, wake or click (ticket 244).
 pub const SOURCE_LIGHTING_TRIES: u8 = 3;
@@ -61,6 +65,17 @@ enum FullSpeed {
     Sent,
     /// Its send failed and no send has taken the full speed since.
     Unsent,
+}
+
+/// Whether the controller may run a manual fan (ticket 250).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SentFan {
+    /// The last preset send that went whole had the fans on auto, and no
+    /// cut send since carried the manual flag.
+    Auto,
+    /// The last preset send that went whole carried the manual flag, or a
+    /// cut one since did.
+    MaybeManual,
 }
 
 /// What the read-back after a preset send found (ticket 152).
@@ -154,6 +169,13 @@ pub struct App<C, D, R, K> {
     manual_sends: u32,
     /// The polls left to send the preset again after a failed send.
     resends_left: u8,
+    /// Whether the controller may run a manual fan. Unknown at the start
+    /// (a crash or Razer software may have left one), so it starts as
+    /// maybe: it counts only while the preset is unsure.
+    sent_fan: SentFan,
+    /// When the last slow resend was armed (see
+    /// [`MANUAL_RESEND_SPACING`]).
+    slow_resend_at: Option<Instant>,
     /// How many preset sends failed (resends too), so the shell can wait a
     /// poll after each.
     preset_failures: u32,
@@ -250,6 +272,8 @@ where
             fan_targets_due: None,
             manual_sends: 0,
             resends_left: 0,
+            sent_fan: SentFan::MaybeManual,
+            slow_resend_at: None,
             preset_failures: 0,
             held_rate_error: None,
             firmware_warning: None,
@@ -349,7 +373,23 @@ where
         let applied = apply_performance(config, self.model, &mut self.machine.controller);
         self.check_preset_if_sent(config, &applied);
         self.note_fan_targets(config, &applied);
+        self.note_manual_sent(config, &applied);
         applied
+    }
+
+    /// Notes whether the controller may run a manual fan after a send of
+    /// `sent`: a send that went whole sets what it carried, a cut one adds
+    /// its manual flag to what may run, and one refused before anything
+    /// was sent changes nothing.
+    fn note_manual_sent(&mut self, sent: &Config, applied: &Result<(), ApplyError>) {
+        let manual = sent.preset == Preset::Custom && sent.custom.fan_rpm.is_some();
+        let went = matches!(applied, Ok(()) | Err(ApplyError::AfterPreset(_)));
+        let cut = matches!(applied, Err(ApplyError::Device(_)));
+        if manual && (went || cut) {
+            self.sent_fan = SentFan::MaybeManual;
+        } else if went {
+            self.sent_fan = SentFan::Auto;
+        }
     }
 
     /// Notes whether the fan targets of `config` are due to go once more:
@@ -474,12 +514,43 @@ where
         self.machine.controller.close();
     }
 
-    /// Whether Custom with a manual fan runs (or should run), so the fan
-    /// guard is the only thing that can speed the fans up.
+    /// Whether Custom with a manual fan runs (or should run), or may run
+    /// after a cut send (ticket 250), so the fan guard is the only thing
+    /// that can speed the fans up.
     #[must_use]
     pub fn manual_fan_runs(&self) -> bool {
+        self.manual_fan_shown() || self.manual_fan_unshown()
+    }
+
+    /// Whether a manual fan may run that the window does not show: a cut
+    /// send carried the manual flag, or one cut after a manual Custom ran,
+    /// and no send went whole since (ticket 250).
+    #[must_use]
+    pub fn manual_fan_unshown(&self) -> bool {
+        self.preset_unsure && self.sent_fan == SentFan::MaybeManual && !self.manual_fan_shown()
+    }
+
+    /// Whether Custom with a manual fan should run.
+    fn manual_fan_shown(&self) -> bool {
         let running = self.running(self.config);
         running.preset == Preset::Custom && running.custom.fan_rpm.is_some()
+    }
+
+    /// Arms one more resend of the preset that should run, at most each
+    /// [`MANUAL_RESEND_SPACING`], while a manual fan the window does not
+    /// show may run and the tries ran out: nothing else ends it.
+    pub fn keep_resending(&mut self, now: Instant) {
+        if !self.manual_fan_unshown() || self.resends_left > 0 {
+            return;
+        }
+        if self
+            .slow_resend_at
+            .is_some_and(|at| now.saturating_duration_since(at) < MANUAL_RESEND_SPACING)
+        {
+            return;
+        }
+        self.slow_resend_at = Some(now);
+        self.resends_left = 1;
     }
 
     /// Notes the guard's full speed sent if `sent`, a preset that went,
@@ -506,9 +577,10 @@ where
     }
 
     /// Notes a panic (a bug) that may have cut a send: the preset is then
-    /// unsure, so a quit sends the fans on auto first, as after a failed
-    /// send.
+    /// unsure, and a manual fan may run, so a quit sends the fans on auto
+    /// first, as after a failed send.
     pub fn note_panic(&mut self) {
+        self.sent_fan = SentFan::MaybeManual;
         self.preset_send_failed();
     }
 
@@ -731,20 +803,24 @@ where
     pub fn set_fan_boost(&mut self, on: bool) -> Result<bool, AppError> {
         let top = self.model.custom.fan_rpm.max;
         let boost = on.then_some(top);
-        let manual = self.manual_fan_runs();
+        // A failed send whose resends ran out is tried again while the
+        // guard is on and a manual fan may run (the polls send it, at the
+        // poll rate: for a manual fan the window does not show, faster
+        // than `MANUAL_RESEND_SPACING`, which only sends a preset with the
+        // fans on auto).
+        if on && self.manual_fan_runs() && self.preset_unsure && self.resends_left == 0 {
+            self.resends_left = RESEND_TRIES;
+        }
         if self.fan_boost == boost {
-            // A failed full-speed send whose resends ran out is tried
-            // again while the guard stays on (the polls send it).
-            if on && manual && self.preset_unsure && self.resends_left == 0 {
-                self.resends_left = RESEND_TRIES;
-            }
             return Ok(false);
         }
         self.fan_boost = boost;
         self.full_speed = FullSpeed::Sent;
         let running = self.running(self.config);
-        // Already at the top speed: nothing changes on the laptop.
-        if !manual || self.config.custom.fan_rpm == Some(top) {
+        // Already at the top speed: nothing changes on the laptop. A manual
+        // fan the window does not show is ended by the resends of the
+        // preset that should run (ticket 250).
+        if !self.manual_fan_shown() || self.config.custom.fan_rpm == Some(top) {
             return Ok(false);
         }
         let applied = self.send_preset(&running);

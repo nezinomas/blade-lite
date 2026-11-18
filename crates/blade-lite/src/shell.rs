@@ -322,6 +322,10 @@ const USB_SUSPEND_ON: &str = "Windows USB suspend is on for the Razer device, so
     lights may go off or blink. Quit Blade Lite from the tray, then run tools\\Set-RazerUsbSuspend.ps1 as \
     admin (README, \"If the keyboard lights go off or blink\").";
 
+/// Shown while a cut send may have left a manual fan running that the
+/// window does not show (ticket 250).
+pub(crate) const MANUAL_FAN_UNSHOWN: &str = "A send failed, so the fans may still run at a set speed. Blade Lite sends the preset again, each minute once its tries run out.";
+
 /// How the app ends: picks the log line of a refused rate put-back.
 #[derive(Clone, Copy)]
 enum Ending {
@@ -925,6 +929,7 @@ impl<P: Parts> Shell<P> {
             .collect::<Vec<_>>();
         // Text only: unlike the Razer warning, it stops no background send.
         let suspend = P::usb_suspend_on().then_some(USB_SUSPEND_ON);
+        let manual = app.manual_fan_unshown().then_some(MANUAL_FAN_UNSHOWN);
         let shown: Vec<&str> = warning
             .as_deref()
             .into_iter()
@@ -932,6 +937,7 @@ impl<P: Parts> Shell<P> {
             .chain(stopped.iter().map(String::as_str))
             .chain(app.firmware_warning())
             .chain(mismatch.as_deref())
+            .chain(manual)
             .chain((!errors.is_empty()).then_some(errors.as_str()))
             .collect();
         self.window.set_error(shown.join("\n").into());

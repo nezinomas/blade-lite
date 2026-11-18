@@ -195,9 +195,20 @@ fn a_panic_in_the_run_sends_the_quit_preset_and_ends_with_an_error() {
     let ended = f.shell.serve(|| -> Result<(), &str> { panic!("a bug") });
 
     assert_eq!(ended, Err(crate::shell::PANICKED));
-    assert_eq!(
-        sent_since(&f, before),
-        PerfMode::Balanced.commands(&BLADE_18).unwrap()
+    // What the bug cut is unknown, so a manual fan may run: the fans on
+    // auto first (ticket 250), then Balanced.
+    let sent = sent_since(&f, before);
+    let balanced = PerfMode::Balanced.commands(&BLADE_18).unwrap();
+    let (auto_fans, last) = sent.split_at(sent.len() - balanced.len());
+    assert_eq!(last, balanced);
+    let modes: Vec<_> = auto_fans.iter().filter(|c| c.id == 0x0D02).collect();
+    assert!(!modes.is_empty(), "{sent:?}");
+    assert!(auto_fans.iter().all(|c| c.id != 0x0D01), "{sent:?}");
+    assert!(
+        modes
+            .iter()
+            .all(|c| c.args[2] == BLADE_18.custom.mode && c.args[3] == 0),
+        "{sent:?}"
     );
 }
 
