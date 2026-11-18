@@ -739,7 +739,9 @@ fn run(in_tray: bool) -> Result<(), Box<dyn std::error::Error>> {
             ),
             SystemClock,
         ),
-        displays: WindowsDisplays,
+        displays: WindowsDisplays {
+            panels: BLADE_18.panels,
+        },
         registry: WindowsRegistry,
         keys: WindowsKeys,
     };

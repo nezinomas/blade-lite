@@ -40,6 +40,13 @@ fn open() -> HidTransport {
 
 /// An error as text, so a test can keep the `Result` of each step and put
 /// the old state back before it asserts.
+/// The real displays, with the model's panels.
+fn displays() -> WindowsDisplays {
+    WindowsDisplays {
+        panels: BLADE_18.panels,
+    }
+}
+
 fn text(error: impl std::fmt::Display) -> String {
     error.to_string()
 }
@@ -92,10 +99,10 @@ fn the_touchpad_is_toggled_and_put_back() {
 #[test]
 #[ignore = "needs a laptop with its own panel turned on"]
 fn the_panel_offers_its_current_rate() {
-    let rates = refresh_rates(&WindowsDisplays).unwrap();
+    let rates = refresh_rates(&displays()).unwrap();
     eprintln!("rates on offer: {rates:?}");
 
-    let displays = WindowsDisplays.displays().unwrap();
+    let displays = displays().displays().unwrap();
     let panel = displays
         .iter()
         .find(|display| display.technology == OutputTechnology::Internal)
@@ -111,14 +118,14 @@ fn read_panel_rate() -> Result<RefreshRate, String> {
 /// The rate saved for the panel, which a restart starts at.
 fn read_saved_rate() -> Result<RefreshRate, String> {
     let panel = read_panel()?;
-    WindowsDisplays
+    displays()
         .saved_mode(&panel.name)
         .map(|mode| RefreshRate(mode.hz))
         .ok_or_else(|| "no saved mode for the panel".to_string())
 }
 
 fn read_panel() -> Result<Display, String> {
-    let displays = WindowsDisplays.displays().map_err(text)?;
+    let displays = displays().displays().map_err(text)?;
     displays
         .into_iter()
         .find(|display| display.technology == OutputTechnology::Internal)
@@ -143,11 +150,11 @@ fn the_refresh_rate_is_switched_and_put_back() {
         saved, before,
         "the saved rate is not the current one, and the put-back would change it: not run"
     );
-    let rates = refresh_rates(&WindowsDisplays).unwrap();
+    let rates = refresh_rates(&displays()).unwrap();
     let other = *rates.iter().find(|&&rate| rate != before).unwrap();
     eprintln!("rate before: {before:?}, switching to {other:?}");
 
-    let switched = set_refresh_rate(&mut WindowsDisplays, other)
+    let switched = set_refresh_rate(&mut displays(), other)
         .map_err(text)
         .and_then(|()| read_panel_rate());
     // Put it back even if the switch or its read failed.
@@ -168,7 +175,7 @@ fn native_state(device: &mut Device<HidTransport, SystemClock>) -> Result<Native
     let chosen = chosen_native_mode(device, &BLADE_18).map_err(text)?;
     eprintln!("0D8E chosen: {chosen:?}");
     let chosen = chosen.ok_or("the 0D8E reply names no known mode")?;
-    native_mode_state(chosen, &BLADE_18, &WindowsDisplays).map_err(text)
+    native_mode_state(chosen, &BLADE_18, &displays()).map_err(text)
 }
 
 /// Chooses `mode` for the next boot, then reads the state back.
@@ -369,7 +376,7 @@ fn rates_until_ac(config: &Config) -> Result<(Option<RateAndSaved>, Option<Refre
             Err(RecvTimeoutError::Disconnected) => return Err("power events stopped".into()),
         };
         battery_rate
-            .on_event(event, config, &mut WindowsDisplays)
+            .on_event(event, config, &mut displays())
             .map_err(text)?;
         let rate = read_panel_rate()?;
         eprintln!("{event:?}: panel at {rate:?}");
@@ -389,7 +396,7 @@ fn rates_until_ac(config: &Config) -> Result<(Option<RateAndSaved>, Option<Refre
 /// read), and returns the rate it has then.
 fn put_rate_back(before: RefreshRate) -> Result<RefreshRate, String> {
     if read_panel_rate() != Ok(before) {
-        set_refresh_rate(&mut WindowsDisplays, before).map_err(text)?;
+        set_refresh_rate(&mut displays(), before).map_err(text)?;
     }
     read_panel_rate()
 }

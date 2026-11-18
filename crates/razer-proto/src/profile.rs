@@ -69,6 +69,12 @@ pub struct ModelProfile {
     pub custom: CustomLimits,
     /// The panel's native modes. Empty if the panel has only one.
     pub native_modes: &'static [NativeMode],
+    /// The laptop's own panels, by the EDID maker letters and product code
+    /// Windows reads from them: a display with one of them is the panel
+    /// however Windows says it is connected (in NVIDIA-only mode it says
+    /// a `DisplayPort` monitor, ticket 282). Empty if Windows always says
+    /// internal.
+    pub panels: &'static [([u8; 3], u16)],
     /// The lid logo light, or `None` if the model has none.
     pub logo: Option<Logo>,
     /// The battery charge limit, or `None` if the model has none.
@@ -257,6 +263,9 @@ pub const BLADE_18: ModelProfile = ModelProfile {
             hz: 440,
         },
     ],
+    // Read on the laptop 2026-11-18 (Windows' EDID ids, ticket 282): BOE
+    // NE180QAM-NZ1. Other panels this model may ship with are not known.
+    panels: &[(*b"BOE", 0x0D54)],
     // The capture's logo LED. Synapse sends storage 0 for the logo, not
     // the 1 it sends for the keyboard. On the laptop a read with 0 gives
     // the state just set; a read with 1 gives another stored value that the

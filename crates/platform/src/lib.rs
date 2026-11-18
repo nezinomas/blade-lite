@@ -26,7 +26,7 @@ mod watch;
 use std::io;
 
 pub use backdrop::{hide_caption_buttons, round_corners, set_mica};
-pub use display::WindowsDisplays;
+pub use display::{PanelId, WindowsDisplays};
 pub use dll_search::limit_dll_search;
 pub use files::{FileDialog, pick_file};
 pub use hid::{HidDetails, HidDevice, hid_details, hid_parent_id, hid_paths};

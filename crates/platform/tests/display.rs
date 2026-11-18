@@ -5,7 +5,7 @@ use platform::{DisplayApi, OutputTechnology, WindowsDisplays};
 #[test]
 #[ignore = "needs a laptop with its own panel turned on"]
 fn the_laptop_panel_is_listed_with_its_current_mode() {
-    let displays = WindowsDisplays.displays().unwrap();
+    let displays = WindowsDisplays { panels: &[] }.displays().unwrap();
     for display in &displays {
         eprintln!("{display:?}");
     }
