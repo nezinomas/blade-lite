@@ -467,6 +467,9 @@ pub struct Shell<P: Parts = Laptop> {
     put_back_tries: Cell<(u8, Option<Instant>)>,
     /// The app's [`App::keys_follow_resets`] at the last look (ticket 285).
     keys_follow_resets: Cell<u32>,
+    /// The panel as Windows listed it at the last fill (ticket 287), or
+    /// `None` if none was found then.
+    panel_seen: RefCell<Option<platform::Display>>,
     /// When the last sleep notice came, by the wall clock, and whether its
     /// wake's pause has ended since: the next tick measures the sleep for
     /// the fan guard (ticket 172).
@@ -545,6 +548,7 @@ impl<P: Parts> Shell<P> {
             screen_error_logged: Cell::new(None),
             put_back_tries: Cell::new((0, None)),
             keys_follow_resets: Cell::new(0),
+            panel_seen: RefCell::new(None),
             slept_at: Cell::new(None),
             woke: Cell::new(false),
             redo_at_wake: Cell::new(false),
@@ -891,6 +895,7 @@ impl<P: Parts> Shell<P> {
         bind::performance(&self.window, &performance);
         bind::flyout_performance(&self.flyout, &performance, &header);
         // A failed view leaves its parts as last shown and shows the error.
+        self.panel_seen.replace(app.panel());
         if let Some(view) = self.display_view(&mut app, &mut errors) {
             bind::display(&self.window, &view);
             bind::flyout_display(&self.flyout, &view);

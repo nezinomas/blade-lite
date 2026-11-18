@@ -3750,3 +3750,62 @@ fn the_window_open_is_timed_for_the_slow_poll_log() {
     );
     assert_eq!(f.shell.take_steps(), blade_lite::StepTime::default());
 }
+
+/// The rate labels the window shows.
+fn shown_rates(f: &Fixture) -> Vec<String> {
+    f.shell
+        .window()
+        .get_rates()
+        .iter()
+        .map(|rate| rate.label.to_string())
+        .collect()
+}
+
+#[test]
+fn the_rates_follow_a_display_change_at_the_next_poll() {
+    // A switch between NVIDIA-only and Optimus mode changes the panel's
+    // modes with no click (ticket 287).
+    let f = fixture(Config::default());
+    f.shell.show_window();
+    let start = Instant::now();
+    f.shell.tick_at(start, SystemTime::now());
+    assert!(shown_rates(&f).contains(&"120 Hz".to_string()));
+
+    f.shell
+        .app()
+        .machine_mut()
+        .displays
+        .0
+        .modes
+        .retain(|mode| mode.hz != 120);
+    f.shell
+        .tick_at(start + Duration::from_secs(2), SystemTime::now());
+
+    assert!(
+        !shown_rates(&f).contains(&"120 Hz".to_string()),
+        "{:?}",
+        shown_rates(&f)
+    );
+}
+
+#[test]
+fn an_unchanged_display_list_fills_nothing_again() {
+    let f = fixture(Config::default());
+    f.shell.show_window();
+    let start = Instant::now();
+    f.shell.tick_at(start, SystemTime::now());
+    let native_reads = || {
+        let query = razer_proto::NativeMode::query();
+        let app = f.shell.app();
+        let asked = &app.machine().controller.inner.asked;
+        asked.iter().filter(|command| **command == query).count()
+    };
+    let before = native_reads();
+
+    for second in 2..10 {
+        f.shell
+            .tick_at(start + Duration::from_secs(second), SystemTime::now());
+    }
+
+    assert_eq!(native_reads(), before);
+}

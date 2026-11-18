@@ -134,6 +134,7 @@ impl<P: Parts> Shell<P> {
         // then stays due, so the first tick after the pause reads it.
         if self.resuming.get() == 0 && self.schedule.borrow_mut().poll_due(now) {
             self.tick_readings(now);
+            self.follow_displays();
             self.after_reads();
         } else if self.resuming.get() == 0
             && self
@@ -1112,6 +1113,19 @@ impl<P: Parts> Shell<P> {
         drop(app);
         let gpu = readings.gpu.map(|gpu| gpu.celsius);
         self.watch_heat(cpu, gpu, now);
+    }
+
+    /// Fills the windows again if the panel Windows lists changed since the
+    /// last fill, such as at a switch between NVIDIA-only and
+    /// Optimus mode, which brings no click (ticket 287). The app takes no
+    /// display change notice, so a poll (only while a view can be seen)
+    /// reads the display list: Windows only, no controller; the fill it
+    /// may cause reads the native mode as any fill does.
+    fn follow_displays(self: &Rc<Self>) {
+        let panel = self.app.borrow().panel();
+        if *self.panel_seen.borrow() != panel {
+            self.refresh(None);
+        }
     }
 
     /// Runs `read`, adding its time to the controller reads' (ticket 206).
