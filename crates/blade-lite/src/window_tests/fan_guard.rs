@@ -9,7 +9,7 @@ use razer_proto::BLADE_18;
 use ui::PerformanceCommand;
 
 use crate::fakes::FakeCharger;
-use crate::shell::{BY_A_POLL, FULL_SPEED_SENT_AGAIN, WITH_THE_PRESET};
+use crate::shell::{BY_A_POLL, FULL_SPEED_SENT_AGAIN, MANUAL_FAN_UNSHOWN, WITH_THE_PRESET};
 
 use super::sleep::{pause_ends, power};
 use super::{FAKE_GPU, FAKE_INPUT_AGE, FakeGpu, Fixture, fixture, fixture_with_programs, log_path};
@@ -394,4 +394,42 @@ fn a_long_sleep_with_the_guard_off_sends_and_says_nothing_of_it() {
 
     assert_eq!(fan_speeds_since(&f, before), [1600; 2]);
     assert_eq!(log_lines("fan guard: the laptop slept 17 min"), 0);
+}
+
+/// A click to Custom cut after its manual flag went, whose resends fail
+/// too (ticket 250).
+fn cut_custom_click() -> Fixture {
+    let mut config = Config::default();
+    config.custom.fan_rpm = Some(1600);
+    let f = fixture(config);
+    f.shell.app().machine_mut().controller.inner.fails_after = Some(1);
+    f.shell
+        .act(|app| app.on_performance(PerformanceCommand::SetPreset(Preset::Custom)));
+    while f.shell.app().resend_preset().is_err() {}
+    f
+}
+
+#[test]
+fn a_cut_custom_click_shows_a_manual_fan_may_run() {
+    let f = cut_custom_click();
+
+    let shown = f.shell.window().get_error().to_string();
+
+    assert!(shown.contains(MANUAL_FAN_UNSHOWN), "{shown}");
+    assert_eq!(f.shell.app().config().preset, Preset::Balanced);
+}
+
+#[test]
+fn a_manual_fan_unshown_is_resent_slowly_until_it_goes() {
+    let f = cut_custom_click();
+    let start = Instant::now();
+    let now = ticks(&f, start, Duration::from_secs(30), 50);
+    assert!(f.shell.app().manual_fan_unshown(), "every try failed");
+    f.shell.app().machine_mut().controller.inner.fails_after = None;
+    let before = sent_count(&f);
+
+    ticks(&f, now, blade_lite::MANUAL_RESEND_SPACING, 50);
+
+    assert_ne!(sent_count(&f), before, "resent");
+    assert!(!f.shell.app().manual_fan_unshown());
 }

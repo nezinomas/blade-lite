@@ -93,8 +93,10 @@ impl<P: Parts> Shell<P> {
     fn say_gpu_fault(&self, held: bool, cpu: Option<u32>, gpu: Option<u32>) {
         let app = self.app.borrow();
         // Not while its full speed waits for a resend: the fans may still
-        // run at the saved speed.
-        let held = held && app.manual_fan_runs() && !app.boost_unsent();
+        // run at the saved speed. Nor for a manual fan the window does not
+        // show: the guard sends no full speed for it (ticket 250).
+        let held =
+            held && app.manual_fan_runs() && !app.boost_unsent() && !app.manual_fan_unshown();
         drop(app);
         if held == self.gpu_fault_said.replace(held) {
             return;

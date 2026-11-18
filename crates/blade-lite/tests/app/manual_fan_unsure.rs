@@ -119,7 +119,7 @@ fn the_slow_resend_comes_once_a_minute_after_the_tries_run_out() {
     app.machine_mut().controller.inner.fails = true;
     assert!(app.resend_preset().is_err());
     app.machine_mut().controller.inner.fails = false;
-    app.keep_resending(start + MANUAL_RESEND_SPACING - Duration::from_secs(1));
+    app.keep_resending(start + MANUAL_RESEND_SPACING.saturating_sub(Duration::from_secs(1)));
     assert!(!app.resend_preset().unwrap(), "too soon");
     app.keep_resending(start + MANUAL_RESEND_SPACING);
 

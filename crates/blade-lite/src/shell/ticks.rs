@@ -106,6 +106,7 @@ impl<P: Parts> Shell<P> {
         self.follow_missed_wake(wall);
         self.follow_long_sleep(wall);
         self.send_fan_targets_again(now);
+        self.app.borrow_mut().keep_resending(now);
         if looked {
             self.read_firmware_if_unread();
         }

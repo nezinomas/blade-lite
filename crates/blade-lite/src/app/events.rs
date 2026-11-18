@@ -43,6 +43,7 @@ where
         self.note_preset_send(&config, &applied);
         self.check_preset_if_sent(&config, &applied);
         self.note_fan_targets(&config, &applied);
+        self.note_manual_sent(&config, &applied);
         self.read_logo();
         Ok(applied?)
     }
@@ -521,7 +522,9 @@ where
     /// left to watch a manual fan or a charger pulled. Always sent, as what
     /// the controller runs may differ from the config after a failed send.
     /// If a manual fan is saved and Custom runs, the last preset send
-    /// failed or the source changed at the quit or sleep (`battery_at_quit`), Custom with the fans on auto goes first (with the lowest
+    /// failed or the source changed at the quit or sleep (`battery_at_quit`),
+    /// or a cut send may have left a manual fan the window does not show
+    /// (ticket 250), Custom with the fans on auto goes first (with the lowest
     /// boosts when Custom is not what should run), the known way to end a
     /// manual fan; whether the preset's own mode write ends it too is not
     /// checked on the laptop. The saved preset is kept, so the next start
@@ -541,9 +544,13 @@ where
         let manual_saved =
             self.config.preset == Preset::Custom && self.config.custom.fan_rpm.is_some();
         // After a failed send the controller may still run the manual fan,
-        // though the battery preset should run.
-        if manual_saved && (running.preset == Preset::Custom || self.preset_unsure) {
+        // though the battery preset should run, or though the click to
+        // Custom was cut (ticket 250).
+        if self.manual_fan_unshown()
+            || (manual_saved && (running.preset == Preset::Custom || self.preset_unsure))
+        {
             let mut auto_fans = self.config;
+            auto_fans.preset = Preset::Custom;
             auto_fans.custom.fan_rpm = None;
             if running.preset != Preset::Custom {
                 // Custom is refused here (battery or a weak charge): the
@@ -553,7 +560,9 @@ where
             }
             // No read-back before the last send: a read that drops the
             // handle would make the quit's retry send this step again.
-            match apply_performance(&auto_fans, self.model, &mut self.machine.controller) {
+            let applied = apply_performance(&auto_fans, self.model, &mut self.machine.controller);
+            self.note_manual_sent(&auto_fans, &applied);
+            match applied {
                 // A saved boost out of range: nothing was sent, so the
                 // preset below still goes.
                 Ok(()) | Err(ApplyError::Custom(_)) => {}
