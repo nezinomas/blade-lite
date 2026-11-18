@@ -26,38 +26,35 @@ where
     /// charger read for it found the weak charge, the battery preset that
     /// now runs is sent first. A click refused before any send (a saved
     /// value out of range) whose read changed what runs sends the preset
-    /// that now runs. A Custom slider reads the charger first too.
+    /// that now runs. A Custom slider reads the charger first too, and is
+    /// refused if that read found a weak charge.
     pub fn on_performance(&mut self, command: PerformanceCommand) -> Result<(), AppError> {
         let mut config = self.config;
         // What ran before a charger read, if the click made one.
         let mut read_from = None;
         match command {
             PerformanceCommand::SetPreset(preset) => {
-                if !preset.offered_on_battery(self.model) {
-                    let before = self.read_charger_before_send();
-                    read_from = Some(before);
-                    if self.battery_presets() {
-                        self.send_if_read_changed(before);
-                        return Err(AppError::NotOnBattery(preset));
-                    }
+                read_from = self.read_charger_before(preset);
+                if !preset.offered_on_battery(self.model) && self.battery_presets() {
+                    self.send_if_read_changed(read_from);
+                    return Err(AppError::NotOnBattery(preset));
                 }
                 config.preset = preset;
             }
-            // A slider may send Custom (ticket 257).
-            PerformanceCommand::SetCpuBoost(level) => {
-                read_from = Some(self.read_charger_before_send());
-                config.custom.cpu_boost = level;
-            }
-            PerformanceCommand::SetGpuBoost(level) => {
-                read_from = Some(self.read_charger_before_send());
-                config.custom.gpu_boost = level;
-            }
-            PerformanceCommand::SetFanRpm(rpm) => {
-                read_from = Some(self.read_charger_before_send());
-                config.custom.fan_rpm = rpm;
-            }
+            PerformanceCommand::SetCpuBoost(level) => config.custom.cpu_boost = level,
+            PerformanceCommand::SetGpuBoost(level) => config.custom.gpu_boost = level,
+            PerformanceCommand::SetFanRpm(rpm) => config.custom.fan_rpm = rpm,
             // The controller keeps the limit, so nothing is saved.
             PerformanceCommand::SetChargeLimit(on) => return self.set_charge_limit(on),
+        }
+        if !matches!(command, PerformanceCommand::SetPreset(_)) {
+            // A slider sends Custom while it runs (ticket 257). A read that
+            // just found a weak charge refuses it, as a preset click.
+            read_from = self.read_charger_before(config.preset);
+            if read_from.is_some_and(|before| before != self.running_preset()) {
+                self.send_if_read_changed(read_from);
+                return Err(AppError::NotOnBattery(config.preset));
+            }
         }
         let running = self.running(config);
         let applied = self.send_preset(&running);
@@ -66,8 +63,8 @@ where
         // Refused before any send (a saved value out of range): the read
         // may still have changed what runs, such as a full charger found.
         let unsent = matches!(applied, Err(ApplyError::Preset(_) | ApplyError::Custom(_)));
-        if let (true, Some(before)) = (unsent, read_from) {
-            self.send_if_read_changed(before);
+        if unsent {
+            self.send_if_read_changed(read_from);
         }
         applied?;
         self.keep_sent(config)
@@ -79,8 +76,8 @@ where
     /// app show Performance while Balanced runs). A failed
     /// send is logged, and marks the preset unsure, so the polls send it
     /// again; the caller's own error is the one shown.
-    pub(super) fn send_if_read_changed(&mut self, before: Preset) {
-        if self.running_preset() == before {
+    pub(super) fn send_if_read_changed(&mut self, before: Option<Preset>) {
+        if before.is_none_or(|before| self.running_preset() == before) {
             return;
         }
         let running = self.running(self.config);

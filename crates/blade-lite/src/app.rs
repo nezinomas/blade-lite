@@ -657,12 +657,16 @@ where
         read: Result<Option<T>, impl std::fmt::Display>,
     ) -> Option<T> {
         read.unwrap_or_else(|error| {
-            let line = format!("{what}: {error}");
-            if !self.missed_reads.contains(&line) {
-                self.missed_reads.push(line);
-            }
+            self.note_missed_read(format!("{what}: {error}"));
             None
         })
+    }
+
+    /// Keeps a failed read's `line` for the log, once until it is taken.
+    fn note_missed_read(&mut self, line: String) {
+        if !self.missed_reads.contains(&line) {
+            self.missed_reads.push(line);
+        }
     }
 
     /// The reads that failed outside a view since the last take, for the
@@ -773,20 +777,25 @@ where
         self.read_charger_with(|power| power);
     }
 
-    /// Reads the charger as [`read_charger_at_click`](Self::read_charger_at_click)
-    /// does, before a send that may run a preset not offered on battery: a
-    /// charger swap gives no power event, and the last poll may be 10 s
-    /// old. Returns the preset that ran before the read.
-    pub(super) fn read_charger_before_send(&mut self) -> Preset {
+    /// Reads the charger as at a click before a send of `preset`, if it
+    /// is not offered on battery (tickets 136, 257): a charger swap gives
+    /// no power event, and the last poll may be 10 s old. Not while a Razer
+    /// updater holds the controller: the read would fail and count as a
+    /// weak charge, and nothing is sent then. Returns the preset that ran
+    /// before the read, if it read.
+    pub(super) fn read_charger_before(&mut self, preset: Preset) -> Option<Preset> {
+        if preset.offered_on_battery(self.model) || self.controller_held() {
+            return None;
+        }
         let before = self.running_preset();
         self.read_charger_at_click();
-        before
+        Some(before)
     }
 
     /// Reads the charger; `full` gives the power after a full read. On
     /// battery nothing is read. A failed read or a reply not understood
     /// counts as a weak charge (fail safe) until the next read, with a log
-    /// line.
+    /// line; a failed read's line is said once per quiet time (ticket 259).
     fn read_charger_with(&mut self, full: fn(Power) -> Power) {
         if self.on_battery() {
             return;
@@ -799,9 +808,7 @@ where
                 WEAK
             }
             Err(error) => {
-                report(&format!(
-                    "charger read failed: the battery presets run: {error}"
-                ));
+                self.note_missed_read(format!("charger, so the battery presets run: {error}"));
                 WEAK
             }
         };

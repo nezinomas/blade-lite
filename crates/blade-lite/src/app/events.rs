@@ -429,8 +429,9 @@ where
     /// Reads the charger again on a poll, and sends the preset if a weak
     /// charge came or went. A weak charge counts at once, the full charger
     /// only on the second read in a row. A failed read keeps the last one
-    /// and is kept for the log; a reply not understood is a weak charge. On battery nothing is read.
-    /// Returns whether a weak charge came or went, so the windows show it.
+    /// and is kept for the log; a reply not understood is a weak charge. On
+    /// battery nothing is read. Returns whether a weak charge came or went,
+    /// so the windows show it.
     ///
     /// # Errors
     ///

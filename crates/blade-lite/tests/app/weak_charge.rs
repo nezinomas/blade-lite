@@ -379,17 +379,63 @@ fn a_refused_import_whose_charger_read_finds_a_weak_charger_sends_balanced() {
 }
 
 #[test]
-fn a_custom_slider_reads_the_charger_first() {
+fn a_custom_slider_whose_charger_read_finds_a_weak_charger_sends_balanced_and_is_refused() {
     let (mut app, _dir) = swapped_to_usb_c(Config {
         preset: Preset::Custom,
         ..Config::default()
     });
 
-    app.on_performance(PerformanceCommand::SetFanRpm(Some(4000)))
-        .unwrap();
+    let result = app.on_performance(PerformanceCommand::SetCpuBoost(200));
 
+    assert!(result.is_err());
     assert_eq!(sent(&app), PerfMode::Balanced.commands(&BLADE_18).unwrap());
-    assert_eq!(app.config().custom.fan_rpm, Some(4000));
+    assert_eq!(app.config().custom, Config::default().custom);
+}
+
+#[test]
+fn import_whose_charger_read_fails_sends_balanced_and_saves_the_file() {
+    let (mut app, dir) = swapped_to_usb_c(Config::default());
+    app.machine_mut().controller.inner.charger = FakeCharger::Fails;
+    let picked = dir.path().join("performance.toml");
+    Config {
+        preset: Preset::Performance,
+        ..Config::default()
+    }
+    .save(&picked)
+    .unwrap();
+
+    app.import_settings(&picked).unwrap();
+
+    assert!(ran(&app, PerfMode::Balanced));
+    assert!(!ran(&app, PerfMode::Performance));
+    assert_eq!(app.config().preset, Preset::Performance);
+}
+
+#[test]
+fn no_charger_read_while_a_razer_updater_holds_the_controller() {
+    let (mut app, dir) = swapped_to_usb_c(Config::default());
+    app.hold_controller(true);
+    let picked = dir.path().join("performance.toml");
+    Config {
+        preset: Preset::Performance,
+        ..Config::default()
+    }
+    .save(&picked)
+    .unwrap();
+
+    assert!(app.import_settings(&picked).is_err());
+
+    assert_eq!(app.running_preset(), Preset::Balanced);
+    let missed = app.take_missed_reads();
+    assert!(
+        !missed.iter().any(|line| line.starts_with("charger")),
+        "{missed:?}"
+    );
+    app.hold_controller(false);
+    assert!(
+        app.on_performance(PerformanceCommand::SetPreset(Preset::Performance))
+            .is_err()
+    );
 }
 
 #[test]
