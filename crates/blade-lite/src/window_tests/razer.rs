@@ -168,6 +168,13 @@ fn a_charger_pulled_in_the_pause_after_an_open_again_sends_no_ac_preset() {
         "{sent:?}"
     );
     assert!(app.on_battery());
+    // Once, with the start: not also before it (ticket 256).
+    let balanced = PerfMode::Balanced.commands(&BLADE_18).unwrap();
+    let balanced_sends = sent
+        .windows(balanced.len())
+        .filter(|run| *run == balanced)
+        .count();
+    assert_eq!(balanced_sends, 1, "{sent:?}");
 }
 
 #[test]

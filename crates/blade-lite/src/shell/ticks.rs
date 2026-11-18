@@ -262,11 +262,11 @@ impl<P: Parts> Shell<P> {
                     // A firmware update may be what killed the old handle.
                     shell.app.borrow_mut().check_firmware();
                     // A power event in the pause was dropped: read the
-                    // source, so a pulled charger sends the battery preset
-                    // and rate before the settings go again.
-                    shell.follow_source();
-                    // As the wake: an unknown source runs the battery presets.
-                    shell.app.borrow_mut().take_on_battery(P::on_battery());
+                    // source, so a pulled charger sets the rate, and the
+                    // start sends the battery preset once (ticket 256). As
+                    // the wake: an unknown source runs the battery presets.
+                    shell.forget_charging();
+                    shell.act(|app| app.take_source_before_start(P::on_battery()));
                     shell.act(AppOn::<P>::start);
                     // A screen change in the pause was dropped.
                     shell.follow_screen();
