@@ -7,11 +7,12 @@
 use std::sync::mpsc::{Sender, channel};
 use std::time::{Duration, Instant, SystemTime};
 
-use blade_core::{Config, Lighting, Preset};
+use blade_core::{Config, Lighting, Preset, RESUME_PAUSE};
+use blade_lite::CHARGER_STEADY;
 use i_slint_backend_testing::AccessibleRole::{self, Button, Switch};
 use i_slint_backend_testing::ElementHandle;
 use platform::PowerEvent;
-use razer_proto::{Charger, Command, Rgb};
+use razer_proto::{BLADE_18, Charger, Command, Rgb};
 use slint::platform::PointerEventButton;
 
 use super::{
@@ -83,6 +84,16 @@ struct Soak {
     may_cut: bool,
     /// Steps left of a spell of failed reads.
     reads_failing_left: u32,
+    /// Whether the last step was on battery.
+    was_on_battery: bool,
+    /// Until when a sleep, wake or open again may still send the saved
+    /// preset at once (at its pause's end), so no charger wait is checked.
+    quiet_until: Option<Instant>,
+    /// The charger reads since a weak charge went, while they are counted.
+    full_reads: Option<u8>,
+    /// The charger wait (ticket 263) being checked: when it began, how,
+    /// and whether Performance or Custom was saved then.
+    charger_back: Option<(Instant, Back, bool)>,
     seen: Seen,
 }
 
@@ -97,6 +108,18 @@ struct Seen {
     battery_sends: u32,
     read_spells: u32,
     gpu_fails: u32,
+    /// Charger waits checked whole with Performance or Custom saved.
+    ac_waits: u32,
+    poll_waits: u32,
+}
+
+/// How the full charger came back from the battery presets.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Back {
+    /// An `OnAc` with the Razer charger.
+    Ac,
+    /// A weak charge gone, seen at the second full read on the polls.
+    Poll,
 }
 
 impl Soak {
@@ -118,6 +141,10 @@ impl Soak {
             zones: Zones::default(),
             may_cut: false,
             reads_failing_left: 0,
+            was_on_battery: false,
+            quiet_until: None,
+            full_reads: None,
+            charger_back: None,
             seen: Seen::default(),
         }
     }
@@ -208,6 +235,7 @@ impl Soak {
     /// Goes to sleep, or wakes. Sometimes both are read at one tick, and
     /// sometimes the charger is swapped in the sleep, with no event.
     fn sleep_or_wake(&mut self) {
+        self.pause_begins();
         if self.asleep {
             if self.rng.chance(300) {
                 FAKE_ON_BATTERY.set(!FAKE_ON_BATTERY.get());
@@ -230,6 +258,7 @@ impl Soak {
     }
 
     fn wake(&mut self) {
+        self.pause_begins();
         self.send(PowerEvent::Resumed);
         self.asleep = false;
     }
@@ -248,6 +277,9 @@ impl Soak {
     /// no power change.
     fn swap_weak(&mut self) {
         let weak = self.weak == Weak::No;
+        if self.weak == Weak::Read {
+            self.full_reads = Some(0);
+        }
         self.weak = if weak { Weak::Unread } else { Weak::No };
         let charger = if weak {
             FakeCharger::UsbC
@@ -264,6 +296,7 @@ impl Soak {
             Reopened::Opened
         };
         FAKE_REOPENED.set(opened);
+        self.pause_begins();
         self.seen.opens_again += 1;
     }
 
@@ -326,6 +359,78 @@ impl Soak {
         self.power.send(event).unwrap();
     }
 
+    /// A sleep, wake or open again sends the saved preset at its pause's
+    /// end, with no charger wait (ticket 263): no wait is checked until
+    /// that pause surely ended.
+    fn pause_begins(&mut self) {
+        self.quiet_until = Some(self.now + RESUME_PAUSE + 2 * SECOND);
+        self.charger_back = None;
+        self.full_reads = None;
+    }
+
+    /// No Performance or Custom mode write within [`CHARGER_STEADY`] of the
+    /// full charger coming back from the battery presets (ticket 263): an
+    /// `OnAc` with the Razer charger in, from that step on; or a weak
+    /// charge gone, from the second step with a charger read that worked
+    /// since, at or before the app's second full poll read (it needs two in
+    /// a row; a click's read counts here too). The app starts its wait at
+    /// that tick or later, so it waits at least as long as checked here. An unknown source's end is not checked: the run does not know
+    /// when the app read it unknown.
+    fn check_charger_wait(&mut self, sent: &[Command], asked: &[Command]) {
+        let on_battery = FAKE_ON_BATTERY.get();
+        let plugged = std::mem::replace(&mut self.was_on_battery, on_battery) && !on_battery;
+        if self.asleep || self.quiet_until.is_some_and(|until| self.now <= until) {
+            self.charger_back = None;
+            self.full_reads = None;
+            return;
+        }
+        // The charger gone again: a later return starts a new check.
+        if on_battery || self.weak != Weak::No || FAKE_SOURCE_UNKNOWN.get() {
+            self.full_reads = None;
+            self.charger_back = None;
+        }
+        if plugged && self.weak == Weak::No {
+            self.arm(Back::Ac);
+        }
+        let read_worked = fake(&self.f, |c| !matches!(c.charger, FakeCharger::Fails));
+        if let Some(reads) = self.full_reads
+            && read_worked
+            && asked.contains(&Charger::query())
+        {
+            self.full_reads = Some(reads + 1);
+            if reads + 1 == 2 {
+                self.full_reads = None;
+                self.arm(Back::Poll);
+            }
+        }
+        let Some((back, how, full_saved)) = self.charger_back else {
+            return;
+        };
+        if self.now.saturating_duration_since(back) >= CHARGER_STEADY {
+            self.charger_back = None;
+            if full_saved {
+                match how {
+                    Back::Ac => self.seen.ac_waits += 1,
+                    Back::Poll => self.seen.poll_waits += 1,
+                }
+            }
+            return;
+        }
+        let full = [BLADE_18.mode_bytes.performance, BLADE_18.custom.mode];
+        assert!(
+            !sent
+                .iter()
+                .any(|c| c.id == SET_PRESET && full.contains(&c.args[2])),
+            "Performance or Custom within the charger's wait ({how:?}): {sent:?}"
+        );
+    }
+
+    fn arm(&mut self, how: Back) {
+        let saved = self.f.shell.app().config().preset;
+        let full_saved = matches!(saved, Preset::Performance | Preset::Custom);
+        self.charger_back = Some((self.now, how, full_saved));
+    }
+
     /// The rules of ticket 146 for what this step sent, and the kept lists.
     fn check(&mut self, clicked: Option<(&str, bool)>) {
         let may_cut = std::mem::take(&mut self.may_cut);
@@ -341,6 +446,7 @@ impl Soak {
             assert_battery_safe(&sent, may_cut);
             self.seen.battery_sends += u32::from(sent.iter().any(|c| c.id == SET_PRESET));
         }
+        self.check_charger_wait(&sent, &asked);
         if self.weak == Weak::Unread && asked.contains(&Charger::query()) {
             self.weak = Weak::Read;
             self.seen.weak_reads += 1;
@@ -448,6 +554,8 @@ fn soak(preset: Preset, seed: u64) {
         met.gpu_fails,
     ];
     assert!(each.iter().all(|&count| count >= 5), "{met:?}");
+    // Rarer: a charger back with Performance or Custom saved.
+    assert!(met.ac_waits >= 1 && met.poll_waits >= 1, "{met:?}");
 }
 
 #[test]
