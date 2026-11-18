@@ -3149,10 +3149,18 @@ fn the_full_charger_back_on_a_tick_runs_the_saved_preset_again() {
     f.shell.app().machine_mut().controller.inner.charger = FakeCharger::Razer;
     let sent = sent_count(&f);
 
-    // Two full power reads in a row bring it back.
+    // Two full power reads in a row bring it back, after it stayed 10 s
+    // (ticket 263).
     tick_for(
         &f,
         start + blade_core::HEAT_INTERVAL,
+        blade_core::HEAT_INTERVAL,
+        blade_core::HEAT_INTERVAL,
+    );
+    assert_eq!(sent_since(&f, sent), []);
+    tick_for(
+        &f,
+        start + 3 * blade_core::HEAT_INTERVAL,
         blade_core::HEAT_INTERVAL,
         blade_core::HEAT_INTERVAL,
     );
@@ -3418,8 +3426,43 @@ fn a_failed_switch_to_ac_is_not_sent_again_while_razer_software_runs() {
 
     two_heat_reads(&f);
 
-    // Only a battery preset goes again then (ticket 258).
+    // Only a battery preset goes again then (ticket 258), and the full
+    // charger's wait does not end (ticket 263).
     assert_eq!(sent_since(&f, sent), []);
+}
+
+#[test]
+fn the_full_charger_back_waits_while_razer_software_runs() {
+    let f = fixture(Config {
+        preset: Preset::Performance,
+        ..Config::default()
+    });
+    FAKE_ON_BATTERY.set(true);
+    let (sender, receiver) = std::sync::mpsc::channel();
+    sender.send(PowerEvent::OnBattery).unwrap();
+    f.shell.follow_power(&receiver);
+    f.shell.programs().set(&["Razer Synapse Service"]);
+    f.shell.look_for_razer();
+    FAKE_ON_BATTERY.set(false);
+    sender.send(PowerEvent::OnAc).unwrap();
+    f.shell.follow_power(&receiver);
+    let sent = sent_count(&f);
+    let start = Instant::now();
+
+    tick_for(&f, start, Duration::from_secs(1), Duration::from_secs(20));
+    assert_eq!(sent_since(&f, sent), []);
+
+    // Razer's software gone, the wait goes on to its end.
+    f.shell.programs().set(&[]);
+    f.shell.look_for_razer();
+    tick_for(
+        &f,
+        start + Duration::from_secs(21),
+        Duration::from_secs(1),
+        Duration::from_secs(11),
+    );
+    let performance = PerfMode::Performance.commands(&BLADE_18).unwrap();
+    assert_eq!(sent_since(&f, sent), performance);
 }
 
 /// The keyboard level writes (`0303`, LED `05`) since `before`.

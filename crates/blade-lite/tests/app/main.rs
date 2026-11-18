@@ -56,6 +56,15 @@ fn sent(app: &TestApp) -> &[Command] {
     &app.machine().controller.inner.sent
 }
 
+/// Two ticks [`CHARGER_STEADY`](blade_lite::CHARGER_STEADY) apart: the
+/// full charger back has waited its time (ticket 263).
+fn charger_steady(app: &mut TestApp) {
+    let now = std::time::Instant::now();
+    app.follow_charger_back(now).unwrap();
+    app.follow_charger_back(now + blade_lite::CHARGER_STEADY)
+        .unwrap();
+}
+
 fn panel_hz(app: &TestApp) -> u32 {
     app.machine().displays.0.current.hz
 }

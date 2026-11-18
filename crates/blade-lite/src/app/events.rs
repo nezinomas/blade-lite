@@ -11,7 +11,10 @@ use blade_core::{
 use platform::{DisplayApi, KeyInjector, PowerEvent, Registry};
 use razer_proto::{Brightness, RedKeys};
 
-use super::{App, AppError, NOT_UNDERSTOOD, Power, SOURCE_LIGHTING_SPACING, SOURCE_LIGHTING_TRIES};
+use super::{
+    App, AppError, CHARGER_STEADY, NOT_UNDERSTOOD, Power, SOURCE_LIGHTING_SPACING,
+    SOURCE_LIGHTING_TRIES,
+};
 use crate::report;
 
 impl<C, D, R, K> App<C, D, R, K>
@@ -460,13 +463,48 @@ where
     }
 
     /// Sends the preset again if the power source changes the one that
-    /// runs, or the last start or switch failed.
+    /// runs, or the last start or switch failed. The full charger back from
+    /// the battery presets waits (see [`follow_charger_back`](Self::follow_charger_back)).
     fn set_on_battery(&mut self, on_battery: bool) -> Result<(), AppError> {
         let before = self.running(self.config).preset;
-        self.power = Power::from_battery(on_battery);
+        self.power = if on_battery {
+            Power::Battery
+        } else {
+            self.power.charger_came()
+        };
         self.source_known = true;
-        self.read_charger();
+        // A full read keeps the power just set; a weak one counts at once.
+        self.read_charger_with(|power| power);
         self.send_if_changed(before)
+    }
+
+    /// Ends the full charger's wait once it stayed [`CHARGER_STEADY`] from
+    /// the first tick that saw it (ticket 263, user pick A): the charger is
+    /// read again, and a full read sends the preset that then runs, such as
+    /// Performance. A weak or failed read is a weak charge, as on a poll. A
+    /// bounce ends the wait through the battery, so the next plug waits
+    /// again. Returns whether the wait ended, so the windows show it.
+    ///
+    /// # Errors
+    ///
+    /// See [`AppError`].
+    pub fn follow_charger_back(&mut self, now: Instant) -> Result<bool, AppError> {
+        let Power::ChargerBack { since } = self.power else {
+            return Ok(false);
+        };
+        let Some(since) = since else {
+            self.power = Power::ChargerBack { since: Some(now) };
+            return Ok(false);
+        };
+        if now.saturating_duration_since(since) < CHARGER_STEADY {
+            return Ok(false);
+        }
+        let before = self.running(self.config).preset;
+        self.read_charger();
+        if self.running(self.config).preset != before {
+            self.send_if_changed(before)?;
+        }
+        Ok(true)
     }
 
     /// Reads the charger again on a poll, and sends the preset if a weak

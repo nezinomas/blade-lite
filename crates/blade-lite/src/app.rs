@@ -50,6 +50,11 @@ pub const SOURCE_LIGHTING_TRIES: u8 = 3;
 /// 246). A change inside it waits, so the last change still gets its send.
 pub const SOURCE_LIGHTING_SPACING: Duration = Duration::from_secs(10);
 
+/// How long the charger must stay after it came back before a preset not
+/// offered on battery runs again, so a bouncing plug can't send it at
+/// each event (ticket 263, user pick A). The step down stays instant.
+pub const CHARGER_STEADY: Duration = Duration::from_secs(10);
+
 /// What the window shows before the user sets the lighting.
 const DEFAULT_LIGHTING: Lighting = Lighting {
     brightness: 100,
@@ -116,10 +121,17 @@ enum Power {
     WeakCharger {
         full_once: bool,
     },
+    /// The full charger came back from the battery or a weak charge: the
+    /// battery presets run until it stayed [`CHARGER_STEADY`]. `since` is
+    /// the first tick that saw it, `None` until then.
+    ChargerBack {
+        since: Option<Instant>,
+    },
     Battery,
 }
 
 const WEAK: Power = Power::WeakCharger { full_once: false };
+const CHARGER_BACK: Power = Power::ChargerBack { since: None };
 
 impl Power {
     fn from_battery(on_battery: bool) -> Self {
@@ -130,13 +142,23 @@ impl Power {
         }
     }
 
-    /// After a poll's read: weak at once, full power only on the second
-    /// full power read in a row.
+    /// After a poll's read: weak at once, the full charger back only on the
+    /// second full power read in a row, and then only after its wait.
     fn after_poll(self, full: bool) -> Self {
         match (self, full) {
             (_, false) => WEAK,
             (Self::WeakCharger { full_once: false }, true) => Self::WeakCharger { full_once: true },
-            (_, true) => Self::Charger,
+            (Self::WeakCharger { full_once: true }, true) => CHARGER_BACK,
+            (_, true) => self,
+        }
+    }
+
+    /// The full charger read after an event: back from the battery presets
+    /// it waits (see [`Power::ChargerBack`]); a wait already begun goes on.
+    fn charger_came(self) -> Self {
+        match self {
+            Self::Charger | Self::ChargerBack { .. } => self,
+            Self::WeakCharger { .. } | Self::Battery => CHARGER_BACK,
         }
     }
 
@@ -779,12 +801,17 @@ where
     /// press (ticket 136): a weak or failed read counts at once, but a full
     /// read changes nothing, so only the polls, 1 s or more apart, take the
     /// full charger back (two full reads in a row). Two quick presses can't
-    /// count as those two reads. Not while a Razer updater holds the
-    /// controller: the read would fail and count as a weak charge, and
-    /// nothing is sent then; the start after the updater reads it.
+    /// count as those two reads. A full read ends the full charger's wait
+    /// (ticket 263): the user asked, so it is no bounce. Not while a Razer
+    /// updater holds the controller: the read would fail and count as a
+    /// weak charge, and nothing is sent then; the start after the updater
+    /// reads it.
     pub(super) fn read_charger_at_click(&mut self) {
         if !self.controller_held() {
-            self.read_charger_with(|power| power);
+            self.read_charger_with(|power| match power {
+                Power::ChargerBack { .. } => Power::Charger,
+                power => power,
+            });
         }
     }
 

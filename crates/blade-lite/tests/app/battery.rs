@@ -7,7 +7,7 @@ use ui::{DisplayCommand, PerformanceCommand};
 
 use crate::{
     LIMIT_OFF, LIMIT_ON, SET_CHARGE_LIMIT, WHITE, app, app_with, charge_limit, charge_limit_on,
-    panel_hz, performance_app, sent,
+    charger_steady, panel_hz, performance_app, sent,
 };
 
 /// Sets a fan's target speed.
@@ -28,6 +28,8 @@ fn on_battery_performance_runs_as_balanced_and_comes_back_on_ac() {
     assert_eq!(app.config().preset, Preset::Performance);
 
     app.on_power(PowerEvent::OnAc).unwrap();
+    assert_eq!(sent(&app), PerfMode::Balanced.commands(&BLADE_18).unwrap());
+    charger_steady(&mut app);
     let mut expected = PerfMode::Balanced.commands(&BLADE_18).unwrap();
     expected.extend(PerfMode::Performance.commands(&BLADE_18).unwrap());
     assert_eq!(sent(&app), expected);
@@ -214,6 +216,7 @@ fn an_ac_event_after_a_start_taken_as_battery_sends_the_saved_preset_once() {
     app.machine_mut().controller.inner.sent.clear();
 
     app.on_power(PowerEvent::OnAc).unwrap();
+    charger_steady(&mut app);
 
     assert_eq!(
         sent(&app),
@@ -622,9 +625,15 @@ fn a_custom_send_cut_before_the_fan_is_sent_whole_on_the_next_poll() {
     app.take_on_battery(Some(true));
     app.start().unwrap();
     app.machine_mut().controller.inner.sent.clear();
+    app.on_power(PowerEvent::OnAc).unwrap();
+    let now = std::time::Instant::now();
+    app.follow_charger_back(now).unwrap();
     // The mode write goes, the fan target does not.
     app.machine_mut().controller.inner.fails_after = Some(fan_at);
-    assert!(app.on_power(PowerEvent::OnAc).is_err());
+    assert!(
+        app.follow_charger_back(now + blade_lite::CHARGER_STEADY)
+            .is_err()
+    );
     assert!(sent(&app).iter().all(|c| c.id != SET_FAN));
     app.machine_mut().controller.inner.fails_after = None;
     app.machine_mut().controller.inner.sent.clear();

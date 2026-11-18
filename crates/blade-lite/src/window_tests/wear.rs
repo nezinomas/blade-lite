@@ -9,6 +9,7 @@ use std::time::{Duration, Instant, SystemTime};
 use blade_core::{Config, Lighting, Preset};
 use platform::PowerEvent;
 use razer_proto::{BLADE_18, Brightness, Command, Rgb};
+use ui::PerformanceCommand;
 
 use super::{FAKE_ON_BATTERY, FAKE_SCREEN_ON, Fixture, fixture};
 use crate::fakes::FakeCharger;
@@ -94,17 +95,35 @@ fn a_screen_off_and_on_sends_two_stored_levels() {
     assert_eq!(counts(&f), (2, 2));
 }
 
-/// Performance saved: Balanced at the pull (4 zones), the lighting once
-/// (keyboard and vapor levels stored, the effect and 7 rows not), then
-/// Performance at the plug (4 zones). The lighting waits 10 s for its next
-/// send (ticket 246); the mode writes have no spacing, so each bounce
-/// inside it adds 8 stored writes.
-#[test]
-fn a_bouncing_plug_sends_the_preset_at_each_event_and_the_lighting_spaced() {
-    let f = lit(Config {
+/// A tick each second for `secs`, from `from` seconds after `start`: the
+/// reads come when due.
+fn ticks(f: &Fixture, start: Instant, from: u64, secs: u64) {
+    for second in from..from + secs {
+        f.shell
+            .tick_at(start + Duration::from_secs(second), SystemTime::now());
+    }
+}
+
+/// The mode writes sent: 4 zones for each preset send.
+fn modes(f: &Fixture) -> usize {
+    sent(f).iter().filter(|c| c.id == 0x0D02).count()
+}
+
+fn performance() -> Fixture {
+    lit(Config {
         preset: Preset::Performance,
         ..Config::default()
-    });
+    })
+}
+
+/// Performance saved: Balanced at the pull (4 zones), the lighting once
+/// (keyboard and vapor levels stored, the effect and 7 rows not). The plug
+/// sends nothing at once: Performance waits for 10 s of steady charger
+/// (ticket 263, user pick A), so a bounce inside it sends no mode write,
+/// and the lighting waits its 10 s too (ticket 246).
+#[test]
+fn a_bouncing_plug_sends_the_battery_preset_once_and_no_performance() {
+    let f = performance();
     let power = listening(&f);
     let bounce = || {
         FAKE_ON_BATTERY.set(true);
@@ -114,40 +133,85 @@ fn a_bouncing_plug_sends_the_preset_at_each_event_and_the_lighting_spaced() {
     };
 
     bounce();
-    assert_eq!(counts(&f), (18, 10));
+    assert_eq!(counts(&f), (14, 6));
     bounce();
-    assert_eq!(counts(&f), (26, 18));
+    assert_eq!(counts(&f), (14, 6));
+}
+
+/// The plug's Performance comes once the charger stayed 10 s; a bounce
+/// starts the wait again, and its pull stays instant (Balanced already
+/// runs, so it sends nothing).
+#[test]
+fn performance_comes_after_ten_steady_seconds_of_charger() {
+    let f = performance();
+    let power = listening(&f);
+    let start = Instant::now();
+    ticks(&f, start, 0, 1);
+    FAKE_ON_BATTERY.set(true);
+    event(&f, &power, PowerEvent::OnBattery);
+    assert_eq!(modes(&f), 4);
+    assert_eq!(f.shell.app().running_preset(), Preset::Balanced);
+
+    FAKE_ON_BATTERY.set(false);
+    event(&f, &power, PowerEvent::OnAc);
+    ticks(&f, start, 1, 9);
+    assert_eq!(modes(&f), 4);
+    FAKE_ON_BATTERY.set(true);
+    event(&f, &power, PowerEvent::OnBattery);
+    FAKE_ON_BATTERY.set(false);
+    event(&f, &power, PowerEvent::OnAc);
+    ticks(&f, start, 10, 10);
+    assert_eq!(modes(&f), 4);
+    assert_eq!(f.shell.app().running_preset(), Preset::Balanced);
+
+    ticks(&f, start, 20, 1);
+    assert_eq!(modes(&f), 8);
+    assert_eq!(f.shell.app().running_preset(), Preset::Performance);
+}
+
+/// A click for Performance in the wait sends it at once: the user asked,
+/// so it is no bounce.
+#[test]
+fn a_click_in_the_wait_sends_performance_at_once() {
+    let f = performance();
+    let power = listening(&f);
+    let start = Instant::now();
+    ticks(&f, start, 0, 1);
+    FAKE_ON_BATTERY.set(true);
+    event(&f, &power, PowerEvent::OnBattery);
+    FAKE_ON_BATTERY.set(false);
+    event(&f, &power, PowerEvent::OnAc);
+    ticks(&f, start, 1, 2);
+
+    f.shell
+        .user_act(|app| app.on_performance(PerformanceCommand::SetPreset(Preset::Performance)));
+
+    assert_eq!(modes(&f), 8);
+    assert_eq!(f.shell.app().running_preset(), Preset::Performance);
 }
 
 /// A weak charger read and the full one back on the polls, Performance
-/// saved: the battery preset, then Performance, 4 zones each, with no
-/// power event. With no view open the charger is read with the heat, each
-/// 10 s.
+/// saved: the battery preset at once, with no power event; Performance
+/// only 10 s after the second full read in a row. With no view open the
+/// charger is read with the heat, each 10 s.
 #[test]
-fn a_charger_read_weak_then_full_sends_the_preset_each_time() {
-    let f = lit(Config {
-        preset: Preset::Performance,
-        ..Config::default()
-    });
+fn a_charger_read_weak_then_full_sends_performance_after_ten_steady_seconds() {
+    let f = performance();
     let start = Instant::now();
-    // A tick each second for `secs`, from `from`: the reads come when due.
-    let ticks = |from: u64, secs: u64| {
-        for second in from..from + secs {
-            f.shell
-                .tick_at(start + Duration::from_secs(second), SystemTime::now());
-        }
-    };
-    ticks(0, 1);
+    ticks(&f, start, 0, 1);
     forget_sent(&f);
 
     f.shell.app().machine_mut().controller.inner.charger = FakeCharger::UsbC;
-    ticks(1, 20);
-    let weak = sent(&f).iter().filter(|c| c.id == 0x0D02).count();
+    ticks(&f, start, 1, 20);
+    assert_eq!(modes(&f), 4);
     f.shell.app().machine_mut().controller.inner.charger = FakeCharger::Razer;
-    ticks(21, 20);
+    ticks(&f, start, 21, 20);
+    assert_eq!(modes(&f), 4);
+    assert_eq!(f.shell.app().running_preset(), Preset::Balanced);
 
-    let modes = sent(&f).iter().filter(|c| c.id == 0x0D02).count();
-    assert_eq!((weak, modes), (4, 8));
+    ticks(&f, start, 41, 11);
+    assert_eq!(modes(&f), 8);
+    assert_eq!(f.shell.app().running_preset(), Preset::Performance);
 }
 
 /// Fn + F11 held from the top down, at the laptop's steps (15 up to 225,
