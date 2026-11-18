@@ -127,17 +127,33 @@ fn set_and_read<C: Clock>(device: &mut Device<HidTransport, C>, vapor_on: bool) 
     let mut commands = brightness.commands(model);
     commands.push(model.vapor_light.unwrap().command(brightness, vapor_on));
 
-    // The old levels go back before any error is raised.
+    // From here on every step keeps its result: each old level is put back,
+    // even after a failed one, before any assert.
     let after = device
         .run(&commands)
         .map_err(|error| format!("{error:?}"))
         .and_then(|()| levels(device));
-    for (&led, &level) in LEDS.iter().zip(&before) {
-        device.send(SET_BRIGHTNESS, &[1, led, level]).unwrap();
-    }
-    let after = after.unwrap();
-    eprintln!("levels before {before:?}, at 50% with vapor {vapor_on}: {after:?}, restored");
-    after
+    let put_back: Vec<_> = LEDS
+        .iter()
+        .zip(&before)
+        .map(|(&led, &level)| {
+            device
+                .send(SET_BRIGHTNESS, &[1, led, level])
+                .map(|_| ())
+                .map_err(|error| error.to_string())
+        })
+        .collect();
+    let restored = levels(device);
+    eprintln!(
+        "levels before {before:?}, at 50% with vapor {vapor_on}: {after:?}, put back {put_back:?}, after {restored:?}"
+    );
+    // The lasting state first, so its error is never hidden.
+    assert!(
+        put_back.iter().all(Result::is_ok),
+        "check the keyboard and vapor light by hand"
+    );
+    assert_eq!(restored, Ok(before));
+    after.unwrap()
 }
 
 #[test]
@@ -229,34 +245,56 @@ fn each_preset_is_set_and_read_back_and_the_old_one_restored() {
     use razer_proto::PerfMode;
 
     let mut device = Device::new(open(), SystemClock);
+    require_full_power(&mut device);
     let before = preset_args(&mut device);
     // The put-back writes the replies as read.
     refuse_unknown_modes(&before);
 
-    let read_back: Vec<_> = [PerfMode::Silent, PerfMode::Balanced, PerfMode::Performance]
+    // Every command list is made before the first send.
+    let presets: Vec<_> = [PerfMode::Silent, PerfMode::Balanced, PerfMode::Performance]
         .into_iter()
-        .map(|preset| {
-            device
-                .run(&preset.commands(&razer_proto::BLADE_18).unwrap())
-                .unwrap();
-            let zones: Vec<_> = preset_args(&mut device)
+        .map(|preset| (preset, preset.commands(&razer_proto::BLADE_18).unwrap()))
+        .collect();
+
+    // From here on every step keeps its result, stops at the first error,
+    // and the old modes are put back before any assert.
+    let read_back: Result<Vec<_>, String> = presets
+        .iter()
+        .map(|(preset, commands)| {
+            device.run(commands).map_err(|error| error.to_string())?;
+            let zones: Vec<_> = try_preset_args(&mut device)?
                 .iter()
                 .zip(razer_proto::BLADE_18.perf_zones)
                 .map(|(args, &zone)| PerfMode::from_reply(&razer_proto::BLADE_18, zone, args))
                 .collect();
-            (preset, zones)
+            Ok((*preset, zones))
         })
         .collect();
 
-    for args in &before {
-        device.send(0x0D02, args).unwrap();
-    }
-    let after = preset_args(&mut device);
-    eprintln!("before {before:02X?}, read back {read_back:?}, after {after:02X?}");
-    for (preset, zones) in read_back {
+    // Every zone is tried, so a failed one does not keep the others on
+    // Performance.
+    let put_back: Vec<_> = before
+        .iter()
+        .map(|args| {
+            device
+                .send(0x0D02, args)
+                .map(|_| ())
+                .map_err(|error| error.to_string())
+        })
+        .collect();
+    let after = try_preset_args(&mut device);
+    eprintln!(
+        "before {before:02X?}, read back {read_back:?}, put back {put_back:?}, after {after:02X?}"
+    );
+    // The lasting state first, so its error is never hidden.
+    assert!(
+        put_back.iter().all(Result::is_ok),
+        "check the preset in the app"
+    );
+    assert_eq!(after, Ok(before));
+    for (preset, zones) in read_back.unwrap() {
         assert!(zones.iter().all(|zone| *zone == Some(preset)), "{preset:?}");
     }
-    assert_eq!(after, before);
 }
 
 /// Get a boost level. Args are `[1, cluster, 0]`, the reply args `[1, cluster, level]`.
@@ -284,6 +322,7 @@ fn custom_is_set_and_read_back_and_the_old_preset_restored() {
     use razer_proto::{BLADE_18, CpuBoost, Custom, FanMode, GpuBoost, Rpm};
 
     let mut device = Device::new(open(), SystemClock);
+    require_full_power(&mut device);
     let before = custom_state(&mut device);
     refuse_unknown_state(&before);
 
@@ -553,6 +592,7 @@ fn a_custom_mode_write_alone_and_what_the_fans_do() {
     use razer_proto::{BLADE_18, CpuBoost, Custom, FanMode, GpuBoost, Rpm};
 
     let mut device = Device::new(open(), SystemClock);
+    require_full_power(&mut device);
     let before = custom_state(&mut device);
     // The fans go to the target already set, and the put-back writes the
     // state as read: refuse one the model does not take.
@@ -781,6 +821,7 @@ fn custom_from_balanced_and_again_and_what_the_fans_do() {
     use razer_proto::{BLADE_18, CpuBoost, Custom, FanMode, GpuBoost, PerfMode, Rpm};
 
     let mut device = Device::new(open(), SystemClock);
+    require_full_power(&mut device);
     let before = custom_state(&mut device);
     refuse_unknown_state(&before);
     // A full Custom with a manual fan, as the app sends it on a click from
@@ -873,6 +914,7 @@ fn the_users_custom_with_and_without_the_app_reads() {
     use razer_proto::{BLADE_18, CpuBoost, Custom, FanMode, GpuBoost, PerfMode, Rpm};
 
     let mut device = Device::new(open(), SystemClock);
+    require_full_power(&mut device);
     let before = custom_state(&mut device);
     refuse_unknown_state(&before);
     // The user's saved Custom (ticket 173): both boosts at the top, 3600 RPM,
@@ -934,6 +976,7 @@ fn which_boost_holds_a_manual_fan_back() {
     use razer_proto::{BLADE_18, CpuBoost, Custom, FanMode, GpuBoost, Rpm};
 
     let mut device = Device::new(open(), SystemClock);
+    require_full_power(&mut device);
     let before = custom_state(&mut device);
     refuse_unknown_state(&before);
     // CPU boost, GPU boost, fan RPM (ticket 173: 3 and 3 held 3600 at 2900).
@@ -993,6 +1036,7 @@ fn what_frees_a_manual_fan_stalled_after_a_custom_from_auto() {
     use razer_proto::{BLADE_18, CpuBoost, Custom, FanMode, GpuBoost, PerfMode, Rpm};
 
     let mut device = Device::new(open(), SystemClock);
+    require_full_power(&mut device);
     let before = custom_state(&mut device);
     refuse_unknown_state(&before);
     // The user's Custom (ticket 173): from auto it stalls near 2900 RPM
@@ -1110,18 +1154,32 @@ fn fans_near(seen: &[LoadRead], rpm: u16) -> bool {
 }
 
 /// Whether the load test was asked for (`BLADE_LOAD_TEST=1`; it heats the
-/// CPU, so not in every `cargo hw`). Panics, sending nothing, if not on AC.
-fn load_test_asked_on_ac() -> bool {
+/// CPU, so not in every `cargo hw`).
+fn load_test_asked() -> bool {
     if std::env::var_os("BLADE_LOAD_TEST").is_none_or(|value| value != "1") {
         eprintln!("skipped: set BLADE_LOAD_TEST=1 to run it");
         return false;
     }
-    assert_eq!(
-        platform::on_battery(),
-        Some(false),
-        "not on AC (or unknown): not run"
-    );
     true
+}
+
+/// Refuses to run, sending nothing, unless the laptop is on AC and on the
+/// model's full power charger, as the app needs for Performance or a manual
+/// Custom fan. Call it before the first send of such a test.
+fn require_full_power<C: Clock>(device: &mut Device<HidTransport, C>) {
+    let full_power =
+        blade_core::full_power_charger(device, &razer_proto::BLADE_18).map_err(|e| e.to_string());
+    refuse_unless_full_power(platform::on_battery(), &full_power);
+}
+
+/// What [`require_full_power`] decides from the power source Windows reports
+/// and the charger read: both must be known and good.
+fn refuse_unless_full_power(on_battery: Option<bool>, full_power: &Result<Option<bool>, String>) {
+    assert_eq!(on_battery, Some(false), "not on AC (or unknown): not run");
+    assert!(
+        *full_power == Ok(Some(true)),
+        "charger read {full_power:?}: not the full power charger (or unknown): not run"
+    );
 }
 
 /// After the load: keeps the fans as they are until the CPU is under
@@ -1204,10 +1262,11 @@ impl Drop for Load {
 fn the_sleep_and_wake_sends_under_load() {
     use razer_proto::{BLADE_18, CpuBoost, Custom, FanMode, GpuBoost, PerfMode, Rpm};
 
-    if !load_test_asked_on_ac() {
+    if !load_test_asked() {
         return;
     }
     let mut device = Device::new(open(), SystemClock);
+    require_full_power(&mut device);
     let before = custom_state(&mut device);
     refuse_unknown_state(&before);
     // A stand-in for laptop check 34 (a lid close mid-game): the fan guard's
@@ -1355,12 +1414,8 @@ fn the_sleeps_quit_preset_leaves_the_fans_on_auto() {
     // 1600 RPM in a Start-menu sleep after Custom 3600 on AC. This sends
     // what the app sends around such a sleep, with no app and no real
     // sleep, and reads whether the fan byte is auto after it.
-    assert_eq!(
-        platform::on_battery(),
-        Some(false),
-        "not on AC (or unknown): not run"
-    );
     let mut device = Device::new(open(), SystemClock);
+    require_full_power(&mut device);
     let before = custom_state(&mut device);
     refuse_unknown_state(&before);
     let custom = |fan| Custom {
