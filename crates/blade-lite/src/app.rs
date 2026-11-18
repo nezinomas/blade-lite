@@ -967,15 +967,22 @@ where
     /// (user pick A, ticket 288); the saved fan is kept for its end.
     /// Nothing is sent here: if that changed what should run, the preset
     /// is marked unsure with all its resends, so a poll sends it after the
-    /// power events, and a start (a wake's or a pause's end) or a click
-    /// sends it first.
+    /// power events, and a start (a wake's or a pause's end) or a preset
+    /// click sends it first.
     pub fn set_razer_runs(&mut self, runs: bool) {
         let before = self.running(self.config);
-        self.razer = if runs { Razer::Runs } else { Razer::Absent };
+        self.take_razer_runs(runs);
         if self.running(self.config) != before {
             self.preset_unsure = true;
             self.resends_left = RESEND_TRIES;
         }
+    }
+
+    /// Takes whether Razer software runs without marking anything, for use
+    /// before [`start`](Self::start), whose send takes it: a start refused
+    /// before any send then leaves no unsure mark to resend all run.
+    pub fn take_razer_runs(&mut self, runs: bool) {
+        self.razer = if runs { Razer::Runs } else { Razer::Absent };
     }
 
     /// Brings the fan boost in line with the fan guard (ticket 129), on each

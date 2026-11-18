@@ -758,7 +758,7 @@ fn run(in_tray: bool) -> Result<(), Box<dyn std::error::Error>> {
     // a manual fan goes on auto while Razer software runs (ticket 288).
     let (updater, razer_runs) = razer_at_start();
     app.hold_controller(updater);
-    app.set_razer_runs(razer_runs);
+    app.take_razer_runs(razer_runs);
     // Once, before the first send, so the log has it.
     app.check_firmware();
     let firmware_unchecked = app.firmware_warning().is_some();

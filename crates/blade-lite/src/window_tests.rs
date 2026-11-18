@@ -292,7 +292,7 @@ pub fn fixture_with_programs(config: Config, programs: &[&str]) -> Fixture {
     // As the app's start looks before its first send (ticket 288).
     let look = FakePrograms::default();
     look.set(programs);
-    app.set_razer_runs(!razer_software(&look).unwrap().is_empty());
+    app.take_razer_runs(!razer_software(&look).unwrap().is_empty());
     let started = app.start();
     // Tests that tick with the real clock must not meet the start's fan
     // targets sent once more (ticket 173); its own tests start again.

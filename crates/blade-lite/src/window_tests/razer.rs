@@ -498,6 +498,9 @@ fn a_click_that_finds_razer_software_gone_sends_only_its_own_preset() {
 
     let bytes = fan_bytes_since(&f, before);
     assert!(all_auto(&bytes), "{bytes:?}");
+    let balanced = PerfMode::Balanced.commands(&BLADE_18).unwrap();
+    let modes = balanced.iter().filter(|c| c.id == 0x0D02).count();
+    assert_eq!(bytes.len(), modes, "only the click's own preset");
 }
 
 #[test]
