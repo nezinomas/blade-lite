@@ -9,7 +9,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use std::time::{Duration, Instant};
 
-use windows::Win32::Foundation::PROPERTYKEY;
+use windows::Win32::Foundation::{ERROR_NOT_FOUND, PROPERTYKEY};
 use windows::Win32::Media::Audio::Endpoints::{
     IAudioEndpointVolume, IAudioEndpointVolumeCallback, IAudioEndpointVolumeCallback_Impl,
 };
@@ -21,7 +21,7 @@ use windows::Win32::System::Com::{
     CLSCTX_ALL, COINIT_APARTMENTTHREADED, COINIT_DISABLE_OLE1DDE, CoCreateInstance, CoInitializeEx,
     CoUninitialize,
 };
-use windows::core::{PCWSTR, implement};
+use windows::core::{HRESULT, PCWSTR, implement};
 
 /// Mutes the default mic if it is not muted, or the other way round.
 /// Returns whether it is muted after, read back, or the state set if the
@@ -73,8 +73,24 @@ fn endpoint_volume_from(
     // SAFETY: plain COM calls on a live enumerator; each object is
     // released when dropped.
     unsafe {
-        let mic = devices.GetDefaultAudioEndpoint(eCapture, eConsole)?;
+        let mic = devices
+            .GetDefaultAudioEndpoint(eCapture, eConsole)
+            .map_err(default_mic_error)?;
         mic.Activate(CLSCTX_ALL, None)
+    }
+}
+
+/// Says so when Windows has no default mic: `E_NOTFOUND`, "no device is
+/// available" (`IMMDeviceEnumerator::GetDefaultAudioEndpoint`), as when
+/// every input is turned off in Windows Sound (ticket 283).
+fn default_mic_error(error: windows::core::Error) -> windows::core::Error {
+    if error.code() == HRESULT::from_win32(ERROR_NOT_FOUND.0) {
+        windows::core::Error::new(
+            error.code(),
+            "no mic is turned on in Windows (Settings, Sound, Input)",
+        )
+    } else {
+        error
     }
 }
 
@@ -376,6 +392,7 @@ fn mic_error(error: &windows::core::Error) -> io::Error {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use windows::Win32::Foundation::E_ACCESSDENIED;
     use windows::Win32::Media::Audio::{eCommunications, eRender};
 
     #[test]
@@ -438,6 +455,23 @@ mod tests {
         assert!(recheck_due(None, now));
         assert!(!recheck_due(Some(now), now + MIC_RECHECK / 2));
         assert!(recheck_due(Some(now), now + MIC_RECHECK));
+    }
+
+    #[test]
+    fn no_default_mic_says_that_no_mic_is_on() {
+        let not_found = windows::core::Error::from_hresult(HRESULT::from_win32(ERROR_NOT_FOUND.0));
+
+        let said = mic_error(&default_mic_error(not_found)).to_string();
+
+        assert!(said.contains("no mic is turned on in Windows"), "{said}");
+        assert!(said.contains("0x80070490"), "{said}");
+    }
+
+    #[test]
+    fn another_default_mic_error_is_kept() {
+        let denied = windows::core::Error::from_hresult(E_ACCESSDENIED);
+
+        assert_eq!(default_mic_error(denied.clone()), denied);
     }
 
     #[test]
