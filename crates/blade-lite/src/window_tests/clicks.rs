@@ -2486,7 +2486,7 @@ fn a_short_peak_shows_no_heat_popup_and_sends_nothing() {
 
     for second in 0..ui::HEAT_HOLD.as_secs() {
         f.shell
-            .watch_heat(None, Some(99), start + Duration::from_secs(second));
+            .watch_heat(Some(60), Some(99), start + Duration::from_secs(second));
     }
 
     assert_eq!(f.shell.popup().get_mode(), "");
