@@ -4127,6 +4127,7 @@ dependencies = [
 name = "razer-device"
 version = "0.2.0"
 dependencies = [
+ "blade-core",
  "platform",
  "proptest",
  "razer-proto",
