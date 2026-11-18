@@ -62,6 +62,29 @@ const DEFAULT_LIGHTING: Lighting = Lighting {
     vapor_light: true,
 };
 
+/// One of the two keyboard level slots the controller keeps, one per power
+/// source (ticket 243).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Slot {
+    Ac,
+    Battery,
+}
+
+impl Slot {
+    fn of(on_battery: bool) -> Self {
+        if on_battery { Self::Battery } else { Self::Ac }
+    }
+}
+
+/// Whether the put-back may guess the other slot's level from a 0 read
+/// (ticket 247).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SlotGuess {
+    Allowed,
+    /// As while Razer's software runs: its own lighting may read 0.
+    Refused,
+}
+
 /// Whether the fan guard's own full-speed send reached the controller
 /// (ticket 163).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -266,6 +289,17 @@ pub struct App<C, D, R, K> {
     /// next swap into it (ticket 245). The controller keeps one level per
     /// power source (ticket 243).
     left_dark: Option<(bool, Brightness)>,
+    /// The slot the last known source read or event put in use, kept
+    /// across unknown reads, so a known one after them that differs still
+    /// follows the slots (ticket 247). `None` until the first known one:
+    /// a first read is no swap.
+    slot: Option<Slot>,
+    /// The slot the keys in `dark_keys` were made dark in. `None` if the
+    /// source was unknown then: the controller may have swapped unseen.
+    dark_slot: Option<Slot>,
+    /// Whether the put-back may guess the other slot's level from a 0
+    /// read. Refused, the level stays kept for the next swap into its slot.
+    slot_guess: SlotGuess,
 }
 
 impl<C, D, R, K> App<C, D, R, K>
@@ -321,6 +355,9 @@ where
             source_lighting_due: None,
             source_lighting_sent: None,
             left_dark: None,
+            slot: None,
+            dark_slot: None,
+            slot_guess: SlotGuess::Allowed,
         }
     }
 
@@ -363,28 +400,57 @@ where
     /// Takes the power source without sending, for use before
     /// [`start`](Self::start), so a start on battery sends the battery
     /// preset, not the saved one. `None` (unknown) counts as battery. A
-    /// known change from a known source follows the key slots too.
+    /// known read that differs from the last known one follows the key
+    /// slots too, also across unknown reads (ticket 247).
     pub fn take_on_battery(&mut self, on_battery: Option<bool>) {
         if on_battery.is_none() && self.source_known {
             report("the battery presets run");
         }
-        let swapped = self.source_known && on_battery.is_some_and(|now| now != self.on_battery());
         self.power = Power::from_battery(on_battery.unwrap_or(true));
         self.source_known = on_battery.is_some();
-        // A swap may go unseen now: a kept level could be stale later.
-        if on_battery.is_none() {
-            self.left_dark = None;
-        }
-        if swapped {
-            self.follow_dark_slots();
+        if let Some(on_battery) = on_battery {
+            self.note_slot(on_battery);
         }
     }
 
+    /// Whether the power source was known at the last read or event.
+    #[must_use]
+    pub fn source_known(&self) -> bool {
+        self.source_known
+    }
+
     /// Notes a known read that matches the source the app follows, so a
-    /// wake after it follows the rate again. Nothing is sent.
+    /// wake after it follows the rate again. After unknown reads it may
+    /// still differ from the last known one: the key slots follow, and
+    /// with the lighting saved its send is due (ticket 247). Nothing is
+    /// sent. A read in a pause after a wake only moves the bookkeeping
+    /// early: the shell neither looks at the screen nor sends the due
+    /// lighting then, and the pause's end sends all settings.
     pub fn source_read(&mut self, on_battery: bool) {
         if on_battery == self.on_battery() {
             self.source_known = true;
+            self.note_slot_with_lighting(on_battery);
+        }
+    }
+
+    /// Notes the slot a known source read or event puts in use, and
+    /// follows the key slots if it differs from the last known one.
+    /// Returns whether it did.
+    fn note_slot(&mut self, on_battery: bool) -> bool {
+        let slot = Slot::of(on_battery);
+        let swapped = self.slot.is_some_and(|last| last != slot);
+        self.slot = Some(slot);
+        if swapped {
+            self.follow_dark_slots();
+        }
+        swapped
+    }
+
+    /// As [`Self::note_slot`], and with the lighting saved a swap makes its
+    /// send due (ticket 244).
+    fn note_slot_with_lighting(&mut self, on_battery: bool) {
+        if self.note_slot(on_battery) && self.config.lighting.is_some() {
+            self.source_lighting_due = Some(SOURCE_LIGHTING_TRIES);
         }
     }
 

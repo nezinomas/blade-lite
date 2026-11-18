@@ -604,10 +604,13 @@ impl<P: Parts> Shell<P> {
         // First, so a new handle's pause holds this click or poll too.
         self.follow_reopen();
         let power = self.power.borrow().clone();
-        if let Some(power) = power
-            && !self.follow_power(&power)
-        {
-            self.follow_source();
+        if let Some(power) = power {
+            let more = self.follow_power(&power);
+            // An event dropped in a pause does not come again, so a source
+            // read unknown at its end is read on each poll (ticket 247).
+            if !more || !self.app.borrow().source_known() {
+                self.follow_source();
+            }
         }
         self.follow_source_lighting();
         self.follow_screen();
@@ -670,7 +673,10 @@ impl<P: Parts> Shell<P> {
     }
 
     /// Passes on a change of the power source read now as its event, for
-    /// when no power events come. An unknown read changes nothing, so a
+    /// when no power events come or the source was read unknown: a known
+    /// read that differs then sends what its event would, such as the AC
+    /// preset. In a pause its event is dropped, and the pause's end takes
+    /// the source. An unknown read changes nothing, so a
     /// read that flickers to unknown does not switch the preset back and
     /// forth. A wake is not seen then.
     pub(super) fn follow_source(self: &Rc<Self>) {
@@ -748,9 +754,7 @@ impl<P: Parts> Shell<P> {
             return;
         };
         // Its own lighting may read 0: no guess at the app's dark then.
-        if razer_runs {
-            app.forget_dark_slot();
-        }
+        app.refuse_slot_guess(razer_runs);
         // Keys that follow no screen state yet (after a start, a wake or a
         // charger change) get their tries again.
         if !app.screen_followed(true) && !app.screen_followed(false) {

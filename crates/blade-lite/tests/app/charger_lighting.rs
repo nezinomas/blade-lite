@@ -346,6 +346,24 @@ fn a_charger_found_gone_before_a_sleep_keeps_the_ac_slot_level() {
 }
 
 #[test]
+fn a_charger_found_gone_before_a_sleep_files_the_ac_level_under_the_ac_slot() {
+    // With the guess refused, only the slot bookkeeping puts it back.
+    let (mut app, _dir, _) = app();
+    lit_at(&mut app, 255);
+    app.follow_screen(true).unwrap();
+    app.battery_at_quit();
+    app.refuse_slot_guess(true);
+    app.follow_screen(false).unwrap();
+    lit_at(&mut app, 0);
+    forget_sent(&mut app);
+
+    power(&mut app, PowerEvent::OnAc);
+    app.follow_screen(false).unwrap();
+
+    assert_eq!(sent(&app), level(100));
+}
+
+#[test]
 fn a_quit_before_a_late_swap_puts_the_dark_slots_level_back() {
     // Windows says battery, but the controller still runs the AC slot.
     let (mut app, _dir, _) = app();
@@ -417,18 +435,96 @@ fn a_saved_lighting_drops_the_other_slots_guess() {
 }
 
 #[test]
-fn razer_software_drops_the_other_slots_guess() {
+fn razer_software_refuses_the_other_slots_guess() {
     let (mut app, _dir, _) = app();
     lit_at(&mut app, 255);
     app.follow_screen(true).unwrap();
     app.battery_at_quit();
-    app.forget_dark_slot();
+    app.refuse_slot_guess(true);
     lit_at(&mut app, 0);
     forget_sent(&mut app);
 
     app.keys_back_on().unwrap();
 
     assert_eq!(sent(&app), []);
+}
+
+#[test]
+fn a_guess_allowed_again_after_razer_software_puts_the_level_back() {
+    let (mut app, _dir, _) = app();
+    lit_at(&mut app, 255);
+    app.follow_screen(true).unwrap();
+    app.battery_at_quit();
+    app.refuse_slot_guess(true);
+    lit_at(&mut app, 0);
+    app.keys_back_on().unwrap();
+    forget_sent(&mut app);
+
+    app.refuse_slot_guess(false);
+    app.keys_back_on().unwrap();
+
+    assert_eq!(sent(&app), level(100));
+}
+
+#[test]
+fn keys_made_dark_while_the_source_is_unknown_stay_for_the_slot_in_use() {
+    // The controller may have swapped unseen before the dark: at the
+    // known read, the level is not filed under the other slot.
+    let (mut app, _dir, _) = app();
+    app.take_on_battery(None);
+    lit_at(&mut app, 102);
+    app.follow_screen(true).unwrap();
+    app.refuse_slot_guess(true);
+
+    app.source_read(true);
+    forget_sent(&mut app);
+    app.follow_screen(false).unwrap();
+
+    assert_eq!(sent(&app), level(40));
+}
+
+#[test]
+fn a_dark_made_while_unknown_with_a_level_kept_for_the_new_slot_loses_neither() {
+    // The AC slot holds the app's 0 from before the pull; the battery
+    // slot is made dark while the source reads unknown.
+    let (mut app, _dir, _) = app();
+    lit_at(&mut app, 255);
+    app.follow_screen(true).unwrap();
+    lit_at(&mut app, 102);
+    power(&mut app, PowerEvent::OnBattery);
+    app.follow_screen(false).unwrap();
+    app.take_on_battery(None);
+    app.follow_screen(true).unwrap();
+    lit_at(&mut app, 0);
+    app.take_on_battery(Some(false));
+    forget_sent(&mut app);
+
+    app.follow_screen(false).unwrap();
+    assert_eq!(sent(&app), level(100));
+    forget_sent(&mut app);
+    power(&mut app, PowerEvent::OnBattery);
+    app.follow_screen(false).unwrap();
+
+    assert_eq!(sent(&app), level(40));
+}
+
+#[test]
+fn a_guess_refused_for_razer_software_keeps_the_level_for_the_swap() {
+    // Ticket 247 (round 5): the AC slot gets its level back at the plug.
+    let (mut app, _dir, _) = app();
+    lit_at(&mut app, 255);
+    app.follow_screen(true).unwrap();
+    power(&mut app, PowerEvent::OnBattery);
+    app.refuse_slot_guess(true);
+    lit_at(&mut app, 0);
+    app.follow_screen(false).unwrap();
+    assert_eq!(sent(&app), level(0));
+    forget_sent(&mut app);
+
+    power(&mut app, PowerEvent::OnAc);
+    app.follow_screen(false).unwrap();
+
+    assert_eq!(sent(&app), level(100));
 }
 
 #[test]
@@ -458,7 +554,8 @@ fn an_unknown_source_read_follows_no_slot() {
 }
 
 #[test]
-fn an_unknown_source_read_drops_a_kept_slot_level() {
+fn an_unknown_source_read_keeps_a_kept_slot_level() {
+    // The swap back to AC is seen across the unknown read (ticket 247).
     let (mut app, _dir, _) = app();
     lit_at(&mut app, 255);
     app.follow_screen(true).unwrap();
@@ -470,7 +567,86 @@ fn an_unknown_source_read_drops_a_kept_slot_level() {
 
     app.follow_screen(false).unwrap();
 
+    assert_eq!(sent(&app), level(100));
+}
+
+#[test]
+fn a_charger_pulled_in_a_sleep_whose_wake_reads_unknown_keeps_each_slots_level() {
+    // Ticket 247: screen off on AC, the pull in the sleep, the wake reads
+    // unknown, then battery. The battery slot keeps its own level, and
+    // the AC slot gets its level back at the plug.
+    let (mut app, _dir, _) = app();
+    lit_at(&mut app, 255);
+    app.follow_screen(true).unwrap();
+    app.take_on_battery(None);
+    app.take_on_battery(Some(true));
+    lit_at(&mut app, 102);
+    forget_sent(&mut app);
+    app.follow_screen(false).unwrap();
     assert_eq!(sent(&app), []);
+    lit_at(&mut app, 0);
+
+    power(&mut app, PowerEvent::OnAc);
+    app.follow_screen(false).unwrap();
+
+    assert_eq!(sent(&app), level(100));
+}
+
+#[test]
+fn a_first_known_read_after_a_start_on_an_unknown_source_is_no_swap() {
+    // The start's slot is not known, so the kept level is the slot's own.
+    let (mut app, _dir, _) = crate::fakes::app_unread(&BLADE_18, Config::default());
+    app.take_on_battery(None);
+    lit_at(&mut app, 255);
+    app.follow_screen(true).unwrap();
+    forget_sent(&mut app);
+
+    app.source_read(true);
+    app.follow_screen(false).unwrap();
+
+    assert_eq!(sent(&app), level(100));
+}
+
+#[test]
+fn a_quit_read_as_battery_after_an_unknown_one_follows_the_slots() {
+    // The battery slot gets no AC level; it is kept for the AC slot.
+    let (mut app, _dir, _) = app();
+    lit_at(&mut app, 255);
+    app.follow_screen(true).unwrap();
+    app.take_on_battery(None);
+    app.battery_at_quit();
+    lit_at(&mut app, 102);
+    forget_sent(&mut app);
+
+    app.keys_back_on().unwrap();
+    assert_eq!(sent(&app), []);
+    lit_at(&mut app, 0);
+    app.keys_back_on().unwrap();
+
+    assert_eq!(sent(&app), level(100));
+}
+
+#[test]
+fn a_known_read_after_an_unknown_one_that_differs_sends_the_lighting() {
+    // The unknown read runs the battery presets, so the shell notes the
+    // battery read with no power event.
+    let (mut app, _dir, _) = lit_app();
+    app.take_on_battery(None);
+
+    app.source_read(true);
+    app.send_source_lighting(later());
+
+    assert_eq!(sent(&app), lighting_commands(30, WHITE));
+}
+
+#[test]
+fn a_charger_event_after_an_unknown_read_that_differs_sends_the_lighting() {
+    let (mut app, _dir, _) = lit_app();
+    app.take_on_battery(None);
+
+    power(&mut app, PowerEvent::OnBattery);
+
+    assert_eq!(sent(&app), lighting_commands(30, WHITE));
 }
 
 #[test]
