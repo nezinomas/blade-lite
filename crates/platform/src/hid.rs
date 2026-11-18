@@ -259,7 +259,12 @@ impl HidDevice {
                 &raw mut overlapped,
             )
         };
-        feature_sent(finish(&self.handle, ok != 0, &overlapped, FEATURE_WAIT)?)
+        feature_sent(finish(
+            &self.handle,
+            ok != 0,
+            &raw mut overlapped,
+            FEATURE_WAIT,
+        )?)
     }
 
     /// Reads a feature report into `buffer`, whose first byte is the
@@ -289,7 +294,12 @@ impl HidDevice {
                 &raw mut overlapped,
             )
         };
-        let read = feature_count(finish(&self.handle, ok != 0, &overlapped, FEATURE_WAIT)?)?;
+        let read = feature_count(finish(
+            &self.handle,
+            ok != 0,
+            &raw mut overlapped,
+            FEATURE_WAIT,
+        )?)?;
         let read = usize::try_from(read).map_err(io::Error::other)?;
         Ok(if buffer.first() == Some(&0) {
             read + 1
@@ -322,7 +332,7 @@ impl HidDevice {
                 &raw mut overlapped,
             )
         };
-        let Some(read) = finish(&self.handle, ok != 0, &overlapped, wait)? else {
+        let Some(read) = finish(&self.handle, ok != 0, &raw mut overlapped, wait)? else {
             return Ok(0);
         };
         let read = usize::try_from(read).map_err(io::Error::other)?;
@@ -349,11 +359,13 @@ impl HidDevice {
 
 /// Waits up to `wait` for a request on `handle` to end and gives its byte
 /// count. A request still running then is cancelled and waited for, and
-/// gives `None` unless it ended first.
+/// gives `None` unless it ended first. `overlapped` is a raw pointer from
+/// `&raw mut`, the one the request got: Windows writes it while the
+/// request runs, which a shared reference would forbid (ticket 271).
 fn finish(
     handle: &Handle,
     started: bool,
-    overlapped: &OVERLAPPED,
+    overlapped: *const OVERLAPPED,
     wait: Duration,
 ) -> io::Result<Option<u32>> {
     if !started {
@@ -366,8 +378,8 @@ fn finish(
     // u32::MAX is no limit: the longest real wait is one less.
     let millis =
         u32::try_from(wait.as_millis()).map_or(u32::MAX - 1, |millis| millis.min(u32::MAX - 1));
-    // SAFETY: the overlapped is the running request's; Windows writes
-    // only the count.
+    // SAFETY: the overlapped is the running request's and outlives it;
+    // no reference to it is alive.
     if unsafe { GetOverlappedResultEx(handle.0, overlapped, &raw mut count, millis, 0) } != 0 {
         return Ok(Some(count));
     }
@@ -387,7 +399,7 @@ fn finish(
 /// Cancels a running request and waits for it to end: its count if it
 /// ended first, else `None`. The wait has no limit: the request's buffer
 /// must not be freed while Windows still uses it (ticket 201).
-fn cancel(handle: &Handle, overlapped: &OVERLAPPED) -> io::Result<Option<u32>> {
+fn cancel(handle: &Handle, overlapped: *const OVERLAPPED) -> io::Result<Option<u32>> {
     let mut count = 0;
     // SAFETY: the overlapped is the running request's. The wait holds
     // until Windows is done with the request's buffer.
@@ -598,7 +610,7 @@ mod tests {
                 &raw mut overlapped,
             )
         };
-        finish(handle, ok != 0, &overlapped, wait)
+        finish(handle, ok != 0, &raw mut overlapped, wait)
     }
 
     #[test]
@@ -643,7 +655,13 @@ mod tests {
                 &raw mut overlapped,
             )
         };
-        let sent = finish(&client, ok != 0, &overlapped, Duration::from_millis(200)).unwrap();
+        let sent = finish(
+            &client,
+            ok != 0,
+            &raw mut overlapped,
+            Duration::from_millis(200),
+        )
+        .unwrap();
         assert_eq!(sent, None);
         let took = started.elapsed();
         assert!(took >= Duration::from_millis(150), "{took:?}");
