@@ -190,9 +190,15 @@ impl Query for FakeController {
 }
 
 /// The panel at 3840 × 2400, 60 to 240 Hz, and how many of the next sets
-/// fail (Windows refuses one just after a wake), and the mode Windows has
-/// saved.
-pub struct FakeDisplays(pub Display, pub usize, pub Option<DisplayMode>);
+/// fail (Windows refuses one just after a wake), the mode Windows has
+/// saved, and a config file whose save a refused set breaks (a second
+/// failure in the same click).
+pub struct FakeDisplays(
+    pub Display,
+    pub usize,
+    pub Option<DisplayMode>,
+    pub Option<std::path::PathBuf>,
+);
 
 impl Default for FakeDisplays {
     fn default() -> Self {
@@ -210,6 +216,7 @@ impl Default for FakeDisplays {
             },
             0,
             None,
+            None,
         )
     }
 }
@@ -226,6 +233,12 @@ impl DisplayApi for FakeDisplays {
     fn set_mode(&mut self, _name: &str, mode: DisplayMode, _life: ModeLife) -> io::Result<()> {
         if self.1 > 0 {
             self.1 -= 1;
+            // A folder where the save writes its temporary file.
+            if let Some(config) = self.3.take() {
+                let mut temp = config.into_os_string();
+                temp.push(".tmp");
+                std::fs::create_dir(temp).unwrap();
+            }
             return Err(io::ErrorKind::Other.into());
         }
         self.0.current = mode;

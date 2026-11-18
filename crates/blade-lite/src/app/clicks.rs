@@ -250,8 +250,9 @@ where
     }
 
     /// Saves the switch and acts on it at once. If 60 Hz can't be set on
-    /// battery, the old value is saved again, so the rates don't lock while
-    /// the panel runs another rate.
+    /// battery, the old value is put back and saved again, so the rates
+    /// don't lock while the panel runs another rate; a failed save of it
+    /// is logged.
     pub(super) fn set_sixty_hz_on_battery(&mut self, on: bool) -> Result<(), AppError> {
         let old = self.config;
         if on == old.sixty_hz_on_battery {
@@ -269,9 +270,15 @@ where
             return self.follow_power(PowerEvent::OnAc);
         }
         let dropped = self.follow_power(PowerEvent::OnBattery);
-        if dropped.is_err() {
-            // The rate error is the one to show, even if this save fails too.
-            let _ = self.commit(old);
+        // The rate error is the one shown. The switch is off in memory
+        // whatever the save does, so the rates don't lock; a failed save
+        // leaves it on in the file until the next save (ticket 260).
+        if dropped.is_err()
+            && let Err(error) = self.keep_sent(old)
+        {
+            report(&format!(
+                "the 60 Hz on battery switch is off again, but could not be saved: {error}"
+            ));
         }
         dropped
     }
