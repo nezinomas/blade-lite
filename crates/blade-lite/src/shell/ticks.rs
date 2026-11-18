@@ -135,6 +135,10 @@ impl<P: Parts> Shell<P> {
         if self.resuming.get() == 0 && self.schedule.borrow_mut().poll_due(now) {
             self.tick_readings(now);
             self.after_reads();
+            // After an open again's pause began, if one did.
+            if self.resuming.get() == 0 {
+                self.follow_displays();
+            }
         } else if self.resuming.get() == 0
             && self
                 .schedule
@@ -487,9 +491,9 @@ impl<P: Parts> Shell<P> {
     /// the first AC, again: Windows can refuse a set just after a wake, and
     /// a refused one would leave the panel at the wrong rate. Only the last
     /// failed try is shown, so a quiet try does not clear the other errors
-    /// or read the controller. When the tries end, the window's rate buttons
-    /// show the panel's rate (one display view, so one native mode read);
-    /// the flyout is filled when it opens. A native mode the model lacks
+    /// or read the controller. When the tries end, the window's and the
+    /// flyout's display groups show the panel's rate (one display view, so
+    /// one native mode read). A native mode the model lacks
     /// shows none chosen; its error is logged, and shown at the next fill.
     fn retry_battery_rate(self: &Rc<Self>) {
         let tried = self.app.borrow_mut().retry_battery_rate();
@@ -515,14 +519,41 @@ impl<P: Parts> Shell<P> {
         self.show_rate();
     }
 
-    /// Fills the window's rate buttons with the panel's rate.
+    /// Fills the window's and the flyout's display groups again.
     fn show_rate(&self) {
         let mut app = self.app.borrow_mut();
         let mut errors = Vec::new();
         if let Some(view) = self.display_view(&mut app, &mut errors) {
-            bind::display(&self.window, &view);
+            self.show_display(view);
         }
         self.say_read_errors(&errors);
+    }
+
+    /// Shows `view` in the window's and the flyout's display groups, and
+    /// keeps it for [`Self::follow_displays`].
+    pub(super) fn show_display(&self, view: DisplayView) {
+        bind::display(&self.window, &view);
+        bind::flyout_display(&self.flyout, &view);
+        self.display_shown.replace(Some(view));
+    }
+
+    /// Shows the display view again if Windows' displays changed it since
+    /// it was last shown, such as at a switch between NVIDIA-only and
+    /// Optimus mode, which brings no click (ticket 287). The app takes no
+    /// display change notice, so each poll (only while a view can be seen)
+    /// reads Windows' display list. Only Windows is read: the native mode is
+    /// the one last read or set, and only the display groups are filled, so
+    /// errors shown stay. A failed Windows read shows nothing new; the next
+    /// fill shows its error. A fill whose native mode read failed keeps its
+    /// old view but forgets the mode, so the next poll shows none chosen
+    /// ("Unknown"; a click on a mode still sends it).
+    fn follow_displays(&self) {
+        let Ok(view) = self.app.borrow().display_view_unread() else {
+            return;
+        };
+        if self.display_shown.borrow().as_ref() != Some(&view) {
+            self.show_display(view);
+        }
     }
 
     /// Paints the touchpad key again if Num Lock changed since the last look.
