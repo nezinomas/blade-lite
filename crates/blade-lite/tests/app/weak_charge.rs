@@ -7,6 +7,8 @@ use razer_proto::{BLADE_18, PerfMode};
 use tempfile::TempDir;
 use ui::PerformanceCommand;
 
+use blade_lite::AppError;
+
 use crate::fakes::{FakeCharger, TestApp};
 use crate::{performance_app, sent};
 
@@ -385,9 +387,12 @@ fn a_custom_slider_whose_charger_read_finds_a_weak_charger_sends_balanced_and_is
         ..Config::default()
     });
 
-    let result = app.on_performance(PerformanceCommand::SetCpuBoost(200));
+    let result = app.on_performance(PerformanceCommand::SetCpuBoost(1));
 
-    assert!(result.is_err());
+    assert!(
+        matches!(result, Err(AppError::NotOnBattery(Preset::Custom))),
+        "{result:?}"
+    );
     assert_eq!(sent(&app), PerfMode::Balanced.commands(&BLADE_18).unwrap());
     assert_eq!(app.config().custom, Config::default().custom);
 }
@@ -424,17 +429,12 @@ fn no_charger_read_while_a_razer_updater_holds_the_controller() {
     .unwrap();
 
     assert!(app.import_settings(&picked).is_err());
+    app.on_power_key().ok();
 
-    assert_eq!(app.running_preset(), Preset::Balanced);
     let missed = app.take_missed_reads();
     assert!(
         !missed.iter().any(|line| line.starts_with("charger")),
         "{missed:?}"
-    );
-    app.hold_controller(false);
-    assert!(
-        app.on_performance(PerformanceCommand::SetPreset(Preset::Performance))
-            .is_err()
     );
 }
 

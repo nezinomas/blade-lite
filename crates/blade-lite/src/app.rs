@@ -772,17 +772,19 @@ where
     /// press (ticket 136): a weak or failed read counts at once, but a full
     /// read changes nothing, so only the polls, 1 s or more apart, take the
     /// full charger back (two full reads in a row). Two quick presses can't
-    /// count as those two reads.
+    /// count as those two reads. Not while a Razer updater holds the
+    /// controller: the read would fail and count as a weak charge, and
+    /// nothing is sent then; the start after the updater reads it.
     pub(super) fn read_charger_at_click(&mut self) {
-        self.read_charger_with(|power| power);
+        if !self.controller_held() {
+            self.read_charger_with(|power| power);
+        }
     }
 
     /// Reads the charger as at a click before a send of `preset`, if it
     /// is not offered on battery (tickets 136, 257): a charger swap gives
-    /// no power event, and the last poll may be 10 s old. Not while a Razer
-    /// updater holds the controller: the read would fail and count as a
-    /// weak charge, and nothing is sent then. Returns the preset that ran
-    /// before the read, if it read.
+    /// no power event, and the last poll may be 10 s old. Returns the
+    /// preset that ran before the read, if it read.
     pub(super) fn read_charger_before(&mut self, preset: Preset) -> Option<Preset> {
         if preset.offered_on_battery(self.model) || self.controller_held() {
             return None;
