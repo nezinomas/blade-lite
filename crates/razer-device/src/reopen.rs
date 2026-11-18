@@ -23,7 +23,9 @@ const DEAD_HANDLE_GAPS: u32 = 6;
 /// open again.
 const OPENS_BEFORE_SLOW: usize = 3;
 const OPENS_WINDOW: Duration = Duration::from_hours(1);
-const SLOW_GAP: Duration = Duration::from_mins(5);
+/// Short, as nothing is sent while it waits: no fan guard full speed and
+/// no sleep preset (user pick, 2026-11-18).
+const SLOW_GAP: Duration = Duration::from_mins(1);
 
 /// The controller, opened again after a HID error. Any error but a short
 /// feature report drops the handle, a timed-out read too (so a stalled
@@ -40,7 +42,7 @@ const SLOW_GAP: Duration = Duration::from_mins(5);
 /// An open is not tried sooner than `gap` after the last one, whether it
 /// worked or not, as each open lists every HID device; after a handle that
 /// died before any reply was read on it, not sooner than 6 gaps; after 3
-/// opens that gave a handle in an hour, not sooner than 5 minutes.
+/// opens that gave a handle in an hour, not sooner than a minute.
 pub struct Reopening<T, O> {
     transport: Option<T>,
     open: O,
