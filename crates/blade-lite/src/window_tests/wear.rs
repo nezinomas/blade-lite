@@ -169,10 +169,11 @@ fn performance_comes_after_ten_steady_seconds_of_charger() {
     assert_eq!(f.shell.app().running_preset(), Preset::Performance);
 }
 
-/// A click for Performance in the wait sends it at once: the user asked,
-/// so it is no bounce.
+/// In the wait the battery presets run, as on a weak charge: Performance
+/// shows greyed, and a click for it (as from the power key's path) is
+/// refused and sends nothing.
 #[test]
-fn a_click_in_the_wait_sends_performance_at_once() {
+fn performance_is_greyed_and_refused_in_the_wait() {
     let f = performance();
     let power = listening(&f);
     let start = Instant::now();
@@ -183,11 +184,17 @@ fn a_click_in_the_wait_sends_performance_at_once() {
     event(&f, &power, PowerEvent::OnAc);
     ticks(&f, start, 1, 2);
 
+    let view = f.shell.app().performance_view();
+    let tile = view
+        .presets
+        .iter()
+        .find(|option| option.preset == Preset::Performance);
+    assert!(!tile.unwrap().enabled);
     f.shell
         .user_act(|app| app.on_performance(PerformanceCommand::SetPreset(Preset::Performance)));
 
-    assert_eq!(modes(&f), 8);
-    assert_eq!(f.shell.app().running_preset(), Preset::Performance);
+    assert_eq!(modes(&f), 4);
+    assert_eq!(f.shell.app().running_preset(), Preset::Balanced);
 }
 
 /// A weak charger read and the full one back on the polls, Performance

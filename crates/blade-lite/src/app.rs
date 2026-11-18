@@ -790,9 +790,8 @@ where
         self.power == Power::Battery
     }
 
-    /// Reads whether the charger is weak, at a start, a power event or a
-    /// wake: the source just changed, so one full read is the full
-    /// charger. See [`read_charger_at_click`](Self::read_charger_at_click).
+    /// Reads whether the charger is weak, at a start, a wake or the end of
+    /// the full charger's wait: one full read is the full charger. See [`read_charger_at_click`](Self::read_charger_at_click).
     pub(super) fn read_charger(&mut self) {
         self.read_charger_with(|_| Power::Charger);
     }
@@ -801,17 +800,14 @@ where
     /// press (ticket 136): a weak or failed read counts at once, but a full
     /// read changes nothing, so only the polls, 1 s or more apart, take the
     /// full charger back (two full reads in a row). Two quick presses can't
-    /// count as those two reads. A full read ends the full charger's wait
-    /// (ticket 263): the user asked, so it is no bounce. Not while a Razer
-    /// updater holds the controller: the read would fail and count as a
-    /// weak charge, and nothing is sent then; the start after the updater
-    /// reads it.
+    /// count as those two reads, nor end the full charger's wait (ticket
+    /// 263): in it the battery presets run, as on a weak charge. Not while
+    /// a Razer updater holds the controller: the read would fail and count
+    /// as a weak charge, and nothing is sent then; the start after the
+    /// updater reads it.
     pub(super) fn read_charger_at_click(&mut self) {
         if !self.controller_held() {
-            self.read_charger_with(|power| match power {
-                Power::ChargerBack { .. } => Power::Charger,
-                power => power,
-            });
+            self.read_charger_with(|power| power);
         }
     }
 

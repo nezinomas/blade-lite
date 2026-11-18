@@ -499,12 +499,22 @@ where
         if now.saturating_duration_since(since) < CHARGER_STEADY {
             return Ok(false);
         }
+        // Read again: a USB-C monitor plugged in the wait is a weak charge.
         let before = self.running(self.config).preset;
         self.read_charger();
         if self.running(self.config).preset != before {
             self.send_if_changed(before)?;
         }
         Ok(true)
+    }
+
+    /// Starts the full charger's wait again from the next allowed tick, for
+    /// a tick that may not end it (a pause, an updater, Razer's software),
+    /// so the 10 s count only time the app watched the charger.
+    pub fn restart_charger_wait(&mut self) {
+        if let Power::ChargerBack { .. } = self.power {
+            self.power = Power::ChargerBack { since: None };
+        }
     }
 
     /// Reads the charger again on a poll, and sends the preset if a weak

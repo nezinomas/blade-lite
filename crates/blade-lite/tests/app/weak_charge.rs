@@ -145,6 +145,29 @@ fn a_charger_plugged_in_on_a_weak_charge_keeps_balanced() {
     assert_eq!(app.running_preset(), Preset::Balanced);
 }
 
+/// The read at the end of the full charger's wait (ticket 263): a USB-C
+/// monitor plugged in the wait, or a failed read, is a weak charge, so
+/// Performance does not go, and only two full poll reads end it.
+#[test]
+fn a_weak_or_failed_read_at_the_end_of_the_wait_keeps_balanced() {
+    for charger in [FakeCharger::UsbC, FakeCharger::Fails] {
+        let (mut app, _dir, _) = performance_app();
+        app.on_power(PowerEvent::OnBattery).unwrap();
+        app.on_power(PowerEvent::OnAc).unwrap();
+        app.machine_mut().controller.inner.sent.clear();
+        app.machine_mut().controller.inner.charger = charger;
+
+        charger_steady(&mut app);
+        charger_steady(&mut app);
+
+        assert_eq!(sent(&app), []);
+        assert_eq!(app.running_preset(), Preset::Balanced);
+        app.machine_mut().controller.inner.charger = FakeCharger::Razer;
+        assert!(!app.follow_charger().unwrap());
+        assert_eq!(app.running_preset(), Preset::Balanced);
+    }
+}
+
 #[test]
 fn the_power_key_does_not_step_to_performance_on_a_weak_charge() {
     let (mut app, _dir, _) = crate::app();
@@ -310,9 +333,10 @@ fn a_full_read_at_a_click_does_not_end_a_weak_charge() {
     }
     assert_eq!(sent(&app), []);
 
-    // Two polls in a row take the full charger.
+    // Two polls in a row take the full charger, after its wait (ticket 263).
     app.follow_charger().unwrap();
     app.follow_charger().unwrap();
+    charger_steady(&mut app);
     let result = app.on_performance(PerformanceCommand::SetPreset(Preset::Performance));
     assert!(result.is_ok(), "{result:?}");
     assert!(ran(&app, PerfMode::Performance));

@@ -378,10 +378,11 @@ impl<P: Parts> Shell<P> {
     /// Sends the preset the full charger brings back once it stayed 10 s
     /// (ticket 263, see `App::follow_charger_back`). Not while a resume
     /// waits, a Razer updater runs, or Razer's software runs (the full
-    /// charger back sends nothing then, ticket 258): the wait goes on, and
-    /// the next allowed tick ends it.
+    /// charger back sends nothing then, ticket 258): the wait starts again
+    /// from the next allowed tick.
     fn follow_charger_back(self: &Rc<Self>, now: Instant) {
         if !self.heat_reads_allowed() || !self.charger_reads_allowed() {
+            self.app.borrow_mut().restart_charger_wait();
             return;
         }
         let unsent = self.app.borrow().boost_unsent();

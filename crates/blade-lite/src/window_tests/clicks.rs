@@ -3441,25 +3441,36 @@ fn the_full_charger_back_waits_while_razer_software_runs() {
     let (sender, receiver) = std::sync::mpsc::channel();
     sender.send(PowerEvent::OnBattery).unwrap();
     f.shell.follow_power(&receiver);
-    f.shell.programs().set(&["Razer Synapse Service"]);
-    f.shell.look_for_razer();
     FAKE_ON_BATTERY.set(false);
     sender.send(PowerEvent::OnAc).unwrap();
     f.shell.follow_power(&receiver);
     let sent = sent_count(&f);
     let start = Instant::now();
-
-    tick_for(&f, start, Duration::from_secs(1), Duration::from_secs(20));
-    assert_eq!(sent_since(&f, sent), []);
-
-    // Razer's software gone, the wait goes on to its end.
-    f.shell.programs().set(&[]);
+    // 5 s of the wait, then Razer's software starts.
+    tick_for(&f, start, Duration::from_secs(1), Duration::from_secs(5));
+    f.shell.programs().set(&["Razer Synapse Service"]);
     f.shell.look_for_razer();
+
     tick_for(
         &f,
-        start + Duration::from_secs(21),
+        start + Duration::from_secs(6),
         Duration::from_secs(1),
-        Duration::from_secs(11),
+        Duration::from_secs(14),
+    );
+    assert_eq!(sent_since(&f, sent), []);
+
+    // Razer's software gone, the wait starts again: 10 s from the first
+    // tick that may end it.
+    f.shell.programs().set(&[]);
+    f.shell.look_for_razer();
+    let back = start + Duration::from_secs(21);
+    tick_for(&f, back, Duration::from_secs(1), Duration::from_secs(9));
+    assert_eq!(sent_since(&f, sent), []);
+    tick_for(
+        &f,
+        back + Duration::from_secs(10),
+        Duration::from_secs(1),
+        Duration::ZERO,
     );
     let performance = PerfMode::Performance.commands(&BLADE_18).unwrap();
     assert_eq!(sent_since(&f, sent), performance);
