@@ -120,8 +120,9 @@ The UI toolkit is [Slint](https://slint.dev) with its Fluent style.
   trying every 30 s, with no tray icon until it opens; a start by hand meanwhile
   does nothing (ticket 153).
 - While Razer's own software runs, the app warns, and the fan guard and the
-  background reads are off, but clicks and the power-mode key still send: a
-  manual fan then has no guard. Any program whose name starts with `rz`
+  background reads are off, but clicks and the power-mode key still send.
+  With no guard, Custom then runs with the fans on auto, not a manual fan
+  (the saved fan comes back once it is gone). Any program whose name starts with `rz`
   counts. While it sees a Razer updater, it sends nothing, Quit too. The
   updater check goes by name and is a guess (no updater was seen yet).
 - The heat warning and the "Fans" popup may not show over a full-screen game
