@@ -7,17 +7,15 @@ use std::sync::mpsc::{self, Receiver};
 use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
-use blade_core::{PowerKeyPresses, TOUCHPAD_KEY};
+use blade_core::TOUCHPAD_KEY;
 use blade_lite::{
-    HeardReports, KEY_REOPEN_PAUSE, KeyEvent, LOOK_GAP, ReaderEnd, STALL, ShownErrors,
-    UNHEARD_SPELLS_BEFORE_ALL, UnheardSpells, Watchdog, WindowsFnKeys, reads_on, report,
+    HidKeyOpener, KeyEvent, KeyReaderLoop, LOOK_GAP, STALL, Watchdog, WindowsFnKeys, report,
     step_on_presses,
 };
 use platform::{
     LidAndScreen, PowerEvent, PowerEvents, RegistryWatch, SuspendHandled, WakeListener,
     WindowsPowerEvents,
 };
-use razer_device::{DroppedReport, HidKeyReports};
 use razer_proto::BLADE_18;
 
 use crate::SHELL;
@@ -213,138 +211,20 @@ pub fn follow_the_power_key() {
         return;
     };
     spawn_part("power-mode key", move || {
-        // Each problem is said once, not each time it is tried again.
-        let mut said = ShownErrors::default();
-        // The key state is kept over a reopen after a quiet spell (for the
-        // read-all spell, ticket 215), so a key stuck down does not step
-        // again; new after a failure, as the gap is unknown. A first
-        // report listing the key counts (ticket 174).
-        let mut presses = PowerKeyPresses::new(key);
-        // The collection that sent last: the next open reads it alone, so
-        // its reads can wait long (ticket 188). Forgotten as the key state
-        // is, as the gap is unknown.
-        let mut sender: Option<String> = None;
-        // The last sender logged, so a new one is logged once: a dead key
-        // can then be traced to the collection read.
-        let mut logged: Option<String> = None;
-        // The dropped reports logged: a reopen that drops one again does
-        // not log it again, so the log does not fill (ticket 210).
-        let mut logged_drops: Vec<DroppedReport> = Vec::new();
-        // The quiet spells with no key report heard: after about an hour all
-        // key collections are read for one, in case the profile's one never
-        // sends (ticket 215), and the reports are opened again, in case a
-        // handle went dead with no error (ticket 230). Said once a run, so
-        // the log does not fill.
-        let mut unheard = UnheardSpells::default();
-        let mut said_read_all = false;
-        loop {
-            let read_all = unheard.take_read_all();
-            let opened = if read_all {
-                if !std::mem::replace(&mut said_read_all, true) {
-                    report(&format!(
-                        "no key report in {UNHEARD_SPELLS_BEFORE_ALL} quiet spells: \
-                         all key collections are read for one spell"
-                    ));
-                }
-                HidKeyReports::open_all(&BLADE_18)
-            } else {
-                HidKeyReports::open_preferring(&BLADE_18, sender.as_deref())
-            };
-            let (problem, pause) = match opened {
-                Ok(reports) => {
-                    let mut reports = HeardReports::new(reports);
-                    // At the open when one collection is opened, so a dead
-                    // key can be traced before any press (ticket 209).
-                    log_read_path(reports.reports().read_path(), &mut logged);
-                    let (end, ran) = loop {
-                        let started = Instant::now();
-                        let end =
-                            step_on_presses(&mut reports, &mut WindowsFnKeys, &mut presses, on_key);
-                        let ran = started.elapsed();
-                        let heard = reports.take_heard();
-                        let open = reports.reports();
-                        log_read_path(open.read_path(), &mut logged);
-                        log_drops(open.take_dropped(), &mut logged_drops);
-                        // After a spell the Fn, Enter and mic states start
-                        // unknown, a release lost in a sleep with it (the
-                        // safe side: a Fn still held then gives no Fn up).
-                        presses = end.next_presses(ran, &presses);
-                        sender = if end.keeps_key_state(ran) {
-                            open.sender().map(str::to_owned).or(sender)
-                        } else {
-                            None
-                        };
-                        // No reopen after a quiet spell (ticket 230).
-                        if !reads_on(&end, ran, read_all, heard, &mut unheard) {
-                            break (end, ran);
-                        }
-                    };
-                    let pause = end.pause_before_open(ran);
-                    let problem = match end {
-                        ReaderEnd::Quit => return,
-                        ReaderEnd::QuietSpell => String::new(),
-                        ReaderEnd::Failed(error) => format!("the key reports stopped: {error}"),
-                    };
-                    (problem, pause)
-                }
-                Err(error) => {
-                    presses = presses.fresh();
-                    sender = None;
-                    (
-                        format!("no power-mode key for now: {error}"),
-                        KEY_REOPEN_PAUSE,
-                    )
-                }
-            };
-            if let Some(text) = said.new_text(&problem) {
-                report(text);
-            }
+        let mut reader = KeyReaderLoop::new(key);
+        let mut opener = HidKeyOpener(&BLADE_18);
+        while let Some(pause) = reader.open_and_read(
+            &mut opener,
+            |reports, presses| {
+                let started = Instant::now();
+                let end = step_on_presses(reports, &mut WindowsFnKeys, presses, on_key);
+                (end, started.elapsed())
+            },
+            report,
+        ) {
             std::thread::sleep(pause);
         }
     });
-}
-
-/// Logs the one collection the power-mode key is read on, once each time
-/// it changes.
-fn log_read_path(path: Option<&str>, logged: &mut Option<String>) {
-    if let Some(path) = path
-        && logged.as_deref() != Some(path)
-    {
-        report(&format!("the power-mode key is read on {path}"));
-        *logged = Some(path.to_owned());
-    }
-}
-
-/// The most dropped reports logged in one run, so reopens can't fill the
-/// log even if the drops change each time.
-const MOST_DROPS_LOGGED: usize = 8;
-
-/// Logs each report the key reports dropped that was not logged before in
-/// this run, up to [`MOST_DROPS_LOGGED`]: a key that stays dead because its
-/// reports no longer match the profile can then be traced (ticket 210).
-/// Logged as the open ends, so up to one quiet spell late.
-fn log_drops(dropped: Vec<DroppedReport>, logged: &mut Vec<DroppedReport>) {
-    for line in drop_lines(dropped, logged) {
-        report(&line);
-    }
-}
-
-/// A line for each of `dropped` not in `logged`, added to it while it has
-/// room, and one more line as it fills up.
-fn drop_lines(dropped: Vec<DroppedReport>, logged: &mut Vec<DroppedReport>) -> Vec<String> {
-    let mut lines = Vec::new();
-    for each in dropped {
-        if logged.len() < MOST_DROPS_LOGGED && !logged.contains(&each) {
-            lines.push(format!(
-                "a report on a key collection was not a key report: {each}"
-            ));
-            logged.push(each);
-            if logged.len() == MOST_DROPS_LOGGED {
-                lines.push("more such reports are not logged in this run".to_owned());
-            }
-        }
-    }
-    lines
 }
 
 /// Acts on a key event on the event-loop thread. False once the app is
@@ -536,9 +416,7 @@ fn follow_power_now() {
 mod tests {
     use std::sync::atomic::AtomicBool;
 
-    use razer_device::DroppedReport;
-
-    use super::{MOST_DROPS_LOGGED, drop_lines, newly_unknown, stall_text};
+    use super::{newly_unknown, stall_text};
 
     #[test]
     fn the_stall_text_says_the_fans_may_stay_in_one_clean_paragraph() {
@@ -548,62 +426,6 @@ mod tests {
         assert!(text.contains("the fans may stay as they are"), "{text}");
         assert!(!text.contains("  "), "{text}");
         assert_eq!(text.matches('\n').count(), 2, "{text}");
-    }
-
-    fn dropped(id: u8) -> DroppedReport {
-        DroppedReport {
-            id,
-            len: 16,
-            path: "col04".to_owned(),
-        }
-    }
-
-    #[test]
-    fn a_drop_is_logged_once_in_a_run() {
-        let mut logged = Vec::new();
-
-        assert_eq!(
-            drop_lines(vec![dropped(5), dropped(6)], &mut logged),
-            [
-                "a report on a key collection was not a key report: report ID 05, 16 bytes, on col04",
-                "a report on a key collection was not a key report: report ID 06, 16 bytes, on col04",
-            ]
-        );
-        assert_eq!(
-            drop_lines(vec![dropped(6), dropped(5)], &mut logged),
-            Vec::<String>::new()
-        );
-        assert_eq!(drop_lines(Vec::new(), &mut logged), Vec::<String>::new());
-    }
-
-    #[test]
-    fn drops_that_take_turns_are_not_logged_again() {
-        let mut logged = Vec::new();
-
-        let said: usize = [5, 6, 5, 6, 5]
-            .into_iter()
-            .map(|id| drop_lines(vec![dropped(id)], &mut logged).len())
-            .sum();
-
-        assert_eq!(said, 2);
-    }
-
-    #[test]
-    fn no_more_drops_are_logged_once_the_most_are_and_that_is_said() {
-        let mut logged = Vec::new();
-        let many = (0..=u8::MAX).map(dropped).collect();
-
-        let lines = drop_lines(many, &mut logged);
-
-        assert_eq!(lines.len(), MOST_DROPS_LOGGED + 1);
-        assert_eq!(
-            lines.last().map(String::as_str),
-            Some("more such reports are not logged in this run")
-        );
-        assert_eq!(
-            drop_lines(vec![dropped(u8::MAX)], &mut logged),
-            Vec::<String>::new()
-        );
     }
 
     #[test]

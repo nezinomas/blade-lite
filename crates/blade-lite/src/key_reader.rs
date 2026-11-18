@@ -7,7 +7,10 @@ use std::io;
 use std::time::{Duration, Instant};
 
 use blade_core::PowerKeyPresses;
-use razer_device::HidKeyReports;
+use razer_device::{DroppedReport, HidKeyReports};
+use razer_proto::{ModelProfile, PowerKey};
+
+use crate::ShownErrors;
 
 /// How long one read waits for a key report while more than one key
 /// collection is read in turn (before one sends), so a press on another
@@ -163,6 +166,239 @@ impl KeyReportSource for HidKeyReports {
     fn single(&self) -> bool {
         HidKeyReports::single(self)
     }
+}
+
+/// Key reports as opened, with what the reader logs of them.
+pub trait OpenedKeyReports: KeyReportSource {
+    /// The collection that sent, once one has.
+    fn sender(&self) -> Option<&str>;
+    /// The one collection read, if only one is.
+    fn read_path(&self) -> Option<&str>;
+    /// The reports dropped since the open or the last take.
+    fn take_dropped(&mut self) -> Vec<DroppedReport>;
+}
+
+impl OpenedKeyReports for HidKeyReports {
+    fn sender(&self) -> Option<&str> {
+        HidKeyReports::sender(self)
+    }
+
+    fn read_path(&self) -> Option<&str> {
+        HidKeyReports::read_path(self)
+    }
+
+    fn take_dropped(&mut self) -> Vec<DroppedReport> {
+        HidKeyReports::take_dropped(self)
+    }
+}
+
+/// Opens the key reports.
+pub trait KeyReportOpener {
+    type Reports: OpenedKeyReports;
+
+    /// Opens all key collections, for the read-all spell (ticket 215).
+    ///
+    /// # Errors
+    ///
+    /// Any I/O error, or no key collection.
+    fn open_all(&mut self) -> io::Result<Self::Reports>;
+
+    /// Opens the collection at `sender` alone when it opens, else the
+    /// profile's one, else all (ticket 209).
+    ///
+    /// # Errors
+    ///
+    /// As [`open_all`](Self::open_all).
+    fn open_preferring(&mut self, sender: Option<&str>) -> io::Result<Self::Reports>;
+}
+
+/// Opens the model's key reports through Windows' HID calls.
+pub struct HidKeyOpener(pub &'static ModelProfile);
+
+impl KeyReportOpener for HidKeyOpener {
+    type Reports = HidKeyReports;
+
+    fn open_all(&mut self) -> io::Result<HidKeyReports> {
+        HidKeyReports::open_all(self.0)
+    }
+
+    fn open_preferring(&mut self, sender: Option<&str>) -> io::Result<HidKeyReports> {
+        HidKeyReports::open_preferring(self.0, sender)
+    }
+}
+
+/// The power-mode key reader's state over its opens (ticket 277).
+pub struct KeyReaderLoop {
+    /// Each problem is said once, not each time it is tried again.
+    said: ShownErrors,
+    /// The key state is kept over a reopen after a quiet spell (for the
+    /// read-all spell, ticket 215), so a key stuck down does not step
+    /// again; new after a failure, as the gap is unknown. A first report
+    /// listing the key counts (ticket 174).
+    presses: PowerKeyPresses,
+    /// The collection that sent last: the next open reads it alone, so its
+    /// reads can wait long (ticket 188). Forgotten as the key state is, as
+    /// the gap is unknown.
+    sender: Option<String>,
+    /// The last read path logged, so a new one is logged once: a dead key
+    /// can then be traced to the collection read.
+    logged: Option<String>,
+    /// The dropped reports logged: a reopen that drops one again does not
+    /// log it again, so the log does not fill (ticket 210).
+    logged_drops: Vec<DroppedReport>,
+    /// The quiet spells with no key report heard: after about an hour all
+    /// key collections are read for one, in case the profile's one never
+    /// sends (ticket 215), and the reports are opened again, in case a
+    /// handle went dead with no error (ticket 230).
+    unheard: UnheardSpells,
+    /// Whether the read-all spell was said: once a run, so the log does
+    /// not fill.
+    said_read_all: bool,
+}
+
+impl KeyReaderLoop {
+    #[must_use]
+    pub fn new(key: PowerKey) -> Self {
+        Self {
+            said: ShownErrors::default(),
+            presses: PowerKeyPresses::new(key),
+            sender: None,
+            logged: None,
+            logged_drops: Vec::new(),
+            unheard: UnheardSpells::default(),
+            said_read_all: false,
+        }
+    }
+
+    /// Opens the key reports with `opener` and reads them with `read`,
+    /// which returns how a run of reads ended and how long it ran, until
+    /// one ends with no reading on ([`reads_on`]). Each line to log goes to
+    /// `say`. The pause before the next open, or `None` once the app is
+    /// quitting.
+    pub fn open_and_read<O: KeyReportOpener>(
+        &mut self,
+        opener: &mut O,
+        read: impl FnMut(&mut HeardReports<O::Reports>, &mut PowerKeyPresses) -> (ReaderEnd, Duration),
+        mut say: impl FnMut(&str),
+    ) -> Option<Duration> {
+        let read_all = self.unheard.take_read_all();
+        let (problem, pause) = match self.open(opener, read_all, &mut say) {
+            Ok(reports) => {
+                let (end, ran) = self.read_on(HeardReports::new(reports), read_all, read, &mut say);
+                let pause = end.pause_before_open(ran);
+                match end {
+                    ReaderEnd::Quit => return None,
+                    ReaderEnd::QuietSpell => (String::new(), pause),
+                    ReaderEnd::Failed(error) => {
+                        (format!("the key reports stopped: {error}"), pause)
+                    }
+                }
+            }
+            Err(error) => {
+                self.presses = self.presses.fresh();
+                self.sender = None;
+                (
+                    format!("no power-mode key for now: {error}"),
+                    KEY_REOPEN_PAUSE,
+                )
+            }
+        };
+        if let Some(text) = self.said.new_text(&problem) {
+            say(text);
+        }
+        Some(pause)
+    }
+
+    /// Opens all key collections when `read_all` (said once a run), else
+    /// the last sender first.
+    fn open<O: KeyReportOpener>(
+        &mut self,
+        opener: &mut O,
+        read_all: bool,
+        say: &mut impl FnMut(&str),
+    ) -> io::Result<O::Reports> {
+        if !read_all {
+            return opener.open_preferring(self.sender.as_deref());
+        }
+        if !std::mem::replace(&mut self.said_read_all, true) {
+            say(&format!(
+                "no key report in {UNHEARD_SPELLS_BEFORE_ALL} quiet spells: \
+                 all key collections are read for one spell"
+            ));
+        }
+        opener.open_all()
+    }
+
+    /// Runs `read` on one open until a run ends with no reading on; how
+    /// the last one ended, and how long it ran.
+    fn read_on<R: OpenedKeyReports>(
+        &mut self,
+        mut reports: HeardReports<R>,
+        read_all: bool,
+        mut read: impl FnMut(&mut HeardReports<R>, &mut PowerKeyPresses) -> (ReaderEnd, Duration),
+        say: &mut impl FnMut(&str),
+    ) -> (ReaderEnd, Duration) {
+        // At the open when one collection is opened, so a dead key can be
+        // traced before any press (ticket 209).
+        self.log_read_path(reports.reports().read_path(), say);
+        loop {
+            let (end, ran) = read(&mut reports, &mut self.presses);
+            let heard = reports.take_heard();
+            let open = reports.reports();
+            self.log_read_path(open.read_path(), say);
+            for line in drop_lines(open.take_dropped(), &mut self.logged_drops) {
+                say(&line);
+            }
+            // After a spell the Fn, Enter and mic states start unknown, a
+            // release lost in a sleep with it (the safe side: a Fn still
+            // held then gives no Fn up).
+            self.presses = end.next_presses(ran, &self.presses);
+            self.sender = if end.keeps_key_state(ran) {
+                open.sender().map(str::to_owned).or(self.sender.take())
+            } else {
+                None
+            };
+            // No reopen after a quiet spell (ticket 230).
+            if !reads_on(&end, ran, read_all, heard, &mut self.unheard) {
+                return (end, ran);
+            }
+        }
+    }
+
+    /// Says the one collection the power-mode key is read on, once each
+    /// time it changes.
+    fn log_read_path(&mut self, path: Option<&str>, say: &mut impl FnMut(&str)) {
+        if let Some(path) = path
+            && self.logged.as_deref() != Some(path)
+        {
+            say(&format!("the power-mode key is read on {path}"));
+            self.logged = Some(path.to_owned());
+        }
+    }
+}
+
+/// The most dropped reports logged in one run, so reopens can't fill the
+/// log even if the drops change each time.
+const MOST_DROPS_LOGGED: usize = 8;
+
+/// A line for each of `dropped` not in `logged`, added to it while it has
+/// room, and one more line as it fills up: a key that stays dead because
+/// its reports no longer match the profile can then be traced (ticket
+/// 210). Logged as the open ends, so up to one quiet spell late.
+fn drop_lines(dropped: Vec<DroppedReport>, logged: &mut Vec<DroppedReport>) -> Vec<String> {
+    let mut lines = Vec::new();
+    for each in dropped {
+        if logged.len() < MOST_DROPS_LOGGED && !logged.contains(&each) {
+            lines.push(format!(
+                "a report on a key collection was not a key report: {each}"
+            ));
+            logged.push(each);
+            if logged.len() == MOST_DROPS_LOGGED {
+                lines.push("more such reports are not logged in this run".to_owned());
+            }
+        }
+    }
+    lines
 }
 
 /// Somewhere the state of the keys read while Fn is held comes from.
@@ -340,6 +576,62 @@ mod tests {
     use super::*;
 
     const LEFT: Duration = Duration::from_secs(50);
+
+    fn dropped(id: u8) -> DroppedReport {
+        DroppedReport {
+            id,
+            len: 16,
+            path: "col04".to_owned(),
+        }
+    }
+
+    #[test]
+    fn a_drop_is_logged_once_in_a_run() {
+        let mut logged = Vec::new();
+
+        assert_eq!(
+            drop_lines(vec![dropped(5), dropped(6)], &mut logged),
+            [
+                "a report on a key collection was not a key report: report ID 05, 16 bytes, on col04",
+                "a report on a key collection was not a key report: report ID 06, 16 bytes, on col04",
+            ]
+        );
+        assert_eq!(
+            drop_lines(vec![dropped(6), dropped(5)], &mut logged),
+            Vec::<String>::new()
+        );
+        assert_eq!(drop_lines(Vec::new(), &mut logged), Vec::<String>::new());
+    }
+
+    #[test]
+    fn drops_that_take_turns_are_not_logged_again() {
+        let mut logged = Vec::new();
+
+        let said: usize = [5, 6, 5, 6, 5]
+            .into_iter()
+            .map(|id| drop_lines(vec![dropped(id)], &mut logged).len())
+            .sum();
+
+        assert_eq!(said, 2);
+    }
+
+    #[test]
+    fn no_more_drops_are_logged_once_the_most_are_and_that_is_said() {
+        let mut logged = Vec::new();
+        let many = (0..=u8::MAX).map(dropped).collect();
+
+        let lines = drop_lines(many, &mut logged);
+
+        assert_eq!(lines.len(), MOST_DROPS_LOGGED + 1);
+        assert_eq!(
+            lines.last().map(String::as_str),
+            Some("more such reports are not logged in this run")
+        );
+        assert_eq!(
+            drop_lines(vec![dropped(u8::MAX)], &mut logged),
+            Vec::<String>::new()
+        );
+    }
 
     #[test]
     fn a_single_collection_waits_out_the_spell_only_with_no_fn_held() {
