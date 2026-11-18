@@ -810,6 +810,27 @@ where
         Ok(self.battery_rate.retry(&self.config, displays)?)
     }
 
+    /// Takes the rate for a battery read that made the source known, as a
+    /// wake does with a known source: a charger pulled in a wake's pause
+    /// sends no event again, and the pause's end read the source unknown,
+    /// so it left the rate (ticket 281). A refused set is tried again on
+    /// the polls. Nothing on AC or with the source unknown.
+    ///
+    /// # Errors
+    ///
+    /// See [`AppError`].
+    pub fn rate_on_battery_read(&mut self) -> Result<(), AppError> {
+        if !self.on_battery() || !self.source_known {
+            return Ok(());
+        }
+        let displays = &mut self.machine.displays;
+        let rate = self
+            .battery_rate
+            .on_resume(true, &self.config, displays)
+            .map_err(AppError::from);
+        self.quiet_if_tried_again(rate)
+    }
+
     pub(super) fn follow_power(&mut self, event: PowerEvent) -> Result<(), AppError> {
         let displays = &mut self.machine.displays;
         Ok(self.battery_rate.on_event(event, &self.config, displays)?)

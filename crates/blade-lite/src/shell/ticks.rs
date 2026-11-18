@@ -679,13 +679,19 @@ impl<P: Parts> Shell<P> {
     /// preset. In a pause its event is dropped, and the pause's end takes
     /// the source. An unknown read changes nothing, so a
     /// read that flickers to unknown does not switch the preset back and
-    /// forth. A wake is not seen then.
+    /// forth. A wake is not seen then. As an unknown source counts as
+    /// battery, a known battery read after it sends no event: it takes the
+    /// rate as a wake would, out of a pause (ticket 281).
     pub(super) fn follow_source(self: &Rc<Self>) {
         let Some(on_battery) = P::on_battery() else {
             return;
         };
         if on_battery == self.app.borrow().on_battery() {
-            self.app.borrow_mut().source_read(on_battery);
+            let known_now = self.app.borrow_mut().source_read(on_battery);
+            // In a pause its end takes the rate (ticket 281).
+            if known_now && self.resuming.get() == 0 {
+                self.act(blade_lite::App::rate_on_battery_read);
+            }
             return;
         }
         self.power_event(if on_battery {

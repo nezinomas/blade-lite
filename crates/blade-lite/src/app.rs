@@ -430,12 +430,17 @@ where
     /// with the lighting saved its send is due (ticket 247). Nothing is
     /// sent. A read in a pause after a wake only moves the bookkeeping
     /// early: the shell neither looks at the screen nor sends the due
-    /// lighting then, and the pause's end sends all settings.
-    pub fn source_read(&mut self, on_battery: bool) {
-        if on_battery == self.on_battery() {
-            self.source_known = true;
-            self.note_slot_with_lighting(on_battery);
+    /// lighting then, and the pause's end sends all settings. Returns
+    /// whether the read made the source known: an unknown one counts as
+    /// battery, so that read is battery, and its rate is due (see
+    /// [`Self::rate_on_battery_read`]; ticket 281).
+    pub fn source_read(&mut self, on_battery: bool) -> bool {
+        if on_battery != self.on_battery() {
+            return false;
         }
+        let was_known = std::mem::replace(&mut self.source_known, true);
+        self.note_slot_with_lighting(on_battery);
+        !was_known
     }
 
     /// Notes the slot a known source read or event puts in use, and
