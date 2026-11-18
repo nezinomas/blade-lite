@@ -169,7 +169,9 @@ pub struct App<C, D, R, K> {
     manual_sends: u32,
     /// The polls left to send the preset again after a failed send.
     resends_left: u8,
-    /// Whether the controller may run a manual fan.
+    /// Whether the controller may run a manual fan. Unknown at the start
+    /// (a crash or Razer software may have left one), so it starts as
+    /// maybe: it counts only while the preset is unsure.
     sent_fan: SentFan,
     /// When the last slow resend was armed (see
     /// [`MANUAL_RESEND_SPACING`]).
@@ -270,7 +272,7 @@ where
             fan_targets_due: None,
             manual_sends: 0,
             resends_left: 0,
-            sent_fan: SentFan::Auto,
+            sent_fan: SentFan::MaybeManual,
             slow_resend_at: None,
             preset_failures: 0,
             held_rate_error: None,
@@ -575,9 +577,10 @@ where
     }
 
     /// Notes a panic (a bug) that may have cut a send: the preset is then
-    /// unsure, so a quit sends the fans on auto first, as after a failed
-    /// send.
+    /// unsure, and a manual fan may run, so a quit sends the fans on auto
+    /// first, as after a failed send.
     pub fn note_panic(&mut self) {
+        self.sent_fan = SentFan::MaybeManual;
         self.preset_send_failed();
     }
 
@@ -801,7 +804,10 @@ where
         let top = self.model.custom.fan_rpm.max;
         let boost = on.then_some(top);
         // A failed send whose resends ran out is tried again while the
-        // guard is on and a manual fan may run (the polls send it).
+        // guard is on and a manual fan may run (the polls send it, at the
+        // poll rate: for a manual fan the window does not show, faster
+        // than `MANUAL_RESEND_SPACING`, which only sends a preset with the
+        // fans on auto).
         if on && self.manual_fan_runs() && self.preset_unsure && self.resends_left == 0 {
             self.resends_left = RESEND_TRIES;
         }

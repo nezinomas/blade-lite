@@ -16,8 +16,9 @@ use tempfile::TempDir;
 use crate::fakes::TestApp;
 use crate::{app_with, sent};
 
-/// The mode writes that carry the manual flag.
+/// The mode writes, which carry the manual flag.
 const SET_MODE: u16 = 0x0D02;
+/// The fan target writes.
 const SET_FAN: u16 = 0x0D01;
 
 fn balanced_with_a_manual_fan_saved() -> (TestApp, TempDir) {
@@ -130,6 +131,7 @@ fn the_slow_resend_comes_once_a_minute_after_the_tries_run_out() {
 #[test]
 fn no_slow_resend_without_a_manual_fan_unshown() {
     let (mut app, _dir, _) = crate::performance_app();
+    app.start().unwrap();
     app.machine_mut().controller.inner.fails = true;
     assert!(app.on_power(PowerEvent::OnBattery).is_err());
     while app.resend_preset().is_err() {}
@@ -168,6 +170,70 @@ fn the_quit_sends_the_fans_on_auto_first() {
     assert_eq!(last, balanced);
     let modes = auto_fans.iter().filter(|c| c.id == SET_MODE);
     assert!(modes.clone().count() > 0, "{auto_fans:?}");
+    assert!(
+        modes.clone().all(|c| c.args[2] == BLADE_18.custom.mode),
+        "Custom: {auto_fans:?}"
+    );
     assert!(modes.clone().all(|c| c.args[3] == 0), "{auto_fans:?}");
     assert!(auto_fans.iter().all(|c| c.id != SET_FAN), "{auto_fans:?}");
+}
+
+#[test]
+fn an_import_cut_after_the_manual_flag_counts_as_a_manual_fan_running() {
+    let (mut app, dir) = balanced_with_a_manual_fan_saved();
+    let file = Config {
+        preset: Preset::Custom,
+        ..*app.config()
+    };
+    let picked = dir.path().join("picked.toml");
+    file.save(&picked).unwrap();
+    app.machine_mut().controller.inner.fails_after = Some(1);
+
+    assert!(app.import_settings(&picked).is_err());
+
+    assert_eq!(app.config().preset, Preset::Balanced);
+    assert!(app.manual_fan_unshown());
+}
+
+/// The preset goes whole, then the lid logo fails: the old config stays,
+/// though the controller runs the manual fan.
+#[test]
+fn an_import_whose_lid_logo_fails_counts_as_a_manual_fan_running() {
+    let (mut app, dir) = balanced_with_a_manual_fan_saved();
+    let file = Config {
+        preset: Preset::Custom,
+        lid_logo: Some(false),
+        ..*app.config()
+    };
+    let picked = dir.path().join("picked.toml");
+    file.save(&picked).unwrap();
+    let mut whole = crate::fakes::FakeController::default();
+    blade_core::apply_performance(&file, &BLADE_18, &mut whole).unwrap();
+    app.machine_mut().controller.inner.fails_after = Some(whole.sent.len());
+
+    assert!(app.import_settings(&picked).is_err());
+
+    assert_eq!(app.config().preset, Preset::Balanced);
+    assert!(app.manual_fan_unshown());
+}
+
+#[test]
+fn a_panic_counts_as_a_manual_fan_running() {
+    let (mut app, _dir) = balanced_with_a_manual_fan_saved();
+
+    app.note_panic();
+
+    assert!(app.manual_fan_unshown());
+}
+
+/// A crash or Razer software may have left a manual fan before the start.
+#[test]
+fn a_cut_start_counts_as_a_manual_fan_running() {
+    let (mut app, _dir, _) = app_with(Config::default());
+    app.take_on_battery(Some(false));
+    app.machine_mut().controller.inner.fails_after = Some(1);
+
+    assert!(app.start().is_err());
+
+    assert!(app.manual_fan_unshown());
 }

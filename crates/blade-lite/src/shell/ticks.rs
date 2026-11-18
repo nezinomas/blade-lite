@@ -282,8 +282,13 @@ impl<P: Parts> Shell<P> {
             return;
         }
         let unsent = self.app.borrow().boost_unsent();
+        let unshown = self.app.borrow().manual_fan_unshown();
         let sent = self.app.borrow_mut().resend_preset();
         self.say_full_speed_sent_again(unsent, BY_A_POLL);
+        // Its warning goes once a resend ends it (ticket 250).
+        if unshown && matches!(sent, Ok(true)) && !self.app.borrow().manual_fan_unshown() {
+            self.refresh(None);
+        }
         if let Err(error) = sent {
             self.act(|_| Err(error));
         }

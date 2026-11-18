@@ -324,7 +324,7 @@ const USB_SUSPEND_ON: &str = "Windows USB suspend is on for the Razer device, so
 
 /// Shown while a cut send may have left a manual fan running that the
 /// window does not show (ticket 250).
-pub(crate) const MANUAL_FAN_UNSHOWN: &str = "A send failed, so the fans may still run at a set     speed. Blade Lite sends the preset again, each minute once its tries run out.";
+pub(crate) const MANUAL_FAN_UNSHOWN: &str = "A send failed, so the fans may still run at a set speed. Blade Lite sends the preset again, each minute once its tries run out.";
 
 /// How the app ends: picks the log line of a refused rate put-back.
 #[derive(Clone, Copy)]

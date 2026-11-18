@@ -432,4 +432,6 @@ fn a_manual_fan_unshown_is_resent_slowly_until_it_goes() {
 
     assert_ne!(sent_count(&f), before, "resent");
     assert!(!f.shell.app().manual_fan_unshown());
+    let shown = f.shell.window().get_error().to_string();
+    assert!(!shown.contains(MANUAL_FAN_UNSHOWN), "{shown}");
 }
