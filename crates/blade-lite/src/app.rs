@@ -95,6 +95,15 @@ enum FullSpeed {
     Unsent,
 }
 
+/// Whether Razer software runs, or the look for it at start failed; a later
+/// failed look keeps the last state (ticket 288).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Razer {
+    Absent,
+    /// The fan guard is off, so Custom runs with the fans on auto.
+    Runs,
+}
+
 /// Whether the controller may run a manual fan (ticket 250).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum SentFan {
@@ -304,6 +313,10 @@ pub struct App<C, D, R, K> {
     /// Whether the put-back may guess the other slot's level from a 0
     /// read. Refused, the level stays kept for the next swap into its slot.
     slot_guess: SlotGuess,
+    /// Whether Razer software runs (or the look at start failed): the fan
+    /// guard is off then, so Custom runs with the fans on auto in place of
+    /// a manual fan (ticket 288).
+    razer: Razer,
 }
 
 impl<C, D, R, K> App<C, D, R, K>
@@ -363,6 +376,7 @@ where
             slot: None,
             dark_slot: None,
             slot_guess: SlotGuess::Allowed,
+            razer: Razer::Absent,
         }
     }
 
@@ -925,7 +939,9 @@ where
     /// The config with the preset that runs in place of its saved one.
     /// While the fan guard is on, a manual Custom fan runs at the model's
     /// top speed; the saved speed is kept. A saved speed the model does not
-    /// take is left as it is, so the send still refuses it.
+    /// take is left as it is, so the send still refuses it, except while
+    /// Razer software runs: Custom then runs with the fans on auto (ticket
+    /// 288), whatever the saved speed.
     fn running(&self, config: Config) -> Config {
         let mut running = Config {
             preset: config.preset.running(self.battery_presets(), self.model),
@@ -940,7 +956,33 @@ where
         {
             running.custom.fan_rpm = Some(rpm);
         }
+        if self.razer == Razer::Runs && running.preset == Preset::Custom {
+            running.custom.fan_rpm = None;
+        }
         running
+    }
+
+    /// Notes whether Razer software runs. While it does the fan guard is
+    /// off, so Custom runs with the fans on auto in place of a manual fan
+    /// (user pick A, ticket 288); the saved fan is kept for its end.
+    /// Nothing is sent here: if that changed what should run, the preset
+    /// is marked unsure with all its resends, so a poll sends it after the
+    /// power events, and a start (a wake's or a pause's end) or a preset
+    /// click sends it first.
+    pub fn set_razer_runs(&mut self, runs: bool) {
+        let before = self.running(self.config);
+        self.take_razer_runs(runs);
+        if self.running(self.config) != before {
+            self.preset_unsure = true;
+            self.resends_left = RESEND_TRIES;
+        }
+    }
+
+    /// Takes whether Razer software runs without marking anything, for use
+    /// before [`start`](Self::start), whose send takes it: a start refused
+    /// before any send then leaves no unsure mark to resend all run.
+    pub fn take_razer_runs(&mut self, runs: bool) {
+        self.razer = if runs { Razer::Runs } else { Razer::Absent };
     }
 
     /// Brings the fan boost in line with the fan guard (ticket 129), on each

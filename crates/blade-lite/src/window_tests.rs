@@ -21,7 +21,7 @@ use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::sync::OnceLock;
 
-use blade_core::{Config, Log, Preset};
+use blade_core::{Config, Log, Preset, razer_software};
 use blade_lite::open_quiet_log;
 use i_slint_backend_testing::{
     AccessibleRole, ElementHandle, ElementRoot, TestingBackend, TestingBackendOptions,
@@ -289,6 +289,10 @@ pub fn fixture_with_programs(config: Config, programs: &[&str]) -> Fixture {
     controller.charge = Some(0x50);
     // A checked firmware, as the laptop has: a reopen reads it again.
     controller.firmware = Some(vec![1, 6]);
+    // As the app's start looks before its first send (ticket 288).
+    let look = FakePrograms::default();
+    look.set(programs);
+    app.take_razer_runs(!razer_software(&look).unwrap().is_empty());
     let started = app.start();
     // Tests that tick with the real clock must not meet the start's fan
     // targets sent once more (ticket 173); its own tests start again.

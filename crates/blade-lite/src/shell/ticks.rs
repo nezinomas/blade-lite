@@ -298,11 +298,12 @@ impl<P: Parts> Shell<P> {
         });
     }
 
-    /// Sends the preset that runs again if its last send failed, so the
-    /// laptop does not keep running another one (such as Performance on
-    /// battery) until the next power event. Not while a resume waits, nor
-    /// while Razer's software runs unless the battery presets run (ticket
-    /// 258), nor in the tick of a
+    /// Sends the preset that runs again if its last send failed, or Razer
+    /// software came or went (ticket 288), so the laptop does not keep
+    /// running another one (such as Performance on battery) until the next
+    /// power event. Not while a resume waits, nor while Razer's software
+    /// runs unless the battery presets run (ticket 258) or a manual fan the
+    /// window does not show may run (ticket 288), nor in the tick of a
     /// failed send or the one after it: the controller may still run it.
     /// A resend that works is quiet, so the error of the failed send stays
     /// shown (it may not be the preset's), unless a rate error was held
@@ -314,14 +315,17 @@ impl<P: Parts> Shell<P> {
     /// (ticket 163).
     fn resend_preset(self: &Rc<Self>) {
         let quiet = self.app.borrow().preset_failures() == self.preset_failures_seen.get();
-        // While Razer's software runs, only a battery preset goes again.
+        // While Razer's software runs, only a battery preset goes again
+        // (ticket 258), or one that ends a manual fan, such as Custom with
+        // the fans on auto (ticket 288).
         let battery = self.app.borrow().battery_presets_run();
-        let allowed = self.heat_reads_allowed() || (battery && self.charger_reads_allowed());
+        let unshown = self.app.borrow().manual_fan_unshown();
+        let allowed =
+            self.heat_reads_allowed() || ((battery || unshown) && self.charger_reads_allowed());
         if !quiet || !allowed {
             return;
         }
         let unsent = self.app.borrow().boost_unsent();
-        let unshown = self.app.borrow().manual_fan_unshown();
         let sent = self.app.borrow_mut().resend_preset();
         self.say_full_speed_sent_again(unsent, BY_A_POLL);
         // Its warning goes once a resend ends it (ticket 250). The fill

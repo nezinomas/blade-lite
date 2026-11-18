@@ -2,7 +2,8 @@
 //! Windows Update, which would talk to the controller beside the app. While
 //! it runs the background reads and the fan guard stop (the user picked
 //! that over a guard that could fight Synapse, 2026-11-12), but not the
-//! charger poll and the step down to the battery preset (ticket 258); while
+//! charger poll and the step down to the battery preset (ticket 258), and
+//! Custom runs with the fans on auto (ticket 288); while
 //! a Razer updater runs nothing at all is sent (ticket 145).
 
 use std::rc::Rc;
@@ -51,6 +52,8 @@ impl<P: Parts> Shell<P> {
             self.updater_ended.set(!updater);
         }
         self.app.borrow_mut().hold_controller(updater);
+        // Only noted: a poll sends it after the power events (ticket 288).
+        self.app.borrow_mut().set_razer_runs(!found.is_empty());
         let warning = razer_warning(&found);
         let first = warning.is_some() && !self.razer_opened.replace(true);
         let before = self.razer_warning.replace(warning.clone());

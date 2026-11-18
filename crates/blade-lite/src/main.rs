@@ -573,17 +573,18 @@ fn the_window_icon_is_made_from_the_tray_picture() {
     assert!(window_icon(DEFAULT_ACCENT).is_ok());
 }
 
-/// Whether a Razer updater runs as the app starts. A look that fails
-/// counts as one (fail safe): the shell's next look that works lets go.
-fn updater_at_start() -> bool {
+/// Whether a Razer updater runs as the app starts, and whether any Razer
+/// software runs (ticket 288). A look that fails counts as both (fail
+/// safe): the shell's next look that works lets go.
+fn razer_at_start() -> (bool, bool) {
     razer_software(&WindowsPrograms).map_or_else(
         |error| {
             report(&format!(
                 "can't look for a Razer updater, so nothing is sent until a look works: {error}"
             ));
-            true
+            (true, true)
         },
-        |found| razer_updater(&found),
+        |found| (razer_updater(&found), !found.is_empty()),
     )
 }
 
@@ -753,8 +754,11 @@ fn run(in_tray: bool) -> Result<(), Box<dyn std::error::Error>> {
     app.take_on_battery(on_battery_now());
     // Before the start reads the touchpad, so no switch is missed.
     let touchpad = watch_touchpad();
-    // A Razer updater must never meet the start's sends (ticket 145).
-    app.hold_controller(updater_at_start());
+    // A Razer updater must never meet the start's sends (ticket 145), and
+    // a manual fan goes on auto while Razer software runs (ticket 288).
+    let (updater, razer_runs) = razer_at_start();
+    app.hold_controller(updater);
+    app.take_razer_runs(razer_runs);
     // Once, before the first send, so the log has it.
     app.check_firmware();
     let firmware_unchecked = app.firmware_warning().is_some();
