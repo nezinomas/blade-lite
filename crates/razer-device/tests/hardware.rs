@@ -620,7 +620,7 @@ fn a_custom_mode_write_alone_and_what_the_fans_do() {
     let mut read_error = Ok(());
     if set.is_ok() {
         for second in 1..=10 {
-            let reads = rest_on_power(&mut device, 1)
+            let reads = rest_on_ac(1)
                 .and_then(|()| try_read_each(&mut device, GET_FAN, &FANS))
                 .and_then(|target| Ok((target, try_read_each(&mut device, GET_FAN_RPM, &FANS)?)));
             match reads {
@@ -796,6 +796,14 @@ fn put_back_custom<C: Clock>(
     device: &mut Device<HidTransport, C>,
     before: &[Vec<u8>],
 ) -> Vec<Result<(), String>> {
+    // A charger pulled mid-test: the state read on AC may be Performance
+    // or a manual fan, so the battery's safe state goes instead (ticket 274).
+    if let Err(error) = on_full_power(device) {
+        eprintln!(
+            "{error}: put back Custom on auto, lowest boosts, then Balanced, not {before:02X?}"
+        );
+        return battery_put_back(device);
+    }
     before[4..6]
         .iter()
         .map(|args| (SET_BOOST, args))
@@ -810,6 +818,29 @@ fn put_back_custom<C: Clock>(
         .collect()
 }
 
+/// Ends a manual fan, then runs Balanced, as the app's quit preset does on
+/// battery: Custom with the fans on auto and the lowest boosts, then
+/// Balanced. Every send is tried.
+fn battery_put_back<C: Clock>(device: &mut Device<HidTransport, C>) -> Vec<Result<(), String>> {
+    use razer_proto::{BLADE_18, CpuBoost, Custom, FanMode, GpuBoost, PerfMode};
+
+    let auto = Custom {
+        cpu: CpuBoost::new(0, &BLADE_18).unwrap(),
+        gpu: GpuBoost::new(0, &BLADE_18).unwrap(),
+        fan: FanMode::Auto,
+    };
+    auto.commands(&BLADE_18)
+        .into_iter()
+        .chain(PerfMode::Balanced.commands(&BLADE_18).unwrap())
+        .map(|command| {
+            device
+                .send(command.id, &command.args)
+                .map(|_| ())
+                .map_err(|error| error.to_string())
+        })
+        .collect()
+}
+
 /// The fan targets and the real speeds, one reply's args per fan.
 type FanReads = (Vec<Vec<u8>>, Vec<Vec<u8>>);
 
@@ -818,11 +849,12 @@ type FanReads = (Vec<Vec<u8>>, Vec<Vec<u8>>);
 fn watch_fans<C: Clock>(device: &mut Device<HidTransport, C>) -> Result<Vec<FanReads>, String> {
     let mut seen = Vec::new();
     for _ in 0..6 {
-        rest_on_power(device, 5)?;
+        rest_on_ac(5)?;
         let target = try_read_each(device, GET_FAN, &FANS)?;
         let real = try_read_each(device, GET_FAN_RPM, &FANS)?;
         seen.push((target, real));
     }
+    on_full_power(device).map_err(|why| stopped(&why))?;
     Ok(seen)
 }
 
@@ -903,7 +935,7 @@ fn watch_fans_for<C: Clock>(
     polls.push(Charger::query());
     let mut seen = Vec::new();
     for second in 1..=seconds {
-        rest_on_power(device, 1)?;
+        rest_on_ac(1)?;
         if app_reads {
             for query in &polls {
                 device
@@ -917,6 +949,7 @@ fn watch_fans_for<C: Clock>(
             seen.push((target, real));
         }
     }
+    on_full_power(device).map_err(|why| stopped(&why))?;
     Ok(seen)
 }
 
@@ -1131,7 +1164,7 @@ fn watch_under_load<C: Clock>(
     seen: &mut Vec<LoadRead>,
 ) -> Result<(), String> {
     for second in 1..=seconds {
-        rest_on_power(device, 1)?;
+        rest_on_ac(1)?;
         let cpu = read_cpu(device)?;
         if cpu >= LOAD_STOP_CELSIUS {
             return Err(format!("CPU at {cpu} °C: stopped"));
@@ -1142,6 +1175,7 @@ fn watch_under_load<C: Clock>(
             seen.push((target, real, cpu));
         }
     }
+    on_full_power(device).map_err(|why| stopped(&why))?;
     Ok(())
 }
 
@@ -1175,7 +1209,7 @@ fn load_test_asked() -> bool {
 /// after it goes through [`rest_on_power`] (ticket 274).
 fn require_full_power<C: Clock>(device: &mut Device<HidTransport, C>) {
     if let Err(error) = on_full_power(device) {
-        panic!("{error}");
+        panic!("{error}: not run");
     }
 }
 
@@ -1202,7 +1236,7 @@ fn full_power_kept(
         Ok(())
     } else {
         Err(format!(
-            "charger read {full_power:?}: not the full power charger (or unknown): not run"
+            "charger read {full_power:?}: not the full power charger (or unknown)"
         ))
     }
 }
@@ -1212,37 +1246,50 @@ fn still_on_ac(on_battery: Option<bool>) -> Result<(), String> {
     if on_battery == Some(false) {
         Ok(())
     } else {
-        Err(format!(
-            "on battery {on_battery:?}: not on AC (or unknown): not run"
-        ))
+        Err(format!("on battery {on_battery:?}: not on AC (or unknown)"))
     }
 }
 
 /// Waits `seconds` while the laptop stays on AC (read each second), then
-/// reads the charger: an error as soon as either is lost, so a test that
-/// sends Performance or a manual Custom stops and puts its state back
-/// (ticket 274).
+/// reads the charger before the next write: an error as soon as either is
+/// lost, so a test that sends Performance or a manual Custom stops and puts
+/// a safe state back (ticket 274).
 fn rest_on_power<C: Clock>(
     device: &mut Device<HidTransport, C>,
     seconds: u64,
 ) -> Result<(), String> {
+    rest_on_ac(seconds)?;
+    on_full_power(device).map_err(|why| stopped(&why))
+}
+
+/// Waits `seconds` while Windows reports AC, read each second. Sends
+/// nothing to the controller, so a watch measures what it is meant to;
+/// the watch reads the charger once at its end.
+fn rest_on_ac(seconds: u64) -> Result<(), String> {
     for _ in 0..seconds {
         std::thread::sleep(Duration::from_secs(1));
-        still_on_ac(platform::on_battery())?;
+        still_on_ac(platform::on_battery()).map_err(|why| stopped(&why))?;
     }
-    on_full_power(device)
+    Ok(())
+}
+
+/// A power check that failed mid-test: the test ran, and is stopped.
+fn stopped(why: &str) -> String {
+    format!("{why}: stopped")
 }
 
 /// [`full_power_kept`], as the refusal before any write.
 fn refuse_unless_full_power(on_battery: Option<bool>, full_power: &Result<Option<bool>, String>) {
     if let Err(error) = full_power_kept(on_battery, full_power) {
-        panic!("{error}");
+        panic!("{error}: not run");
     }
 }
 
 /// After the load: keeps the fans as they are until the CPU is under
 /// [`COOL_CELSIUS`] (or 60 s), as the state put back may be a slow manual
-/// fan. Hot is no reason to stop here; only a failed read is.
+/// fan. Hot is no reason to stop here; only a failed read is. Also on
+/// battery after a charger pull, on purpose: the fans at full speed cool
+/// the CPU first (ticket 274).
 fn cool_down<C: Clock>(device: &mut Device<HidTransport, C>) -> Vec<LoadRead> {
     let mut cooling = Vec::new();
     for second in 1..=60 {
@@ -1442,7 +1489,7 @@ fn watch_modes_and_fans<C: Clock>(
     seen: &mut Vec<ModeRead>,
 ) -> Result<(), String> {
     for _ in 0..seconds / 5 {
-        rest_on_power(device, 5)?;
+        rest_on_ac(5)?;
         let modes = try_preset_args(device)?;
         let target = try_read_each(device, GET_FAN, &FANS)?;
         let real = try_read_each(device, GET_FAN_RPM, &FANS)?;
@@ -1460,6 +1507,7 @@ fn watch_modes_and_fans<C: Clock>(
             return Err(format!("CPU at {cpu} °C: stopped"));
         }
     }
+    on_full_power(device).map_err(|why| stopped(&why))?;
     Ok(())
 }
 

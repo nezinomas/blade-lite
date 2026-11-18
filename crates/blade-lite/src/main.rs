@@ -431,15 +431,17 @@ fn a_late_open_while_windows_ends_the_session_gives_no_controller() {
 /// The shutdown is read after the settle wait, not before the open.
 #[cfg(test)]
 #[test]
-fn a_late_open_reads_the_shutdown_after_it_opened() {
+fn a_late_open_reads_the_shutdown_after_it_opened_and_settled() {
     // Its reports go to the test run's log.
     window_tests::log_path();
-    let opened = std::cell::Cell::new(false);
+    let settle = Duration::from_millis(50);
+    let opened = std::cell::Cell::new(None);
     let start = open_late(
-        || opened.set(true),
-        Duration::ZERO,
+        || opened.set(Some(std::time::Instant::now())),
+        settle,
         || {
-            assert!(opened.get(), "read before the open");
+            let at = opened.get().expect("read before the open");
+            assert!(at.elapsed() >= settle, "read before the settle wait");
             true
         },
     );

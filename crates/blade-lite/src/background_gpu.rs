@@ -298,9 +298,9 @@ mod tests {
     }
 
     fake_gpu!(QuickGpu, awake: true, delay_ms: 2, reads: QUICK_READS, panics: false);
-    // Far slower than the wait, so a loaded PC still tells them apart
-    // (ticket 270).
-    fake_gpu!(SlowGpu, awake: true, delay_ms: 2000, reads: SLOW_READS, panics: false);
+    // Far slower than the wait, so a loaded PC still tells them apart,
+    // and well inside the 3 s a read stays fresh (ticket 270).
+    fake_gpu!(SlowGpu, awake: true, delay_ms: 1200, reads: SLOW_READS, panics: false);
     fake_gpu!(CountedGpu, awake: true, delay_ms: 300, reads: COUNTED_READS, panics: false);
     fake_gpu!(AsleepGpu, awake: false, delay_ms: 0, reads: ASLEEP_READS, panics: false);
     fake_gpu!(PanicGpu, awake: true, delay_ms: 0, reads: PANIC_READS, panics: true);
