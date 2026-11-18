@@ -37,6 +37,8 @@ fn firmware_text(version: FirmwareVersion) -> String {
 /// next power event or change sends it.
 pub const RESEND_TRIES: u8 = 3;
 
+pub const MANUAL_RESEND_SPACING: Duration = Duration::from_mins(1);
+
 /// How many times the lighting after a charger change is sent before it is
 /// given up until the next change, wake or click (ticket 244).
 pub const SOURCE_LIGHTING_TRIES: u8 = 3;
@@ -481,6 +483,13 @@ where
         let running = self.running(self.config);
         running.preset == Preset::Custom && running.custom.fan_rpm.is_some()
     }
+
+    #[must_use]
+    pub fn manual_fan_unshown(&self) -> bool {
+        false
+    }
+
+    pub fn keep_resending(&mut self, _now: Instant) {}
 
     /// Notes the guard's full speed sent if `sent`, a preset that went,
     /// carried it: Custom with the manual fan at the boost (ticket 180).

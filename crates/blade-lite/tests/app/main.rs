@@ -11,6 +11,7 @@ mod firmware;
 mod header;
 mod keyboard;
 mod logo;
+mod manual_fan_unsure;
 mod mic_key;
 mod power_key;
 mod presets;

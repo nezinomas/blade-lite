@@ -19,7 +19,7 @@ mod watchdog;
 
 pub use accent::accent_colour;
 pub use app::{
-    App, AppError, Machine, RESEND_TRIES, SOURCE_LIGHTING_SPACING, SOURCE_LIGHTING_TRIES,
+    App, AppError, MANUAL_RESEND_SPACING, Machine, RESEND_TRIES, SOURCE_LIGHTING_SPACING, SOURCE_LIGHTING_TRIES,
     took_effect,
 };
 pub use autostart_item::{
