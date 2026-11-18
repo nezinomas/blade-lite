@@ -207,6 +207,24 @@ fn a_cpu_not_read_after_the_quit_tries_no_full_speed() {
     assert!(!f.shell.app().boost_unsent());
 }
 
+/// Ticket 273: after the quit a hot GPU (its sampler has no gate) tries no
+/// full speed, so none is marked unsent.
+#[test]
+fn a_hot_gpu_after_the_quit_tries_no_full_speed() {
+    let f = manual_fan();
+    f.shell.quit();
+    let before = sent_count(&f);
+    let start = Instant::now();
+
+    for second in 0..=10 {
+        f.shell
+            .watch_heat(Some(60), Some(95), start + Duration::from_secs(second));
+    }
+
+    assert_eq!(sent_count(&f), before);
+    assert!(!f.shell.app().boost_unsent());
+}
+
 /// Review of 251: with the fans on auto the guard sends nothing, so it
 /// says why a manual fan set later runs at full speed.
 #[test]

@@ -74,7 +74,9 @@ impl<P: Parts> Shell<P> {
                 shown(gpu)
             ));
         }
-        if !allowed {
+        // After the quit the gate is closed: a hot GPU (its sampler has no
+        // gate) would only mark a refused full speed unsent (ticket 273).
+        if !allowed || self.quit_sent.get() {
             return;
         }
         let sent = self.app.borrow_mut().set_fan_boost(guard.on());
