@@ -819,7 +819,17 @@ fn a_wake_with_a_bad_lighting_value_still_sends_the_preset_that_runs() {
     });
     app.take_on_battery(Some(true));
 
-    assert!(app.on_power(PowerEvent::Resumed).is_err());
+    let result = app.on_power(PowerEvent::Resumed);
+
+    assert!(
+        matches!(
+            result,
+            Err(blade_lite::AppError::Apply(
+                blade_core::ApplyError::Brightness(_)
+            ))
+        ),
+        "{result:?}"
+    );
 
     assert_eq!(sent(&app), PerfMode::Balanced.commands(&BLADE_18).unwrap());
     assert!(!app.preset_unsure());

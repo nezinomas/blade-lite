@@ -453,9 +453,9 @@ where
     }
 
     /// Reads back the preset of `config` if `applied` sent it whole, and
-    /// keeps, logs and shows a zone, boost or fan target that differs. After a send that failed
-    /// partway, or a failed read, nothing is known: an old difference is
-    /// dropped. Each change is logged once.
+    /// keeps, logs and shows a zone, boost or fan target that differs.
+    /// After a send that failed partway, or a failed read, nothing is
+    /// known: an old difference is dropped. Each change is logged once.
     fn check_preset_if_sent(&mut self, config: &Config, applied: &Result<(), ApplyError>) {
         let check = match applied {
             Ok(()) | Err(ApplyError::AfterPreset(_)) => {

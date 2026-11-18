@@ -921,7 +921,8 @@ impl<P: Parts> Shell<P> {
         // with the errors.
         let warning = self.razer_warning.borrow();
         // Razer's software sets its own fan targets each second (`NOTES.md`,
-        // ticket 222): its warning says enough then.
+        // ticket 222), and may set the modes: its warning says enough then.
+        // The log still has the difference.
         let mismatch = app.preset_mismatch().filter(|_| warning.is_none()).map(|differs| {
             format!("The controller does not run the preset sent ({differs}). It is not sent again by itself.")
         });
