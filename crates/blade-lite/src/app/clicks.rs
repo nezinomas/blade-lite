@@ -270,13 +270,12 @@ where
             return self.follow_power(PowerEvent::OnAc);
         }
         let dropped = self.follow_power(PowerEvent::OnBattery);
+        // The rate error is the one shown. The switch is off in memory
+        // whatever the save does, so the rates don't lock; a failed save
+        // leaves it on in the file until the next save (ticket 260).
         if dropped.is_err()
-            && let Err(error) = self.commit(old)
+            && let Err(error) = self.keep_sent(old)
         {
-            // The rate error is the one shown. The switch is off in memory
-            // anyway, so the rates don't lock; the file keeps it on until
-            // the next save (ticket 260).
-            self.config = old;
             report(&format!(
                 "the 60 Hz on battery switch is off again, but could not be saved: {error}"
             ));

@@ -163,16 +163,18 @@ fn a_refused_60_hz_whose_roll_back_save_fails_keeps_the_switch_off_in_memory() {
     let (mut app, _dir, path) = app();
     app.on_power(PowerEvent::OnBattery).unwrap();
     app.machine_mut().displays.1 = 1;
-    app.machine_mut().displays.3 = Some(path);
+    app.machine_mut().displays.3 = Some(path.clone());
 
     assert!(
         app.on_display(DisplayCommand::SetSixtyHzOnBattery(true))
             .is_err()
     );
 
-    // The rates stay free though the file could not be put back (ticket 260).
+    // The rates stay free though the file could not be put back (ticket
+    // 260). The log line for the failed save is not checked here.
     assert!(!app.config().sixty_hz_on_battery);
     assert!(app.display_view().unwrap().rates_enabled);
+    assert!(Config::load(&path).unwrap().sixty_hz_on_battery);
 }
 
 #[test]
