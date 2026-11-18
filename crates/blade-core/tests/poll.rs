@@ -425,23 +425,19 @@ fn a_minimised_closed_window_does_not_poll_when_restored() {
     assert_eq!(schedule.next_poll(), None);
 }
 
-/// Ticks a second apart, each `jitter` off the whole second (ticket 264):
-/// returns the ticks, from the start, at which `due` said yes.
+/// Ticks a second apart from 1 s after the start, each `jitter` ms off the
+/// whole second (ticket 264): returns the ticks at which `due` said yes.
 fn jittered(
     clock: &mut FakeClock,
     jitter: &[i64],
     mut due: impl FnMut(Instant) -> bool,
-) -> Vec<u64> {
+) -> Vec<i64> {
     let mut hits = Vec::new();
-    for (second, &ms) in (0u64..).zip(jitter) {
-        let at = clock.start + Duration::from_secs(second);
-        clock.now = if ms < 0 {
-            at - Duration::from_millis(ms.unsigned_abs())
-        } else {
-            at + Duration::from_millis(ms.unsigned_abs())
-        };
+    for (tick, &ms) in (0..).zip(jitter) {
+        let after_start = u64::try_from(1000 * (tick + 1) + ms).unwrap();
+        clock.now = clock.start + Duration::from_millis(after_start);
         if due(clock.now) {
-            hits.push(second);
+            hits.push(tick);
         }
     }
     hits
