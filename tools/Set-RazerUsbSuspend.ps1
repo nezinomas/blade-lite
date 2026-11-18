@@ -11,8 +11,8 @@
 # laptop's other HidUsb interfaces.
 # It changes nothing unless it finds exactly what it expects.
 # The cost of suspend off: the device can keep Windows out of its deepest
-# sleep state (Modern Standby), and Windows may then remove it in a sleep
-# (ticket 242, docs/NOTES.md; the README says more).
+# sleep state (Modern Standby); in one sleep Windows removed it (seen once,
+# ticket 242, docs/NOTES.md; the README says more).
 
 [CmdletBinding()]
 param([switch]$Undo)

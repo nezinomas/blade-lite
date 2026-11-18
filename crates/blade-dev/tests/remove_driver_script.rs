@@ -64,12 +64,42 @@ fn the_script_names_the_profiles_product_id() {
     assert_eq!(id, format!("{:04X}", BLADE_18.usb.product_id));
 }
 
+/// On a lock of its own, so the test never takes the app's.
 #[test]
-fn a_running_app_is_refused() {
-    let err = run("function Get-Process { 'blade-lite' }\n\
-         Enter-ControllerLock")
-    .unwrap_err();
+fn a_held_lock_or_a_running_app_is_refused() {
+    let lock = format!(
+        r"$LockName = 'Global\blade-lite-test-driver-{}'",
+        std::process::id()
+    );
+    let free = run(&format!("{lock}; (Enter-ControllerLock).Dispose(); 'free'"));
+    assert_eq!(free, Ok("free".to_string()));
+    let held = format!(
+        "{lock}; $m = New-Object System.Threading.Mutex($false, $LockName); Enter-ControllerLock"
+    );
+    let running = format!("{lock}; function Get-Process {{ 'blade-lite' }}; Enter-ControllerLock");
+    for body in [held, running] {
+        let err = run(&body).unwrap_err();
+        assert!(err.contains("Nothing changed"), "{body}: {err}");
+    }
+}
+
+#[test]
+fn a_setting_undo_could_not_put_back_is_refused_first() {
+    let err = run("function Get-MetadataValue { '2' }\nAssert-MetadataValueKnown").unwrap_err();
     assert!(err.contains("Nothing changed"), "{err}");
+    for known in ["absent", "0", "1"] {
+        let ok = run(&format!(
+            "function Get-MetadataValue {{ '{known}' }}\nAssert-MetadataValueKnown; 'ok'"
+        ));
+        assert_eq!(ok, Ok("ok".to_string()), "{known}");
+    }
+}
+
+#[test]
+fn a_failed_restore_point_read_stops_the_removal() {
+    let err = run("function Get-ComputerRestorePoint { throw 'WMI failed' }\nGet-LastRestorePoint")
+        .unwrap_err();
+    assert!(err.contains("WMI failed"), "{err}");
 }
 
 /// Packages and devices: `oem81` is the Blade's, `oem90` a Razer mouse's.
@@ -183,8 +213,10 @@ fn undo_removes_a_value_that_was_absent() {
 
 #[test]
 fn undo_refuses_a_kept_value_it_cannot_read() {
-    let err = undo_with("7").unwrap_err();
-    assert!(err.contains("Nothing changed"), "{err}");
+    for kept in ["7", ""] {
+        let err = undo_with(kept).unwrap_err();
+        assert!(err.contains("Nothing changed"), "{kept:?}: {err}");
+    }
 }
 
 #[test]

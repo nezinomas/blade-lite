@@ -5,11 +5,14 @@
 #   .\tools\Remove-RazerDriver.ps1 -Undo     # admin: put the Windows Update setting back
 # Run the dry run again after a restart to check the result.
 # Quit Blade Lite from the tray first: -Apply and -Undo take its lock.
-# -Apply removes only Razer packages that no other Razer device uses (a
-# Razer mouse keeps its driver). It stops, with nothing removed, unless a
-# new restore point is there: Windows makes at most one each 24 hours
-# (Microsoft's Checkpoint-Computer page), so a second run within a day
-# needs -SkipRestorePoint. The removed packages can't be put back by this
+# -Apply removes only Razer packages that no other Razer device Windows
+# knows (plugged in or not) has as its driver (a Razer mouse keeps its
+# driver). Only USB devices' main driver INF is matched: a package another
+# Razer device uses as an extension, or a Bluetooth Razer device's, is not
+# seen. It stops, with nothing removed, unless a new restore point is
+# there: Windows skips one if any restore point was made in the last 24
+# hours (Microsoft's SRSetRestorePointW and Checkpoint-Computer pages), so
+# then run it the next day, or with -SkipRestorePoint. The removed packages can't be put back by this
 # script: use the restore point, or install Synapse again (docs/driver-removal.md).
 
 param(
@@ -51,9 +54,11 @@ function Get-RazerDriverPackages {
     }
 }
 
-# Every present Razer device, with the INF its driver comes from.
-function Get-RazerDevices {
-    Get-PnpDevice -PresentOnly | Where-Object { $_.InstanceId -match 'VID_1532&PID_' } |
+# Every Razer device, with the INF its driver comes from: those plugged in
+# now, or with -All every one Windows knows.
+function Get-RazerDevices([switch]$All) {
+    $found = if ($All) { Get-PnpDevice } else { Get-PnpDevice -PresentOnly }
+    $found | Where-Object { $_.InstanceId -match 'VID_1532&PID_' } |
         ForEach-Object {
             $inf = (Get-PnpDeviceProperty -InstanceId $_.InstanceId -KeyName DEVPKEY_Device_DriverInfPath).Data
             [pscustomobject]@{ Inf = $inf; Name = $_.FriendlyName; Id = $_.InstanceId }
@@ -67,10 +72,14 @@ function Select-BladeDevices($Devices) {
 # The packages that no other Razer device uses: those are kept, and named.
 function Select-PackagesToRemove($Packages, $Devices) {
     $others = @($Devices | Where-Object { $_.Id -notmatch "VID_1532&PID_$ProductId" })
+    $blade = @(Select-BladeDevices $Devices)
     foreach ($package in $Packages) {
         $users = @($others | Where-Object { $_.Inf -eq $package.Published })
         if ($users.Count -gt 0) {
             Write-Host "Kept $($package.Published) ($($package.Original)): used by $(($users | ForEach-Object Id) -join ', ')"
+            if (@($blade | Where-Object { $_.Inf -eq $package.Published }).Count -gt 0) {
+                Write-Warning "$($package.Published) is also the Blade's driver: those $ProductId interfaces stay on it."
+            }
             continue
         }
         $package
@@ -92,7 +101,7 @@ function Show-State {
     $onRazer | ForEach-Object { Write-Host "  $($_.Inf)  $($_.Id)" }
     Write-Host "`nManufacturer apps from Windows Update blocked: $($metadata -eq 1)"
 
-    $done = $onRazer.Count -eq 0 -and $metadata -eq 1
+    $done = $devices.Count -gt 0 -and $onRazer.Count -eq 0 -and $metadata -eq 1
     Write-Host ("`nResult: " + $(if ($done) { "DONE. $ProductId is on the inbox drivers." } else { 'NOT DONE.' }))
 }
 
@@ -123,9 +132,10 @@ function Assert-SynapseGone {
     }
 }
 
-# The highest restore point number, 0 if none.
+# The highest restore point number, 0 if none. A failed read stops the run:
+# a 0 would make an old point count as new.
 function Get-LastRestorePoint {
-    $last = @(Get-ComputerRestorePoint -ErrorAction SilentlyContinue) |
+    $last = @(Get-ComputerRestorePoint) |
         Measure-Object -Property SequenceNumber -Maximum
     if ($last.Count -eq 0) { 0 } else { [int64]$last.Maximum }
 }
@@ -144,13 +154,13 @@ function New-RestorePoint {
         $_.SequenceNumber -gt $before -and $_.Description -eq $restoreDescription
     })
     if ($made.Count -eq 0) {
-        throw 'Windows made no new restore point (it makes at most one each 24 hours). Nothing removed. Run again tomorrow, or with -SkipRestorePoint to go on without one.'
+        throw 'Windows made no new restore point (it skips one if any was made in the last 24 hours). Nothing removed. Run again tomorrow, or with -SkipRestorePoint to go on without one.'
     }
     Write-Host 'Restore point made.'
 }
 
 function Remove-RazerPackages {
-    $packages = @(Select-PackagesToRemove @(Get-RazerDriverPackages) @(Get-RazerDevices))
+    $packages = @(Select-PackagesToRemove @(Get-RazerDriverPackages) @(Get-RazerDevices -All))
     foreach ($package in $packages) {
         Write-Host "Removing $($package.Published) ($($package.Original))"
         pnputil /delete-driver $package.Published /uninstall
@@ -164,6 +174,14 @@ function Get-MetadataValue {
     if ($null -eq $value) { 'absent' } else { [string]$value }
 }
 
+# Refuses a value -Undo could not put back, before anything changes.
+function Assert-MetadataValueKnown {
+    $now = Get-MetadataValue
+    if ($now -notmatch '^(absent|0|1)$') {
+        throw "$metadataName is '$now', not absent, 0 or 1: -Undo could not put it back. Nothing changed."
+    }
+}
+
 # Keeps the old value for -Undo, unless one is kept already (a second
 # -Apply would keep its own 1).
 function Save-MetadataValue {
@@ -174,7 +192,9 @@ function Save-MetadataValue {
 
 function Block-ManufacturerApps {
     Save-MetadataValue
-    New-Item $metadataKey -Force | Out-Null
+    # Only when missing: -Force on a key that is there would make it again
+    # with no other values.
+    if (-not (Test-Path $metadataKey)) { New-Item $metadataKey | Out-Null }
     Set-ItemProperty $metadataKey -Name $metadataName -Value 1 -Type DWord
     Write-Host 'Turned off "Automatically get manufacturers'' apps and custom icons".'
 }
@@ -184,7 +204,7 @@ function Restore-ManufacturerApps {
     if (-not (Test-Path $beforeFile)) {
         throw "No value kept in $beforeFile (-Apply was not run since this was added). Nothing changed."
     }
-    $before = (Get-Content $beforeFile -TotalCount 1).Trim()
+    $before = "$(Get-Content $beforeFile -TotalCount 1)".Trim()
     if ($before -eq 'absent') {
         Remove-ItemProperty $metadataKey -Name $metadataName -ErrorAction SilentlyContinue
     } elseif ($before -match '^[01]$') {
@@ -208,6 +228,7 @@ if ($Apply -or $Undo) {
             Restore-ManufacturerApps
         } else {
             Assert-SynapseGone
+            Assert-MetadataValueKnown
             New-RestorePoint
             Remove-RazerPackages
             Block-ManufacturerApps

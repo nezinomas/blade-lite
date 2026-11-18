@@ -21,10 +21,12 @@ drivers, so our app can talk to MI_02 with no Razer software.
 2. In an admin PowerShell, in the repo folder:
    `powershell -ExecutionPolicy Bypass -File .\tools\Remove-RazerDriver.ps1 -Apply`.
    Quit Blade Lite first (the script takes its lock). It makes a restore
-   point and stops if Windows made none (at most one each 24 hours; then
-   run it the next day, or add `-SkipRestorePoint`). It removes each Razer
-   driver package that no other Razer device uses (a Razer mouse keeps its
-   driver) with `pnputil /delete-driver <oem#.inf> /uninstall`, keeps the
+   point and stops if Windows made none (Windows skips one if any restore
+   point was made in the last 24 hours; then run it the next day, or add
+   `-SkipRestorePoint`). It removes each Razer driver package that no other
+   Razer device Windows knows has as its main driver (a Razer mouse keeps
+   its driver, plugged in or not; Bluetooth devices and extension drivers
+   are not seen) with `pnputil /delete-driver <oem#.inf> /uninstall`, keeps the
    old value of "Automatically get manufacturers' apps and custom icons",
    and turns it off.
 3. Restart.
