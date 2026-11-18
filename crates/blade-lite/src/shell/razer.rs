@@ -1,8 +1,8 @@
 //! Looks for Razer's own software, such as Synapse or a Razer driver from
 //! Windows Update, which would talk to the controller beside the app. While
 //! it runs the background reads and the fan guard stop (the user picked
-//! that over a guard that could fight Synapse, 2026-11-12), but not the
-//! charger poll and the step down to the battery preset (ticket 258); while
+//! that over a guard that could fight Synapse, 2026-11-12), so Custom runs
+//! with the fans on auto (ticket 288), but not the charger poll and the step down to the battery preset (ticket 258); while
 //! a Razer updater runs nothing at all is sent (ticket 145).
 
 use std::rc::Rc;
@@ -51,6 +51,8 @@ impl<P: Parts> Shell<P> {
             self.updater_ended.set(!updater);
         }
         self.app.borrow_mut().hold_controller(updater);
+        // Held before this look too: the updater's own pause sends.
+        self.follow_razer(!found.is_empty(), held || updater);
         let warning = razer_warning(&found);
         let first = warning.is_some() && !self.razer_opened.replace(true);
         let before = self.razer_warning.replace(warning.clone());
@@ -62,6 +64,24 @@ impl<P: Parts> Shell<P> {
             );
         }
         first
+    }
+
+    /// Sends the preset that should run if Razer software came or went and
+    /// that changed it: a manual Custom fan goes on auto while it runs
+    /// (ticket 288), and back after. Not while a Razer updater holds the
+    /// controller or just let it go (`held`), in a pause or a sleep, or
+    /// after the quit: the updater's or the pause's end sends the start,
+    /// which takes it.
+    fn follow_razer(&self, runs: bool, held: bool) {
+        let changed = self.app.borrow_mut().set_razer_runs(runs);
+        if !changed || held || self.resuming.get() > 0 || self.quit_sent.get() {
+            return;
+        }
+        if let Err(error) = self.app.borrow_mut().send_running_preset() {
+            report(&format!(
+                "the preset for Razer software coming or going failed: {error}"
+            ));
+        }
     }
 
     /// After a Razer updater ended: waits the wake's pause, as the

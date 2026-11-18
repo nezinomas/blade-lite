@@ -95,6 +95,14 @@ enum FullSpeed {
     Unsent,
 }
 
+/// Whether Razer software runs, or the look for it failed (ticket 288).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Razer {
+    Absent,
+    /// The fan guard is off, so Custom runs with the fans on auto.
+    Runs,
+}
+
 /// Whether the controller may run a manual fan (ticket 250).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum SentFan {
@@ -304,6 +312,10 @@ pub struct App<C, D, R, K> {
     /// Whether the put-back may guess the other slot's level from a 0
     /// read. Refused, the level stays kept for the next swap into its slot.
     slot_guess: SlotGuess,
+    /// Whether Razer software runs (or the look for it failed): the fan
+    /// guard is off then, so Custom runs with the fans on auto in place of
+    /// a manual fan (ticket 288).
+    razer: Razer,
 }
 
 impl<C, D, R, K> App<C, D, R, K>
@@ -363,6 +375,7 @@ where
             slot: None,
             dark_slot: None,
             slot_guess: SlotGuess::Allowed,
+            razer: Razer::Absent,
         }
     }
 
@@ -940,7 +953,35 @@ where
         {
             running.custom.fan_rpm = Some(rpm);
         }
+        if self.razer == Razer::Runs && running.preset == Preset::Custom {
+            running.custom.fan_rpm = None;
+        }
         running
+    }
+
+    /// Notes whether Razer software runs. While it does the fan guard is
+    /// off, so Custom runs with the fans on auto in place of a manual fan
+    /// (user pick A, ticket 288); the saved fan is kept for its end.
+    /// Nothing is sent. Returns whether that changed what should run: see
+    /// [`Self::send_running_preset`].
+    pub fn set_razer_runs(&mut self, runs: bool) -> bool {
+        let before = self.running(self.config);
+        self.razer = if runs { Razer::Runs } else { Razer::Absent };
+        self.running(self.config) != before
+    }
+
+    /// Sends the preset that should run now, such as after Razer software
+    /// came or went. A failed send marks the preset unsure, so the polls
+    /// send it again.
+    ///
+    /// # Errors
+    ///
+    /// See [`AppError`].
+    pub fn send_running_preset(&mut self) -> Result<(), AppError> {
+        let running = self.running(self.config);
+        let applied = self.send_preset(&running);
+        self.note_preset_send(&running, &applied);
+        Ok(applied?)
     }
 
     /// Brings the fan boost in line with the fan guard (ticket 129), on each

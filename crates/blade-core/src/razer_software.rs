@@ -69,7 +69,7 @@ pub fn razer_warning(found: &[String]) -> Option<String> {
         format!(
             "Razer software runs ({}). It can talk to the controller too, \
              and the two can clash: quit or remove it. The fan guard is off \
-             while it runs.",
+             while it runs, so Custom runs with the fans on auto.",
             found.join(", ")
         )
     })

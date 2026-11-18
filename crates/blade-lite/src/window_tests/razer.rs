@@ -386,6 +386,90 @@ fn the_fan_guard_sends_nothing_while_razer_software_runs() {
     assert!(f.shell.app().machine().controller.inner.sent.len() > before);
 }
 
+fn manual_custom() -> Config {
+    let mut config = Config {
+        preset: Preset::Custom,
+        ..Config::default()
+    };
+    config.custom.fan_rpm = Some(1600);
+    config
+}
+
+/// The fan bytes of the mode writes sent since `before` commands: 0 is
+/// auto (ticket 288).
+fn fan_bytes_since(f: &Fixture, before: usize) -> Vec<u8> {
+    let app = f.shell.app();
+    let sent = &app.machine().controller.inner.sent[before..];
+    sent.iter()
+        .filter(|c| c.id == 0x0D02)
+        .map(|c| c.args[3])
+        .collect()
+}
+
+/// Whether `bytes` holds mode writes, all with the fans on auto.
+fn all_auto(bytes: &[u8]) -> bool {
+    !bytes.is_empty() && bytes.iter().all(|&byte| byte == 0)
+}
+
+#[test]
+fn with_razer_software_at_start_a_saved_manual_fan_goes_on_auto() {
+    let f = fixture_with_programs(manual_custom(), &[SYNAPSE]);
+
+    let bytes = fan_bytes_since(&f, 0);
+    assert!(all_auto(&bytes), "{bytes:?}");
+}
+
+#[test]
+fn razer_software_found_later_puts_a_manual_fan_on_auto_until_it_ends() {
+    let f = fixture(manual_custom());
+    let before = f.shell.app().machine().controller.inner.sent.len();
+
+    f.shell.programs().set(&[SYNAPSE]);
+    look(&f);
+    let bytes = fan_bytes_since(&f, before);
+    assert!(all_auto(&bytes), "{bytes:?}");
+
+    let gone = f.shell.app().machine().controller.inner.sent.len();
+    f.shell.programs().set(&[]);
+    look(&f);
+    let bytes = fan_bytes_since(&f, gone);
+    assert!(!bytes.is_empty(), "the manual fan again");
+    assert!(bytes.iter().all(|&byte| byte != 0), "{bytes:?}");
+}
+
+#[test]
+fn a_fan_click_while_razer_software_runs_sends_the_fans_on_auto_and_saves_it() {
+    let f = fixture_with_programs(manual_custom(), &[SYNAPSE]);
+    let before = f.shell.app().machine().controller.inner.sent.len();
+
+    f.shell
+        .act(|app| app.on_performance(ui::PerformanceCommand::SetFanRpm(Some(3000))));
+
+    let bytes = fan_bytes_since(&f, before);
+    assert!(all_auto(&bytes), "{bytes:?}");
+    assert_eq!(f.shell.app().config().custom.fan_rpm, Some(3000));
+}
+
+#[test]
+fn razer_software_found_in_a_pause_sends_nothing_at_once() {
+    let f = fixture(manual_custom());
+    super::sleep::power(&f, &[PowerEvent::Suspending]);
+    let before = f.shell.app().machine().controller.inner.sent.len();
+
+    f.shell.programs().set(&[SYNAPSE]);
+    look(&f);
+
+    assert_eq!(fan_bytes_since(&f, before), []);
+}
+
+#[test]
+fn the_warning_says_a_manual_fan_runs_on_auto() {
+    let f = fixture_with_programs(manual_custom(), &[SYNAPSE]);
+
+    let error = f.shell.window().get_error();
+    assert!(error.contains("fans on auto"), "{error}");
+}
+
 #[test]
 fn the_fan_guard_sends_nothing_while_a_razer_updater_runs() {
     let mut config = Config {
