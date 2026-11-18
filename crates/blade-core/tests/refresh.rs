@@ -57,6 +57,20 @@ fn no_internal_panel_is_an_error() {
 }
 
 #[test]
+fn two_internal_panels_are_no_panel() {
+    // Which one is the laptop's is not known: nothing is set (ticket 282).
+    let one = panel(mode(3840, 2400, 240));
+    let mut two = panel(mode(1920, 1200, 60));
+    two.name = r"\\.\DISPLAY9".to_string();
+    let api = FakeDisplays::new(Some(vec![one, two]));
+
+    assert!(matches!(
+        refresh_rates(&api),
+        Err(DisplayError::NoInternalPanel)
+    ));
+}
+
+#[test]
 fn a_failed_query_is_an_error() {
     let api = FakeDisplays::new(None);
 

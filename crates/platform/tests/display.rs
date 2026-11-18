@@ -2,10 +2,14 @@
 
 use platform::{DisplayApi, OutputTechnology, WindowsDisplays};
 
+const PANELS: &[([u8; 3], u16)] = &[(*b"BOE", 0x0D54)];
+
 #[test]
 #[ignore = "needs a laptop with its own panel turned on"]
 fn the_laptop_panel_is_listed_with_its_current_mode() {
-    let displays = WindowsDisplays { panels: &[] }.displays().unwrap();
+    // The model's panel as read 2026-11-18 (razer-proto's `BLADE_18.panels`;
+    // platform does not depend on it), so NVIDIA-only mode finds it too.
+    let displays = WindowsDisplays { panels: PANELS }.displays().unwrap();
     for display in &displays {
         eprintln!("{display:?}");
     }

@@ -133,7 +133,20 @@ impl ModelProfile {
             && fan_range_sendable(self.custom.fan_rpm)
             && frame_row_fits(self.keys.columns)
             && charge_limit_safe(self.charge_limit)
+            && panel_makers_are_letters(self.panels)
     }
+}
+
+/// Whether each panel's EDID maker is three capital letters, the only ones
+/// an EDID id can hold, so a typo can't leave the panel never found.
+const fn panel_makers_are_letters(mut panels: &[([u8; 3], u16)]) -> bool {
+    while let [([a, b, c], _), others @ ..] = panels {
+        if !(a.is_ascii_uppercase() && b.is_ascii_uppercase() && c.is_ascii_uppercase()) {
+            return false;
+        }
+        panels = others;
+    }
+    true
 }
 
 /// Whether the charge limit, if any, is in the range its command takes.

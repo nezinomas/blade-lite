@@ -38,8 +38,6 @@ fn open() -> HidTransport {
     HidTransport::open(&BLADE_18).unwrap()
 }
 
-/// An error as text, so a test can keep the `Result` of each step and put
-/// the old state back before it asserts.
 /// The real displays, with the model's panels.
 fn displays() -> WindowsDisplays {
     WindowsDisplays {
@@ -47,6 +45,8 @@ fn displays() -> WindowsDisplays {
     }
 }
 
+/// An error as text, so a test can keep the `Result` of each step and put
+/// the old state back before it asserts.
 fn text(error: impl std::fmt::Display) -> String {
     error.to_string()
 }

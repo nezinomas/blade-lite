@@ -110,6 +110,25 @@ fn the_blade_18_profile_is_valid() {
 }
 
 #[test]
+fn the_blade_18_panel_is_the_one_read_on_the_laptop() {
+    // Windows' EDID ids in NVIDIA-only mode, 2026-11-18 (ticket 282).
+    assert_eq!(BLADE_18.panels, [(*b"BOE", 0x0D54)]);
+}
+
+#[test]
+fn a_panel_maker_that_is_not_three_capitals_is_not_valid() {
+    const BAD: [&[([u8; 3], u16)]; 3] = [
+        &[(*b"Boe", 0x0D54)],
+        &[(*b"B0E", 0x0D54)],
+        &[(*b"BO ", 0x0D54)],
+    ];
+    for panels in BAD {
+        let model = ModelProfile { panels, ..BLADE_18 };
+        assert!(!model.is_valid(), "{panels:?}");
+    }
+}
+
+#[test]
 fn two_presets_with_one_mode_byte_are_not_valid() {
     let mut model = BLADE_18;
     model.mode_bytes.silent = model.mode_bytes.balanced;
