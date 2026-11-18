@@ -1,9 +1,9 @@
 //! What each click does.
 
 use blade_core::{
-    ApplyError, Config, Controller, Lighting, Preset, Query, apply_lighting, keyboard_brightness,
-    next_preset, set_charge_limit, set_logo, set_native_mode, set_refresh_rate, set_touchpad,
-    set_vapor_light,
+    ApplyError, Config, Controller, Lighting, Preset, Query, apply_lighting, check_custom,
+    keyboard_brightness, next_preset, set_charge_limit, set_logo, set_native_mode,
+    set_refresh_rate, set_touchpad, set_vapor_light,
 };
 use platform::{DisplayApi, KeyInjector, PowerEvent, Registry};
 use ui::{DisplayCommand, KeyboardCommand, PerformanceCommand};
@@ -48,6 +48,9 @@ where
             PerformanceCommand::SetChargeLimit(on) => return self.set_charge_limit(on),
         }
         if !matches!(command, PerformanceCommand::SetPreset(_)) {
+            // Checked here, as no Custom send checks it while another
+            // preset runs, such as Balanced on battery (ticket 275).
+            check_custom(config.custom, self.model)?;
             // A slider sends Custom while it runs (ticket 257). A read that
             // just found a weak charge refuses it, as a preset click.
             read_from = self.read_charger_before(config.preset);

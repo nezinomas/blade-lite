@@ -32,7 +32,7 @@ mod touchpad;
 
 pub use apply::{
     ApplyError, Controller, RESUME_PAUSE, apply, apply_fan_targets, apply_lighting,
-    apply_lighting_dark, apply_performance, check, preset_differs, reset,
+    apply_lighting_dark, apply_performance, check, check_custom, preset_differs, reset,
 };
 pub use autostart::{
     APPROVED_KEY, Autostart, AutostartError, RUN_KEY, RUN_VALUE, SHOWN_COMMAND_CHARS, TRAY_FLAG,

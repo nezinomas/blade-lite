@@ -756,6 +756,25 @@ fn a_value_refused_before_any_send_is_not_sent_again() {
     assert_eq!(sent(&app), []);
 }
 
+/// Ticket 275: on battery Balanced runs, so no Custom send checks the
+/// value; it is refused before it is saved.
+#[test]
+fn a_custom_value_out_of_range_on_battery_is_refused_and_not_saved() {
+    let (mut app, _dir, path) = app_with(Config {
+        preset: Preset::Custom,
+        ..Config::default()
+    });
+    app.on_power(PowerEvent::OnBattery).unwrap();
+    let before = sent(&app).len();
+
+    let result = app.on_performance(PerformanceCommand::SetCpuBoost(200));
+
+    assert!(result.is_err());
+    assert_eq!(sent(&app).len(), before);
+    assert_eq!(app.config().custom, CustomSettings::default());
+    assert!(!path.exists());
+}
+
 #[test]
 fn a_refused_value_keeps_a_resend_still_due() {
     let (mut app, _dir, _) = app_with(Config {
