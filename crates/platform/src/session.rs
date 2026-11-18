@@ -9,6 +9,7 @@ use std::io;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::ptr::null_mut;
 use std::sync::OnceLock;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc;
 
 use windows_sys::Win32::Foundation::{HWND, LPARAM, LRESULT, WPARAM};
@@ -31,8 +32,10 @@ struct Callbacks {
 }
 
 /// The watch's own stop, posted by its drop: a `WM_CLOSE` can come from
-/// any program, so it can't be the stop (ticket 255).
+/// any program, so it can't be the stop (ticket 255). Taken only once the
+/// drop set [`STOPPING`]: any program can post this number too.
 const WM_STOP: u32 = WM_APP + 1;
+static STOPPING: AtomicBool = AtomicBool::new(false);
 
 /// The hidden window, on its own thread. Dropping it stops the watch.
 pub struct SessionEndWatch {
@@ -172,6 +175,8 @@ impl Drop for SessionEndWatch {
         // there may wait for the event loop that has just ended, and the
         // quit after the loop must not wait for it (ticket 159 review).
         // SAFETY: the window this watch made.
+        STOPPING.store(true, Ordering::SeqCst);
+        // SAFETY: the window this watch made.
         unsafe { PostMessageW(self.hwnd, WM_STOP, 0, 0) };
     }
 }
@@ -190,13 +195,14 @@ unsafe extern "system" fn on_message(
         }
         return 0;
     }
-    if message == WM_CLOSE {
+    let own_stop = message == WM_STOP && STOPPING.load(Ordering::SeqCst);
+    if message == WM_CLOSE || (message == WM_STOP && !own_stop) {
         if let Some(callbacks) = ON_END.get() {
             let _ = catch_unwind(AssertUnwindSafe(callbacks.on_close));
         }
         return 0;
     }
-    if message == WM_STOP {
+    if own_stop {
         // SAFETY: this thread's own window; the destroy ends the reads.
         unsafe { DestroyWindow(hwnd) };
         return 0;
@@ -218,8 +224,8 @@ mod tests {
 
     use windows_sys::Win32::Foundation::HWND;
     use windows_sys::Win32::UI::WindowsAndMessaging::{
-        DestroyWindow, SMTO_NORMAL, SendMessageTimeoutW, WM_CLOSE, WM_ENDSESSION, WM_NULL,
-        WM_QUERYENDSESSION,
+        DestroyWindow, IsWindow, SMTO_NORMAL, SendMessageTimeoutW, WM_APP, WM_CLOSE, WM_ENDSESSION,
+        WM_NULL, WM_QUERYENDSESSION,
     };
 
     use super::{SessionEndWatch, make_window, serve_sent_messages};
@@ -269,6 +275,10 @@ mod tests {
         // (ticket 255).
         assert!(answered(hwnd, WM_CLOSE, 0));
         assert_eq!(CLOSES.load(Ordering::SeqCst), 1);
+        // A stranger's message of the stop's number is refused too; the
+        // sends below show the window still answers.
+        assert!(answered(hwnd, WM_APP + 1, 0));
+        assert_eq!(CLOSES.load(Ordering::SeqCst), 2);
 
         // The thread that started the watch waits here and reads no
         // messages, as the app's thread does inside a Windows call
@@ -296,8 +306,14 @@ mod tests {
 
         assert!(began.elapsed() < Duration::from_millis(500));
         assert!(waiting.join().unwrap());
-        // Its own stop is no stranger's close.
-        assert_eq!(CLOSES.load(Ordering::SeqCst), 1);
+        // The stop ends the watch, and is no stranger's close.
+        let gone_by = Instant::now() + Duration::from_secs(2);
+        // SAFETY: a plain look at a window handle, valid or not.
+        while unsafe { IsWindow(hwnd as HWND) } != 0 {
+            assert!(Instant::now() < gone_by, "the stop did not end the watch");
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        assert_eq!(CLOSES.load(Ordering::SeqCst), 2);
     }
 
     #[test]

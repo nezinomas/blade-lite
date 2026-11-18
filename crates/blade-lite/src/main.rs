@@ -505,15 +505,18 @@ fn poll(shell: &Rc<Shell>) -> Timer {
 /// the app as blocking the shutdown, where the user can end it at once.
 const SESSION_END_WAIT: Duration = Duration::from_secs(10);
 
-/// Windows ends the session, heard on the watch's own thread: the quit
-/// preset goes on the event loop before this returns (ticket 159).
 /// Another program asked the hidden session-end window to close, such as
 /// a `taskkill` without `/F`: refused, so a later shutdown still sends the
-/// quit preset (ticket 255). On the watch's thread.
+/// quit preset (ticket 255). On the watch's thread; logged once per run.
 fn on_session_window_close() {
-    report("a program asked the shutdown watch to close; it stays");
+    static SAID: AtomicBool = AtomicBool::new(false);
+    if !SAID.swap(true, Ordering::Relaxed) {
+        report("a program asked the shutdown watch to close; it stays (said once)");
+    }
 }
 
+/// Windows ends the session, heard on the watch's own thread: the quit
+/// preset goes on the event loop before this returns (ticket 159).
 fn on_session_end() {
     end_on_loop(
         slint::invoke_from_event_loop,
