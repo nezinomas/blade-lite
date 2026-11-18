@@ -480,7 +480,7 @@ mod tests {
         let gap = Duration::from_secs(5);
         let (s, mut controller) = opened_often(gap);
 
-        pass(SLOW_GAP - Duration::from_millis(1));
+        pass(SLOW_GAP.checked_sub(Duration::from_millis(1)).unwrap());
         assert!(not_connected(controller.send_report(&REPORT)));
         assert_eq!(
             s.told.borrow().len(),
