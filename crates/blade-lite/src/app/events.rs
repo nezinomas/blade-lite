@@ -183,7 +183,10 @@ where
     /// may be its own. The level stays kept for the next swap into its
     /// slot (ticket 247), and goes in then with no read, also while
     /// Razer's software runs: a level it set in that slot meanwhile is
-    /// lost, and the keys are lit (the safe side).
+    /// lost, and the keys are lit (the safe side). Allowed, as the put-back
+    /// of keys the app made dark goes while it runs too: both undo the
+    /// app's own 0. The saved lighting's send at a charger change is
+    /// dropped then, as it writes the user's whole lighting.
     pub fn refuse_slot_guess(&mut self, refuse: bool) {
         self.slot_guess = if refuse {
             SlotGuess::Refused
