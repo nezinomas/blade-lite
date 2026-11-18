@@ -20,9 +20,15 @@ drivers, so our app can talk to MI_02 with no Razer software.
    RazerXTU and Razer IntelOverClock. Restart.
 2. In an admin PowerShell, in the repo folder:
    `powershell -ExecutionPolicy Bypass -File .\tools\Remove-RazerDriver.ps1 -Apply`.
-   It makes a restore point, removes every Razer driver package with
-   `pnputil /delete-driver <oem#.inf> /uninstall`, and turns off
-   "Automatically get manufacturers' apps and custom icons".
+   Quit Blade Lite first (the script takes its lock). It makes a restore
+   point and stops if Windows made none (Windows skips one if any restore
+   point was made in the last 24 hours; then run it the next day, or add
+   `-SkipRestorePoint`). It removes each Razer driver package that no other
+   Razer device Windows knows has as its main driver (a Razer mouse keeps
+   its driver, plugged in or not; Bluetooth devices and extension drivers
+   are not seen) with `pnputil /delete-driver <oem#.inf> /uninstall`, keeps the
+   old value of "Automatically get manufacturers' apps and custom icons",
+   and turns it off.
 3. Restart.
 4. In a normal PowerShell:
    `powershell -ExecutionPolicy Bypass -File .\tools\Remove-RazerDriver.ps1`.
@@ -39,7 +45,9 @@ inbox drivers the keyboard needs.
 
 Use the restore point "Before Razer driver removal" (System Properties >
 System Protection > System Restore), or install Synapse again from
-razer.com.
+razer.com. `tools/Remove-RazerDriver.ps1 -Undo` (admin) puts back only the
+"manufacturers' apps" setting as it was before `-Apply`; it can't put back
+the removed driver packages.
 
 ## After (2026-11-02)
 

@@ -168,7 +168,11 @@ the laptop yet, laptop check 48). If Windows sets the device up
 again (a driver reinstall, for example), the value may go back to 1; then run
 the script again. The script prints "already" when there is nothing to do.
 The awake device may use more battery, in sleep too (not measured yet,
-laptop check 48). OpenRazer's
+laptop check 48). It can also keep Windows out of its deepest sleep state:
+Microsoft says the USB controller powers down in Modern Standby only once
+all its devices are in selective suspend, and in one sleep Windows logged
+the Razer device as "draining system power" and removed and re-added it
+(ticket 242, `docs/NOTES.md`). OpenRazer's
 Linux driver turns suspend off for Razer keyboards, but leaves it on for
 Blade laptops, with no reason given; no source here says why.
 
