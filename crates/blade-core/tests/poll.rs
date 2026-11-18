@@ -245,7 +245,7 @@ fn a_heat_read_a_little_late_still_runs() {
     // The next waits a whole interval from this late one: no burst.
     clock.now += Duration::from_secs(1);
     assert!(!schedule.heat_due(clock.now, clock.wall(), HEAT_INTERVAL));
-    clock.now += HEAT_INTERVAL - Duration::from_secs(1);
+    clock.now += HEAT_INTERVAL.saturating_sub(Duration::from_secs(1));
     assert!(schedule.heat_due(clock.now, clock.wall(), HEAT_INTERVAL));
 }
 
