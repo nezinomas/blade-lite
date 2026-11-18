@@ -10,7 +10,7 @@ use ui::PerformanceCommand;
 use blade_lite::AppError;
 
 use crate::fakes::{FakeCharger, TestApp};
-use crate::{performance_app, sent};
+use crate::{charger_steady, performance_app, sent};
 
 /// Whether every command of the preset was sent.
 fn ran(app: &TestApp, mode: PerfMode) -> bool {
@@ -91,6 +91,9 @@ fn a_charger_change_on_a_poll_sends_the_preset_it_runs() {
     assert!(!app.follow_charger().unwrap());
     assert_eq!(sent(&app), []);
     assert!(app.follow_charger().unwrap());
+    // Then it waits 10 s of steady charger (ticket 263).
+    assert_eq!(sent(&app), []);
+    charger_steady(&mut app);
     assert_eq!(
         sent(&app),
         PerfMode::Performance.commands(&BLADE_18).unwrap()
@@ -140,6 +143,29 @@ fn a_charger_plugged_in_on_a_weak_charge_keeps_balanced() {
 
     assert_eq!(sent(&app), []);
     assert_eq!(app.running_preset(), Preset::Balanced);
+}
+
+/// The read at the end of the full charger's wait (ticket 263): a USB-C
+/// monitor plugged in the wait, or a failed read, is a weak charge, so
+/// Performance does not go, and only two full poll reads end it.
+#[test]
+fn a_weak_or_failed_read_at_the_end_of_the_wait_keeps_balanced() {
+    for charger in [FakeCharger::UsbC, FakeCharger::Fails] {
+        let (mut app, _dir, _) = performance_app();
+        app.on_power(PowerEvent::OnBattery).unwrap();
+        app.on_power(PowerEvent::OnAc).unwrap();
+        app.machine_mut().controller.inner.sent.clear();
+        app.machine_mut().controller.inner.charger = charger;
+
+        charger_steady(&mut app);
+        charger_steady(&mut app);
+
+        assert_eq!(sent(&app), []);
+        assert_eq!(app.running_preset(), Preset::Balanced);
+        app.machine_mut().controller.inner.charger = FakeCharger::Razer;
+        assert!(!app.follow_charger().unwrap());
+        assert_eq!(app.running_preset(), Preset::Balanced);
+    }
 }
 
 #[test]
@@ -273,10 +299,12 @@ fn the_polls_not_a_refused_click_send_what_runs_on_the_full_charger() {
     app.machine_mut().controller.inner.charger = FakeCharger::UsbC;
     app.start().unwrap();
     app.machine_mut().controller.inner.sent.clear();
-    // Swapped to the full charger: the second poll's full read sends it.
+    // Swapped to the full charger: the second poll's full read sends it,
+    // once it stayed 10 s (ticket 263).
     app.machine_mut().controller.inner.charger = FakeCharger::Razer;
     app.follow_charger().unwrap();
     app.follow_charger().unwrap();
+    charger_steady(&mut app);
     assert_eq!(
         sent(&app),
         PerfMode::Performance.commands(&BLADE_18).unwrap()
@@ -305,9 +333,10 @@ fn a_full_read_at_a_click_does_not_end_a_weak_charge() {
     }
     assert_eq!(sent(&app), []);
 
-    // Two polls in a row take the full charger.
+    // Two polls in a row take the full charger, after its wait (ticket 263).
     app.follow_charger().unwrap();
     app.follow_charger().unwrap();
+    charger_steady(&mut app);
     let result = app.on_performance(PerformanceCommand::SetPreset(Preset::Performance));
     assert!(result.is_ok(), "{result:?}");
     assert!(ran(&app, PerfMode::Performance));

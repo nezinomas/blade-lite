@@ -19,8 +19,8 @@ mod watchdog;
 
 pub use accent::accent_colour;
 pub use app::{
-    App, AppError, MANUAL_RESEND_SPACING, Machine, RESEND_TRIES, SOURCE_LIGHTING_SPACING,
-    SOURCE_LIGHTING_TRIES, took_effect,
+    App, AppError, CHARGER_STEADY, MANUAL_RESEND_SPACING, Machine, RESEND_TRIES,
+    SOURCE_LIGHTING_SPACING, SOURCE_LIGHTING_TRIES, took_effect,
 };
 pub use autostart_item::{
     AUTOSTART_LABEL, AUTOSTART_OTHER_LABEL, AUTOSTART_UNKNOWN_LABEL, AutostartItem, autostart_item,

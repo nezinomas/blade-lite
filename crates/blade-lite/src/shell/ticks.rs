@@ -110,6 +110,7 @@ impl<P: Parts> Shell<P> {
         // Before any send: an updater end just found waits its pause.
         self.start_after_updater();
         self.follow_own_power();
+        self.follow_charger_back(now);
         self.follow_missed_wake(wall);
         self.follow_long_sleep(wall);
         self.send_fan_targets_again(now);
@@ -372,6 +373,30 @@ impl<P: Parts> Shell<P> {
             self.act(|_| changed.map(|_| ()));
         }
         acted
+    }
+
+    /// Sends the preset the full charger brings back once it stayed
+    /// [`CHARGER_STEADY`](blade_lite::CHARGER_STEADY) (ticket 263, see
+    /// `App::follow_charger_back`). Never once the quit began. Not while
+    /// a resume waits, a Razer updater runs, or Razer's software runs (the
+    /// full charger back sends nothing then, ticket 258): the wait starts
+    /// again from the next allowed tick.
+    fn follow_charger_back(self: &Rc<Self>, now: Instant) {
+        if self.quit_sent.get() {
+            return;
+        }
+        if !self.heat_reads_allowed() || !self.charger_reads_allowed() {
+            self.app.borrow_mut().restart_charger_wait();
+            return;
+        }
+        let unsent = self.app.borrow().boost_unsent();
+        let ended = self.app.borrow_mut().follow_charger_back(now);
+        let missed = self.app.borrow_mut().take_missed_reads();
+        self.say_read_errors(&missed);
+        self.say_full_speed_sent_again(unsent, WITH_THE_PRESET);
+        if !matches!(ended, Ok(false)) {
+            self.act(|_| ended.map(|_| ()));
+        }
     }
 
     /// The header, with the controller's readings only if

@@ -6,7 +6,7 @@ use platform::PowerEvent;
 use razer_proto::{BLADE_18, Brightness, PerfMode};
 use ui::{KeyboardCommand, PerformanceCommand};
 
-use crate::{app, app_with, break_save, sent};
+use crate::{app, app_with, break_save, charger_steady, sent};
 
 #[test]
 fn start_applies_the_saved_settings() {
@@ -74,6 +74,7 @@ fn a_preset_not_saved_is_sent_again_at_resume_and_back_on_ac() {
     app.on_power(PowerEvent::OnBattery).unwrap();
     app.machine_mut().controller.inner.sent.clear();
     app.on_power(PowerEvent::OnAc).unwrap();
+    charger_steady(&mut app);
     assert_eq!(
         sent(&app),
         PerfMode::Performance.commands(&BLADE_18).unwrap()
