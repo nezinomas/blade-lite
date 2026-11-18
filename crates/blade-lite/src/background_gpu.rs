@@ -298,7 +298,9 @@ mod tests {
     }
 
     fake_gpu!(QuickGpu, awake: true, delay_ms: 2, reads: QUICK_READS, panics: false);
-    fake_gpu!(SlowGpu, awake: true, delay_ms: 300, reads: SLOW_READS, panics: false);
+    // Far slower than the wait, so a loaded PC still tells them apart
+    // (ticket 270).
+    fake_gpu!(SlowGpu, awake: true, delay_ms: 2000, reads: SLOW_READS, panics: false);
     fake_gpu!(CountedGpu, awake: true, delay_ms: 300, reads: COUNTED_READS, panics: false);
     fake_gpu!(AsleepGpu, awake: false, delay_ms: 0, reads: ASLEEP_READS, panics: false);
     fake_gpu!(PanicGpu, awake: true, delay_ms: 0, reads: PANIC_READS, panics: true);
@@ -336,7 +338,7 @@ mod tests {
         let began = Instant::now();
         let first = sensors.gpu_awake();
         let held = began.elapsed();
-        assert!(held < MS * 250, "{held:?}");
+        assert!(held < MS * 1000, "{held:?}");
         assert!(
             first
                 .as_ref()

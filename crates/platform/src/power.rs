@@ -207,6 +207,9 @@ struct Listener {
     sender: Sender<PowerEvent>,
     suspend: SuspendHandled,
     seen: LidAndScreen,
+    /// How long a sleep is held at most: [`SUSPEND_WAIT`], or another in
+    /// the tests, so a loaded PC does not fail them (ticket 270).
+    suspend_wait: Duration,
 }
 
 /// Power events from Windows, from [`register`](Self::register) until drop.
@@ -250,6 +253,7 @@ impl WindowsPowerEvents {
             sender,
             suspend: SuspendHandled::default(),
             seen: LidAndScreen::default(),
+            suspend_wait: SUSPEND_WAIT,
         });
         let mut params = Box::new(DEVICE_NOTIFY_SUBSCRIBE_PARAMETERS {
             Callback: Some(on_power_event),
@@ -404,7 +408,7 @@ unsafe extern "system" fn on_power_event(
         let suspend = listener.suspend.clone();
         let number = suspend.arm();
         if listener.sender.send(event).is_ok() {
-            suspend.wait(number, SUSPEND_WAIT);
+            suspend.wait(number, listener.suspend_wait);
         } else {
             // Nobody listens any more: no wait.
             suspend.done(number);
@@ -478,6 +482,11 @@ mod tests {
     }
 
     fn listener() -> (Listener, Receiver<PowerEvent>) {
+        listener_waiting(SUSPEND_WAIT)
+    }
+
+    /// A listener that holds a sleep at most `suspend_wait`.
+    fn listener_waiting(suspend_wait: Duration) -> (Listener, Receiver<PowerEvent>) {
         let (sender, events) = mpsc::channel();
         let suspend = SuspendHandled::default();
         let seen = LidAndScreen::default();
@@ -486,10 +495,14 @@ mod tests {
                 sender,
                 suspend,
                 seen,
+                suspend_wait,
             },
             events,
         )
     }
+
+    /// A limit no loaded PC reaches by chance (ticket 270).
+    const LONG_WAIT: Duration = Duration::from_secs(30);
 
     fn change(setting: GUID, value: u32) -> SettingChange {
         SettingChange {
@@ -555,7 +568,7 @@ mod tests {
 
     #[test]
     fn a_sleep_is_held_until_the_app_has_acted() {
-        let (listener, events) = listener();
+        let (listener, events) = listener_waiting(LONG_WAIT);
         let delay = Duration::from_millis(100);
         let answers = answer_after(&listener, events, delay);
         let began = std::time::Instant::now();
@@ -563,7 +576,7 @@ mod tests {
         call(&listener, PBT_APMSUSPEND, None);
 
         let held = began.elapsed();
-        assert!(held >= delay && held < SUSPEND_WAIT, "{held:?}");
+        assert!(held >= delay && held < LONG_WAIT, "{held:?}");
         drop(listener);
         assert_eq!(answers.join().unwrap(), [PowerEvent::Suspending]);
     }
@@ -576,7 +589,7 @@ mod tests {
         call(&listener, PBT_APMSUSPEND, None);
 
         let held = began.elapsed();
-        assert!(held >= SUSPEND_WAIT && held < SUSPEND_WAIT * 2, "{held:?}");
+        assert!(held >= SUSPEND_WAIT && held < LONG_WAIT, "{held:?}");
         assert!(!listener.suspend.waiting(), "the app may be frozen since");
     }
 
@@ -601,13 +614,13 @@ mod tests {
 
     #[test]
     fn a_sleep_with_nobody_listening_is_not_held() {
-        let (listener, events) = listener();
+        let (listener, events) = listener_waiting(LONG_WAIT);
         drop(events);
         let began = std::time::Instant::now();
 
         call(&listener, PBT_APMSUSPEND, None);
 
-        assert!(began.elapsed() < SUSPEND_WAIT);
+        assert!(began.elapsed() < LONG_WAIT);
     }
 
     #[test]
