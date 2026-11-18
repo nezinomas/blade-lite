@@ -342,7 +342,7 @@ fn custom_is_set_and_read_back_and_the_old_preset_restored() {
         .map_err(ToString::to_string)
         .and_then(|()| try_custom_state(&mut device));
     let real_rpm = manual.as_ref().map_err(Clone::clone).and_then(|_| {
-        std::thread::sleep(Duration::from_secs(5));
+        rest_on_power(&mut device, 5)?;
         try_read_each(&mut device, GET_FAN_RPM, &FANS)
     });
 
@@ -620,8 +620,8 @@ fn a_custom_mode_write_alone_and_what_the_fans_do() {
     let mut read_error = Ok(());
     if set.is_ok() {
         for second in 1..=10 {
-            std::thread::sleep(Duration::from_secs(1));
-            let reads = try_read_each(&mut device, GET_FAN, &FANS)
+            let reads = rest_on_ac(1)
+                .and_then(|()| try_read_each(&mut device, GET_FAN, &FANS))
                 .and_then(|target| Ok((target, try_read_each(&mut device, GET_FAN_RPM, &FANS)?)));
             match reads {
                 Ok((target, real)) => seen.push((second, target, real)),
@@ -796,6 +796,14 @@ fn put_back_custom<C: Clock>(
     device: &mut Device<HidTransport, C>,
     before: &[Vec<u8>],
 ) -> Vec<Result<(), String>> {
+    // A charger pulled mid-test: the state read on AC may be Performance
+    // or a manual fan, so the battery's safe state goes instead (ticket 274).
+    if let Err(error) = on_full_power(device) {
+        eprintln!(
+            "{error}: put back Custom on auto, lowest boosts, then Balanced, not {before:02X?}"
+        );
+        return battery_put_back(device);
+    }
     before[4..6]
         .iter()
         .map(|args| (SET_BOOST, args))
@@ -810,6 +818,29 @@ fn put_back_custom<C: Clock>(
         .collect()
 }
 
+/// Ends a manual fan, then runs Balanced, as the app's quit preset does on
+/// battery: Custom with the fans on auto and the lowest boosts, then
+/// Balanced. Every send is tried.
+fn battery_put_back<C: Clock>(device: &mut Device<HidTransport, C>) -> Vec<Result<(), String>> {
+    use razer_proto::{BLADE_18, CpuBoost, Custom, FanMode, GpuBoost, PerfMode};
+
+    let auto = Custom {
+        cpu: CpuBoost::new(0, &BLADE_18).unwrap(),
+        gpu: GpuBoost::new(0, &BLADE_18).unwrap(),
+        fan: FanMode::Auto,
+    };
+    auto.commands(&BLADE_18)
+        .into_iter()
+        .chain(PerfMode::Balanced.commands(&BLADE_18).unwrap())
+        .map(|command| {
+            device
+                .send(command.id, &command.args)
+                .map(|_| ())
+                .map_err(|error| error.to_string())
+        })
+        .collect()
+}
+
 /// The fan targets and the real speeds, one reply's args per fan.
 type FanReads = (Vec<Vec<u8>>, Vec<Vec<u8>>);
 
@@ -818,11 +849,12 @@ type FanReads = (Vec<Vec<u8>>, Vec<Vec<u8>>);
 fn watch_fans<C: Clock>(device: &mut Device<HidTransport, C>) -> Result<Vec<FanReads>, String> {
     let mut seen = Vec::new();
     for _ in 0..6 {
-        std::thread::sleep(Duration::from_secs(5));
+        rest_on_ac(5)?;
         let target = try_read_each(device, GET_FAN, &FANS)?;
         let real = try_read_each(device, GET_FAN_RPM, &FANS)?;
         seen.push((target, real));
     }
+    on_full_power(device).map_err(|why| stopped(&why))?;
     Ok(seen)
 }
 
@@ -848,13 +880,14 @@ fn custom_from_balanced_and_again_and_what_the_fans_do() {
 
     // From here on every step keeps its result, and the state is put back
     // before any assert.
-    let from_balanced = device.run(&balanced).and_then(|()| {
-        std::thread::sleep(Duration::from_secs(5));
-        device.run(&custom)
-    });
+    let from_balanced = device
+        .run(&balanced)
+        .map_err(|error| error.to_string())
+        .and_then(|()| rest_on_power(&mut device, 5))
+        .and_then(|()| device.run(&custom).map_err(|error| error.to_string()));
     let first = from_balanced
         .as_ref()
-        .map_err(ToString::to_string)
+        .map_err(Clone::clone)
         .and_then(|()| watch_fans(&mut device));
     let again = first
         .as_ref()
@@ -902,7 +935,7 @@ fn watch_fans_for<C: Clock>(
     polls.push(Charger::query());
     let mut seen = Vec::new();
     for second in 1..=seconds {
-        std::thread::sleep(Duration::from_secs(1));
+        rest_on_ac(1)?;
         if app_reads {
             for query in &polls {
                 device
@@ -916,6 +949,7 @@ fn watch_fans_for<C: Clock>(
             seen.push((target, real));
         }
     }
+    on_full_power(device).map_err(|why| stopped(&why))?;
     Ok(seen)
 }
 
@@ -940,11 +974,9 @@ fn the_users_custom_with_and_without_the_app_reads() {
     let from_performance = |device: &mut Device<HidTransport, SystemClock>, app_reads| {
         device
             .run(&performance)
-            .and_then(|()| {
-                std::thread::sleep(Duration::from_secs(10));
-                device.run(&custom)
-            })
             .map_err(|error| error.to_string())
+            .and_then(|()| rest_on_power(device, 10))
+            .and_then(|()| device.run(&custom).map_err(|error| error.to_string()))
             .and_then(|()| watch_fans_for(device, 60, app_reads))
     };
 
@@ -1074,15 +1106,11 @@ fn what_frees_a_manual_fan_stalled_after_a_custom_from_auto() {
     for (name, again, after) in cases {
         let watched = device
             .run(&performance)
-            .and_then(|()| {
-                std::thread::sleep(Duration::from_secs(10));
-                device.run(&custom)
-            })
             .map_err(|error| error.to_string())
-            .and_then(|()| {
-                std::thread::sleep(Duration::from_secs(after));
-                device.run(again).map_err(|error| error.to_string())
-            })
+            .and_then(|()| rest_on_power(&mut device, 10))
+            .and_then(|()| device.run(&custom).map_err(|error| error.to_string()))
+            .and_then(|()| rest_on_power(&mut device, after))
+            .and_then(|()| device.run(again).map_err(|error| error.to_string()))
             .and_then(|()| watch_fans_for(&mut device, 60 - after, false));
         let failed = watched.is_err();
         seen.push((name, after, watched));
@@ -1136,7 +1164,7 @@ fn watch_under_load<C: Clock>(
     seen: &mut Vec<LoadRead>,
 ) -> Result<(), String> {
     for second in 1..=seconds {
-        std::thread::sleep(Duration::from_secs(1));
+        rest_on_ac(1)?;
         let cpu = read_cpu(device)?;
         if cpu >= LOAD_STOP_CELSIUS {
             return Err(format!("CPU at {cpu} °C: stopped"));
@@ -1147,6 +1175,7 @@ fn watch_under_load<C: Clock>(
             seen.push((target, real, cpu));
         }
     }
+    on_full_power(device).map_err(|why| stopped(&why))?;
     Ok(())
 }
 
@@ -1176,32 +1205,91 @@ fn load_test_asked() -> bool {
 
 /// Refuses to run, sending no write, unless the laptop is on AC and on the
 /// model's full power charger, as the app needs for Performance or a manual
-/// Custom fan. Call it before the first write of such a test. The charger
-/// is read only on AC. Checked once: a charger pulled during a test is
-/// ticket 274.
+/// Custom fan. Call it before the first write of such a test; each wait
+/// after it goes through [`rest_on_power`] (ticket 274).
 fn require_full_power<C: Clock>(device: &mut Device<HidTransport, C>) {
+    if let Err(error) = on_full_power(device) {
+        panic!("{error}: not run");
+    }
+}
+
+/// Whether the laptop is on AC and on the model's full power charger now.
+/// The charger is read only on AC.
+fn on_full_power<C: Clock>(device: &mut Device<HidTransport, C>) -> Result<(), String> {
     let on_battery = platform::on_battery();
     let full_power = if on_battery == Some(false) {
         blade_core::full_power_charger(device, &razer_proto::BLADE_18).map_err(|e| e.to_string())
     } else {
         Ok(None)
     };
-    refuse_unless_full_power(on_battery, &full_power);
+    full_power_kept(on_battery, &full_power)
 }
 
-/// What [`require_full_power`] decides from the power source Windows reports
+/// What [`on_full_power`] decides from the power source Windows reports
 /// and the charger read: both must be known and good.
+fn full_power_kept(
+    on_battery: Option<bool>,
+    full_power: &Result<Option<bool>, String>,
+) -> Result<(), String> {
+    still_on_ac(on_battery)?;
+    if *full_power == Ok(Some(true)) {
+        Ok(())
+    } else {
+        Err(format!(
+            "charger read {full_power:?}: not the full power charger (or unknown)"
+        ))
+    }
+}
+
+/// Whether Windows still reports AC.
+fn still_on_ac(on_battery: Option<bool>) -> Result<(), String> {
+    if on_battery == Some(false) {
+        Ok(())
+    } else {
+        Err(format!("on battery {on_battery:?}: not on AC (or unknown)"))
+    }
+}
+
+/// Waits `seconds` while the laptop stays on AC (read each second), then
+/// reads the charger before the next write: an error as soon as either is
+/// lost, so a test that sends Performance or a manual Custom stops and puts
+/// a safe state back (ticket 274).
+fn rest_on_power<C: Clock>(
+    device: &mut Device<HidTransport, C>,
+    seconds: u64,
+) -> Result<(), String> {
+    rest_on_ac(seconds)?;
+    on_full_power(device).map_err(|why| stopped(&why))
+}
+
+/// Waits `seconds` while Windows reports AC, read each second. Sends
+/// nothing to the controller, so a watch measures what it is meant to;
+/// the watch reads the charger once at its end.
+fn rest_on_ac(seconds: u64) -> Result<(), String> {
+    for _ in 0..seconds {
+        std::thread::sleep(Duration::from_secs(1));
+        still_on_ac(platform::on_battery()).map_err(|why| stopped(&why))?;
+    }
+    Ok(())
+}
+
+/// A power check that failed mid-test: the test ran, and is stopped.
+fn stopped(why: &str) -> String {
+    format!("{why}: stopped")
+}
+
+/// [`full_power_kept`], as the refusal before any write.
 fn refuse_unless_full_power(on_battery: Option<bool>, full_power: &Result<Option<bool>, String>) {
-    assert_eq!(on_battery, Some(false), "not on AC (or unknown): not run");
-    assert!(
-        *full_power == Ok(Some(true)),
-        "charger read {full_power:?}: not the full power charger (or unknown): not run"
-    );
+    if let Err(error) = full_power_kept(on_battery, full_power) {
+        panic!("{error}: not run");
+    }
 }
 
 /// After the load: keeps the fans as they are until the CPU is under
 /// [`COOL_CELSIUS`] (or 60 s), as the state put back may be a slow manual
-/// fan. Hot is no reason to stop here; only a failed read is.
+/// fan. Hot is no reason to stop here; only a failed read is. Also on
+/// battery after a charger pull, on purpose: the fans at full speed cool
+/// the CPU first (ticket 274).
 fn cool_down<C: Clock>(device: &mut Device<HidTransport, C>) -> Vec<LoadRead> {
     let mut cooling = Vec::new();
     for second in 1..=60 {
@@ -1401,7 +1489,7 @@ fn watch_modes_and_fans<C: Clock>(
     seen: &mut Vec<ModeRead>,
 ) -> Result<(), String> {
     for _ in 0..seconds / 5 {
-        std::thread::sleep(Duration::from_secs(5));
+        rest_on_ac(5)?;
         let modes = try_preset_args(device)?;
         let target = try_read_each(device, GET_FAN, &FANS)?;
         let real = try_read_each(device, GET_FAN_RPM, &FANS)?;
@@ -1419,6 +1507,7 @@ fn watch_modes_and_fans<C: Clock>(
             return Err(format!("CPU at {cpu} °C: stopped"));
         }
     }
+    on_full_power(device).map_err(|why| stopped(&why))?;
     Ok(())
 }
 
@@ -1453,11 +1542,13 @@ fn the_sleeps_quit_preset_leaves_the_fans_on_auto() {
     // The Custom click, with its fan targets again 2 s later (ticket 173).
     let result = device
         .run(&manual.commands(&BLADE_18))
-        .and_then(|()| {
-            std::thread::sleep(Duration::from_secs(2));
-            device.run(&manual.fan_target_commands(&BLADE_18))
-        })
         .map_err(|error| error.to_string())
+        .and_then(|()| rest_on_power(&mut device, 2))
+        .and_then(|()| {
+            device
+                .run(&manual.fan_target_commands(&BLADE_18))
+                .map_err(|error| error.to_string())
+        })
         .and_then(|()| watch_modes_and_fans(&mut device, 30, &mut manual_seen))
         .and_then(|()| device.run(&sleep).map_err(|error| error.to_string()))
         .and_then(|()| watch_modes_and_fans(&mut device, 120, &mut sleep_seen));
@@ -1711,6 +1802,14 @@ fn the_preset_test_refuses_a_manual_fan() {
     modes[2] = vec![1, 3, 0x04, 0x01];
 
     refuse_manual_fans(&modes);
+}
+
+/// Ticket 274: a wait mid-test stops at a battery or unknown read.
+#[test]
+fn a_wait_stops_once_the_laptop_leaves_ac() {
+    assert_eq!(still_on_ac(Some(false)), Ok(()));
+    assert!(still_on_ac(Some(true)).is_err());
+    assert!(still_on_ac(None).is_err());
 }
 
 #[test]

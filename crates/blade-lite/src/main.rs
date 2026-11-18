@@ -320,16 +320,30 @@ fn keep_trying_to_open(error: &dyn std::error::Error) -> Option<HidTransport> {
         &error.to_string(),
     );
     std::thread::spawn(move || platform::show_error(START_BOX_TITLE, &text));
-    let controller = try_until_it_works(TRAY_RETRY_PAUSE, || {
-        match razer_software(&WindowsPrograms) {
-            Ok(found) if found.is_empty() => open_controller(),
-            Ok(found) => Err(format!("Razer software runs ({})", found.join(", ")).into()),
-            Err(error) => Err(format!("can't look for Razer software: {error}").into()),
-        }
-    });
+    let open = || {
+        try_until_it_works(TRAY_RETRY_PAUSE, || {
+            match razer_software(&WindowsPrograms) {
+                Ok(found) if found.is_empty() => open_controller(),
+                Ok(found) => Err(format!("Razer software runs ({})", found.join(", ")).into()),
+                Err(error) => Err(format!("can't look for Razer software: {error}").into()),
+            }
+        })
+    };
+    open_late(open, RESUME_PAUSE, platform::shutting_down)
+}
+
+/// Opens the controller late with `open`, waits `settle`, then gives it,
+/// or `None` if Windows ends the session by then (`shutting_down`): a late
+/// start then sends nothing.
+fn open_late<T>(
+    open: impl FnOnce() -> T,
+    settle: Duration,
+    shutting_down: impl FnOnce() -> bool,
+) -> Option<T> {
+    let controller = open();
     report("the controller was opened at last");
-    std::thread::sleep(RESUME_PAUSE);
-    if platform::shutting_down() {
+    std::thread::sleep(settle);
+    if shutting_down() {
         report("Windows ends the session, so the late start sends nothing");
         return None;
     }
@@ -360,11 +374,25 @@ fn open_controller() -> Result<HidTransport, Box<dyn std::error::Error>> {
 fn open_controller_at_start(
     in_tray: bool,
 ) -> Result<Option<HidTransport>, Box<dyn std::error::Error>> {
+    open_at_start(in_tray, TRAY_OPEN_PAUSE, open_controller, |error| {
+        keep_trying_to_open(error.as_ref())
+    })
+}
+
+/// Opens with `open`: once, or at a login start (`in_tray`)
+/// [`TRAY_OPEN_TRIES`] times `pause` apart, then hands the last error to
+/// `keep_trying`.
+fn open_at_start<T, E: std::fmt::Display>(
+    in_tray: bool,
+    pause: Duration,
+    mut open: impl FnMut() -> Result<T, E>,
+    keep_trying: impl FnOnce(&E) -> Option<T>,
+) -> Result<Option<T>, E> {
     let tries = if in_tray { TRAY_OPEN_TRIES } else { 1 };
     let mut count = 0;
-    let opened = try_times(tries, TRAY_OPEN_PAUSE, || {
+    let opened = try_times(tries, pause, || {
         count += 1;
-        let opened = open_controller();
+        let opened = open();
         if let Err(error) = &opened
             && count < tries
         {
@@ -375,7 +403,7 @@ fn open_controller_at_start(
         opened
     });
     match opened {
-        Err(error) if in_tray => Ok(keep_trying_to_open(error.as_ref())),
+        Err(error) if in_tray => Ok(keep_trying(&error)),
         opened => opened.map(Some),
     }
 }
@@ -387,6 +415,100 @@ fn window_icon(accent: Rgb) -> Result<Icon, BadIcon> {
     let pixels = icon::pixels([accent.red, accent.green, accent.blue], WINDOW_ICON_SIZE);
     let size = WINDOW_ICON_SIZE.into();
     Icon::from_rgba(pixels, size, size)
+}
+
+/// Ticket 270: a late open when Windows ends the session gives no
+/// controller, so the late start sends nothing.
+#[cfg(test)]
+#[test]
+fn a_late_open_while_windows_ends_the_session_gives_no_controller() {
+    // Its reports go to the test run's log.
+    window_tests::log_path();
+    assert_eq!(open_late(|| 7, Duration::ZERO, || true), None);
+    assert_eq!(open_late(|| 7, Duration::ZERO, || false), Some(7));
+}
+
+/// The shutdown is read after the settle wait, not before the open.
+#[cfg(test)]
+#[test]
+fn a_late_open_reads_the_shutdown_after_it_opened_and_settled() {
+    // Its reports go to the test run's log.
+    window_tests::log_path();
+    let settle = Duration::from_millis(50);
+    let opened = std::cell::Cell::new(None);
+    let start = open_late(
+        || opened.set(Some(std::time::Instant::now())),
+        settle,
+        || {
+            let at = opened.get().expect("read before the open");
+            assert!(at.elapsed() >= settle, "read before the settle wait");
+            true
+        },
+    );
+    assert_eq!(start, None);
+}
+
+#[cfg(test)]
+#[test]
+fn a_login_start_tries_the_open_a_few_times_then_keeps_trying() {
+    // Its reports go to the test run's log.
+    window_tests::log_path();
+    let mut tries = 0;
+    let opened: Result<Option<u8>, String> = open_at_start(
+        true,
+        Duration::ZERO,
+        || {
+            tries += 1;
+            Err(format!("busy {tries}"))
+        },
+        |error| {
+            assert_eq!(error, &format!("busy {TRAY_OPEN_TRIES}"));
+            None
+        },
+    );
+    assert_eq!(opened, Ok(None));
+    assert_eq!(tries, TRAY_OPEN_TRIES);
+}
+
+#[cfg(test)]
+#[test]
+fn a_start_by_hand_tries_the_open_once_and_keeps_its_error() {
+    // Its reports go to the test run's log.
+    window_tests::log_path();
+    let mut tries = 0;
+    let opened: Result<Option<u8>, String> = open_at_start(
+        false,
+        Duration::ZERO,
+        || {
+            tries += 1;
+            Err("busy".to_owned())
+        },
+        |_| panic!("kept trying"),
+    );
+    assert_eq!(opened, Err("busy".to_owned()));
+    assert_eq!(tries, 1);
+}
+
+#[cfg(test)]
+#[test]
+fn a_login_start_that_opens_on_a_later_try_starts() {
+    // Its reports go to the test run's log.
+    window_tests::log_path();
+    let mut tries = 0;
+    let opened: Result<Option<u32>, String> = open_at_start(
+        true,
+        Duration::ZERO,
+        || {
+            tries += 1;
+            if tries < 3 {
+                Err("busy".to_owned())
+            } else {
+                Ok(tries)
+            }
+        },
+        |_| panic!("kept trying"),
+    );
+    assert_eq!(opened, Ok(Some(3)));
 }
 
 #[cfg(test)]
