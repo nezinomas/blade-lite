@@ -12,8 +12,7 @@ use platform::{DisplayApi, KeyInjector, PowerEvent, Registry};
 use razer_proto::{Brightness, RedKeys};
 
 use super::{
-    App, AppError, CHARGER_STEADY, NOT_UNDERSTOOD, Power, SOURCE_LIGHTING_SPACING,
-    SOURCE_LIGHTING_TRIES,
+    App, AppError, CHARGER_STEADY, NOT_UNDERSTOOD, Power, SOURCE_LIGHTING_SPACING, SlotGuess,
 };
 use crate::report;
 
@@ -162,26 +161,32 @@ where
     /// dark may still be, or already be, the one in use. A user's own 0 is
     /// lit then too (lit keys are the safe side). Never with the lighting
     /// saved: its send at the charger change puts each slot right, and a
-    /// saved 0 is the user's. The shell drops it while Razer's software
-    /// runs at the put-back (as last looked, up to 60 s old), not for a
-    /// run that has ended. The level is used once, whichever slot it lands
+    /// saved 0 is the user's. Nor while the shell refuses the guess (see
+    /// [`Self::refuse_slot_guess`]); the level then stays kept for the next
+    /// swap into its slot. The level is used once, whichever slot it lands
     /// in. A failed read is an error, so the next look reads again.
     fn left_dark_in_use(&mut self) -> Result<Option<Brightness>, AppError> {
         let Some((_, level)) = self.left_dark else {
             return Ok(None);
         };
-        if self.config.lighting.is_some() {
+        if self.config.lighting.is_some() || self.slot_guess == SlotGuess::Refused {
             return Ok(None);
         }
         let read = keyboard_brightness(&mut self.machine.controller, self.model)?;
         Ok(read.filter(|read| read.percent() == 0).map(|_| level))
     }
 
-    /// Drops the level kept for a slot the app left dark, for the shell to
-    /// call before each put-back while Razer's software runs: a 0 read
-    /// then may be its own.
-    pub fn forget_dark_slot(&mut self) {
-        self.left_dark = None;
+    /// Whether the put-back may guess the other slot's level from a 0 read,
+    /// for the shell to set before each put-back: refused while Razer's
+    /// software runs (as last looked, up to 60 s old), as a 0 read then
+    /// may be its own. The level stays kept for the next swap into its
+    /// slot (ticket 247).
+    pub fn refuse_slot_guess(&mut self, refuse: bool) {
+        self.slot_guess = if refuse {
+            SlotGuess::Refused
+        } else {
+            SlotGuess::Allowed
+        };
     }
 
     /// Paints the touchpad key red if the touchpad is now off and Num Lock
@@ -302,16 +307,9 @@ where
                 self.hold_rate_error(started, rate, "the rate after the wake failed too")
             }
             PowerEvent::OnBattery | PowerEvent::OnAc => {
-                let swapped =
-                    self.source_known && self.on_battery() != (event == PowerEvent::OnBattery);
                 // The rate follows even if the preset send fails.
                 let preset = self.set_on_battery(event == PowerEvent::OnBattery);
-                if swapped {
-                    self.follow_dark_slots();
-                    if self.config.lighting.is_some() {
-                        self.source_lighting_due = Some(SOURCE_LIGHTING_TRIES);
-                    }
-                }
+                self.note_slot_with_lighting(event == PowerEvent::OnBattery);
                 let rate = self.follow_power(event);
                 let rate = self.quiet_if_tried_again(rate);
                 self.hold_rate_error(preset, rate, "the rate change failed too")
@@ -397,7 +395,7 @@ where
     /// keeps dark for a screen off (ticket 241) stay dark: the colour and
     /// vapor light go with the keyboard at level 0, and the saved level is
     /// kept for the put-back. A failed send is only logged, and tried again
-    /// at a later look, [`SOURCE_LIGHTING_TRIES`] times in all: the same
+    /// at a later look, [`SOURCE_LIGHTING_TRIES`](super::SOURCE_LIGHTING_TRIES) times in all: the same
     /// saved lighting each time, so a send that went in part is made whole.
     pub fn send_source_lighting(&mut self, now: Instant) {
         let spaced = self
@@ -703,9 +701,7 @@ where
         }
         let before = self.running(self.config).preset;
         self.power = Power::Battery;
-        if self.source_known {
-            self.follow_dark_slots();
-        }
+        self.note_slot(true);
         if self.running(self.config).preset != before {
             report("the charger is gone, so the battery quit preset is sent");
             self.preset_unsure = true;

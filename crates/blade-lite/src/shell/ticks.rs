@@ -748,9 +748,7 @@ impl<P: Parts> Shell<P> {
             return;
         };
         // Its own lighting may read 0: no guess at the app's dark then.
-        if razer_runs {
-            app.forget_dark_slot();
-        }
+        app.refuse_slot_guess(razer_runs);
         // Keys that follow no screen state yet (after a start, a wake or a
         // charger change) get their tries again.
         if !app.screen_followed(true) && !app.screen_followed(false) {

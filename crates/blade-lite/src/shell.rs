@@ -637,9 +637,7 @@ impl<P: Parts> Shell<P> {
             // Keys the app made dark for a screen off are not left dark
             // with no app (ticket 241). No guess while Razer's software
             // runs: its own lighting may read 0.
-            if self.razer_warning.borrow().is_some() {
-                app.forget_dark_slot();
-            }
+            app.refuse_slot_guess(self.razer_warning.borrow().is_some());
             if let Err(error) = app.keys_back_on() {
                 report(&format!(
                     "the keyboard level was not put back at quit, so the keys may stay dark: {error}"
