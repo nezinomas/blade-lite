@@ -371,10 +371,10 @@ impl Soak {
     /// No Performance or Custom mode write within [`CHARGER_STEADY`] of the
     /// full charger coming back from the battery presets (ticket 263): an
     /// `OnAc` with the Razer charger in, from that step on; or a weak
-    /// charge gone, from the second full charger read on the polls, the
-    /// read that tells the app (it needs two in a row). The app starts its
-    /// wait at that tick or later, so it waits at least as long as checked
-    /// here. An unknown source's end is not checked: the run does not know
+    /// charge gone, from the second step with a charger read that worked
+    /// since, at or before the app's second full poll read (it needs two in
+    /// a row; a click's read counts here too). The app starts its wait at
+    /// that tick or later, so it waits at least as long as checked here. An unknown source's end is not checked: the run does not know
     /// when the app read it unknown.
     fn check_charger_wait(&mut self, sent: &[Command], asked: &[Command]) {
         let on_battery = FAKE_ON_BATTERY.get();
@@ -384,13 +384,17 @@ impl Soak {
             self.full_reads = None;
             return;
         }
-        if on_battery || self.weak != Weak::No {
+        // The charger gone again: a later return starts a new check.
+        if on_battery || self.weak != Weak::No || FAKE_SOURCE_UNKNOWN.get() {
             self.full_reads = None;
+            self.charger_back = None;
         }
         if plugged && self.weak == Weak::No {
             self.arm(Back::Ac);
         }
+        let read_worked = fake(&self.f, |c| !matches!(c.charger, FakeCharger::Fails));
         if let Some(reads) = self.full_reads
+            && read_worked
             && asked.contains(&Charger::query())
         {
             self.full_reads = Some(reads + 1);
