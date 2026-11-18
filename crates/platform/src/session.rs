@@ -23,7 +23,12 @@ use crate::wide;
 
 /// What runs when the session ends, and when another program asks the
 /// window to close. Set once per run.
-static ON_END: OnceLock<(fn(), fn())> = OnceLock::new();
+static ON_END: OnceLock<Callbacks> = OnceLock::new();
+
+struct Callbacks {
+    on_end: fn(),
+    on_close: fn(),
+}
 
 /// The watch's own stop, posted by its drop: a `WM_CLOSE` can come from
 /// any program, so it can't be the stop (ticket 255).
@@ -80,7 +85,7 @@ impl SessionEndWatch {
             .map_err(|_| io::Error::other("the session end thread stopped"))??;
         // Only now: a failed start leaves no callback behind. A start that
         // lost a race for the slot drops its window.
-        if ON_END.set((on_end, on_close)).is_err() {
+        if ON_END.set(Callbacks { on_end, on_close }).is_err() {
             let _ = go.send(false);
             return Err(io::Error::other("the session end is already watched"));
         }
@@ -179,15 +184,15 @@ unsafe extern "system" fn on_message(
     lparam: LPARAM,
 ) -> LRESULT {
     if message == WM_ENDSESSION && wparam != 0 {
-        if let Some((on_end, _)) = ON_END.get() {
+        if let Some(callbacks) = ON_END.get() {
             // A panic can't unwind out of this `extern "system"` function.
-            let _ = catch_unwind(AssertUnwindSafe(on_end));
+            let _ = catch_unwind(AssertUnwindSafe(callbacks.on_end));
         }
         return 0;
     }
     if message == WM_CLOSE {
-        if let Some((_, on_close)) = ON_END.get() {
-            let _ = catch_unwind(AssertUnwindSafe(on_close));
+        if let Some(callbacks) = ON_END.get() {
+            let _ = catch_unwind(AssertUnwindSafe(callbacks.on_close));
         }
         return 0;
     }
