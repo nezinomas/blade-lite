@@ -515,3 +515,57 @@ fn a_start_on_a_weak_charge_puts_the_saved_rate_back() {
 
     assert_eq!(panel_hz(&app), 240);
 }
+
+fn sixty_hz_on() -> Config {
+    Config {
+        sixty_hz_on_battery: true,
+        ..Config::default()
+    }
+}
+
+#[test]
+fn a_gpu_mode_switch_on_battery_sets_60_hz_again() {
+    // Ticket 300: Windows puts its saved 240 Hz back at the switch.
+    let (mut app, _dir, _) = app_with(sixty_hz_on());
+    app.take_on_battery(Some(true));
+    app.on_power(PowerEvent::OnBattery).unwrap();
+    app.follow_display_layout();
+    let panel = &mut app.machine_mut().displays.0;
+    panel.current.hz = 240;
+    // NVIDIA-only mode: the panel's path is DisplayPort (ticket 282).
+    panel.connection = 10;
+
+    app.follow_display_layout();
+
+    assert_eq!(panel_hz(&app), 60);
+}
+
+#[test]
+fn a_rate_set_outside_the_app_on_battery_is_kept() {
+    let (mut app, _dir, _) = app_with(sixty_hz_on());
+    app.take_on_battery(Some(true));
+    app.on_power(PowerEvent::OnBattery).unwrap();
+    // The first read's round runs out.
+    for _ in 0..blade_core::DISPLAY_SETTLE_POLLS {
+        app.follow_display_layout();
+    }
+    app.machine_mut().displays.0.current.hz = 240;
+
+    app.follow_display_layout();
+
+    assert_eq!(panel_hz(&app), 240);
+}
+
+#[test]
+fn a_gpu_mode_switch_with_the_source_unknown_sets_nothing() {
+    let (mut app, _dir, _) = app_with(sixty_hz_on());
+    app.take_on_battery(None);
+    app.follow_display_layout();
+    let panel = &mut app.machine_mut().displays.0;
+    panel.current.hz = 240;
+    panel.connection = 10;
+
+    app.follow_display_layout();
+
+    assert_eq!(panel_hz(&app), 240);
+}

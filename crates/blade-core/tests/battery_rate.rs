@@ -2,8 +2,11 @@
 
 mod common;
 
-use blade_core::{BatteryRate, Config, DisplayError, RefreshRate, set_refresh_rate};
-use common::{FakeDisplays, mode, panel};
+use blade_core::{
+    BatteryRate, Config, DISPLAY_ROUNDS, DISPLAY_SETTLE_POLLS, DisplayError, RESUME_RATE_TRIES,
+    RefreshRate, set_refresh_rate,
+};
+use common::{FakeDisplays, mode, monitor, panel};
 use platform::{DisplayMode, ModeLife, PowerEvent};
 
 fn config(sixty_hz_on_battery: bool) -> Config {
@@ -923,4 +926,207 @@ fn a_switch_s_60_hz_tries_are_not_put_back_tries() {
 
     assert!(battery_rate.retry_pending());
     assert!(!battery_rate.retries_put_back());
+}
+
+/// On battery at 60 Hz, with the display list seen once.
+fn on_battery_at_60() -> (BatteryRate, FakeDisplays) {
+    let mut api = panel_at(240);
+    let mut battery_rate = BatteryRate::default();
+    battery_rate
+        .on_event(PowerEvent::OnBattery, &config(true), &mut api)
+        .unwrap();
+    // The first read's round runs out.
+    for _ in 0..DISPLAY_SETTLE_POLLS {
+        battery_rate.on_displays(true, &config(true), &mut api);
+    }
+    (battery_rate, api)
+}
+
+/// Windows puts the panel back at its saved rate, as a GPU mode switch or
+/// Win + P does (check 79).
+fn windows_puts_back_240(api: &mut FakeDisplays) {
+    api.displays.as_mut().unwrap()[0].current = mode(3840, 2400, 240);
+}
+
+#[test]
+fn a_gpu_mode_switch_on_battery_sets_60_hz_again() {
+    let (mut battery_rate, mut api) = on_battery_at_60();
+    windows_puts_back_240(&mut api);
+    // NVIDIA-only mode: the panel's path is DisplayPort (ticket 282).
+    api.displays.as_mut().unwrap()[0].connection = 10;
+
+    battery_rate.on_displays(true, &config(true), &mut api);
+
+    assert_eq!(api.panel_mode(), mode(3840, 2400, 60));
+}
+
+#[test]
+fn a_display_that_comes_or_goes_on_battery_sets_60_hz_again() {
+    let (mut battery_rate, mut api) = on_battery_at_60();
+    windows_puts_back_240(&mut api);
+    api.displays.as_mut().unwrap().push(monitor());
+
+    battery_rate.on_displays(true, &config(true), &mut api);
+
+    assert_eq!(api.panel_mode(), mode(3840, 2400, 60));
+}
+
+#[test]
+fn a_rate_change_alone_is_the_users_and_kept() {
+    let (mut battery_rate, mut api) = on_battery_at_60();
+    windows_puts_back_240(&mut api);
+
+    battery_rate.on_displays(true, &config(true), &mut api);
+
+    assert_eq!(api.panel_mode(), mode(3840, 2400, 240));
+}
+
+#[test]
+fn a_display_change_on_ac_or_with_the_option_off_sets_nothing() {
+    for (on_battery, option) in [(false, true), (true, false)] {
+        let (mut battery_rate, mut api) = on_battery_at_60();
+        windows_puts_back_240(&mut api);
+        api.displays.as_mut().unwrap()[0].connection = 10;
+        let sets = api.set.len();
+
+        battery_rate.on_displays(on_battery, &config(option), &mut api);
+
+        assert_eq!(api.set.len(), sets);
+    }
+}
+
+#[test]
+fn the_first_read_on_battery_begins_a_round() {
+    // A monitor that also charged goes with the switch to battery, and
+    // Windows puts its rate back after the switch's 60 Hz.
+    let mut api = panel_at(240);
+    let mut battery_rate = BatteryRate::default();
+    battery_rate
+        .on_event(PowerEvent::OnBattery, &config(true), &mut api)
+        .unwrap();
+    assert!(!battery_rate.on_displays(true, &config(true), &mut api));
+    windows_puts_back_240(&mut api);
+
+    battery_rate.on_displays(true, &config(true), &mut api);
+
+    assert_eq!(api.panel_mode(), mode(3840, 2400, 60));
+}
+
+#[test]
+fn the_last_settle_poll_still_sets_60_hz() {
+    let (mut battery_rate, mut api) = on_battery_at_60();
+    api.displays.as_mut().unwrap()[0].connection = 10;
+    for _ in 1..DISPLAY_SETTLE_POLLS {
+        battery_rate.on_displays(true, &config(true), &mut api);
+    }
+    windows_puts_back_240(&mut api);
+
+    battery_rate.on_displays(true, &config(true), &mut api);
+
+    assert_eq!(api.panel_mode(), mode(3840, 2400, 60));
+}
+
+#[test]
+fn a_spell_begins_at_most_its_rounds() {
+    let (mut battery_rate, mut api) = on_battery_at_60();
+    let mut rounds = 0;
+    for poll in 0..usize::from(DISPLAY_ROUNDS + 2) * usize::from(DISPLAY_SETTLE_POLLS) {
+        api.displays.as_mut().unwrap()[0].connection = i32::try_from(poll).unwrap();
+        if battery_rate.on_displays(true, &config(true), &mut api) {
+            rounds += 1;
+        }
+    }
+
+    assert_eq!(rounds, DISPLAY_ROUNDS);
+}
+
+#[test]
+fn a_failed_display_read_keeps_the_list_seen() {
+    let (mut battery_rate, mut api) = on_battery_at_60();
+    let seen = api.displays.take();
+    battery_rate.on_displays(true, &config(true), &mut api);
+    api.displays = seen;
+    windows_puts_back_240(&mut api);
+
+    battery_rate.on_displays(true, &config(true), &mut api);
+
+    // The list is as seen before the failed read: a rate change alone.
+    assert_eq!(api.panel_mode(), mode(3840, 2400, 240));
+}
+
+#[test]
+fn a_refused_set_after_a_display_change_is_tried_again() {
+    let (mut battery_rate, mut api) = on_battery_at_60();
+    windows_puts_back_240(&mut api);
+    api.displays.as_mut().unwrap()[0].connection = 10;
+    api.failing_sets = 1;
+
+    battery_rate.on_displays(true, &config(true), &mut api);
+
+    assert!(battery_rate.retry_pending());
+    battery_rate.retry(&config(true), &mut api).unwrap();
+    assert_eq!(api.panel_mode(), mode(3840, 2400, 60));
+}
+
+#[test]
+fn a_rate_put_back_a_poll_after_the_list_change_still_gets_60_hz() {
+    let (mut battery_rate, mut api) = on_battery_at_60();
+    api.displays.as_mut().unwrap()[0].connection = 10;
+    battery_rate.on_displays(true, &config(true), &mut api);
+    // Windows puts its rate back only now.
+    windows_puts_back_240(&mut api);
+
+    battery_rate.on_displays(true, &config(true), &mut api);
+
+    assert_eq!(api.panel_mode(), mode(3840, 2400, 60));
+}
+
+#[test]
+fn the_rate_is_checked_only_for_the_settle_polls_after_a_change() {
+    let (mut battery_rate, mut api) = on_battery_at_60();
+    api.displays.as_mut().unwrap()[0].connection = 10;
+    for _ in 0..DISPLAY_SETTLE_POLLS {
+        battery_rate.on_displays(true, &config(true), &mut api);
+    }
+    windows_puts_back_240(&mut api);
+
+    battery_rate.on_displays(true, &config(true), &mut api);
+
+    assert_eq!(api.panel_mode(), mode(3840, 2400, 240));
+}
+
+#[test]
+fn a_list_that_keeps_changing_does_not_fill_the_tries_again() {
+    let (mut battery_rate, mut api) = on_battery_at_60();
+    windows_puts_back_240(&mut api);
+    api.failing_sets = usize::MAX;
+    let mut errors = 0;
+    for poll in 0..usize::from(RESUME_RATE_TRIES) * 3 {
+        // A flaky cable: the monitor comes and goes each poll.
+        let list = api.displays.as_mut().unwrap();
+        if poll % 2 == 0 {
+            list.push(monitor());
+        } else {
+            list.truncate(1);
+        }
+        battery_rate.on_displays(true, &config(true), &mut api);
+        if battery_rate.retry_pending() && battery_rate.retry(&config(true), &mut api).is_err() {
+            errors += 1;
+        }
+    }
+
+    assert!(errors > 0, "the tries never ended");
+}
+
+#[test]
+fn a_panel_gone_from_the_list_is_left_alone() {
+    let (mut battery_rate, mut api) = on_battery_at_60();
+    let sets = api.set.len();
+    // The lid shut on a monitor: only the monitor is active.
+    api.displays = Some(vec![monitor()]);
+
+    battery_rate.on_displays(true, &config(true), &mut api);
+
+    assert_eq!(api.set.len(), sets);
+    assert!(!battery_rate.retry_pending());
 }

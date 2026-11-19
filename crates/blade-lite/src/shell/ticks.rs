@@ -122,6 +122,9 @@ impl<P: Parts> Shell<P> {
         if self.resuming.get() == 0 && self.app.borrow().battery_rate_pending() {
             self.retry_battery_rate();
         }
+        if self.resuming.get() == 0 {
+            self.app.borrow_mut().follow_display_layout();
+        }
         self.follow_num_lock(P::num_lock_on());
         self.log_touchpad_sources();
         // A failed read keeps the last state, so a flaky read can't

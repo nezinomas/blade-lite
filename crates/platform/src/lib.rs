@@ -237,6 +237,10 @@ pub struct Display {
     /// The GDI name, such as `\\.\DISPLAY1`.
     pub name: String,
     pub technology: OutputTechnology,
+    /// The output technology as Windows reports it for the path, before the
+    /// panel is found by its EDID ids: it changes at a GPU mode switch
+    /// (internal in Optimus, `DisplayPort` in NVIDIA-only mode, ticket 282).
+    pub connection: i32,
     pub current: DisplayMode,
     /// Every mode Windows offers, in its own order, repeats and all.
     pub modes: Vec<DisplayMode>,
@@ -250,6 +254,20 @@ pub trait DisplayApi {
     ///
     /// The Windows error if the displays could not be read.
     fn displays(&self) -> io::Result<Vec<Display>>;
+
+    /// Each active display's name and connection, without its modes: a
+    /// light read for a poll each second (ticket 300).
+    ///
+    /// # Errors
+    ///
+    /// The Windows error if the displays could not be read.
+    fn layout(&self) -> io::Result<Vec<(String, i32)>> {
+        Ok(self
+            .displays()?
+            .into_iter()
+            .map(|display| (display.name, display.connection))
+            .collect())
+    }
 
     /// Switches the display named `name` to `mode`, for as long as `life` says.
     ///

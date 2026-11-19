@@ -28,7 +28,26 @@ pub struct BatteryRate {
     wait_a_poll: bool,
     /// Whether a known power source has come since the app started.
     source_seen: bool,
+    /// The display list last read by [`Self::on_displays`] on battery: each
+    /// active display's name and connection, sorted (Win + P Duplicate may
+    /// give two with one name). `None` off a known battery or with the
+    /// switch off.
+    layout: Option<Vec<(String, i32)>>,
+    /// The polls left after a display list change in which a panel back at
+    /// the rate saved before battery still gets 60 Hz: Windows may put its
+    /// rate back after the list shows the change (not known).
+    settle: u8,
+    /// The settle rounds begun in this battery spell.
+    rounds: u8,
 }
+
+/// How many polls after a display list change still check the rate.
+pub const DISPLAY_SETTLE_POLLS: u8 = 5;
+
+/// How many settle rounds one battery spell begins at most, so a display
+/// that keeps coming and going (a flaky cable) can't set the rate and log
+/// each second for ever.
+pub const DISPLAY_ROUNDS: u8 = 5;
 
 impl BatteryRate {
     /// Sets the rate for a change of power source. A wake goes to
@@ -111,6 +130,13 @@ impl BatteryRate {
         if !on_battery {
             return self.on_event(PowerEvent::OnAc, config, api);
         }
+        self.sixty_again(config, api);
+        Ok(())
+    }
+
+    /// On battery, sets 60 Hz again as after a wake (see `after_resume`); a
+    /// refused set starts the tries ([`Self::retry`]), which AC stops.
+    fn sixty_again(&mut self, config: &Config, api: &mut impl DisplayApi) {
         self.source_seen = true;
         if self.put_back_tries {
             self.stop_tries();
@@ -122,7 +148,64 @@ impl BatteryRate {
                 self.tries = RESUME_RATE_TRIES;
             }
         }
-        Ok(())
+    }
+
+    /// Follows the display list on each poll (ticket 300, user pick A): when
+    /// a display came or went, or one's connection changed (a GPU mode
+    /// switch, ticket 282), Windows may have put its saved rate back (Win + P
+    /// and a GPU mode switch did, check 79), so on a known battery with the
+    /// switch on the 60 Hz goes again as after a wake ([`Self::sixty_again`]:
+    /// only if the panel runs the rate saved before battery; a refused set
+    /// is tried again on the polls), and so for [`DISPLAY_SETTLE_POLLS`]
+    /// polls in all (a round), as Windows may put its rate back a little
+    /// later. A change within a round begins none, and tries already
+    /// running finish first; at most [`DISPLAY_ROUNDS`] rounds a battery
+    /// spell. A rate change alone is the user's (such as one picked in
+    /// Windows Settings) and is kept. The list is read only on a known
+    /// battery with the switch on (a light read, no modes); its first read
+    /// there begins a round too (not counted, not a change), as a monitor
+    /// that also charged may go with the switch to battery. A failed read
+    /// keeps the last list. Returns whether a change began a round.
+    pub fn on_displays(
+        &mut self,
+        on_battery: bool,
+        config: &Config,
+        api: &mut impl DisplayApi,
+    ) -> bool {
+        if !on_battery || !config.sixty_hz_on_battery {
+            self.layout = None;
+            self.settle = 0;
+            self.rounds = 0;
+            return false;
+        }
+        let Ok(mut layout) = api.layout() else {
+            return self.settle_poll(config, api, false);
+        };
+        layout.sort();
+        let began = match self.layout.replace(layout.clone()) {
+            None => {
+                self.settle = DISPLAY_SETTLE_POLLS;
+                false
+            }
+            Some(seen) if seen != layout && self.settle == 0 && self.rounds < DISPLAY_ROUNDS => {
+                self.rounds += 1;
+                self.settle = DISPLAY_SETTLE_POLLS;
+                true
+            }
+            Some(_) => false,
+        };
+        self.settle_poll(config, api, began)
+    }
+
+    /// One poll of a settle round, if one runs; returns `began`.
+    fn settle_poll(&mut self, config: &Config, api: &mut impl DisplayApi, began: bool) -> bool {
+        if self.settle > 0 {
+            self.settle -= 1;
+            if !self.retry_pending() {
+                self.sixty_again(config, api);
+            }
+        }
+        began
     }
 
     /// At the first known source since the start, when it is AC, puts
