@@ -77,7 +77,11 @@ pub fn on_tray(action: TrayAction) {
     };
     match action {
         TrayAction::Clicked(icon) => shell.toggle_flyout(icon),
-        TrayAction::OpenWindow => shell.show_window(),
+        TrayAction::OpenWindow => {
+            // So a log can tell a user's open from one at login (ticket 301).
+            report("the tray menu opens the window");
+            shell.show_window();
+        }
         // Handled above; listed so the match stays whole.
         TrayAction::Quit | TrayAction::Autostart | TrayAction::MenuOpening => {}
     }

@@ -569,8 +569,96 @@ fn a_task_that_worked_gives_its_own_code() {
 
 #[cfg(test)]
 #[test]
+fn the_start_line_names_the_arguments() {
+    let line = start_line(["--tray".into()]);
+    assert!(line.starts_with("starts, version "), "{line}");
+    assert!(line.ends_with(", with \"--tray\""), "{line}");
+    assert!(start_line([]).ends_with(", with no arguments"));
+}
+
+#[cfg(test)]
+#[test]
+fn the_window_opens_at_start_with_its_reason() {
+    let none = StartWarnings::default();
+    assert_eq!(window_at_start(false, none), Some("not a --tray start"));
+    assert_eq!(window_at_start(true, none), None);
+    let razer = StartWarnings {
+        razer_found: true,
+        ..none
+    };
+    assert_eq!(window_at_start(true, razer), Some("Razer software runs"));
+    let firmware = StartWarnings {
+        firmware_unchecked: true,
+        ..none
+    };
+    assert_eq!(
+        window_at_start(true, firmware),
+        Some("the firmware is not one checked")
+    );
+    let failed = StartWarnings {
+        start_failed: true,
+        ..none
+    };
+    assert_eq!(
+        window_at_start(true, failed),
+        Some("the start's send failed")
+    );
+}
+
+#[cfg(test)]
+#[test]
 fn the_window_icon_is_made_from_the_tray_picture() {
     assert!(window_icon(DEFAULT_ACCENT).is_ok());
+}
+
+/// The log's first line of a run, with its arguments, so the log says how
+/// each start was made (ticket 301: a login start opened its window).
+fn start_line(args: impl IntoIterator<Item = std::ffi::OsString>) -> String {
+    let args: Vec<_> = args
+        .into_iter()
+        .map(|arg| format!("{:?}", arg.to_string_lossy()))
+        .collect();
+    let with = if args.is_empty() {
+        "no arguments".to_owned()
+    } else {
+        args.join(" ")
+    };
+    format!("starts, version {}, with {with}", env!("CARGO_PKG_VERSION"))
+}
+
+/// The warnings a login start (`--tray`) opens its window for.
+#[derive(Debug, Default, Clone, Copy)]
+struct StartWarnings {
+    razer_found: bool,
+    firmware_unchecked: bool,
+    start_failed: bool,
+}
+
+/// Why the window opens at start, or `None` for a login start (`--tray`)
+/// that stays in the tray: it opens for a start by hand, and at login only
+/// to show a warning (Razer software, a firmware not checked, a failed
+/// send).
+fn window_at_start(in_tray: bool, warnings: StartWarnings) -> Option<&'static str> {
+    if !in_tray {
+        Some("not a --tray start")
+    } else if warnings.razer_found {
+        Some("Razer software runs")
+    } else if warnings.firmware_unchecked {
+        Some("the firmware is not one checked")
+    } else if warnings.start_failed {
+        Some("the start's send failed")
+    } else {
+        None
+    }
+}
+
+/// Opens the window at start if [`window_at_start`] gives a reason, and
+/// logs it (ticket 301).
+fn open_window_at_start(shell: &Rc<Shell>, in_tray: bool, warnings: StartWarnings) {
+    if let Some(reason) = window_at_start(in_tray, warnings) {
+        report(&format!("the window opens at start: {reason}"));
+        shell.show_window();
+    }
 }
 
 /// Whether a Razer updater runs as the app starts, and whether any Razer
@@ -690,7 +778,7 @@ fn tell_a_quit_start(shell: &Shell, instance: &WindowsInstance) {
 fn run(in_tray: bool) -> Result<(), Box<dyn std::error::Error>> {
     // First, so even a failed start leaves its reason in the log.
     let appdata = open_the_log()?;
-    report(concat!("starts, version ", env!("CARGO_PKG_VERSION")));
+    report(&start_line(std::env::args_os().skip(1)));
     // Before the controller is opened: a second copy must never drive it.
     let Some(instance) = claim_the_app(in_tray)? else {
         return Ok(());
@@ -806,12 +894,13 @@ fn run(in_tray: bool) -> Result<(), Box<dyn std::error::Error>> {
         // Held to the end of the run: dropping it stops the poll.
         let _poll = poll(&shell);
 
-        // At login the app starts in the tray, with the settings re-applied,
-        // unless Razer software runs or the firmware is not one checked: the
-        // window then shows the warning.
-        if !in_tray || razer_found || firmware_unchecked || start_failed {
-            shell.show_window();
-        }
+        // At login the app starts in the tray, unless a warning shows.
+        let warnings = StartWarnings {
+            razer_found,
+            firmware_unchecked,
+            start_failed,
+        };
+        open_window_at_start(&shell, in_tray, warnings);
         // Closing the window keeps the app in the tray. Quit is in its menu.
         let ran = slint::run_event_loop_until_quit();
         loop_ended();
