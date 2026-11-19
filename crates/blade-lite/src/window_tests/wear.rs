@@ -247,6 +247,45 @@ fn a_charger_read_weak_then_full_sends_performance_after_ten_steady_seconds() {
     assert_eq!(f.shell.app().running_preset(), Preset::Performance);
 }
 
+/// A charger read that keeps flipping weak and full on the polls (ticket
+/// 294): three step ups to Performance, then the battery preset holds,
+/// said once in the log, until the first step up is 10 min old.
+#[test]
+fn a_charger_read_that_keeps_flipping_holds_after_three_step_ups_and_says_so_once() {
+    const HELD: &str = "the full charger came back 3 times in 10 min";
+    const FREED: &str = "the full charger's preset may run again";
+    let lines = |text: &str| {
+        let log = std::fs::read_to_string(super::log_path()).unwrap_or_default();
+        log.lines().filter(|line| line.contains(text)).count()
+    };
+    let (held_before, freed_before) = (lines(HELD), lines(FREED));
+    let f = performance();
+    let start = Instant::now();
+    ticks(&f, start, 0, 1);
+    forget_sent(&f);
+
+    let mut second = 1;
+    for _ in 0..5 {
+        f.shell.app().machine_mut().controller.inner.charger = FakeCharger::UsbC;
+        ticks(&f, start, second, 20);
+        f.shell.app().machine_mut().controller.inner.charger = FakeCharger::Razer;
+        ticks(&f, start, second + 20, 31);
+        second += 51;
+    }
+
+    // 3 cycles of Balanced and Performance, then Balanced once: held.
+    assert_eq!(modes(&f), 3 * 8 + 4);
+    assert_eq!(f.shell.app().running_preset(), Preset::Balanced);
+    assert_eq!(lines(HELD), held_before + 1);
+    assert_eq!(lines(FREED), freed_before);
+
+    // The first step up was near 51 s: 10 min later the hold ends.
+    ticks(&f, start, second, 11 * 60 - second);
+    assert_eq!(f.shell.app().running_preset(), Preset::Performance);
+    assert_eq!(lines(HELD), held_before + 1);
+    assert_eq!(lines(FREED), freed_before + 1);
+}
+
 /// Fn + F11 held from the top down, at the laptop's steps (15 up to 225,
 /// then 255, `NOTES.md`): 16 new levels, each one stored vapor light
 /// write (and a config save, `on_brightness_keys`). Going back and forth

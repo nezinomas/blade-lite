@@ -575,9 +575,9 @@ where
         if held != flips.logged {
             flips.logged = held;
             report(if held {
-                "the charger read keeps changing between weak and full, so the battery preset stays until it was steady for 10 min"
+                "the full charger came back 3 times in 10 min (a charger read that keeps changing, or replugs), so the battery preset stays until the first of them is 10 min old"
             } else {
-                "the charger read is steady again, so the saved preset may run"
+                "the full charger's preset may run again"
             });
         }
         held
