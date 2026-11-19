@@ -1177,9 +1177,16 @@ fn a_manual_custom_is_put_back_as_read_with_no_auto_first() {
     for mode in &mut before[..4] {
         mode[2..4].copy_from_slice(&[razer_proto::BLADE_18.custom.mode, FAN_MANUAL]);
     }
-    let writes = put_back_writes(&before);
-    assert_eq!(writes.len(), 8);
-    assert_eq!(writes[0], (SET_BOOST, before[4].clone()));
+    let expected: Vec<_> = [
+        (SET_BOOST, before[4].clone()),
+        (SET_BOOST, before[5].clone()),
+        (SET_FAN, before[6].clone()),
+        (SET_FAN, before[7].clone()),
+    ]
+    .into_iter()
+    .chain(before[..4].iter().map(|args| (0x0D02, args.clone())))
+    .collect();
+    assert_eq!(put_back_writes(&before), expected);
 }
 
 /// Custom with the fans on auto at the boosts in a state
@@ -2043,14 +2050,18 @@ fn manual_custom_then(rpm: u16, then: &[razer_proto::Command], name: &str) {
     // at least 2000 RPM (above any idle auto speed seen, NOTES.md).
     let reached = manual_seen
         .last()
-        .and_then(|(_, _, real, _)| real.iter().filter_map(|args| args.get(2).copied()).min())
+        .and_then(|(_, _, real, _)| {
+            real.iter()
+                .map(|args| args.get(2).copied().unwrap_or(0))
+                .min()
+        })
         .unwrap_or(0);
     assert!(
         reached >= 20,
         "the fans did not reach the manual speed: {manual_seen:02X?}"
     );
     assert_eq!(then_seen.len(), 24);
-    // The fans left the manual speed: the last three reads (105 to 120 s
+    // The fans left the manual speed: the last three reads (110 to 120 s
     // after `then`) are at least 500 RPM under what they reached. The
     // `0D81` targets keep the manual speed under Balanced (ticket 218), so
     // a fan byte that reads auto alone is not proof. Ticket 218's two
