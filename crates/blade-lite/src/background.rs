@@ -107,6 +107,7 @@ fn stall_text() -> String {
 /// Opens the window each time a second copy asks, from a thread that waits.
 pub fn open_window_on_wake(listener: WakeListener) {
     on_each_ask(listener, "second start", "open the window", || {
+        report("a second start asks to open the window");
         if let Some(shell) = SHELL.with(|cell| cell.borrow().clone()) {
             shell.show_window();
         }
