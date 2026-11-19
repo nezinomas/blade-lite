@@ -812,11 +812,12 @@ fn refuse_unknown_state(before: &[Vec<u8>]) {
 }
 
 /// Puts back what [`custom_state`] read, as the Custom test does: boosts and
-/// fan targets, then modes. The targets go with the fans as the test left
+/// fan targets, then modes (after a plain preset, Custom on auto just
+/// before them). The targets go with the fans as the test left
 /// them (manual, unless it ended after a quit preset; a target is
 /// range-checked either way) and the modes (fan byte as read) last; a reset
 /// of a target by the mode write shows in the caller's after-state check. Every send is tried, so a failed one does not
-/// keep the fans manual.
+/// keep the fans manual. The writes and their order: [`put_back_writes`].
 fn put_back_custom<C: Clock>(
     device: &mut Device<HidTransport, C>,
     before: &[Vec<u8>],
@@ -830,14 +831,11 @@ fn put_back_custom<C: Clock>(
         );
         battery_put_back(device)
     } else {
-        before[4..6]
+        put_back_writes(before)
             .iter()
-            .map(|args| (SET_BOOST, args))
-            .chain(before[6..8].iter().map(|args| (SET_FAN, args)))
-            .chain(before[..4].iter().map(|args| (0x0D02, args)))
             .map(|(id, args)| {
                 device
-                    .send(id, args)
+                    .send(*id, args)
                     .map(|_| ())
                     .map_err(|error| error.to_string())
             })
@@ -1115,6 +1113,93 @@ fn the_helper_puts_back_on_another_word() {
 #[test]
 fn the_helper_sends_nothing_once_the_test_put_back() {
     assert!(!helper_puts_back(&Ok(10), "put back\r\n"));
+}
+
+/// The writes of [`put_back_custom`] on AC: boosts and fan targets, then
+/// the modes as read. Before a plain preset (fan byte auto in every zone),
+/// Custom with the fans on auto at the boosts read goes just before the
+/// modes, so the two steps that end a manual fan (ticket 218, as the app's
+/// quit sends them) come last and back to back; whether the plain mode
+/// write alone does is ticket 291's question. A manual Custom is put back
+/// with its modes after its targets, the order razer-laptop-control warns
+/// may reset a target (kept on firmware 1.6, ticket 144; ticket 297).
+fn put_back_writes(before: &[Vec<u8>]) -> Vec<(u16, Vec<u8>)> {
+    let mut writes: Vec<_> = before[4..6]
+        .iter()
+        .map(|args| (SET_BOOST, args.clone()))
+        .chain(before[6..8].iter().map(|args| (SET_FAN, args.clone())))
+        .collect();
+    if before[..4]
+        .iter()
+        .all(|args| args.get(3) == Some(&FAN_AUTO))
+    {
+        writes.extend(
+            custom_on_auto(before)
+                .into_iter()
+                .map(|command| (command.id, command.args)),
+        );
+    }
+    writes.extend(before[..4].iter().map(|args| (0x0D02, args.clone())));
+    writes
+}
+
+#[test]
+fn a_plain_preset_is_put_back_after_custom_on_auto() {
+    use razer_proto::BLADE_18;
+
+    let before = sane_state();
+    let writes = put_back_writes(&before);
+    let auto: Vec<_> = custom_on_auto(&before)
+        .into_iter()
+        .map(|command| (command.id, command.args))
+        .collect();
+    assert!(
+        auto[..4]
+            .iter()
+            .all(|(id, args)| *id == 0x0D02 && args[2..4] == [BLADE_18.custom.mode, FAN_AUTO])
+    );
+    let expected: Vec<_> = [
+        (SET_BOOST, before[4].clone()),
+        (SET_BOOST, before[5].clone()),
+        (SET_FAN, before[6].clone()),
+        (SET_FAN, before[7].clone()),
+    ]
+    .into_iter()
+    .chain(auto)
+    .chain(before[..4].iter().map(|args| (0x0D02, args.clone())))
+    .collect();
+    assert_eq!(writes, expected);
+}
+
+#[test]
+fn a_manual_custom_is_put_back_as_read_with_no_auto_first() {
+    let mut before = sane_state();
+    for mode in &mut before[..4] {
+        mode[2..4].copy_from_slice(&[razer_proto::BLADE_18.custom.mode, FAN_MANUAL]);
+    }
+    let expected: Vec<_> = [
+        (SET_BOOST, before[4].clone()),
+        (SET_BOOST, before[5].clone()),
+        (SET_FAN, before[6].clone()),
+        (SET_FAN, before[7].clone()),
+    ]
+    .into_iter()
+    .chain(before[..4].iter().map(|args| (0x0D02, args.clone())))
+    .collect();
+    assert_eq!(put_back_writes(&before), expected);
+}
+
+/// Custom with the fans on auto at the boosts in a state
+/// [`refuse_unknown_state`] took (`before[4..6]`).
+fn custom_on_auto(before: &[Vec<u8>]) -> Vec<razer_proto::Command> {
+    use razer_proto::{BLADE_18, CpuBoost, Custom, FanMode, GpuBoost};
+
+    Custom {
+        cpu: CpuBoost::new(before[4][2], &BLADE_18).unwrap(),
+        gpu: GpuBoost::new(before[5][2], &BLADE_18).unwrap(),
+        fan: FanMode::Auto,
+    }
+    .commands(&BLADE_18)
 }
 
 /// Ends a manual fan, then runs Balanced, as the app's quit preset does on
@@ -1834,7 +1919,7 @@ fn watch_modes_and_fans<C: Clock>(
 #[test]
 #[ignore = "needs the Blade 18 on its full power charger and idle, and BLADE_FAN_TEST=1; runs the fans on manual for about 30 s; about 3 min"]
 fn the_sleeps_quit_preset_leaves_the_fans_on_auto() {
-    use razer_proto::{BLADE_18, CpuBoost, Custom, FanMode, GpuBoost, PerfMode, Rpm};
+    use razer_proto::{BLADE_18, CpuBoost, Custom, FanMode, GpuBoost, PerfMode};
 
     if !opted_in("BLADE_FAN_TEST") {
         return;
@@ -1844,26 +1929,68 @@ fn the_sleeps_quit_preset_leaves_the_fans_on_auto() {
     // 1600 RPM in a Start-menu sleep after Custom 3600 on AC. This sends
     // what the app sends around such a sleep, with no app and no real
     // sleep, and reads whether the fan byte is auto after it.
+    // The quit preset on AC with a manual Custom: Custom on auto (boosts
+    // kept), then Balanced (`quit_preset` in the app).
+    let mut sleep = Custom {
+        cpu: CpuBoost::new(1, &BLADE_18).unwrap(),
+        gpu: GpuBoost::new(1, &BLADE_18).unwrap(),
+        fan: FanMode::Auto,
+    }
+    .commands(&BLADE_18);
+    sleep.extend(PerfMode::Balanced.commands(&BLADE_18).unwrap());
+    manual_custom_then(3600, &sleep, "the sleep's quit preset");
+}
+
+/// Ticket 291: does a plain Balanced (`0D02`, fan byte `00`, no Custom on
+/// auto first) end a manual Custom fan? The app sends it alone on a click
+/// from Custom to another preset, a charger pull, the power key, and the
+/// quit on battery. Passes if every zone then reads Balanced with the fan
+/// byte auto for 2 min, and the fans end at least 500 RPM under the speed
+/// they reached on manual. Start it idle and cool: a warm laptop's own auto speed could
+/// fail the speed check.
+#[test]
+#[ignore = "needs the Blade 18 on its full power charger and idle, and BLADE_BALANCED_ALONE_PROBE=1; runs the fans on manual for 30 s, up to 2.5 min if Balanced does not end it; about 3 min"]
+fn balanced_alone_ends_a_manual_fan() {
+    use razer_proto::{BLADE_18, PerfMode};
+
+    if !opted_in("BLADE_BALANCED_ALONE_PROBE") {
+        return;
+    }
+    manual_custom_then(
+        3000,
+        &PerfMode::Balanced.commands(&BLADE_18).unwrap(),
+        "Balanced alone",
+    );
+}
+
+/// Sends Custom with a manual fan at `rpm` (CPU and GPU boost 1), its fan
+/// targets again 2 s later as the app does (ticket 173), watches 30 s, then
+/// sends `then` and watches 2 min: the modes, fan targets, real speeds and
+/// the CPU each 5 s, stopping at [`LOAD_STOP_CELSIUS`]. On AC and the full
+/// power charger only; the state is put back however it ends. Asserts the
+/// manual phase took (fan byte, targets, and both fans at 2000 RPM or more
+/// at its end), then that every zone reads Balanced with the fan byte auto
+/// after `then`, and the fans end at least 500 RPM under the speed reached.
+fn manual_custom_then(rpm: u16, then: &[razer_proto::Command], name: &str) {
+    use razer_proto::{BLADE_18, CpuBoost, Custom, FanMode, GpuBoost, PerfMode, Rpm};
+
+    // The target reads back in hundreds.
+    assert_eq!(rpm % 100, 0, "{rpm} RPM is not whole hundreds: not run");
     let mut device = Device::new(open(), SystemClock);
     require_full_power(&mut device);
     let before = custom_state(&mut device);
     refuse_unknown_state(&before);
-    let custom = |fan| Custom {
+    let manual = Custom {
         cpu: CpuBoost::new(1, &BLADE_18).unwrap(),
         gpu: GpuBoost::new(1, &BLADE_18).unwrap(),
-        fan,
+        fan: FanMode::Manual(Rpm::new(rpm, &BLADE_18).unwrap()),
     };
-    let manual = custom(FanMode::Manual(Rpm::new(3600, &BLADE_18).unwrap()));
-    // The quit preset on AC with a manual Custom: Custom on auto (boosts
-    // kept), then Balanced (`quit_preset` in the app).
-    let mut sleep = custom(FanMode::Auto).commands(&BLADE_18);
-    sleep.extend(PerfMode::Balanced.commands(&BLADE_18).unwrap());
 
     // From here on every step keeps its result, and the state is put back
     // before any assert.
     let helper = PutBackHelper::start();
     let mut manual_seen = Vec::new();
-    let mut sleep_seen = Vec::new();
+    let mut then_seen = Vec::new();
     // The Custom click, with its fan targets again 2 s later (ticket 173).
     let result = device
         .run(&manual.commands(&BLADE_18))
@@ -1875,20 +2002,21 @@ fn the_sleeps_quit_preset_leaves_the_fans_on_auto() {
                 .map_err(|error| error.to_string())
         })
         .and_then(|()| watch_modes_and_fans(&mut device, 30, &mut manual_seen))
-        .and_then(|()| device.run(&sleep).map_err(|error| error.to_string()))
-        .and_then(|()| watch_modes_and_fans(&mut device, 120, &mut sleep_seen));
+        .and_then(|()| device.run(then).map_err(|error| error.to_string()))
+        .and_then(|()| watch_modes_and_fans(&mut device, 120, &mut then_seen));
 
     let put_back = put_back_custom(&mut device, &before, helper);
     let after = try_custom_state(&mut device);
 
     eprintln!("before {before:02X?}");
-    for (name, seen) in [
-        ("manual 3600", &manual_seen),
-        ("after the sleep's quit preset", &sleep_seen),
+    let manual_name = format!("manual {rpm}");
+    for (phase, seen) in [
+        (manual_name.as_str(), &manual_seen),
+        (&format!("after {name}"), &then_seen),
     ] {
         for (step, (modes, target, real, cpu)) in seen.iter().enumerate() {
             eprintln!(
-                "{name} {:>3} s: modes {modes:02X?}, target {target:02X?}, real {real:02X?}, CPU {cpu} °C",
+                "{phase} {:>3} s: modes {modes:02X?}, target {target:02X?}, real {real:02X?}, CPU {cpu} °C",
                 (step + 1) * 5
             );
         }
@@ -1896,10 +2024,15 @@ fn the_sleeps_quit_preset_leaves_the_fans_on_auto() {
     eprintln!("result {result:?}\nput back {put_back:?}\nafter {after:02X?}");
     // The lasting state first, so its error is never hidden.
     assert!(put_back.iter().all(Result::is_ok), "check the fans by hand");
-    assert_eq!(after, Ok(before));
+    assert_eq!(
+        after,
+        Ok(before),
+        "not put back as it was: check the fans by hand, or run blade-lite.exe --reset"
+    );
     result.unwrap();
     // The manual phase took: every zone Custom with the fan byte manual,
-    // both targets 3600 RPM. Else the reads after prove nothing.
+    // both targets at `rpm`. Else the reads after prove nothing.
+    let hundreds = u8::try_from(rpm / 100).unwrap();
     for (modes, target, ..) in &manual_seen {
         for (args, &zone) in modes.iter().zip(BLADE_18.perf_zones) {
             assert_eq!(
@@ -1909,12 +2042,41 @@ fn the_sleeps_quit_preset_leaves_the_fans_on_auto() {
             );
         }
         for (args, fan) in target.iter().zip(FANS) {
-            assert_eq!(args[..], [1, fan, 36], "{args:02X?}");
+            assert_eq!(args[..], [1, fan, hundreds], "{args:02X?}");
         }
     }
-    assert_eq!(sleep_seen.len(), 24);
-    // Each read after the quit preset: every zone Balanced, fan byte auto.
-    for (modes, ..) in &sleep_seen {
+    // And the fans ran it: from auto they stall near 2900 RPM below a
+    // higher target (ticket 173), so the bar is the speed they reached,
+    // at least 2000 RPM (above any idle auto speed seen, NOTES.md).
+    let reached = manual_seen
+        .last()
+        .and_then(|(_, _, real, _)| {
+            real.iter()
+                .map(|args| args.get(2).copied().unwrap_or(0))
+                .min()
+        })
+        .unwrap_or(0);
+    assert!(
+        reached >= 20,
+        "the fans did not reach the manual speed: {manual_seen:02X?}"
+    );
+    assert_eq!(then_seen.len(), 24);
+    // The fans left the manual speed: the last three reads (110 to 120 s
+    // after `then`) are at least 500 RPM under what they reached. The
+    // `0D81` targets keep the manual speed under Balanced (ticket 218), so
+    // a fan byte that reads auto alone is not proof. Ticket 218's two
+    // steps had both fans at 0 from 55 s on.
+    for (_, _, real, _) in &then_seen[21..] {
+        for (args, fan) in real.iter().zip(FANS) {
+            assert!(
+                args.starts_with(&[1, fan])
+                    && args.get(2).is_some_and(|&speed| speed <= reached - 5),
+                "fan {fan} still near the manual speed after {name}: {args:02X?}"
+            );
+        }
+    }
+    // Each read after `then`: every zone Balanced, fan byte auto.
+    for (modes, ..) in &then_seen {
         for (args, &zone) in modes.iter().zip(BLADE_18.perf_zones) {
             assert_eq!(
                 PerfMode::from_reply(&BLADE_18, zone, args),
