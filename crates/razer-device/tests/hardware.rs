@@ -1,6 +1,9 @@
 //! Tests on the real laptop. Run with `cargo hw`.
 
 use std::cell::Cell;
+use std::io::{BufRead, BufReader, Write};
+use std::path::PathBuf;
+use std::process::Child;
 use std::sync::{Mutex, PoisonError};
 use std::time::Duration;
 
@@ -270,6 +273,7 @@ fn each_preset_is_set_and_read_back_and_the_old_one_restored() {
 
     // From here on every step keeps its result, stops at the first error,
     // and the old modes are put back before any assert.
+    let helper = PutBackHelper::start();
     let read_back: Result<Vec<_>, String> = presets
         .iter()
         .map(|(preset, commands)| {
@@ -283,9 +287,19 @@ fn each_preset_is_set_and_read_back_and_the_old_one_restored() {
         })
         .collect();
 
+    // The modes read on AC may be Performance: off the full power charger
+    // now, the battery's own put-back goes instead (ticket 292).
+    let modes = match on_full_power(&mut device) {
+        Ok(()) => before.clone(),
+        Err(error) => {
+            let modes = modes_to_put_back(&before);
+            eprintln!("{error}: put back {modes:02X?}, not {before:02X?}");
+            modes
+        }
+    };
     // Every zone is tried, so a failed one does not keep the others on
     // Performance.
-    let put_back: Vec<_> = before
+    let put_back: Vec<_> = modes
         .iter()
         .map(|args| {
             device
@@ -294,6 +308,7 @@ fn each_preset_is_set_and_read_back_and_the_old_one_restored() {
                 .map_err(|error| error.to_string())
         })
         .collect();
+    helper.done(&put_back);
     let after = try_preset_args(&mut device);
     eprintln!(
         "before {before:02X?}, read back {read_back:?}, put back {put_back:?}, after {after:02X?}"
@@ -347,6 +362,7 @@ fn custom_is_set_and_read_back_and_the_old_preset_restored() {
 
     // From here on every step keeps its result, and the state is put back
     // before any assert.
+    let helper = PutBackHelper::start();
     let set = device.run(&custom.commands(&BLADE_18));
     let manual = set
         .as_ref()
@@ -359,7 +375,7 @@ fn custom_is_set_and_read_back_and_the_old_preset_restored() {
 
     // Boosts and fan targets first, as razer-laptop-control says a mode
     // write after them resets them (not seen on 1.6, ticket 144).
-    let put_back = put_back_custom(&mut device, &before);
+    let put_back = put_back_custom(&mut device, &before, helper);
     let after = try_custom_state(&mut device);
     eprintln!(
         "before {before:02X?}\nset {set:?}, read back {manual:02X?}\nreal rpm {real_rpm:02X?}\nput back {put_back:?}\nafter {after:02X?}"
@@ -630,6 +646,7 @@ fn a_custom_mode_write_alone_and_what_the_fans_do() {
 
     // From here on every step keeps its result, and the state is put back
     // before any assert.
+    let helper = PutBackHelper::start();
     let set = device.run(&modes);
     let mut seen = Vec::new();
     let mut read_error = Ok(());
@@ -657,20 +674,9 @@ fn a_custom_mode_write_alone_and_what_the_fans_do() {
         })
         .collect();
 
-    // Put back as the Custom test does: boosts and fan targets, then modes.
-    // Every send is tried, so a failed one does not keep the fans manual.
-    let put_back: Vec<_> = before[4..6]
-        .iter()
-        .map(|args| (SET_BOOST, args))
-        .chain(before[6..8].iter().map(|args| (SET_FAN, args)))
-        .chain(before[..4].iter().map(|args| (0x0D02, args)))
-        .map(|(id, args)| {
-            device
-                .send(id, args)
-                .map(|_| ())
-                .map_err(|error| error.to_string())
-        })
-        .collect();
+    // Put back as the Custom test does, with the power read first: a
+    // charger pulled in the wait gets the battery's safe state (ticket 292).
+    let put_back = put_back_custom(&mut device, &before, helper);
     let after = try_custom_state(&mut device);
 
     eprintln!("before {before:02X?}\nset {set:?}\nmodes after the writes {modes_read:02X?}");
@@ -737,7 +743,8 @@ fn refuse_manual_fans(modes: &[Vec<u8>]) {
 /// of the model's battery presets with fans auto, else Balanced with fans
 /// auto, as the app sends it on battery. So an unknown mode such as `06`,
 /// a preset the app never runs on battery, and manual fans (whose targets
-/// the probe does not read) are never written back.
+/// the probe does not read) are never written back. The preset test puts
+/// back the same when it is off the full power charger (ticket 292).
 fn modes_to_put_back(before: &[Vec<u8>]) -> Vec<Vec<u8>> {
     use razer_proto::{BLADE_18, PerfMode};
 
@@ -810,27 +817,210 @@ fn refuse_unknown_state(before: &[Vec<u8>]) {
 fn put_back_custom<C: Clock>(
     device: &mut Device<HidTransport, C>,
     before: &[Vec<u8>],
+    helper: PutBackHelper,
 ) -> Vec<Result<(), String>> {
     // A charger pulled mid-test: the state read on AC may be Performance
     // or a manual fan, so the battery's safe state goes instead (ticket 274).
-    if let Err(error) = on_full_power(device) {
+    let put_back = if let Err(error) = on_full_power(device) {
         eprintln!(
             "{error}: put back Custom on auto, lowest boosts, then Balanced, not {before:02X?}"
         );
-        return battery_put_back(device);
+        battery_put_back(device)
+    } else {
+        before[4..6]
+            .iter()
+            .map(|args| (SET_BOOST, args))
+            .chain(before[6..8].iter().map(|args| (SET_FAN, args)))
+            .chain(before[..4].iter().map(|args| (0x0D02, args)))
+            .map(|(id, args)| {
+                device
+                    .send(id, args)
+                    .map(|_| ())
+                    .map_err(|error| error.to_string())
+            })
+            .collect()
+    };
+    helper.done(&put_back);
+    put_back
+}
+
+/// Set in the put-back helper's environment, so the helper test knows it
+/// is one.
+const HELPER_ENV: &str = "BLADE_HW_PUT_BACK_HELPER";
+/// What a test writes to its helper once it put its state back itself.
+const PUT_BACK_DONE: &str = "put back";
+/// What the helper prints once it waits for the test's word.
+const HELPER_WAITS: &str = "the put-back helper waits";
+
+/// The put-back helper's log: it has no console.
+fn helper_log() -> PathBuf {
+    std::path::Path::new(env!("CARGO_TARGET_TMPDIR")).join("hw-put-back.log")
+}
+
+/// A helper copy of this test program that sends the battery-safe put-back
+/// ([`battery_put_back`]) if this program ends before the test put its
+/// state back itself (ticket 290). A Ctrl+C, a closed terminal or a killed
+/// cargo end this program at once: cargo runs its tests in a Windows job
+/// that kills them all when cargo ends (cargo `src/util/job.rs`), so no
+/// handler in this program would get the time. The helper has no console
+/// and is out of that job (cargo's job allows it), so it lives on. It
+/// hears the end as the end of its input, whose other end only this
+/// program holds.
+struct PutBackHelper(Option<Child>);
+
+impl PutBackHelper {
+    /// Starts the helper and waits until it waits. Call it after every
+    /// refusal, just before the test's first write.
+    fn start() -> Self {
+        use std::os::windows::process::CommandExt;
+        use std::process::{Command, Stdio};
+        // Microsoft's process creation flags: no console (so no Ctrl+C and
+        // no close), and out of the job.
+        const DETACHED_PROCESS: u32 = 0x0000_0008;
+        const CREATE_BREAKAWAY_FROM_JOB: u32 = 0x0100_0000;
+
+        let log = std::fs::File::create(helper_log()).unwrap_or_else(|error| {
+            panic!("can't make the put-back helper's log ({error}): not run")
+        });
+        let mut child = Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--ignored",
+                "--exact",
+                "--nocapture",
+                "put_back_after_a_stopped_run",
+            ])
+            .env(HELPER_ENV, "1")
+            .creation_flags(DETACHED_PROCESS | CREATE_BREAKAWAY_FROM_JOB)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(log)
+            .spawn()
+            .unwrap_or_else(|error| panic!("can't start the put-back helper ({error}): not run"));
+        let stdout = child.stdout.take().unwrap();
+        let (waits, waiting) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            for line in BufReader::new(stdout).lines().map_while(Result::ok) {
+                if line.starts_with(HELPER_WAITS) {
+                    let _ = waits.send(());
+                }
+            }
+        });
+        if waiting.recv_timeout(Duration::from_secs(10)).is_err() {
+            let _ = child.kill();
+            panic!(
+                "the put-back helper did not start (log {}): not run",
+                helper_log().display()
+            );
+        }
+        eprintln!("the put-back helper waits (log {})", helper_log().display());
+        Self(Some(child))
     }
-    before[4..6]
-        .iter()
-        .map(|args| (SET_BOOST, args))
-        .chain(before[6..8].iter().map(|args| (SET_FAN, args)))
-        .chain(before[..4].iter().map(|args| (0x0D02, args)))
-        .map(|(id, args)| {
-            device
-                .send(id, args)
-                .map(|_| ())
-                .map_err(|error| error.to_string())
-        })
-        .collect()
+
+    /// After the test's own put-back: tells the helper and lets it end when
+    /// every send went. Else it stays, and sends the battery-safe put-back
+    /// once this program ends.
+    fn done(mut self, put_back: &[Result<(), String>]) {
+        if !put_back.iter().all(Result::is_ok) {
+            eprintln!("the put-back failed: the helper sends its own once this run ends");
+            return;
+        }
+        let Some(mut child) = self.0.take() else {
+            return;
+        };
+        let told = child
+            .stdin
+            .take()
+            .map(|mut stdin| writeln!(stdin, "{PUT_BACK_DONE}"));
+        let ended = child.wait();
+        eprintln!("the put-back helper was told {told:?} and ended {ended:?}");
+    }
+}
+
+impl Drop for PutBackHelper {
+    /// A test that ends with no [`PutBackHelper::done`], such as by a
+    /// panic, keeps the helper's input open until this program ends: the
+    /// helper then sends its put-back.
+    fn drop(&mut self) {
+        if let Some(child) = self.0.take() {
+            std::mem::forget(child);
+        }
+    }
+}
+
+/// Whether the helper sends its put-back after its read of the test's
+/// word: always, unless the test said it put its state back.
+fn helper_puts_back(read: &std::io::Result<usize>, line: &str) -> bool {
+    !matches!(read, Ok(read) if *read > 0 && line.trim_end() == PUT_BACK_DONE)
+}
+
+/// Takes the one-copy lock once the ended test program let go of it,
+/// trying for 10 s.
+fn claim_lock_after_the_test() -> WindowsInstance {
+    for _ in 0..50 {
+        let mut instance = WindowsInstance::new(APP_NAME).unwrap();
+        if instance.claim().unwrap() {
+            return instance;
+        }
+        std::thread::sleep(Duration::from_millis(200));
+    }
+    panic!("the one-copy lock is held (Blade Lite or another test): nothing sent; check the fans");
+}
+
+#[test]
+#[ignore = "the put-back helper a cargo hw test starts itself; sends only if that test ends before its put-back"]
+fn put_back_after_a_stopped_run() {
+    if std::env::var_os(HELPER_ENV).is_none() {
+        eprintln!("skipped: a cargo hw test starts this itself");
+        return;
+    }
+    println!("{HELPER_WAITS} ({})", utc_now());
+    let mut line = String::new();
+    let read = std::io::stdin().read_line(&mut line);
+    if !helper_puts_back(&read, &line) {
+        eprintln!("{} the test put its state back itself", utc_now());
+        return;
+    }
+    eprintln!(
+        "{} the test ended before its put-back ({read:?}, {line:?})",
+        utc_now()
+    );
+    let _lock = claim_lock_after_the_test();
+    let mut device = Device::new(
+        HidTransport::open(&razer_proto::BLADE_18).unwrap(),
+        SystemClock,
+    );
+    let sent = battery_put_back(&mut device);
+    eprintln!(
+        "{} put back Custom on auto, lowest boosts, then Balanced: {sent:?}",
+        utc_now()
+    );
+    assert!(
+        sent.iter().all(Result::is_ok),
+        "check the fans: run blade-lite --reset"
+    );
+}
+
+#[test]
+fn the_helper_puts_back_when_the_test_ends_with_no_word() {
+    assert!(helper_puts_back(&Ok(0), ""));
+}
+
+#[test]
+fn the_helper_puts_back_when_its_read_fails() {
+    assert!(helper_puts_back(
+        &Err(std::io::ErrorKind::BrokenPipe.into()),
+        ""
+    ));
+}
+
+#[test]
+fn the_helper_puts_back_on_another_word() {
+    assert!(helper_puts_back(&Ok(5), "other\n"));
+}
+
+#[test]
+fn the_helper_sends_nothing_once_the_test_put_back() {
+    assert!(!helper_puts_back(&Ok(10), "put back\r\n"));
 }
 
 /// Ends a manual fan, then runs Balanced, as the app's quit preset does on
@@ -899,6 +1089,7 @@ fn custom_from_balanced_and_again_and_what_the_fans_do() {
 
     // From here on every step keeps its result, and the state is put back
     // before any assert.
+    let helper = PutBackHelper::start();
     let from_balanced = device
         .run(&balanced)
         .map_err(|error| error.to_string())
@@ -914,7 +1105,7 @@ fn custom_from_balanced_and_again_and_what_the_fans_do() {
         .and_then(|_| device.run(&custom).map_err(|error| error.to_string()))
         .and_then(|()| watch_fans(&mut device));
 
-    let put_back = put_back_custom(&mut device, &before);
+    let put_back = put_back_custom(&mut device, &before, helper);
     let after = try_custom_state(&mut device);
 
     eprintln!("before {before:02X?}");
@@ -1005,13 +1196,14 @@ fn the_users_custom_with_and_without_the_app_reads() {
 
     // From here on every step keeps its result, and the state is put back
     // before any assert.
+    let helper = PutBackHelper::start();
     let quiet = from_performance(&mut device, false);
     let polled = quiet
         .as_ref()
         .map_err(Clone::clone)
         .and_then(|_| from_performance(&mut device, true));
 
-    let put_back = put_back_custom(&mut device, &before);
+    let put_back = put_back_custom(&mut device, &before, helper);
     let after = try_custom_state(&mut device);
 
     eprintln!("before {before:02X?}");
@@ -1054,6 +1246,7 @@ fn which_boost_holds_a_manual_fan_back() {
 
     // From here on every step keeps its result, and the state is put back
     // before any assert.
+    let helper = PutBackHelper::start();
     let mut seen = Vec::new();
     for (cpu, gpu, rpm) in cases {
         let custom = Custom {
@@ -1073,7 +1266,7 @@ fn which_boost_holds_a_manual_fan_back() {
         }
     }
 
-    let put_back = put_back_custom(&mut device, &before);
+    let put_back = put_back_custom(&mut device, &before, helper);
     let after = try_custom_state(&mut device);
 
     eprintln!("before {before:02X?}");
@@ -1133,6 +1326,7 @@ fn what_frees_a_manual_fan_stalled_after_a_custom_from_auto() {
 
     // From here on every step keeps its result, and the state is put back
     // before any assert.
+    let helper = PutBackHelper::start();
     let mut seen = Vec::new();
     for (name, again, after) in cases {
         let watched = device
@@ -1150,7 +1344,7 @@ fn what_frees_a_manual_fan_stalled_after_a_custom_from_auto() {
         }
     }
 
-    let put_back = put_back_custom(&mut device, &before);
+    let put_back = put_back_custom(&mut device, &before, helper);
     let after = try_custom_state(&mut device);
 
     eprintln!("before {before:02X?}");
@@ -1426,6 +1620,7 @@ fn the_sleep_and_wake_sends_under_load() {
     // The fans at full speed first, with no load, with the fan targets once
     // more 2 s after the Custom (from auto they stall near 2900, ticket 173).
     // The load starts only once both fans run within 300 RPM of full.
+    let helper = PutBackHelper::start();
     let mut warm_up = Vec::new();
     let top = BLADE_18.custom.fan_rpm.max;
     let warmed = device
@@ -1488,7 +1683,7 @@ fn the_sleep_and_wake_sends_under_load() {
     });
 
     phases.push(("cooling", cool_down(&mut device)));
-    let put_back = put_back_custom(&mut device, &before);
+    let put_back = put_back_custom(&mut device, &before, helper);
     let after = try_custom_state(&mut device);
 
     eprintln!("before {before:02X?}");
@@ -1572,6 +1767,7 @@ fn the_sleeps_quit_preset_leaves_the_fans_on_auto() {
 
     // From here on every step keeps its result, and the state is put back
     // before any assert.
+    let helper = PutBackHelper::start();
     let mut manual_seen = Vec::new();
     let mut sleep_seen = Vec::new();
     // The Custom click, with its fan targets again 2 s later (ticket 173).
@@ -1588,7 +1784,7 @@ fn the_sleeps_quit_preset_leaves_the_fans_on_auto() {
         .and_then(|()| device.run(&sleep).map_err(|error| error.to_string()))
         .and_then(|()| watch_modes_and_fans(&mut device, 120, &mut sleep_seen));
 
-    let put_back = put_back_custom(&mut device, &before);
+    let put_back = put_back_custom(&mut device, &before, helper);
     let after = try_custom_state(&mut device);
 
     eprintln!("before {before:02X?}");
