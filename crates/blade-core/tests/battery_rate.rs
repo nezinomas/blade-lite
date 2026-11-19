@@ -317,6 +317,118 @@ fn a_resume_on_battery_sets_60_hz_again_after_windows_put_the_rate_back() {
     assert_eq!(life, ModeLife::UntilRestart);
 }
 
+/// On battery at 60 Hz, then a wake whose pause ended with the source
+/// unknown, in which Windows put its saved rate back (ticket 286).
+fn after_a_wake_with_the_source_unknown() -> (BatteryRate, FakeDisplays) {
+    let mut api = panel_at(240);
+    let mut battery_rate = BatteryRate::default();
+    battery_rate
+        .on_event(PowerEvent::OnBattery, &config(true), &mut api)
+        .unwrap();
+    battery_rate.on_resume_unknown();
+    set_refresh_rate(&mut api, RefreshRate(240)).unwrap();
+    (battery_rate, api)
+}
+
+#[test]
+fn a_battery_read_after_a_wake_with_the_source_unknown_sets_60_hz_again() {
+    let (mut battery_rate, mut api) = after_a_wake_with_the_source_unknown();
+
+    battery_rate
+        .on_event(PowerEvent::OnBattery, &config(true), &mut api)
+        .unwrap();
+
+    assert_eq!(api.panel_mode(), mode(3840, 2400, 60));
+}
+
+#[test]
+fn a_battery_read_after_a_wake_with_the_source_unknown_keeps_another_rate() {
+    let (mut battery_rate, mut api) = after_a_wake_with_the_source_unknown();
+    set_refresh_rate(&mut api, RefreshRate(120)).unwrap();
+
+    battery_rate
+        .on_event(PowerEvent::OnBattery, &config(true), &mut api)
+        .unwrap();
+
+    assert_eq!(api.panel_mode(), mode(3840, 2400, 120));
+}
+
+#[test]
+fn only_the_first_battery_read_after_a_wake_with_the_source_unknown_counts() {
+    let (mut battery_rate, mut api) = after_a_wake_with_the_source_unknown();
+    battery_rate
+        .on_event(PowerEvent::OnBattery, &config(true), &mut api)
+        .unwrap();
+    // The user picks the old rate in Settings on battery.
+    set_refresh_rate(&mut api, RefreshRate(240)).unwrap();
+
+    battery_rate
+        .on_event(PowerEvent::OnBattery, &config(true), &mut api)
+        .unwrap();
+
+    assert_eq!(api.panel_mode(), mode(3840, 2400, 240));
+}
+
+#[test]
+fn a_refused_60_hz_after_a_wake_with_the_source_unknown_is_an_error_and_waits_a_poll() {
+    // The read comes inside a poll, whose retry may come at once.
+    let (mut battery_rate, mut api) = after_a_wake_with_the_source_unknown();
+    api.failing_sets = 1;
+
+    let set = battery_rate.on_event(PowerEvent::OnBattery, &config(true), &mut api);
+    assert!(set.is_err());
+    assert!(battery_rate.retry_pending());
+    battery_rate.retry(&config(true), &mut api).unwrap();
+
+    assert_eq!(api.panel_mode(), mode(3840, 2400, 240));
+}
+
+#[test]
+fn a_battery_read_with_the_option_off_uses_up_the_mark_and_sends_nothing() {
+    let (mut battery_rate, mut api) = after_a_wake_with_the_source_unknown();
+    battery_rate
+        .on_event(PowerEvent::OnBattery, &config(false), &mut api)
+        .unwrap();
+    assert_eq!(api.panel_mode(), mode(3840, 2400, 240));
+
+    battery_rate
+        .on_event(PowerEvent::OnBattery, &config(true), &mut api)
+        .unwrap();
+
+    assert_eq!(api.panel_mode(), mode(3840, 2400, 240));
+}
+
+#[test]
+fn an_ac_read_after_a_wake_with_the_source_unknown_ends_its_mark() {
+    // The next switch to battery is a plain one: no panel is an error, not
+    // a wake's quiet leave-alone.
+    let mut api = FakeDisplays::new(Some(vec![]));
+    let mut battery_rate = BatteryRate::default();
+    battery_rate.on_resume_unknown();
+    battery_rate
+        .on_event(PowerEvent::OnAc, &config(true), &mut api)
+        .unwrap();
+
+    let set = battery_rate.on_event(PowerEvent::OnBattery, &config(true), &mut api);
+
+    assert!(matches!(set, Err(DisplayError::NoInternalPanel)));
+}
+
+#[test]
+fn a_known_wake_after_one_with_the_source_unknown_ends_its_mark() {
+    let (mut battery_rate, mut api) = after_a_wake_with_the_source_unknown();
+    battery_rate
+        .on_resume(true, &config(true), &mut api)
+        .unwrap();
+    set_refresh_rate(&mut api, RefreshRate(240)).unwrap();
+
+    battery_rate
+        .on_event(PowerEvent::OnBattery, &config(true), &mut api)
+        .unwrap();
+
+    assert_eq!(api.panel_mode(), mode(3840, 2400, 240));
+}
+
 #[test]
 fn a_resume_keeps_a_rate_changed_outside_the_app_on_battery() {
     let mut api = panel_at(240);

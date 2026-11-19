@@ -328,7 +328,8 @@ where
                 let started = self.start();
                 // The source read now, as the charger may have gone in or
                 // out in the sleep, before its power event comes. An
-                // unknown source leaves the rate alone.
+                // unknown source leaves the rate to the next battery read
+                // (ticket 286).
                 let rate = if self.source_known {
                     let displays = &mut self.machine.displays;
                     let on_battery = self.power == Power::Battery;
@@ -338,6 +339,7 @@ where
                         .map_err(AppError::from);
                     self.quiet_if_tried_again(rate)
                 } else {
+                    self.battery_rate.on_resume_unknown();
                     Ok(())
                 };
                 self.hold_rate_error(started, rate, "the rate after the wake failed too")
@@ -882,9 +884,10 @@ where
     /// the rate (ticket 281); a start with the source unknown gets its
     /// 60 Hz here too, if no event came first. A rate already saved (the
     /// switch to battery was seen) sends nothing, so a rate set outside the
-    /// app while the source was unknown is kept; so is one Windows put
-    /// back in a wake whose pause ended with the source unknown (ticket
-    /// 286). A refused set is tried again from the next poll on. Nothing
+    /// app while the source was unknown is kept, unless the source went
+    /// unknown at a wake's pause end: then a panel back at the rate saved
+    /// before battery gets 60 Hz again, as that wake would have done
+    /// (ticket 286). A refused set is tried again from the next poll on. Nothing
     /// on AC or with the source unknown (a guard).
     ///
     /// # Errors
