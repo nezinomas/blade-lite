@@ -579,21 +579,28 @@ fn the_start_line_names_the_arguments() {
 #[cfg(test)]
 #[test]
 fn the_window_opens_at_start_with_its_reason() {
+    let none = StartWarnings::default();
+    assert_eq!(window_at_start(false, none), Some("not a --tray start"));
+    assert_eq!(window_at_start(true, none), None);
+    let razer = StartWarnings {
+        razer_found: true,
+        ..none
+    };
+    assert_eq!(window_at_start(true, razer), Some("Razer software runs"));
+    let firmware = StartWarnings {
+        firmware_unchecked: true,
+        ..none
+    };
     assert_eq!(
-        window_at_start(false, false, false, false),
-        Some("not a --tray start")
-    );
-    assert_eq!(window_at_start(true, false, false, false), None);
-    assert_eq!(
-        window_at_start(true, true, false, false),
-        Some("Razer software runs")
-    );
-    assert_eq!(
-        window_at_start(true, false, true, false),
+        window_at_start(true, firmware),
         Some("the firmware is not one checked")
     );
+    let failed = StartWarnings {
+        start_failed: true,
+        ..none
+    };
     assert_eq!(
-        window_at_start(true, false, false, true),
+        window_at_start(true, failed),
         Some("the start's send failed")
     );
 }
@@ -619,26 +626,38 @@ fn start_line(args: impl IntoIterator<Item = std::ffi::OsString>) -> String {
     format!("starts, version {}, with {with}", env!("CARGO_PKG_VERSION"))
 }
 
+/// The warnings a login start (`--tray`) opens its window for.
+#[derive(Debug, Default, Clone, Copy)]
+struct StartWarnings {
+    razer_found: bool,
+    firmware_unchecked: bool,
+    start_failed: bool,
+}
+
 /// Why the window opens at start, or `None` for a login start (`--tray`)
 /// that stays in the tray: it opens for a start by hand, and at login only
 /// to show a warning (Razer software, a firmware not checked, a failed
 /// send).
-fn window_at_start(
-    in_tray: bool,
-    razer_found: bool,
-    firmware_unchecked: bool,
-    start_failed: bool,
-) -> Option<&'static str> {
+fn window_at_start(in_tray: bool, warnings: StartWarnings) -> Option<&'static str> {
     if !in_tray {
         Some("not a --tray start")
-    } else if razer_found {
+    } else if warnings.razer_found {
         Some("Razer software runs")
-    } else if firmware_unchecked {
+    } else if warnings.firmware_unchecked {
         Some("the firmware is not one checked")
-    } else if start_failed {
+    } else if warnings.start_failed {
         Some("the start's send failed")
     } else {
         None
+    }
+}
+
+/// Opens the window at start if [`window_at_start`] gives a reason, and
+/// logs it (ticket 301).
+fn open_window_at_start(shell: &Rc<Shell>, in_tray: bool, warnings: StartWarnings) {
+    if let Some(reason) = window_at_start(in_tray, warnings) {
+        report(&format!("the window opens at start: {reason}"));
+        shell.show_window();
     }
 }
 
@@ -875,15 +894,13 @@ fn run(in_tray: bool) -> Result<(), Box<dyn std::error::Error>> {
         // Held to the end of the run: dropping it stops the poll.
         let _poll = poll(&shell);
 
-        // At login the app starts in the tray, with the settings re-applied,
-        // unless Razer software runs or the firmware is not one checked: the
-        // window then shows the warning.
-        if let Some(reason) =
-            window_at_start(in_tray, razer_found, firmware_unchecked, start_failed)
-        {
-            report(&format!("the window opens at start: {reason}"));
-            shell.show_window();
-        }
+        // At login the app starts in the tray, unless a warning shows.
+        let warnings = StartWarnings {
+            razer_found,
+            firmware_unchecked,
+            start_failed,
+        };
+        open_window_at_start(&shell, in_tray, warnings);
         // Closing the window keeps the app in the tray. Quit is in its menu.
         let ran = slint::run_event_loop_until_quit();
         loop_ended();
