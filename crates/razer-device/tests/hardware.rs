@@ -533,27 +533,31 @@ fn the_second_temperature_field_follows_the_gpu() {
 /// GPU field, and NVML's temperature and load (`None` if the read failed).
 type GpuPair = (u8, Option<(u32, u32)>);
 
-/// How the `0D85` GPU field matched NVML over the reads where both read
-/// and the GPU was busy (load at least `busy` %): the count, the largest
-/// gap in °C, and how many were within `near` °C.
-fn gpu_field_match(pairs: &[GpuPair], busy: u32, near: u32) -> (usize, u32, usize) {
-    let gaps: Vec<u32> = pairs
+/// How the `0D85` GPU field matched NVML over the seconds where NVML read
+/// the GPU busy (load at least `busy` %): how many such seconds, how many
+/// of them the field read 0, the largest gap in °C where it did not, and
+/// how many of those were within `near` °C.
+fn gpu_field_match(pairs: &[GpuPair], busy: u32, near: u32) -> (usize, usize, u32, usize) {
+    let busy_reads: Vec<(u8, u32)> = pairs
         .iter()
         .filter_map(|&(field, nvml)| {
             let (celsius, load) = nvml?;
-            (field > 0 && load >= busy).then(|| celsius.abs_diff(u32::from(field)))
+            (load >= busy).then_some((field, celsius))
         })
         .collect();
+    let zero = busy_reads.iter().filter(|(field, _)| *field == 0).count();
+    let gaps: Vec<u32> = busy_reads
+        .iter()
+        .filter(|(field, _)| *field > 0)
+        .map(|&(field, celsius)| celsius.abs_diff(u32::from(field)))
+        .collect();
     let largest = gaps.iter().copied().max().unwrap_or(0);
-    (
-        gaps.len(),
-        largest,
-        gaps.iter().filter(|&&gap| gap <= near).count(),
-    )
+    let close = gaps.iter().filter(|&&gap| gap <= near).count();
+    (busy_reads.len(), zero, largest, close)
 }
 
 #[test]
-fn the_gpu_field_match_counts_only_busy_reads_with_both() {
+fn the_gpu_field_match_counts_busy_reads_and_a_field_of_zero_apart() {
     let pairs = [
         (60, Some((61, 90))),
         (70, Some((75, 95))),
@@ -561,15 +565,72 @@ fn the_gpu_field_match_counts_only_busy_reads_with_both() {
         (40, Some((40, 2))),
         (65, None),
     ];
-    assert_eq!(gpu_field_match(&pairs, 50, 3), (2, 5, 1));
+    assert_eq!(gpu_field_match(&pairs, 50, 3), (3, 1, 5, 1));
+}
+
+/// The delay of the field behind NVML, in seconds from 0 to `max`, that
+/// gives the smallest mean gap, with that gap: the field at second `t +
+/// lag` against NVML at `t`, where both read and the field is not 0. `None`
+/// if no delay has 10 such seconds. `series` has one entry per second.
+fn gpu_field_lag(series: &[(Option<u8>, Option<u32>)], max: usize) -> Option<(usize, f64)> {
+    (0..=max)
+        .filter_map(|lag| {
+            let gaps: Vec<u32> = series
+                .iter()
+                .zip(series.iter().skip(lag))
+                .filter_map(|(&(_, nvml), &(field, _))| {
+                    let field = u32::from(field.filter(|&field| field > 0)?);
+                    Some(nvml?.abs_diff(field))
+                })
+                .collect();
+            let count = u32::try_from(gaps.len())
+                .ok()
+                .filter(|&count| count >= 10)?;
+            Some((lag, f64::from(gaps.iter().sum::<u32>()) / f64::from(count)))
+        })
+        .min_by(|a, b| a.1.total_cmp(&b.1))
+}
+
+#[test]
+fn the_lag_of_a_field_that_follows_late_is_found() {
+    // NVML climbs 50, 51, ...; the field shows each value 3 s later.
+    let series: Vec<(Option<u8>, Option<u32>)> = (0..30u8)
+        .map(|t| (Some(47 + t), Some(50 + u32::from(t))))
+        .collect();
+    assert_eq!(gpu_field_lag(&series, 5), Some((3, 0.0)));
+}
+
+#[test]
+fn a_field_of_zero_or_unread_gives_no_lag() {
+    let series = vec![(Some(0), Some(60)); 30];
+    assert_eq!(gpu_field_lag(&series, 5), None);
+}
+
+/// The GPU field of a `0D85` reply, only from a reply of its kind
+/// (`[02, cpu, gpu, ..]`, as `Celsius::cpu_from_reply` checks).
+fn gpu_field(args: &[u8]) -> Option<u8> {
+    match args {
+        [0x02, _, gpu, ..] => Some(*gpu),
+        _ => None,
+    }
+}
+
+#[test]
+fn a_gpu_field_is_taken_only_from_a_temperature_reply() {
+    assert_eq!(gpu_field(&[0x02, 45, 60, 0]), Some(60));
+    assert_eq!(gpu_field(&[0x01, 45, 60, 0]), None);
+    assert_eq!(gpu_field(&[0x02, 45]), None);
 }
 
 /// Ticket 293: does the `0D85` GPU field track NVML under load, so it could
 /// stand in when NVML fails? Reads only (`0D85`, a read; NVML) each second
-/// for 3 min while the user runs a GPU load (a game). Prints each second
-/// and the match. Fails only if too few busy seconds were read to say.
+/// for 3 min while a GPU load runs (the scratch load tool, started apart
+/// with the GPU cool, so the heating is seen). Refuses to run with a manual
+/// fan (no app guards the heat). Prints each second, the match, NVML's
+/// range, the failed reads and the field's delay. Fails only if the GPU
+/// was busy in too few seconds to say, or the controller is gone.
 #[test]
-#[ignore = "needs the Blade 18, BLADE_GPU_PROBE=1 and a person running a GPU load; read-only; 3 min"]
+#[ignore = "needs the Blade 18, BLADE_GPU_PROBE=1, fans on auto and a GPU load started apart; read-only; 3 min"]
 fn the_gpu_field_follows_nvml_under_load() {
     use platform::Sensors;
     use razer_proto::Celsius;
@@ -578,27 +639,50 @@ fn the_gpu_field_follows_nvml_under_load() {
         return;
     }
     let mut device = Device::new(open(), SystemClock);
+    // No app watches the heat while this runs: only fans on auto.
+    refuse_manual_fans(&preset_args(&mut device));
     let mut sensors = platform::WindowsSensors::default();
     let query = Celsius::query();
     let mut pairs: Vec<GpuPair> = Vec::new();
+    let mut series: Vec<(Option<u8>, Option<u32>)> = Vec::new();
     for second in 0..180 {
-        let field = device
-            .send(query.id, &query.args)
-            .ok()
-            .and_then(|reply| reply.args().get(2).copied());
+        let field = match device.send(query.id, &query.args) {
+            Ok(reply) => gpu_field(reply.args()).ok_or(format!("reply {:02X?}", reply.args())),
+            Err(razer_device::DeviceError::Io(error)) => {
+                panic!("the controller is gone at {second} s: {error}")
+            }
+            Err(error) => Err(error.to_string()),
+        };
         let nvml = sensors
             .gpu()
-            .ok()
-            .map(|gpu| (gpu.celsius, gpu.load_percent));
+            .map(|gpu| (gpu.celsius, gpu.load_percent))
+            .map_err(|error| error.to_string());
         eprintln!("{second:>3} s  0D85 gpu {field:?}  nvml (°C, load %) {nvml:?}");
-        if let Some(field) = field {
-            pairs.push((field, nvml));
+        series.push((
+            field.as_ref().ok().copied(),
+            nvml.as_ref().ok().map(|&(celsius, _)| celsius),
+        ));
+        if let Ok(field) = field {
+            pairs.push((field, nvml.ok()));
         }
         std::thread::sleep(Duration::from_secs(1));
     }
-    let (busy, largest, near) = gpu_field_match(&pairs, 50, 3);
-    eprintln!("busy reads {busy}, largest gap {largest} °C, within 3 °C: {near}");
-    assert!(busy >= 30, "too few busy seconds with both reads: {busy}");
+    let (busy, zero, largest, near) = gpu_field_match(&pairs, 50, 3);
+    let nvml: Vec<u32> = series.iter().filter_map(|&(_, nvml)| nvml).collect();
+    eprintln!(
+        "busy seconds {busy}: field 0 in {zero}; else largest gap {largest} °C, within 3 °C in {near}\n\
+         NVML {:?} to {:?} °C; failed reads: 0D85 {}, NVML {}\n\
+         the field's delay (s) and mean gap (°C): {:?}",
+        nvml.iter().min(),
+        nvml.iter().max(),
+        series.iter().filter(|(field, _)| field.is_none()).count(),
+        series.iter().filter(|(_, nvml)| nvml.is_none()).count(),
+        gpu_field_lag(&series, 15),
+    );
+    assert!(
+        busy >= 30,
+        "the GPU was busy (NVML) in too few seconds to say: {busy}"
+    );
 }
 
 #[test]
