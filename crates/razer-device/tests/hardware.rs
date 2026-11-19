@@ -23,10 +23,21 @@ fn hold_lock() {
     }
 }
 
-/// Opens the controller, once the lock is held.
+/// Opens the controller, once the lock is held and no Razer software runs.
 fn open() -> HidTransport {
     hold_lock();
+    refuse_razer_software();
     HidTransport::open(&razer_proto::BLADE_18).unwrap()
+}
+
+/// Refuses to run while Razer software runs, as it can talk to the
+/// controller too, or when the look for it fails (ticket 290).
+fn refuse_razer_software() {
+    let found = blade_core::razer_software(&platform::WindowsPrograms);
+    assert!(
+        found.as_ref().is_ok_and(Vec::is_empty),
+        "Razer software runs, or the look for it failed ({found:?}): quit it first: not run"
+    );
 }
 
 /// How many reads the pause tests make.
