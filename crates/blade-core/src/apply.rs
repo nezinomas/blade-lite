@@ -214,6 +214,25 @@ pub fn preset_differs(
     Ok((!differs.is_empty()).then(|| differs.join("; ")))
 }
 
+/// Whether any zone of `model` reads Custom with a manual fan (ticket 299),
+/// as a kill or other software may leave it. Reads only; stops at the first
+/// such zone.
+///
+/// # Errors
+///
+/// The first failed read.
+pub fn manual_fan_reads(
+    model: &ModelProfile,
+    controller: &mut impl Query,
+) -> Result<bool, DeviceError> {
+    for (query, &zone) in PerfMode::queries(model).iter().zip(model.perf_zones) {
+        if Custom::manual_fan_in_reply(model, zone, &controller.query(query)?) {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
 /// Bytes as hex, space apart.
 fn hex(bytes: &[u8]) -> String {
     bytes
