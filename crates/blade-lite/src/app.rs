@@ -14,7 +14,7 @@ use std::time::{Duration, Instant};
 use blade_core::{
     ApplyError, BatteryRate, Config, Controller, CustomSettings, Lighting, Preset, Query,
     apply_fan_targets, apply_performance, charge_limit_on, full_power_charger, logo_on,
-    preset_differs, touchpad_on,
+    manual_fan_reads, preset_differs, touchpad_on,
 };
 use platform::{DisplayApi, KeyInjector, Registry};
 use razer_proto::{
@@ -117,7 +117,8 @@ enum SentFan {
     /// No preset send went whole yet: a crash or Razer software may have
     /// left a manual fan, but nothing says so. It counts as a maybe only
     /// while the preset is unsure (ticket 250), and so does the two-step
-    /// end of a manual fan (ticket 298): a first start adds no step.
+    /// end of a manual fan (ticket 298): a first start adds a step only
+    /// over a manual fan it reads (ticket 299).
     NotYet,
     /// The last preset send that went whole had the fans on auto, and no
     /// cut send since carried the manual flag.
@@ -539,7 +540,8 @@ where
     /// a manual fan sends both (ticket 298). Custom on auto needs no step:
     /// it is that step. Before the first send went whole (`NotYet`) it goes
     /// only while the preset is unsure, as [`Self::manual_fan_unshown`]
-    /// counts it: a cut start resends in two steps, a plain one adds none.
+    /// counts it: a cut start resends in two steps, a plain one adds none
+    /// unless it read a manual fan ([`Self::read_manual_fan_at_first_start`]).
     /// No step goes for a preset the model refuses (nothing is sent then),
     /// and a step the model refuses (no Custom) sends nothing, so the
     /// preset still goes.
@@ -576,6 +578,27 @@ where
             // Refused before any send: nothing to end it with here.
             Err(ApplyError::Preset(_) | ApplyError::Custom(_)) => Ok(()),
             other => other,
+        }
+    }
+
+    /// At a first start (no send went whole, none cut) of a preset other
+    /// than Custom, reads each zone's mode and fan byte, and counts a
+    /// manual fan as maybe running if a zone reads Custom with it, as a
+    /// kill or Razer software may leave it: then the start sends the two
+    /// steps (ticket 299). A failed read adds no step, as before; it is
+    /// logged. Reads only.
+    fn read_manual_fan_at_first_start(&mut self, config: &Config) {
+        if self.sent_fan != SentFan::NotYet || self.preset_unsure || config.preset == Preset::Custom
+        {
+            return;
+        }
+        match manual_fan_reads(self.model, &mut self.machine.controller) {
+            Ok(true) => {
+                report("the controller runs a manual fan at start, so the fans go on auto first");
+                self.sent_fan = SentFan::MaybeManual;
+            }
+            Ok(false) => {}
+            Err(error) => self.note_missed_read(format!("fan mode at start: {error}")),
         }
     }
 

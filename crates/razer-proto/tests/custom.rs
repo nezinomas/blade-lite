@@ -239,3 +239,22 @@ fn boost_and_fan_target_writes_read_back_their_own_value_and_mode_writes_do_not(
             .all(|c| Custom::read_back(c).is_none())
     );
 }
+
+#[test]
+fn a_mode_reply_with_custom_and_the_manual_fan_byte_is_a_manual_fan() {
+    let custom = BLADE_18.custom.mode;
+    assert!(Custom::manual_fan_in_reply(1, &[1, 1, custom, 0x01]));
+    assert!(!Custom::manual_fan_in_reply(1, &[1, 1, custom, 0x00]));
+    assert!(!Custom::manual_fan_in_reply(1, &[1, 1, 0x00, 0x00]));
+    // Another zone's reply, another storage, or a short reply: not read.
+    assert!(!Custom::manual_fan_in_reply(2, &[1, 1, custom, 0x01]));
+    assert!(!Custom::manual_fan_in_reply(1, &[0, 1, custom, 0x01]));
+    assert!(!Custom::manual_fan_in_reply(1, &[1, 1, custom]));
+}
+
+#[test]
+fn a_fan_byte_other_than_auto_counts_as_a_manual_fan_in_any_mode() {
+    // Unknown states count as the one the two steps end (ticket 299).
+    assert!(Custom::manual_fan_in_reply(1, &[1, 1, 0x00, 0x01]));
+    assert!(Custom::manual_fan_in_reply(1, &[1, 1, 0x04, 0x02]));
+}

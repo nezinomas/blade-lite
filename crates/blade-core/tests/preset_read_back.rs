@@ -1,6 +1,6 @@
 //! The preset read back after a send (ticket 152).
 
-use blade_core::{Config, Preset, Query, preset_differs};
+use blade_core::{Config, Preset, Query, manual_fan_reads, preset_differs};
 use razer_device::DeviceError;
 use razer_proto::{BLADE_18, Command};
 
@@ -155,4 +155,27 @@ fn a_failed_read_after_a_difference_keeps_the_difference() {
         .unwrap();
 
     assert_eq!(differs, "zone 2 reads 01 02 00 01, sent 01 02 04 01");
+}
+
+#[test]
+fn a_manual_fan_is_read_in_any_zone() {
+    let mut one = Replies(
+        |zone| {
+            Some(vec![
+                1,
+                zone,
+                if zone == 3 { 0x04 } else { 0 },
+                u8::from(zone == 3),
+            ])
+        },
+        Vec::new(),
+    );
+    assert!(manual_fan_reads(&BLADE_18, &mut one).unwrap());
+
+    let mut none = Replies(|zone| Some(vec![1, zone, 0x04, 0]), Vec::new());
+    assert!(!manual_fan_reads(&BLADE_18, &mut none).unwrap());
+    assert_eq!(none.1.len(), BLADE_18.perf_zones.len());
+
+    let mut fails = Replies(|_| None, Vec::new());
+    assert!(manual_fan_reads(&BLADE_18, &mut fails).is_err());
 }

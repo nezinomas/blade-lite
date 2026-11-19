@@ -19,6 +19,7 @@ mod props;
 mod rules;
 mod screen_off;
 mod settings;
+mod start_manual_fan;
 mod touchpad_key;
 mod weak_charge;
 

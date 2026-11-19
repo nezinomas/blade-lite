@@ -194,6 +194,17 @@ impl Custom {
         Some((name, query, write.args.clone()))
     }
 
+    /// Whether a mode query's reply args for `zone` (see
+    /// `PerfMode::queries`) read a fan byte other than auto, as a kill or
+    /// other software may leave a manual Custom (ticket 299). Any mode
+    /// counts, and any byte but auto: an unknown state counts as the one
+    /// the two steps end. A reply for another storage or zone, or a short
+    /// one, is not.
+    #[must_use]
+    pub fn manual_fan_in_reply(zone: u8, args: &[u8]) -> bool {
+        matches!(args, [VARIABLE_STORAGE, echoed, _, fan, ..] if *echoed == zone && *fan != FAN_AUTO)
+    }
+
     fn mode_commands(self, model: &ModelProfile) -> Vec<Command> {
         model
             .perf_zones

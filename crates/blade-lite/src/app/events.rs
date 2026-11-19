@@ -38,8 +38,10 @@ where
         self.read_charge_limit();
         self.read_charger();
         let config = self.running(self.config);
+        self.read_manual_fan_at_first_start(&config);
         // A start at a wake or after a pause may leave a manual fan the
-        // app sent (ticket 298); a first start adds no step (`NotYet`).
+        // app sent (ticket 298); a first start adds a step only over a
+        // manual fan read (ticket 299).
         if let Err(error) = self.end_manual_fan(&config) {
             let cut = Err(error);
             self.note_preset_send(&config, &cut);
