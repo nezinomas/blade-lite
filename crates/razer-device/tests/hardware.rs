@@ -588,9 +588,13 @@ fn try_read_each<C: Clock>(
 }
 
 #[test]
-#[ignore = "needs the Blade 18, and runs the fans on manual for 10 s"]
+#[ignore = "needs the Blade 18 and BLADE_FAN_TEST=1; runs the fans on manual for 10 s"]
 fn a_custom_mode_write_alone_and_what_the_fans_do() {
     use razer_proto::{BLADE_18, CpuBoost, Custom, FanMode, GpuBoost, Rpm};
+
+    if !opted_in("BLADE_FAN_TEST") {
+        return;
+    }
 
     let mut device = Device::new(open(), SystemClock);
     require_full_power(&mut device);
@@ -859,9 +863,13 @@ fn watch_fans<C: Clock>(device: &mut Device<HidTransport, C>) -> Result<Vec<FanR
 }
 
 #[test]
-#[ignore = "needs the Blade 18, and runs the fans on manual for about 70 s"]
+#[ignore = "needs the Blade 18 and BLADE_FAN_TEST=1; runs the fans on manual for about 70 s"]
 fn custom_from_balanced_and_again_and_what_the_fans_do() {
     use razer_proto::{BLADE_18, CpuBoost, Custom, FanMode, GpuBoost, PerfMode, Rpm};
+
+    if !opted_in("BLADE_FAN_TEST") {
+        return;
+    }
 
     let mut device = Device::new(open(), SystemClock);
     require_full_power(&mut device);
@@ -954,9 +962,13 @@ fn watch_fans_for<C: Clock>(
 }
 
 #[test]
-#[ignore = "needs the Blade 18, and runs the fans on manual for about 2.5 min"]
+#[ignore = "needs the Blade 18 and BLADE_FAN_TEST=1; runs the fans on manual for about 2.5 min"]
 fn the_users_custom_with_and_without_the_app_reads() {
     use razer_proto::{BLADE_18, CpuBoost, Custom, FanMode, GpuBoost, PerfMode, Rpm};
+
+    if !opted_in("BLADE_FAN_TEST") {
+        return;
+    }
 
     let mut device = Device::new(open(), SystemClock);
     require_full_power(&mut device);
@@ -1014,9 +1026,13 @@ fn the_users_custom_with_and_without_the_app_reads() {
 }
 
 #[test]
-#[ignore = "needs the Blade 18, and runs the fans on manual for about 3 min"]
+#[ignore = "needs the Blade 18 and BLADE_FAN_TEST=1; runs the fans on manual for about 3 min"]
 fn which_boost_holds_a_manual_fan_back() {
     use razer_proto::{BLADE_18, CpuBoost, Custom, FanMode, GpuBoost, Rpm};
+
+    if !opted_in("BLADE_FAN_TEST") {
+        return;
+    }
 
     let mut device = Device::new(open(), SystemClock);
     require_full_power(&mut device);
@@ -1074,9 +1090,13 @@ fn which_boost_holds_a_manual_fan_back() {
 }
 
 #[test]
-#[ignore = "needs the Blade 18, and runs the fans on manual for about 3.5 min"]
+#[ignore = "needs the Blade 18 and BLADE_FAN_TEST=1; runs the fans on manual for about 3.5 min"]
 fn what_frees_a_manual_fan_stalled_after_a_custom_from_auto() {
     use razer_proto::{BLADE_18, CpuBoost, Custom, FanMode, GpuBoost, PerfMode, Rpm};
+
+    if !opted_in("BLADE_FAN_TEST") {
+        return;
+    }
 
     let mut device = Device::new(open(), SystemClock);
     require_full_power(&mut device);
@@ -1512,9 +1532,13 @@ fn watch_modes_and_fans<C: Clock>(
 }
 
 #[test]
-#[ignore = "needs the Blade 18 on its full power charger and idle, and runs the fans on manual for about 30 s; about 3 min"]
+#[ignore = "needs the Blade 18 on its full power charger and idle, and BLADE_FAN_TEST=1; runs the fans on manual for about 30 s; about 3 min"]
 fn the_sleeps_quit_preset_leaves_the_fans_on_auto() {
     use razer_proto::{BLADE_18, CpuBoost, Custom, FanMode, GpuBoost, PerfMode, Rpm};
+
+    if !opted_in("BLADE_FAN_TEST") {
+        return;
+    }
 
     // Ticket 218: in laptop check 33 (2026-11-15) the fans ran at about
     // 1600 RPM in a Start-menu sleep after Custom 3600 on AC. This sends
@@ -2035,7 +2059,13 @@ fn args(list: &[&str]) -> Vec<String> {
 
 #[test]
 fn cargo_hw_with_no_name_has_only_its_own() {
-    let run = args(&["hw.exe", "--ignored", "--test-threads=1", "--exact", NO_NAME]);
+    let run = args(&[
+        "hw.exe",
+        "--ignored",
+        "--test-threads=1",
+        "--exact",
+        NO_NAME,
+    ]);
     assert!(!named_a_test(&run));
 }
 
