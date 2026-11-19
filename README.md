@@ -206,11 +206,14 @@ cargo hw <test name>
 ```
 
 A test that changes the fans or the preset starts a helper first. If the
-test is stopped (Ctrl+C, a closed terminal, a killed cargo) before it puts
-the state back, the helper sends Custom with the fans on auto and the lowest
-boosts, then Balanced. It writes what it did to `target/tmp/hw-put-back.log`.
-If that log shows no put-back, run `blade-lite.exe --reset` (with no Blade
-Lite running).
+test crashes, or its own put-back fails, the helper sends Custom with the
+fans on auto and the lowest boosts, then Balanced, once the test program
+ends. It writes what it did to `target/tmp/hw-put-back.log`.
+
+After a stopped `cargo hw` (Ctrl+C, a closed terminal, a killed cargo) the
+fans may stay manual: cargo ends the helper with the test. Then run
+`blade-lite.exe --reset` (with no Blade Lite running). It sends the same two
+steps as the helper.
 
 The main checks (CI also runs `cargo deny check`, the capture script tests
 and a build on the oldest supported Rust):

@@ -52,7 +52,7 @@ Blade Lite: a Rust app for Windows 11 that drives the Razer Blade 18 2025 (RZ09-
 
 ### Hardware tests on the laptop
 - `cargo hw <test name>`: only that test runs (exact name; a unit test's name has its module path; with no name nothing runs). The manual-fan tests also need `BLADE_FAN_TEST=1`. Quit the app first (the tests take the one-copy lock). The charger test must start on battery.
-- A stopped test's state is put back by its helper (log `target/tmp/hw-put-back.log`); if the log shows no put-back, `blade-lite.exe --reset`.
+- A crashed test's state is put back by its helper (log `target/tmp/hw-put-back.log`). After a stopped `cargo hw` (Ctrl+C, closed terminal, killed cargo) the helper dies too: run `blade-lite.exe --reset`.
 - Before running one, follow the test rule under "Hardware safety".
 
 ## Git

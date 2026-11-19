@@ -881,15 +881,18 @@ fn refuse_an_earlier_helper() {
 
 /// A helper copy of this test program that sends the battery-safe put-back
 /// ([`battery_put_back`]) if this program ends before the test put its
-/// state back itself (ticket 290). A Ctrl+C, a closed terminal or a killed
-/// cargo end this program at once: cargo runs its tests in a Windows job
-/// set to kill them all when cargo ends (`JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`,
-/// cargo `src/util/job.rs`), so no handler in this program would get the
-/// time. The helper has no console and leaves that job (the job also sets
-/// `JOB_OBJECT_LIMIT_BREAKAWAY_OK`), so it lives on. If an outer job does
-/// not allow it, the start fails and the test is not run. The helper hears
+/// state back itself (ticket 290), such as by a panic. The helper hears
 /// the end as the end of its input, whose other end only this program
 /// holds.
+///
+/// It does not cover a Ctrl+C, a closed terminal or a killed cargo: cargo
+/// runs its tests in a Windows job set to kill them all when cargo ends,
+/// and the job does not let a child leave it (cargo 1.99.1
+/// `src/cargo/util/job.rs` sets only `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`;
+/// a start with `CREATE_BREAKAWAY_FROM_JOB` was refused, Access is denied,
+/// 2026-11-19). So the helper dies with the test then, and the README says
+/// to run `blade-lite.exe --reset`. On a normal end cargo clears that flag
+/// first, so a helper still waiting lives on.
 ///
 /// After a failed put-back of the test's own, it also sends: the state is
 /// then not known, and its put-back is safe to send twice. It sets the
@@ -902,10 +905,8 @@ impl PutBackHelper {
     fn start() -> Self {
         use std::os::windows::process::CommandExt;
         use std::process::{Command, Stdio};
-        // Microsoft's process creation flags: no console (so no Ctrl+C and
-        // no close), and out of the job.
+        // Microsoft's process creation flag: no console, so no window.
         const DETACHED_PROCESS: u32 = 0x0000_0008;
-        const CREATE_BREAKAWAY_FROM_JOB: u32 = 0x0100_0000;
 
         let mut log = std::fs::OpenOptions::new()
             .create(true)
@@ -931,7 +932,7 @@ impl PutBackHelper {
                 "put_back_after_a_stopped_run",
             ])
             .env(HELPER_ENV, "1")
-            .creation_flags(DETACHED_PROCESS | CREATE_BREAKAWAY_FROM_JOB)
+            .creation_flags(DETACHED_PROCESS)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(log)
