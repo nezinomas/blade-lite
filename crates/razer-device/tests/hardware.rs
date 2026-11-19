@@ -1983,6 +1983,81 @@ fn opted_in(name: &str) -> bool {
     on
 }
 
+/// The test name `cargo hw` always gives first (`.cargo/config.toml`). With
+/// `--exact` it matches only [`cargo_hw_needs_a_test_name`], so a `cargo hw`
+/// with no name of its own runs nothing else (ticket 289).
+const NO_NAME: &str = "cargo_hw_needs_a_test_name";
+
+/// The test names a run of this program was given: its arguments after the
+/// program that are neither options nor an option's value.
+fn test_names(args: &[String]) -> Vec<&str> {
+    const WITH_VALUE: [&str; 7] = [
+        "--test-threads",
+        "--skip",
+        "--logfile",
+        "--format",
+        "--color",
+        "--shuffle-seed",
+        "-Z",
+    ];
+    let mut names = Vec::new();
+    let mut args = args.iter().skip(1);
+    while let Some(arg) = args.next() {
+        if WITH_VALUE.contains(&arg.as_str()) {
+            args.next();
+        } else if !arg.starts_with('-') {
+            names.push(arg.as_str());
+        }
+    }
+    names
+}
+
+/// Whether a run was given a test name besides [`NO_NAME`].
+fn named_a_test(args: &[String]) -> bool {
+    test_names(args)
+        .iter()
+        .any(|name| *name != NO_NAME && !name.is_empty())
+}
+
+#[test]
+#[ignore = "fails when `cargo hw` is given no test name"]
+fn cargo_hw_needs_a_test_name() {
+    let args: Vec<String> = std::env::args().collect();
+    assert!(
+        named_a_test(&args),
+        "cargo hw runs only the test it is named: cargo hw <test name>. Nothing else ran."
+    );
+}
+
+fn args(list: &[&str]) -> Vec<String> {
+    list.iter().map(ToString::to_string).collect()
+}
+
+#[test]
+fn cargo_hw_with_no_name_has_only_its_own() {
+    let run = args(&["hw.exe", "--ignored", "--test-threads=1", "--exact", NO_NAME]);
+    assert!(!named_a_test(&run));
+}
+
+#[test]
+fn cargo_hw_with_a_name_has_it() {
+    let run = args(&["hw.exe", "--ignored", "--exact", NO_NAME, "a_test"]);
+    assert_eq!(test_names(&run), [NO_NAME, "a_test"]);
+    assert!(named_a_test(&run));
+}
+
+#[test]
+fn an_empty_name_is_no_name() {
+    let run = args(&["hw.exe", "--exact", NO_NAME, ""]);
+    assert!(!named_a_test(&run));
+}
+
+#[test]
+fn an_options_value_is_not_a_name() {
+    let run = args(&["hw.exe", "--skip", "a_test", "--test-threads", "1", NO_NAME]);
+    assert_eq!(test_names(&run), [NO_NAME]);
+}
+
 /// Ticket 211: when does the controller put mode `06` in the zones, and
 /// does it go back when the charger is plugged in again? Read-only: reads
 /// each zone's mode reply and Windows' power source each 2 s for 3 min,
