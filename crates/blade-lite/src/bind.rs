@@ -261,6 +261,8 @@ fn flyout_callbacks<P: Parts>(shell: &Rc<Shell<P>>) {
     let s = Rc::downgrade(shell);
     flyout.on_open_window(move || {
         if let Some(shell) = s.upgrade() {
+            // So a log can tell a user's open from one at login (ticket 301).
+            blade_lite::report("the flyout opens the window");
             shell.show_window();
         }
     });
