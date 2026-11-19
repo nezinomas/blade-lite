@@ -4,3 +4,8 @@ if grep -qiE 'co-authored-by|claude-session|claude\.(ai|com)|generated with|nore
   echo "commit-msg: remove the AI attribution line" >&2
   exit 1
 fi
+# A BOM before the subject hides a merge from the pre-push plan check.
+if [ "$(head -c 3 "$1" | od -An -tx1 | tr -d ' \n')" = "efbbbf" ]; then
+  echo "commit-msg: the message starts with a BOM; write it as UTF-8 without one (the Write tool does)" >&2
+  exit 1
+fi
