@@ -1401,6 +1401,36 @@ fn a_charger_pulled_in_the_wake_pause_gets_60_hz_at_the_next_known_battery_read(
 }
 
 #[test]
+fn a_rate_put_back_in_a_wake_whose_pause_ends_unknown_gets_60_hz_at_the_next_known_battery_read() {
+    // On battery before the sleep, Windows puts its saved rate back in the
+    // wake, and the source reads unknown at the pause's end (ticket 286).
+    let f = fixture(Config {
+        sixty_hz_on_battery: true,
+        ..Config::default()
+    });
+    let (_sender, receiver) = std::sync::mpsc::channel();
+    f.shell.listen_for_power(receiver);
+    let hz = || f.shell.app().machine().displays.0.current.hz;
+    FAKE_ON_BATTERY.set(true);
+    power(&f, &[PowerEvent::OnBattery]);
+    for _ in 0..10 {
+        f.shell.tick();
+    }
+    assert_eq!(hz(), 60);
+    power(&f, &[PowerEvent::Suspending]);
+    power(&f, &[PowerEvent::Resumed]);
+    f.shell.app().machine_mut().displays.0.current.hz = 240;
+    FAKE_SOURCE_UNKNOWN.set(true);
+    pause_ends();
+    assert_eq!(hz(), 240, "an unknown source leaves the rate");
+
+    FAKE_SOURCE_UNKNOWN.set(false);
+    f.shell.tick();
+
+    assert_eq!(hz(), 60);
+}
+
+#[test]
 fn a_known_battery_read_in_the_wake_pause_leaves_the_rate_to_its_end() {
     let f = fixture(Config {
         sixty_hz_on_battery: true,
