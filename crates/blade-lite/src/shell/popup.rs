@@ -40,8 +40,23 @@ impl<P: Parts> Shell<P> {
     /// speed, only while `heat_reads_allowed`. A CPU not read for the
     /// guard's hold is said too (ticket 272), but only when no other popup
     /// shows from this reading and the screen is not off; else it waits.
+    #[cfg(test)]
     pub fn watch_heat(self: &Rc<Self>, cpu: Option<u32>, gpu: Option<u32>, now: Instant) {
-        let fans_popped = self.guard_fans(cpu, gpu, now);
+        self.watch_heat_with(cpu, gpu, gpu, now);
+    }
+
+    /// As [`watch_heat`](Self::watch_heat), with the fan guard fed
+    /// `guard_gpu`, which may be the controller's stand-in for a failed
+    /// NVML read (ticket 293); the heat warning gets only `gpu`, so a
+    /// stand-in can never end or delay it.
+    pub fn watch_heat_with(
+        self: &Rc<Self>,
+        cpu: Option<u32>,
+        gpu: Option<u32>,
+        guard_gpu: Option<u32>,
+        now: Instant,
+    ) {
+        let fans_popped = self.guard_fans(cpu, guard_gpu, now);
         let mut watch = self.heat_watch.get();
         let warnings: Vec<String> = [(Sensor::Cpu, cpu), (Sensor::Gpu, gpu)]
             .into_iter()

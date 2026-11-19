@@ -147,6 +147,20 @@ fn with_nvml_failing_a_cool_gpu_in_the_controller_does_not_end_the_hold() {
     assert_eq!(fan_speeds_since(&f, before), []);
 }
 
+/// The field stands in only for a failed NVML read: a cool NVML reading is
+/// not overruled by a hot field.
+#[test]
+fn a_hot_controller_field_is_not_used_while_nvml_reads() {
+    let f = manual_fan();
+    FAKE_GPU.set(FakeGpu::Celsius(60));
+    f.shell.app().machine_mut().controller.inner.gpu_celsius = 90;
+    let before = sent_count(&f);
+
+    ticks(&f, Instant::now(), Duration::from_secs(3), 60);
+
+    assert_eq!(fan_speeds_since(&f, before), []);
+}
+
 /// NVML wins when it reads: a hot NVML reading is not hidden by a cool field.
 #[test]
 fn a_hot_nvml_reading_wins_over_a_cool_controller_field() {
@@ -192,11 +206,6 @@ fn held_with_field(field: u8) -> Vec<u16> {
 #[test]
 fn with_nvml_failing_a_zero_controller_field_keeps_full_speed() {
     assert_eq!(held_with_field(0), []);
-}
-
-#[test]
-fn with_nvml_failing_an_implausibly_low_controller_field_keeps_full_speed() {
-    assert_eq!(held_with_field(10), []);
 }
 
 #[test]

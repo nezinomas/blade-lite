@@ -486,31 +486,26 @@ impl<P: Parts> Shell<P> {
             errors.extend_from_slice(app.read_errors());
             (app.cpu_celsius(), app.controller_gpu_celsius())
         };
-        let gpu = self.gpu_or_stand_in(gpu, failed, stand_in);
+        let guard_gpu = self.gpu_or_stand_in(gpu, failed, stand_in);
         self.say_read_errors(&errors);
-        self.watch_heat(cpu, gpu, now);
+        self.watch_heat_with(cpu, gpu, guard_gpu, now);
     }
 
-    /// The GPU temperature for the heat warning and the fan guard: NVML's,
-    /// or, when that read failed, the controller's GPU field from the same
-    /// poll (ticket 293: within 3 °C of NVML under load, no delay). It can
-    /// turn the fan guard on and feed the heat warning, but the NVML read
-    /// still counts as failed, so a manual fan stays held as before (ticket
-    /// 139): the field was not compared with a hot GPU while NVML fails, nor
-    /// just after a wake, so it never ends the guard alone: one under the
-    /// guard's GPU cool line counts as no reading. Not for a GPU
-    /// asleep: that is no failure, and the field then reads 0 or the last
-    /// value for a few seconds. The field read up to 3 °C under NVML and was
-    /// compared only up to 75 °C, so it counts 3 °C hotter (errs hot); one
-    /// under 20 °C is no reading (an awake GPU never read that low). Tells
-    /// the fan guard whether NVML failed.
+    /// The GPU temperature for the fan guard: NVML's, or, when that read
+    /// failed, the controller's GPU field from the same poll (ticket 293:
+    /// within 3 °C of NVML under load, no delay). It was compared only up
+    /// to 75 °C and read up to 3 °C under NVML, so it counts 3 °C hotter
+    /// (errs hot). It can turn the guard on or keep it on, never end it:
+    /// one under the guard's GPU cool line counts as no reading, and the
+    /// NVML read still counts as failed, so a manual fan stays held as
+    /// before (ticket 139). The field was not compared with a hot GPU while
+    /// NVML fails, nor just after a wake. Not for a GPU asleep: that is no
+    /// failure, and the field then reads 0 or the last value for a few
+    /// seconds. Tells the fan guard whether NVML failed.
     fn gpu_or_stand_in(&self, nvml: Option<u32>, failed: bool, field: Option<u32>) -> Option<u32> {
-        const FLOOR: u32 = 20;
         const MARGIN: u32 = 3;
-        // Only a reading that is not cool for the guard: one can turn it on
-        // or keep it on, never end it.
         let stand_in = field
-            .filter(|&celsius| failed && celsius >= FLOOR)
+            .filter(|_| failed)
             .map(|celsius| celsius + MARGIN)
             .filter(|&celsius| celsius >= ui::Sensor::Gpu.guard_cool_line());
         self.note_gpu_failed(failed);
@@ -1170,8 +1165,9 @@ impl<P: Parts> Shell<P> {
         self.show_touchpad(app.touchpad_on());
         let (cpu, stand_in) = (app.cpu_celsius(), app.controller_gpu_celsius());
         drop(app);
-        let gpu = self.gpu_or_stand_in(readings.gpu.map(|gpu| gpu.celsius), failed, stand_in);
-        self.watch_heat(cpu, gpu, now);
+        let gpu = readings.gpu.map(|gpu| gpu.celsius);
+        let guard_gpu = self.gpu_or_stand_in(gpu, failed, stand_in);
+        self.watch_heat_with(cpu, gpu, guard_gpu, now);
     }
 
     /// Runs `read`, adding its time to the controller reads' (ticket 206).
