@@ -28,7 +28,7 @@ Another way: pick **Custom**, set the fan to **Auto**, then pick
 Picking **Balanced** straight from a manual fan sends the same two steps:
 the app sends Custom with the fans on auto first, as Quit does (ticket
 298). A plain Balanced write alone left the fans at 1600 RPM (ticket 291).
-The click itself is not checked on the laptop yet (laptop check 85).
+Checked on the laptop: the fans reached 0 RPM after the click (laptop check 85, 2026-11-19).
 
 With no Blade Lite running, `blade-lite.exe --reset` sends the same two
 steps (Custom with the fans on auto and the lowest boosts, then Balanced)
