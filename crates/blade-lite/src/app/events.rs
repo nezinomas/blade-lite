@@ -12,7 +12,8 @@ use platform::{DisplayApi, KeyInjector, PowerEvent, Registry};
 use razer_proto::{Brightness, RedKeys};
 
 use super::{
-    App, AppError, CHARGER_STEADY, NOT_UNDERSTOOD, Power, SOURCE_LIGHTING_SPACING, Slot, SlotGuess,
+    App, AppError, CHARGER_STEADY, FLIP_CAP, FLIP_WINDOW, NOT_UNDERSTOOD, Power,
+    SOURCE_LIGHTING_SPACING, Slot, SlotGuess,
 };
 use crate::report;
 
@@ -547,16 +548,39 @@ where
             self.power = Power::ChargerBack { since: Some(now) };
             return Ok(false);
         };
-        if now.saturating_duration_since(since) < CHARGER_STEADY {
+        if now.saturating_duration_since(since) < CHARGER_STEADY || self.flips_held(now) {
             return Ok(false);
         }
         // Read again: a USB-C monitor plugged in the wait is a weak charge.
         let before = self.running(self.config).preset;
         self.read_charger();
         if self.running(self.config).preset != before {
+            self.flips.step_ups.push(now);
             self.send_if_changed(before)?;
         }
         Ok(true)
+    }
+
+    /// Whether the full charger's wait goes on because its read kept
+    /// flipping: [`FLIP_CAP`] step ups from the battery presets in the last
+    /// [`FLIP_WINDOW`], each 8 stored mode writes with the step down
+    /// (ticket 294). Logged once each time it begins and ends. Never seen
+    /// on the laptop (`NOTES.md`, weak charge).
+    fn flips_held(&mut self, now: Instant) -> bool {
+        let flips = &mut self.flips;
+        flips
+            .step_ups
+            .retain(|&at| now.saturating_duration_since(at) < FLIP_WINDOW);
+        let held = flips.step_ups.len() >= FLIP_CAP;
+        if held != flips.logged {
+            flips.logged = held;
+            report(if held {
+                "the full charger came back 3 times in 10 min (a charger read that keeps changing, or replugs), so the battery preset stays until the first of them is 10 min old"
+            } else {
+                "the full charger's preset may run again"
+            });
+        }
+        held
     }
 
     /// Starts the full charger's wait again from the next allowed tick, for
