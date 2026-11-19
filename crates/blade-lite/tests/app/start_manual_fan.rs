@@ -105,3 +105,28 @@ fn a_second_start_reads_no_mode() {
         BLADE_18.perf_zones.len()
     );
 }
+
+#[test]
+fn a_start_on_battery_with_a_manual_custom_saved_ends_the_left_manual_fan() {
+    // The likely case: killed in Custom on AC, started again on battery.
+    let mut config = Config {
+        preset: Preset::Custom,
+        ..Config::default()
+    };
+    config.custom.fan_rpm = Some(3000);
+    let (mut app, _dir, _) = app_with(config);
+    app.take_on_battery(Some(true));
+    for &zone in BLADE_18.perf_zones {
+        app.machine_mut()
+            .controller
+            .inner
+            .modes
+            .insert(zone, vec![1, zone, BLADE_18.custom.mode, 0x01]);
+    }
+
+    let _ = app.start();
+
+    let steps = auto_fans_then(PerfMode::Balanced);
+    let sent = sent(&app);
+    assert_eq!(sent[..steps.len()], steps[..], "{sent:?}");
+}

@@ -598,9 +598,7 @@ where
                 self.sent_fan = SentFan::MaybeManual;
             }
             Ok(false) => {}
-            Err(error) => report(&format!(
-                "can't read the fan mode at start, so the preset goes alone: {error}"
-            )),
+            Err(error) => self.note_missed_read(format!("fan mode at start: {error}")),
         }
     }
 

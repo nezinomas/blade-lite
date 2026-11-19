@@ -226,7 +226,7 @@ pub fn manual_fan_reads(
     controller: &mut impl Query,
 ) -> Result<bool, DeviceError> {
     for (query, &zone) in PerfMode::queries(model).iter().zip(model.perf_zones) {
-        if Custom::manual_fan_in_reply(model, zone, &controller.query(query)?) {
+        if Custom::manual_fan_in_reply(zone, &controller.query(query)?) {
             return Ok(true);
         }
     }
