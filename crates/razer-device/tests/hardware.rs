@@ -529,6 +529,78 @@ fn the_second_temperature_field_follows_the_gpu() {
     }
 }
 
+/// One second of [`the_gpu_field_follows_nvml_under_load`]: the `0D85`
+/// GPU field, and NVML's temperature and load (`None` if the read failed).
+type GpuPair = (u8, Option<(u32, u32)>);
+
+/// How the `0D85` GPU field matched NVML over the reads where both read
+/// and the GPU was busy (load at least `busy` %): the count, the largest
+/// gap in °C, and how many were within `near` °C.
+fn gpu_field_match(pairs: &[GpuPair], busy: u32, near: u32) -> (usize, u32, usize) {
+    let gaps: Vec<u32> = pairs
+        .iter()
+        .filter_map(|&(field, nvml)| {
+            let (celsius, load) = nvml?;
+            (field > 0 && load >= busy).then(|| celsius.abs_diff(u32::from(field)))
+        })
+        .collect();
+    let largest = gaps.iter().copied().max().unwrap_or(0);
+    (
+        gaps.len(),
+        largest,
+        gaps.iter().filter(|&&gap| gap <= near).count(),
+    )
+}
+
+#[test]
+fn the_gpu_field_match_counts_only_busy_reads_with_both() {
+    let pairs = [
+        (60, Some((61, 90))),
+        (70, Some((75, 95))),
+        (0, Some((50, 90))),
+        (40, Some((40, 2))),
+        (65, None),
+    ];
+    assert_eq!(gpu_field_match(&pairs, 50, 3), (2, 5, 1));
+}
+
+/// Ticket 293: does the `0D85` GPU field track NVML under load, so it could
+/// stand in when NVML fails? Reads only (`0D85`, a read; NVML) each second
+/// for 3 min while the user runs a GPU load (a game). Prints each second
+/// and the match. Fails only if too few busy seconds were read to say.
+#[test]
+#[ignore = "needs the Blade 18, BLADE_GPU_PROBE=1 and a person running a GPU load; read-only; 3 min"]
+fn the_gpu_field_follows_nvml_under_load() {
+    use platform::Sensors;
+    use razer_proto::Celsius;
+
+    if !gpu_probe_asked() {
+        return;
+    }
+    let mut device = Device::new(open(), SystemClock);
+    let mut sensors = platform::WindowsSensors::default();
+    let query = Celsius::query();
+    let mut pairs: Vec<GpuPair> = Vec::new();
+    for second in 0..180 {
+        let field = device
+            .send(query.id, &query.args)
+            .ok()
+            .and_then(|reply| reply.args().get(2).copied());
+        let nvml = sensors
+            .gpu()
+            .ok()
+            .map(|gpu| (gpu.celsius, gpu.load_percent));
+        eprintln!("{second:>3} s  0D85 gpu {field:?}  nvml (°C, load %) {nvml:?}");
+        if let Some(field) = field {
+            pairs.push((field, nvml));
+        }
+        std::thread::sleep(Duration::from_secs(1));
+    }
+    let (busy, largest, near) = gpu_field_match(&pairs, 50, 3);
+    eprintln!("busy reads {busy}, largest gap {largest} °C, within 3 °C: {near}");
+    assert!(busy >= 30, "too few busy seconds with both reads: {busy}");
+}
+
 #[test]
 #[ignore = "needs the Blade 18"]
 fn the_key_reports_open_and_wait_quietly() {
