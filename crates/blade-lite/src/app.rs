@@ -56,6 +56,12 @@ pub const SOURCE_LIGHTING_SPACING: Duration = Duration::from_secs(10);
 /// each event (ticket 263, user pick A). The step down stays instant.
 pub const CHARGER_STEADY: Duration = Duration::from_secs(10);
 
+/// How many step ups from the battery presets to the full charger's preset
+/// may go in [`FLIP_WINDOW`] before the wait holds (ticket 294).
+pub const FLIP_CAP: usize = 3;
+/// The time [`FLIP_CAP`] counts over.
+pub const FLIP_WINDOW: Duration = Duration::from_mins(10);
+
 /// What the window shows before the user sets the lighting.
 const DEFAULT_LIGHTING: Lighting = Lighting {
     brightness: 100,
@@ -323,6 +329,17 @@ pub struct App<C, D, R, K> {
     /// guard is off then, so Custom runs with the fans on auto in place of
     /// a manual fan (ticket 288).
     razer: Razer,
+    /// The full charger's step ups, to hold a charger read that keeps
+    /// flipping (ticket 294).
+    flips: Flips,
+}
+
+/// When the full charger's wait last ended in a step up, within
+/// [`FLIP_WINDOW`], and whether the log says the wait holds (ticket 294).
+#[derive(Debug, Default)]
+struct Flips {
+    step_ups: Vec<Instant>,
+    logged: bool,
 }
 
 impl<C, D, R, K> App<C, D, R, K>
@@ -383,6 +400,7 @@ where
             dark_slot: None,
             slot_guess: SlotGuess::Allowed,
             razer: Razer::Absent,
+            flips: Flips::default(),
         }
     }
 

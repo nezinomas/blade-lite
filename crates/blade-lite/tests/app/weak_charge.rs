@@ -100,6 +100,54 @@ fn a_charger_change_on_a_poll_sends_the_preset_it_runs() {
     );
 }
 
+/// A weak read, then the full charger back for its wait ending at `at`:
+/// one flip of a charger read that keeps changing (ticket 294). Returns
+/// whether Performance was sent at its end.
+fn flip(app: &mut TestApp, at: std::time::Instant) -> bool {
+    app.machine_mut().controller.inner.charger = FakeCharger::UsbC;
+    app.follow_charger().unwrap();
+    app.machine_mut().controller.inner.charger = FakeCharger::Razer;
+    app.follow_charger().unwrap();
+    app.follow_charger().unwrap();
+    app.machine_mut().controller.inner.sent.clear();
+    app.follow_charger_back(at.checked_sub(blade_lite::CHARGER_STEADY).unwrap())
+        .unwrap();
+    app.follow_charger_back(at).unwrap();
+    ran(app, PerfMode::Performance)
+}
+
+#[test]
+fn a_charger_read_that_keeps_flipping_stops_stepping_up_after_three_times() {
+    let (mut app, _dir, _) = performance_app();
+    app.start().unwrap();
+    let start = std::time::Instant::now() + blade_lite::CHARGER_STEADY;
+    let minute = std::time::Duration::from_secs(60);
+
+    let ups: Vec<bool> = (0..5).map(|n| flip(&mut app, start + n * minute)).collect();
+
+    assert_eq!(ups, [true, true, true, false, false]);
+    assert_eq!(app.running_preset(), Preset::Balanced);
+}
+
+#[test]
+fn a_flipping_charger_steps_up_again_once_it_was_steady_for_ten_minutes() {
+    let (mut app, _dir, _) = performance_app();
+    app.start().unwrap();
+    let start = std::time::Instant::now() + blade_lite::CHARGER_STEADY;
+    let minute = std::time::Duration::from_secs(60);
+    for n in 0..4 {
+        flip(&mut app, start + n * minute);
+    }
+    app.machine_mut().controller.inner.sent.clear();
+
+    // The wait goes on; it ends 10 min after the first step up.
+    app.follow_charger_back(start + 9 * minute).unwrap();
+    assert!(!ran(&app, PerfMode::Performance));
+    app.follow_charger_back(start + 10 * minute).unwrap();
+
+    assert!(ran(&app, PerfMode::Performance));
+}
+
 #[test]
 fn a_poll_with_the_same_charger_sends_nothing() {
     let (mut app, _dir, _) = performance_app();
