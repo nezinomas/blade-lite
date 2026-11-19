@@ -856,19 +856,19 @@ where
     /// Follows the display list for the battery rate (ticket 300): a
     /// display that came or went, or a GPU mode switch, on a known battery
     /// sets 60 Hz again as after a wake (see
-    /// [`blade_core::BatteryRate::on_displays`]). A refused set is tried
-    /// again on the polls.
-    ///
-    /// # Errors
-    ///
-    /// See [`AppError`].
-    pub fn follow_display_layout(&mut self) -> Result<(), AppError> {
+    /// [`blade_core::BatteryRate::on_displays`]); a change is logged. A
+    /// refused set is tried again on the polls, which show the last error.
+    pub fn follow_display_layout(&mut self) {
         let on_battery = self.on_battery() && self.source_known;
         let displays = &mut self.machine.displays;
-        let rate = self
+        if self
             .battery_rate
-            .on_displays(on_battery, &self.config, displays);
-        self.quiet_if_tried_again(rate.map_err(AppError::from))
+            .on_displays(on_battery, &self.config, displays)
+        {
+            report(
+                "the display list changed on battery, so 60 Hz goes again if the panel runs the rate saved before battery",
+            );
+        }
     }
 
     /// Takes the rate for a battery read that made the source known, as a

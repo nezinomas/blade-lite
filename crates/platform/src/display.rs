@@ -50,6 +50,13 @@ impl DisplayApi for WindowsDisplays {
             .collect()
     }
 
+    fn layout(&self) -> io::Result<Vec<(String, i32)>> {
+        active_paths()?
+            .iter()
+            .map(|path| Ok((source_name(path)?, path.targetInfo.outputTechnology)))
+            .collect()
+    }
+
     fn set_mode(&mut self, name: &str, mode: DisplayMode, life: ModeLife) -> io::Result<()> {
         let device = wide(name);
         // Start from the current settings, so colour depth and position stay.

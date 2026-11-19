@@ -255,6 +255,20 @@ pub trait DisplayApi {
     /// The Windows error if the displays could not be read.
     fn displays(&self) -> io::Result<Vec<Display>>;
 
+    /// Each active display's name and connection, without its modes: a
+    /// light read for a poll each second (ticket 300).
+    ///
+    /// # Errors
+    ///
+    /// The Windows error if the displays could not be read.
+    fn layout(&self) -> io::Result<Vec<(String, i32)>> {
+        Ok(self
+            .displays()?
+            .into_iter()
+            .map(|display| (display.name, display.connection))
+            .collect())
+    }
+
     /// Switches the display named `name` to `mode`, for as long as `life` says.
     ///
     /// # Errors

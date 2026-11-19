@@ -28,10 +28,18 @@ pub struct BatteryRate {
     wait_a_poll: bool,
     /// Whether a known power source has come since the app started.
     source_seen: bool,
-    /// The display list last read by [`Self::on_displays`]: each active
-    /// display's name and connection, by name.
+    /// The display list last read by [`Self::on_displays`] on battery: each
+    /// active display's name and connection, sorted (Win + P Duplicate may
+    /// give two with one name). `None` off battery or with the switch off.
     layout: Option<Vec<(String, i32)>>,
+    /// The polls left after a display list change in which a panel back at
+    /// the rate saved before battery still gets 60 Hz: Windows may put its
+    /// rate back after the list shows the change (not known).
+    settle: u8,
 }
+
+/// How many polls after a display list change still check the rate.
+pub const DISPLAY_SETTLE_POLLS: u8 = 5;
 
 impl BatteryRate {
     /// Sets the rate for a change of power source. A wake goes to
@@ -114,6 +122,13 @@ impl BatteryRate {
         if !on_battery {
             return self.on_event(PowerEvent::OnAc, config, api);
         }
+        self.sixty_again(config, api);
+        Ok(())
+    }
+
+    /// On battery, sets 60 Hz again as after a wake (see `after_resume`); a
+    /// refused set starts the tries ([`Self::retry`]), which AC stops.
+    fn sixty_again(&mut self, config: &Config, api: &mut impl DisplayApi) {
         self.source_seen = true;
         if self.put_back_tries {
             self.stop_tries();
@@ -125,7 +140,6 @@ impl BatteryRate {
                 self.tries = RESUME_RATE_TRIES;
             }
         }
-        Ok(())
     }
 
     /// Follows the display list on each poll (ticket 300, user pick A): when
@@ -134,34 +148,41 @@ impl BatteryRate {
     /// and a GPU mode switch did, check 79), so on a known battery with the
     /// switch on the 60 Hz goes again as after a wake ([`Self::on_resume`]:
     /// only if the panel runs the rate saved before battery; a refused set
-    /// is tried again on the polls). A rate change alone is the user's (such
-    /// as one picked in Windows Settings) and is kept. The first read only
-    /// notes the list, and a failed read keeps the last one.
-    ///
-    /// # Errors
-    ///
-    /// See [`DisplayError`].
+    /// is tried again on the polls), and so for [`DISPLAY_SETTLE_POLLS`]
+    /// polls in all, as Windows may put its rate back a little later. Tries
+    /// already running finish first, so a list that keeps changing can't
+    /// fill them again. A rate change alone is the user's (such as one
+    /// picked in Windows Settings) and is kept. The list is read only on a
+    /// known battery with the switch on (a light read, no modes): the first
+    /// read only notes it, and a failed read keeps the last one. Returns
+    /// whether the list changed.
     pub fn on_displays(
         &mut self,
         on_battery: bool,
         config: &Config,
         api: &mut impl DisplayApi,
-    ) -> Result<(), DisplayError> {
-        let Ok(displays) = api.displays() else {
-            return Ok(());
-        };
-        let mut layout: Vec<_> = displays
-            .into_iter()
-            .map(|display| (display.name, display.connection))
-            .collect();
-        layout.sort();
-        let Some(seen) = self.layout.replace(layout.clone()) else {
-            return Ok(());
-        };
-        if seen == layout || !on_battery || !config.sixty_hz_on_battery {
-            return Ok(());
+    ) -> bool {
+        if !on_battery || !config.sixty_hz_on_battery {
+            self.layout = None;
+            self.settle = 0;
+            return false;
         }
-        self.on_resume(true, config, api)
+        let changed = api.layout().is_ok_and(|mut layout| {
+            layout.sort();
+            self.layout
+                .replace(layout.clone())
+                .is_some_and(|seen| seen != layout)
+        });
+        if changed {
+            self.settle = DISPLAY_SETTLE_POLLS;
+        }
+        if self.settle > 0 {
+            self.settle -= 1;
+            if !self.retry_pending() {
+                self.sixty_again(config, api);
+            }
+        }
+        changed
     }
 
     /// At the first known source since the start, when it is AC, puts

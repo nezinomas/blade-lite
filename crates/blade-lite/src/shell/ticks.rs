@@ -123,7 +123,7 @@ impl<P: Parts> Shell<P> {
             self.retry_battery_rate();
         }
         if self.resuming.get() == 0 {
-            self.follow_display_layout();
+            self.app.borrow_mut().follow_display_layout();
         }
         self.follow_num_lock(P::num_lock_on());
         self.log_touchpad_sources();
@@ -533,16 +533,6 @@ impl<P: Parts> Shell<P> {
             return;
         }
         self.show_rate();
-    }
-
-    /// Sets 60 Hz again on battery after a display came or went or a GPU
-    /// mode switch (ticket 300). Only an error is shown here; the display
-    /// groups follow the rate at their own poll (ticket 287).
-    fn follow_display_layout(self: &Rc<Self>) {
-        let followed = self.app.borrow_mut().follow_display_layout();
-        if let Err(error) = followed {
-            self.act(|_| Err(error));
-        }
     }
 
     /// Takes the rate for a known battery read after an unknown source

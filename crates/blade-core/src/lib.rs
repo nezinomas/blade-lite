@@ -39,7 +39,7 @@ pub use autostart::{
     APPROVED_KEY, Autostart, AutostartError, RUN_KEY, RUN_VALUE, SHOWN_COMMAND_CHARS, TRAY_FLAG,
     autostart, set_autostart,
 };
-pub use battery_rate::{BATTERY_RATE, BatteryRate, RESUME_RATE_TRIES};
+pub use battery_rate::{BATTERY_RATE, BatteryRate, DISPLAY_SETTLE_POLLS, RESUME_RATE_TRIES};
 pub use charge::{ChargeError, charge_limit_on, set_charge_limit};
 pub use charger::full_power_charger;
 pub use config::{Config, ConfigError, CustomSettings, Lighting, Preset};
