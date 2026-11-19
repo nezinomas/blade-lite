@@ -28,7 +28,14 @@ pub struct BatteryRate {
     wait_a_poll: bool,
     /// Whether a known power source has come since the app started.
     source_seen: bool,
-    /// The display list last read by [`Self::on_displays`] on battery: each
+    /// The display list followed on battery (ticket 300).
+    display: DisplayFollow,
+}
+
+/// What [`BatteryRate::on_displays`] keeps between polls.
+#[derive(Debug, Default)]
+struct DisplayFollow {
+    /// The list last read by [`BatteryRate::on_displays`] on battery: each
     /// active display's name and connection, sorted (Win + P Duplicate may
     /// give two with one name). `None` off a known battery or with the
     /// switch off.
@@ -37,17 +44,41 @@ pub struct BatteryRate {
     /// the rate saved before battery still gets 60 Hz: Windows may put its
     /// rate back after the list shows the change (not known).
     settle: u8,
-    /// The settle rounds begun in this battery spell.
+    /// The settle rounds begun since the list was last quiet for
+    /// [`DISPLAY_QUIET_POLLS`] polls.
     rounds: u8,
+    /// The reads since the list last changed (a failed read counts none).
+    quiet: u16,
+    /// Whether a change the cap refused was told in this burst.
+    cap_told: bool,
+}
+
+/// What a display list change did ([`BatteryRate::on_displays`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DisplayChange {
+    /// No change, a change within a round, or one already told.
+    None,
+    /// A change began a round.
+    Began,
+    /// The cap refused a change (told once a burst).
+    Capped,
 }
 
 /// How many polls after a display list change still check the rate.
 pub const DISPLAY_SETTLE_POLLS: u8 = 5;
 
-/// How many settle rounds one battery spell begins at most, so a display
-/// that keeps coming and going (a flaky cable) can't set the rate and log
-/// each second for ever.
-pub const DISPLAY_ROUNDS: u8 = 5;
+/// How many settle rounds begin at most until the list is quiet for
+/// [`DISPLAY_QUIET_POLLS`], so a display that keeps coming and going (a
+/// flaky cable) can't set the rate and log each second for ever. A cap of
+/// 5 a battery spell was too low: check 86's five GPU and Win + P switches
+/// used it up, and the sixth got no 60 Hz (2026-11-19).
+pub const DISPLAY_ROUNDS: u8 = 10;
+
+/// How many polls (about a minute) the list must stay as it is before
+/// rounds may begin again: a choice, not a measurement. A list that
+/// changes at most once a minute (a dock that sleeps and wakes) is so
+/// followed for as long as it lasts, one round and one log line a change.
+pub const DISPLAY_QUIET_POLLS: u16 = 60;
 
 impl BatteryRate {
     /// Sets the rate for a change of power source. A wake goes to
@@ -159,53 +190,70 @@ impl BatteryRate {
     /// is tried again on the polls), and so for [`DISPLAY_SETTLE_POLLS`]
     /// polls in all (a round), as Windows may put its rate back a little
     /// later. A change within a round begins none, and tries already
-    /// running finish first; at most [`DISPLAY_ROUNDS`] rounds a battery
-    /// spell. A rate change alone is the user's (such as one picked in
-    /// Windows Settings) and is kept. The list is read only on a known
-    /// battery with the switch on (a light read, no modes); its first read
-    /// there begins a round too (not counted, not a change), as a monitor
-    /// that also charged may go with the switch to battery. A failed read
-    /// keeps the last list. Returns whether a change began a round.
+    /// running finish first; at most [`DISPLAY_ROUNDS`] rounds until the
+    /// list stays as it is for [`DISPLAY_QUIET_POLLS`] (a cap per burst of
+    /// changes, not per battery spell). A rate change alone is the user's
+    /// (such as one picked in Windows Settings) and is kept. The list is
+    /// read only on a known battery with the switch on (a light read, no
+    /// modes); its first read there begins a round too (not counted, not a
+    /// change), as a monitor that also charged may go with the switch to
+    /// battery. A failed read keeps the last list. Returns what a change
+    /// did, for the log: a change the cap refused is told once a burst.
     pub fn on_displays(
         &mut self,
         on_battery: bool,
         config: &Config,
         api: &mut impl DisplayApi,
-    ) -> bool {
+    ) -> DisplayChange {
         if !on_battery || !config.sixty_hz_on_battery {
-            self.layout = None;
-            self.settle = 0;
-            self.rounds = 0;
-            return false;
+            self.display = DisplayFollow::default();
+            return DisplayChange::None;
         }
         let Ok(mut layout) = api.layout() else {
-            return self.settle_poll(config, api, false);
+            self.settle_poll(config, api);
+            return DisplayChange::None;
         };
         layout.sort();
-        let began = match self.layout.replace(layout.clone()) {
+        let seen = self.display.layout.replace(layout.clone());
+        if seen.as_ref() == Some(&layout) {
+            self.display.quiet = self.display.quiet.saturating_add(1);
+            if self.display.quiet >= DISPLAY_QUIET_POLLS {
+                self.display.rounds = 0;
+                self.display.cap_told = false;
+            }
+        } else {
+            self.display.quiet = 0;
+        }
+        let change = match seen {
             None => {
-                self.settle = DISPLAY_SETTLE_POLLS;
-                false
+                self.display.settle = DISPLAY_SETTLE_POLLS;
+                DisplayChange::None
             }
-            Some(seen) if seen != layout && self.settle == 0 && self.rounds < DISPLAY_ROUNDS => {
-                self.rounds += 1;
-                self.settle = DISPLAY_SETTLE_POLLS;
-                true
+            Some(seen) if seen != layout && self.display.settle == 0 => {
+                if self.display.rounds < DISPLAY_ROUNDS {
+                    self.display.rounds += 1;
+                    self.display.settle = DISPLAY_SETTLE_POLLS;
+                    DisplayChange::Began
+                } else if std::mem::replace(&mut self.display.cap_told, true) {
+                    DisplayChange::None
+                } else {
+                    DisplayChange::Capped
+                }
             }
-            Some(_) => false,
+            Some(_) => DisplayChange::None,
         };
-        self.settle_poll(config, api, began)
+        self.settle_poll(config, api);
+        change
     }
 
-    /// One poll of a settle round, if one runs; returns `began`.
-    fn settle_poll(&mut self, config: &Config, api: &mut impl DisplayApi, began: bool) -> bool {
-        if self.settle > 0 {
-            self.settle -= 1;
+    /// One poll of a settle round, if one runs.
+    fn settle_poll(&mut self, config: &Config, api: &mut impl DisplayApi) {
+        if self.display.settle > 0 {
+            self.display.settle -= 1;
             if !self.retry_pending() {
                 self.sixty_again(config, api);
             }
         }
-        began
     }
 
     /// At the first known source since the start, when it is AC, puts

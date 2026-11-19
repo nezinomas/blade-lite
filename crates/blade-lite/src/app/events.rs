@@ -4,9 +4,9 @@
 use std::time::Instant;
 
 use blade_core::{
-    ApplyError, Config, Controller, DisplayError, Preset, Query, apply, apply_lighting,
-    apply_lighting_dark, apply_performance, full_power_charger, keyboard_brightness,
-    paint_red_keys, touchpad_on,
+    ApplyError, Config, Controller, DisplayChange, DisplayError, Preset, Query, apply,
+    apply_lighting, apply_lighting_dark, apply_performance, full_power_charger,
+    keyboard_brightness, paint_red_keys, touchpad_on,
 };
 use platform::{DisplayApi, KeyInjector, PowerEvent, Registry};
 use razer_proto::{Brightness, RedKeys};
@@ -861,13 +861,17 @@ where
     pub fn follow_display_layout(&mut self) {
         let on_battery = self.on_battery() && self.source_known;
         let displays = &mut self.machine.displays;
-        if self
+        match self
             .battery_rate
             .on_displays(on_battery, &self.config, displays)
         {
-            report(
+            DisplayChange::Began => report(
                 "the display list changed on battery, so 60 Hz goes again if the panel runs the rate saved before battery",
-            );
+            ),
+            DisplayChange::Capped => report(
+                "the display list keeps changing on battery, so the rate is left until it stays as it is for a minute",
+            ),
+            DisplayChange::None => {}
         }
     }
 

@@ -3,8 +3,8 @@
 mod common;
 
 use blade_core::{
-    BatteryRate, Config, DISPLAY_ROUNDS, DISPLAY_SETTLE_POLLS, DisplayError, RESUME_RATE_TRIES,
-    RefreshRate, set_refresh_rate,
+    BatteryRate, Config, DISPLAY_QUIET_POLLS, DISPLAY_ROUNDS, DISPLAY_SETTLE_POLLS, DisplayChange,
+    DisplayError, RESUME_RATE_TRIES, RefreshRate, set_refresh_rate,
 };
 use common::{FakeDisplays, mode, monitor, panel};
 use platform::{DisplayMode, ModeLife, PowerEvent};
@@ -1004,7 +1004,10 @@ fn the_first_read_on_battery_begins_a_round() {
     battery_rate
         .on_event(PowerEvent::OnBattery, &config(true), &mut api)
         .unwrap();
-    assert!(!battery_rate.on_displays(true, &config(true), &mut api));
+    assert_eq!(
+        battery_rate.on_displays(true, &config(true), &mut api),
+        DisplayChange::None
+    );
     windows_puts_back_240(&mut api);
 
     battery_rate.on_displays(true, &config(true), &mut api);
@@ -1026,18 +1029,41 @@ fn the_last_settle_poll_still_sets_60_hz() {
     assert_eq!(api.panel_mode(), mode(3840, 2400, 60));
 }
 
-#[test]
-fn a_spell_begins_at_most_its_rounds() {
-    let (mut battery_rate, mut api) = on_battery_at_60();
+/// Changes the list on each of `polls` polls; returns the rounds begun.
+fn keep_changing(battery_rate: &mut BatteryRate, api: &mut FakeDisplays, polls: usize) -> u8 {
     let mut rounds = 0;
-    for poll in 0..usize::from(DISPLAY_ROUNDS + 2) * usize::from(DISPLAY_SETTLE_POLLS) {
-        api.displays.as_mut().unwrap()[0].connection = i32::try_from(poll).unwrap();
-        if battery_rate.on_displays(true, &config(true), &mut api) {
+    for _ in 0..polls {
+        let connection = &mut api.displays.as_mut().unwrap()[0].connection;
+        *connection = connection.wrapping_add(1);
+        if battery_rate.on_displays(true, &config(true), api) == DisplayChange::Began {
             rounds += 1;
         }
     }
+    rounds
+}
 
-    assert_eq!(rounds, DISPLAY_ROUNDS);
+#[test]
+fn a_list_that_keeps_changing_begins_at_most_its_rounds() {
+    let (mut battery_rate, mut api) = on_battery_at_60();
+    let polls = usize::from(DISPLAY_ROUNDS + 2) * usize::from(DISPLAY_SETTLE_POLLS);
+
+    assert_eq!(
+        keep_changing(&mut battery_rate, &mut api, polls),
+        DISPLAY_ROUNDS
+    );
+}
+
+#[test]
+fn a_quiet_list_lets_rounds_begin_again() {
+    // Check 86: five switches a minute or less apart used up the rounds.
+    let (mut battery_rate, mut api) = on_battery_at_60();
+    let polls = usize::from(DISPLAY_ROUNDS + 2) * usize::from(DISPLAY_SETTLE_POLLS);
+    keep_changing(&mut battery_rate, &mut api, polls);
+    for _ in 0..DISPLAY_QUIET_POLLS {
+        battery_rate.on_displays(true, &config(true), &mut api);
+    }
+
+    assert_eq!(keep_changing(&mut battery_rate, &mut api, 1), 1);
 }
 
 #[test]
@@ -1129,4 +1155,50 @@ fn a_panel_gone_from_the_list_is_left_alone() {
 
     assert_eq!(api.set.len(), sets);
     assert!(!battery_rate.retry_pending());
+}
+
+/// The cap used up by a list that keeps changing.
+fn capped() -> (BatteryRate, FakeDisplays) {
+    let (mut battery_rate, mut api) = on_battery_at_60();
+    let polls = usize::from(DISPLAY_ROUNDS + 2) * usize::from(DISPLAY_SETTLE_POLLS);
+    keep_changing(&mut battery_rate, &mut api, polls);
+    (battery_rate, api)
+}
+
+#[test]
+fn less_than_a_quiet_minute_keeps_the_cap() {
+    let (mut battery_rate, mut api) = capped();
+    for _ in 1..DISPLAY_QUIET_POLLS {
+        battery_rate.on_displays(true, &config(true), &mut api);
+    }
+
+    assert_eq!(keep_changing(&mut battery_rate, &mut api, 1), 0);
+}
+
+#[test]
+fn a_failed_read_does_not_count_as_quiet() {
+    let (mut battery_rate, mut api) = capped();
+    let seen = api.displays.clone();
+    for poll in 0..DISPLAY_QUIET_POLLS {
+        api.displays = if poll % 2 == 0 { None } else { seen.clone() };
+        battery_rate.on_displays(true, &config(true), &mut api);
+    }
+    api.displays = seen;
+
+    assert_eq!(keep_changing(&mut battery_rate, &mut api, 1), 0);
+}
+
+#[test]
+fn a_change_the_cap_refuses_is_told_once() {
+    let (mut battery_rate, mut api) = on_battery_at_60();
+    let mut told = 0;
+    for _ in 0..usize::from(DISPLAY_ROUNDS + 4) * usize::from(DISPLAY_SETTLE_POLLS) {
+        let connection = &mut api.displays.as_mut().unwrap()[0].connection;
+        *connection = connection.wrapping_add(1);
+        if battery_rate.on_displays(true, &config(true), &mut api) == DisplayChange::Capped {
+            told += 1;
+        }
+    }
+
+    assert_eq!(told, 1);
 }

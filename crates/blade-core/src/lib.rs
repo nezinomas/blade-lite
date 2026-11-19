@@ -40,7 +40,8 @@ pub use autostart::{
     autostart, set_autostart,
 };
 pub use battery_rate::{
-    BATTERY_RATE, BatteryRate, DISPLAY_ROUNDS, DISPLAY_SETTLE_POLLS, RESUME_RATE_TRIES,
+    BATTERY_RATE, BatteryRate, DISPLAY_QUIET_POLLS, DISPLAY_ROUNDS, DISPLAY_SETTLE_POLLS,
+    DisplayChange, RESUME_RATE_TRIES,
 };
 pub use charge::{ChargeError, charge_limit_on, set_charge_limit};
 pub use charger::full_power_charger;
