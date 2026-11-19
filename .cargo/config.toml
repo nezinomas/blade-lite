@@ -3,9 +3,11 @@
 # Only the test named runs: `cargo hw <test name>` (exact name; a unit test's
 # name has its module path). The name given first matches only the test
 # `cargo_hw_needs_a_test_name`, which fails when no other name is given, so a
-# `cargo hw` with no name runs nothing else (ticket 289).
+# `cargo hw` with no name runs nothing else (ticket 289). `--show-output`
+# prints what each passing test wrote: the names asked for, a "skipped" for
+# a test whose env switch is off, and each test's record (ticket 297).
 hw = [
-    "test", "--workspace", "--", "--ignored", "--test-threads=1", "--exact",
+    "test", "--workspace", "--", "--ignored", "--test-threads=1", "--show-output", "--exact",
     "cargo_hw_needs_a_test_name",
 ]
 # Quiet test run: prints only failures and the totals.

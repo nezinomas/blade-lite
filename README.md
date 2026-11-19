@@ -199,7 +199,10 @@ ones, ticket 163), clicked by script, and compared with saved pictures. Tests th
 are marked `#[ignore]` and run by hand, one at a time (alias in
 `.cargo/config.toml`). `cargo hw` runs only the test named, by its exact
 name; with no name it runs nothing. The tests that run the fans on manual
-also need `BLADE_FAN_TEST=1`:
+also need `BLADE_FAN_TEST=1`. "1 passed" alone does not mean your test ran:
+a name no test has runs nothing, and a test without its switch skips. Look
+for your test's own `test <name> ... ok` line and its output; `cargo hw`
+prints the names it was asked for, and "skipped" for a skipped test:
 
 ```bash
 cargo hw <test name>
