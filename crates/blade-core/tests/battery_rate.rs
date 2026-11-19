@@ -400,19 +400,18 @@ fn a_battery_read_with_the_option_off_uses_up_the_mark_and_sends_nothing() {
 
 #[test]
 fn an_ac_read_after_a_wake_with_the_source_unknown_ends_its_mark() {
-    // The next switch to battery is a plain one: a refused 60 Hz is an
-    // error, not a wake's quiet tries.
-    let mut api = panel_at(240);
+    // The next switch to battery is a plain one: no panel is an error, not
+    // a wake's quiet leave-alone.
+    let mut api = FakeDisplays::new(Some(vec![]));
     let mut battery_rate = BatteryRate::default();
     battery_rate.on_resume_unknown();
     battery_rate
         .on_event(PowerEvent::OnAc, &config(true), &mut api)
         .unwrap();
-    api.failing_sets = 1;
 
     let set = battery_rate.on_event(PowerEvent::OnBattery, &config(true), &mut api);
 
-    assert!(set.is_err());
+    assert!(matches!(set, Err(DisplayError::NoInternalPanel)));
 }
 
 #[test]

@@ -123,7 +123,9 @@ impl BatteryRate {
                 }
                 // A refused 60 Hz is tried again on the polls, as after a
                 // wake. A rate the panel does not offer, or no panel, is
-                // not, and ends a wake's tries too.
+                // not, and ends a wake's tries too. After a wake with the
+                // source unknown, an inactive panel is left alone with no
+                // error, as at the wake.
                 let set = if wake_left {
                     self.after_resume(api)
                 } else {
