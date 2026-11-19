@@ -47,10 +47,12 @@ fn open() -> HidTransport {
 /// sent, and it needs the one-copy lock to send (ticket 290).
 fn refuse_an_earlier_helper() {
     let mut mark = WindowsInstance::new(HW_PUT_BACK_HELPER).unwrap();
+    let log = std::path::Path::new(env!("CARGO_TARGET_TMPDIR")).join("hw-put-back.log");
     assert!(
         mark.claim().unwrap(),
         "the put-back helper of an earlier test still runs: wait for it to end \
-         (its id is in target/tmp/hw-put-back.log): not run"
+         (its id is in {}): not run",
+        log.display()
     );
 }
 

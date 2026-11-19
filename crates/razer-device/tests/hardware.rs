@@ -953,7 +953,7 @@ impl PutBackHelper {
                 )
             });
         if let Err(error) = noted {
-            let _ = child.kill();
+            stand_down(&mut child);
             panic!("can't write the put-back helper's log ({error}): not run");
         }
         let stdout = child.stdout.take().unwrap();
@@ -968,7 +968,7 @@ impl PutBackHelper {
             }
         });
         if waiting.recv_timeout(Duration::from_secs(10)).is_err() {
-            let _ = child.kill();
+            stand_down(&mut child);
             panic!(
                 "the put-back helper did not start (log {}): not run",
                 helper_log().display()
@@ -1016,6 +1016,16 @@ impl Drop for PutBackHelper {
             std::mem::forget(child);
         }
     }
+}
+
+/// Stops a helper the test will not use, before any write: tells it the
+/// state is put back (nothing was changed), then ends it. So a helper that
+/// outlives a failed end still sends nothing.
+fn stand_down(child: &mut Child) {
+    if let Some(mut stdin) = child.stdin.take() {
+        let _ = writeln!(stdin, "{PUT_BACK_DONE}");
+    }
+    let _ = child.kill();
 }
 
 /// Whether the helper sends its put-back after its read of the test's
