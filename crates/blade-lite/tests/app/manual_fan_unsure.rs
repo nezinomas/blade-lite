@@ -35,6 +35,18 @@ fn balanced_with_a_manual_fan_saved() -> (TestApp, TempDir) {
     (app, dir)
 }
 
+/// The two steps that end a manual fan (ticket 298): Custom with the fans
+/// on auto and the lowest boosts, then Balanced.
+fn auto_fans_then_balanced() -> Vec<razer_proto::Command> {
+    let mut sent = razer_proto::Custom {
+        cpu: razer_proto::CpuBoost::new(0, &BLADE_18).unwrap(),
+        gpu: razer_proto::GpuBoost::new(0, &BLADE_18).unwrap(),
+        fan: razer_proto::FanMode::Auto,
+    }
+    .commands(&BLADE_18);
+    sent.extend(PerfMode::Balanced.commands(&BLADE_18).unwrap());
+    sent
+}
 /// Clicks Custom, which the controller takes only up to its first mode
 /// write (the manual flag), then every resend fails the same way.
 fn cut_custom_click(app: &mut TestApp) {
@@ -125,7 +137,7 @@ fn the_slow_resend_comes_once_a_minute_after_the_tries_run_out() {
     app.keep_resending(start + MANUAL_RESEND_SPACING);
 
     assert!(app.resend_preset().unwrap());
-    assert_eq!(sent(&app), PerfMode::Balanced.commands(&BLADE_18).unwrap());
+    assert_eq!(sent(&app), auto_fans_then_balanced());
 }
 
 #[test]
@@ -154,7 +166,7 @@ fn the_guard_keeps_the_resends_going_and_sends_nothing_itself() {
     assert!(!app.boost_unsent());
 
     assert!(app.resend_preset().unwrap());
-    assert_eq!(sent(&app), PerfMode::Balanced.commands(&BLADE_18).unwrap());
+    assert_eq!(sent(&app), auto_fans_then_balanced());
 }
 
 #[test]

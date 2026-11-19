@@ -416,11 +416,21 @@ impl Soak {
             }
             return;
         }
-        let full = [BLADE_18.mode_bytes.performance, BLADE_18.custom.mode];
+        // Custom with the fans on auto and the lowest boosts, then Silent or
+        // Balanced, is the two-step end of a manual fan (ticket 298), safe
+        // on battery too: not a full power preset.
+        let bytes = BLADE_18.mode_bytes;
+        let two_step_at = |at: usize| {
+            sent[at].args[3] == 0
+                && sent.iter().all(|c| c.id != SET_BOOST || c.args[2] == 0)
+                && sent[at..].iter().any(|c| {
+                    c.id == SET_PRESET && [bytes.silent, bytes.balanced].contains(&c.args[2])
+                })
+        };
         assert!(
-            !sent
-                .iter()
-                .any(|c| c.id == SET_PRESET && full.contains(&c.args[2])),
+            !sent.iter().enumerate().any(|(at, c)| c.id == SET_PRESET
+                && (c.args[2] == bytes.performance
+                    || (c.args[2] == BLADE_18.custom.mode && !two_step_at(at)))),
             "Performance or Custom within the charger's wait ({how:?}): {sent:?}"
         );
     }

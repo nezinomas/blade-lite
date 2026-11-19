@@ -49,6 +49,31 @@ fn the_power_key_steps_from_custom_to_silent() {
     assert_eq!(sent(&app), PerfMode::Silent.commands(&BLADE_18).unwrap());
 }
 
+/// Ticket 298: from a manual Custom the key sends the fans on auto first.
+#[test]
+fn the_power_key_from_a_manual_fan_sends_the_fans_on_auto_then_silent() {
+    let mut config = Config {
+        preset: Preset::Custom,
+        ..Config::default()
+    };
+    config.custom.fan_rpm = Some(3000);
+    let (mut app, _dir, _) = app_with(config);
+    app.take_on_battery(Some(false));
+    app.start().unwrap();
+    app.machine_mut().controller.inner.sent.clear();
+
+    app.on_power_key().unwrap();
+
+    let mut expected = razer_proto::Custom {
+        cpu: razer_proto::CpuBoost::new(0, &BLADE_18).unwrap(),
+        gpu: razer_proto::GpuBoost::new(0, &BLADE_18).unwrap(),
+        fan: razer_proto::FanMode::Auto,
+    }
+    .commands(&BLADE_18);
+    expected.extend(PerfMode::Silent.commands(&BLADE_18).unwrap());
+    assert_eq!(sent(&app), expected);
+}
+
 #[test]
 fn on_battery_the_power_key_steps_from_the_running_preset() {
     let (mut app, _dir, _) = performance_app();

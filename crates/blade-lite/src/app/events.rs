@@ -678,8 +678,9 @@ where
     /// or a cut send may have left a manual fan the window does not show
     /// (ticket 250), Custom with the fans on auto goes first (with the lowest
     /// boosts when Custom is not what should run), the known way to end a
-    /// manual fan; whether the preset's own mode write ends it too is not
-    /// checked on the laptop. The saved preset is kept, so the next start
+    /// manual fan; the preset's own mode write alone left the fans at 1600
+    /// RPM (ticket 291), so every send that leaves a manual fan does the
+    /// same (ticket 298, `send_preset`). The saved preset is kept, so the next start
     /// sends it again. Any fan targets due are dropped first, so none go
     /// after the quit.
     ///
