@@ -14,6 +14,10 @@ use crate::TRAY_FLAG;
 /// drives the controller.
 pub const APP_NAME: &str = "blade-lite";
 
+/// The lock a `cargo hw` put-back helper holds while it lives. The hardware
+/// tests of every crate refuse to run while it is held (ticket 290).
+pub const HW_PUT_BACK_HELPER: &str = "blade-lite-hw-put-back-helper";
+
 /// What this start of the app should do.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Start {

@@ -197,11 +197,23 @@ every test runs on any Windows machine without a Blade. The window, flyout
 and popup are drawn off screen over the fakes (the sensors are still the real
 ones, ticket 163), clicked by script, and compared with saved pictures. Tests that need the real laptop
 are marked `#[ignore]` and run by hand, one at a time (alias in
-`.cargo/config.toml`):
+`.cargo/config.toml`). `cargo hw` runs only the test named, by its exact
+name; with no name it runs nothing. The tests that run the fans on manual
+also need `BLADE_FAN_TEST=1`:
 
 ```bash
-cargo hw
+cargo hw <test name>
 ```
+
+A test that changes the fans or the preset starts a helper first. If the
+test crashes, or its own put-back fails, the helper sends Custom with the
+fans on auto and the lowest boosts, then Balanced, once the test program
+ends. It writes what it did to `target/tmp/hw-put-back.log`.
+
+After a stopped `cargo hw` (Ctrl+C, a closed terminal, a killed cargo) the
+fans may stay manual: cargo ends the helper with the test. Then run
+`blade-lite.exe --reset` (with no Blade Lite running). It sends the same two
+steps as the helper.
 
 The main checks (CI also runs `cargo deny check`, the capture script tests
 and a build on the oldest supported Rust):

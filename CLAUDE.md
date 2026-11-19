@@ -51,7 +51,8 @@ Blade Lite: a Rust app for Windows 11 that drives the Razer Blade 18 2025 (RZ09-
 - A laptop check that ends the Windows session (sign out, restart, shut down) starts the app with `powershell -ExecutionPolicy Bypass -File tools\Start-CheckApp.ps1` instead: `cargo run` ties the app to cargo, so Windows kills it with the terminal before it hears the session end (ticket 166). The script builds a release into `target/app` and starts it through Explorer, as at login.
 
 ### Hardware tests on the laptop
-- `cargo hw`. Quit the app first (the tests take the one-copy lock). The charger test must start on battery.
+- `cargo hw <test name>`: only that test runs (exact name; a unit test's name has its module path; with no name nothing runs). The manual-fan tests also need `BLADE_FAN_TEST=1`. Quit the app first (the tests take the one-copy lock). The charger test must start on battery.
+- A crashed test's state is put back by its helper (log `target/tmp/hw-put-back.log`). After a stopped `cargo hw` (Ctrl+C, closed terminal, killed cargo) the helper dies too: run `blade-lite.exe --reset`.
 - Before running one, follow the test rule under "Hardware safety".
 
 ## Git
