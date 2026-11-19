@@ -515,14 +515,28 @@ where
     /// 218). The preset's own mode write alone left the fans at 1600 RPM
     /// where the two steps reach 0 (ticket 291), so every path that leaves
     /// a manual fan sends both (ticket 298). Custom on auto needs no step:
-    /// it is that step.
+    /// it is that step. Before the first send went whole (`NotYet`) it goes
+    /// only while the preset is unsure, as [`Self::manual_fan_unshown`]
+    /// counts it: a cut start resends in two steps, a plain one adds none.
+    /// No step goes for a preset the model refuses (nothing is sent then),
+    /// and a step the model refuses (no Custom) sends nothing, so the
+    /// preset still goes.
     ///
     /// # Errors
     ///
     /// The step's error. A cut step leaves the manual fan as maybe, so the
     /// resend goes in two steps again.
     fn end_manual_fan(&mut self, config: &Config) -> Result<(), ApplyError> {
-        if config.preset == Preset::Custom || self.sent_fan != SentFan::MaybeManual {
+        let maybe_manual = match self.sent_fan {
+            SentFan::MaybeManual => true,
+            SentFan::NotYet => self.preset_unsure,
+            SentFan::Auto => false,
+        };
+        let refused = config
+            .preset
+            .perf_mode()
+            .is_some_and(|mode| mode.commands(self.model).is_err());
+        if config.preset == Preset::Custom || !maybe_manual || refused {
             return Ok(());
         }
         let auto_fans = Config {
@@ -536,7 +550,11 @@ where
         };
         let applied = apply_performance(&auto_fans, self.model, &mut self.machine.controller);
         self.note_manual_sent(&auto_fans, &applied);
-        applied
+        match applied {
+            // Refused before any send: nothing to end it with here.
+            Err(ApplyError::Preset(_) | ApplyError::Custom(_)) => Ok(()),
+            other => other,
+        }
     }
 
     /// Notes whether the controller may run a manual fan after a send of

@@ -37,6 +37,15 @@ where
         self.read_charge_limit();
         self.read_charger();
         let config = self.running(self.config);
+        // A start at a wake or after a pause may leave a manual fan the
+        // app sent (ticket 298); a first start adds no step (`NotYet`).
+        if let Err(error) = self.end_manual_fan(&config) {
+            let cut = Err(error);
+            self.note_preset_send(&config, &cut);
+            self.check_preset_if_sent(&config, &cut);
+            self.note_fan_targets(&config, &cut);
+            return Ok(cut?);
+        }
         let red = self.key_should_be_red();
         let (applied, refused) = match apply(&config, self.model, &mut self.machine.controller, red)
         {

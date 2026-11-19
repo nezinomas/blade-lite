@@ -62,7 +62,8 @@ impl From<PerfMode> for Preset {
 
 impl Preset {
     /// The controller's mode for the preset, or `None` for Custom.
-    pub(crate) fn perf_mode(self) -> Option<PerfMode> {
+    #[must_use]
+    pub fn perf_mode(self) -> Option<PerfMode> {
         match self {
             Self::Silent => Some(PerfMode::Silent),
             Self::Balanced => Some(PerfMode::Balanced),

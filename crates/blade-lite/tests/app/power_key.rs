@@ -4,7 +4,7 @@ use blade_core::{Config, Preset};
 use platform::PowerEvent;
 use razer_proto::{BLADE_18, ModelProfile, PerfMode};
 
-use crate::{app, app_on, app_with, performance_app, sent};
+use crate::{app, app_on, app_with, auto_fans_then, performance_app, sent};
 
 #[test]
 fn the_power_key_sends_the_next_preset_and_saves_it() {
@@ -64,14 +64,27 @@ fn the_power_key_from_a_manual_fan_sends_the_fans_on_auto_then_silent() {
 
     app.on_power_key().unwrap();
 
-    let mut expected = razer_proto::Custom {
-        cpu: razer_proto::CpuBoost::new(0, &BLADE_18).unwrap(),
-        gpu: razer_proto::GpuBoost::new(0, &BLADE_18).unwrap(),
-        fan: razer_proto::FanMode::Auto,
-    }
-    .commands(&BLADE_18);
-    expected.extend(PerfMode::Silent.commands(&BLADE_18).unwrap());
+    let expected = auto_fans_then(PerfMode::Silent);
     assert_eq!(sent(&app), expected);
+}
+
+/// Ticket 298: Reset from a manual Custom sends the fans on auto first.
+#[test]
+fn a_reset_from_a_manual_fan_sends_the_fans_on_auto_first() {
+    let mut config = Config {
+        preset: Preset::Custom,
+        ..Config::default()
+    };
+    config.custom.fan_rpm = Some(3000);
+    let (mut app, _dir, _) = app_with(config);
+    app.take_on_battery(Some(false));
+    app.start().unwrap();
+    app.machine_mut().controller.inner.sent.clear();
+
+    app.reset_settings().unwrap();
+
+    let expected = auto_fans_then(PerfMode::Balanced);
+    assert_eq!(sent(&app)[..expected.len()], expected[..]);
 }
 
 #[test]

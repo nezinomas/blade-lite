@@ -376,7 +376,7 @@ impl Soak {
     /// a row; a click's read counts here too). The app starts its wait at
     /// that tick or later, so it waits at least as long as checked here. An unknown source's end is not checked: the run does not know
     /// when the app read it unknown.
-    fn check_charger_wait(&mut self, sent: &[Command], asked: &[Command]) {
+    fn check_charger_wait(&mut self, sent: &[Command], asked: &[Command], may_cut: bool) {
         let on_battery = FAKE_ON_BATTERY.get();
         let plugged = std::mem::replace(&mut self.was_on_battery, on_battery) && !on_battery;
         if self.asleep || self.quiet_until.is_some_and(|until| self.now <= until) {
@@ -416,21 +416,35 @@ impl Soak {
             }
             return;
         }
-        // Custom with the fans on auto and the lowest boosts, then Silent or
-        // Balanced, is the two-step end of a manual fan (ticket 298), safe
-        // on battery too: not a full power preset.
+        // Custom with the fans on auto and the lowest boosts, whole, then
+        // Silent or Balanced at once (unless the run may have been cut), is
+        // the two-step end of a manual fan (ticket 298), safe on battery
+        // too: not a full power preset.
         let bytes = BLADE_18.mode_bytes;
+        let step = razer_proto::Custom {
+            cpu: razer_proto::CpuBoost::new(0, &BLADE_18).unwrap(),
+            gpu: razer_proto::GpuBoost::new(0, &BLADE_18).unwrap(),
+            fan: razer_proto::FanMode::Auto,
+        }
+        .commands(&BLADE_18);
         let two_step_at = |at: usize| {
-            sent[at].args[3] == 0
-                && sent.iter().all(|c| c.id != SET_BOOST || c.args[2] == 0)
-                && sent[at..].iter().any(|c| {
-                    c.id == SET_PRESET && [bytes.silent, bytes.balanced].contains(&c.args[2])
+            let rest = &sent[at..];
+            rest.starts_with(&step)
+                && rest.get(step.len()).map_or(may_cut, |next| {
+                    next.id == SET_PRESET && [bytes.silent, bytes.balanced].contains(&next.args[2])
                 })
+        };
+        // The step's own later zone writes are part of it.
+        let step_zones = |at: usize| {
+            (0..at)
+                .rev()
+                .take(step.len())
+                .any(|start| sent[start..].starts_with(&step) && at < start + step.len())
         };
         assert!(
             !sent.iter().enumerate().any(|(at, c)| c.id == SET_PRESET
                 && (c.args[2] == bytes.performance
-                    || (c.args[2] == BLADE_18.custom.mode && !two_step_at(at)))),
+                    || (c.args[2] == BLADE_18.custom.mode && !two_step_at(at) && !step_zones(at)))),
             "Performance or Custom within the charger's wait ({how:?}): {sent:?}"
         );
     }
@@ -456,7 +470,7 @@ impl Soak {
             assert_battery_safe(&sent, may_cut);
             self.seen.battery_sends += u32::from(sent.iter().any(|c| c.id == SET_PRESET));
         }
-        self.check_charger_wait(&sent, &asked);
+        self.check_charger_wait(&sent, &asked, may_cut);
         if self.weak == Weak::Unread && asked.contains(&Charger::query()) {
             self.weak = Weak::Read;
             self.seen.weak_reads += 1;

@@ -84,6 +84,48 @@ fn a_click_between_presets_sends_the_preset_alone() {
 }
 
 #[test]
+fn a_cut_first_step_is_sent_again_with_the_preset_at_the_resend() {
+    let f = fixture(manual_custom());
+    // A charger pull whose first step is cut: the battery preset is due.
+    f.shell.app().machine_mut().controller.inner.fails_after = Some(1);
+    let _ = f.shell.app().on_power(PowerEvent::OnBattery);
+    f.shell.app().machine_mut().controller.inner.fails_after = None;
+    let before = sent_count(&f);
+
+    assert!(f.shell.app().resend_preset().unwrap());
+
+    assert_eq!(sent_since(&f, before), two_steps(PerfMode::Balanced));
+}
+
+#[test]
+fn a_first_start_sends_no_step() {
+    let f = fixture(Config::default());
+
+    assert_eq!(
+        sent_since(&f, 0)
+            .iter()
+            .filter(|c| c.id == 0x0D02)
+            .cloned()
+            .collect::<Vec<_>>(),
+        PerfMode::Balanced.commands(&BLADE_18).unwrap()
+    );
+}
+
+#[test]
+fn the_quit_from_a_manual_fan_sends_one_step_only() {
+    let f = fixture(manual_custom());
+    let before = sent_count(&f);
+
+    f.shell.quit();
+
+    let sent = sent_since(&f, before);
+    let steps = sent
+        .iter()
+        .filter(|c| c.id == 0x0D02 && c.args[2] == BLADE_18.custom.mode);
+    assert_eq!(steps.count(), BLADE_18.perf_zones.len(), "{sent:?}");
+}
+
+#[test]
 fn a_charger_pull_from_a_manual_fan_sends_the_fans_on_auto_first() {
     let f = fixture(manual_custom());
     let before = sent_count(&f);

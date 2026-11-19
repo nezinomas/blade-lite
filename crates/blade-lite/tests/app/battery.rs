@@ -6,8 +6,8 @@ use razer_proto::{BLADE_18, PerfMode};
 use ui::{DisplayCommand, PerformanceCommand};
 
 use crate::{
-    LIMIT_OFF, LIMIT_ON, SET_CHARGE_LIMIT, WHITE, app, app_with, charge_limit, charge_limit_on,
-    charger_steady, panel_hz, performance_app, sent,
+    LIMIT_OFF, LIMIT_ON, SET_CHARGE_LIMIT, WHITE, app, app_with, auto_fans_then, charge_limit,
+    charge_limit_on, charger_steady, panel_hz, performance_app, sent,
 };
 
 /// Sets a fan's target speed.
@@ -279,7 +279,9 @@ fn a_power_event_sends_again_after_a_failed_start() {
 
     app.on_power(PowerEvent::OnBattery).unwrap();
 
-    assert_eq!(sent(&app), PerfMode::Balanced.commands(&BLADE_18).unwrap());
+    // No send went whole yet and the preset is unsure, so a manual fan may
+    // run: two steps (ticket 298).
+    assert_eq!(sent(&app), auto_fans_then(PerfMode::Balanced));
 }
 
 #[test]
@@ -291,7 +293,9 @@ fn a_power_event_sends_again_after_a_failed_switch() {
 
     app.on_power(PowerEvent::OnBattery).unwrap();
 
-    assert_eq!(sent(&app), PerfMode::Balanced.commands(&BLADE_18).unwrap());
+    // No send went whole yet and the preset is unsure, so a manual fan may
+    // run: two steps (ticket 298).
+    assert_eq!(sent(&app), auto_fans_then(PerfMode::Balanced));
 }
 
 #[test]
@@ -304,7 +308,9 @@ fn a_power_event_sends_again_after_a_failed_preset_click() {
 
     app.on_power(PowerEvent::OnBattery).unwrap();
 
-    assert_eq!(sent(&app), PerfMode::Balanced.commands(&BLADE_18).unwrap());
+    // No send went whole yet and the preset is unsure, so a manual fan may
+    // run: two steps (ticket 298).
+    assert_eq!(sent(&app), auto_fans_then(PerfMode::Balanced));
 }
 
 #[test]
@@ -436,7 +442,9 @@ fn a_lasting_60_hz_error_behind_a_failed_preset_shows_once_a_resend_works() {
         "{resent:?}"
     );
     assert!(!app.preset_unsure());
-    assert_eq!(sent(&app), PerfMode::Balanced.commands(&BLADE_18).unwrap());
+    // No send went whole yet and the preset is unsure, so a manual fan may
+    // run: two steps (ticket 298).
+    assert_eq!(sent(&app), auto_fans_then(PerfMode::Balanced));
     // Shown once.
     assert!(!app.resend_preset().unwrap());
 }
@@ -567,7 +575,9 @@ fn the_poll_sends_the_preset_again_after_a_failed_switch() {
 
     assert!(app.resend_preset().unwrap());
 
-    assert_eq!(sent(&app), PerfMode::Balanced.commands(&BLADE_18).unwrap());
+    // No send went whole yet and the preset is unsure, so a manual fan may
+    // run: two steps (ticket 298).
+    assert_eq!(sent(&app), auto_fans_then(PerfMode::Balanced));
 }
 
 #[test]
@@ -605,7 +615,9 @@ fn the_poll_tries_again_after_a_failed_resend() {
     app.machine_mut().controller.inner.fails = false;
     assert!(app.resend_preset().unwrap());
 
-    assert_eq!(sent(&app), PerfMode::Balanced.commands(&BLADE_18).unwrap());
+    // No send went whole yet and the preset is unsure, so a manual fan may
+    // run: two steps (ticket 298).
+    assert_eq!(sent(&app), auto_fans_then(PerfMode::Balanced));
 }
 
 #[test]
@@ -683,7 +695,9 @@ fn the_poll_after_a_failed_preset_click_sends_the_old_preset() {
 
     assert!(app.resend_preset().unwrap());
 
-    assert_eq!(sent(&app), PerfMode::Balanced.commands(&BLADE_18).unwrap());
+    // No send went whole yet and the preset is unsure, so a manual fan may
+    // run: two steps (ticket 298).
+    assert_eq!(sent(&app), auto_fans_then(PerfMode::Balanced));
     assert_eq!(app.config().preset, Preset::Balanced);
 }
 
