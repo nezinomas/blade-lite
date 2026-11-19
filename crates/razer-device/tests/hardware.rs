@@ -812,7 +812,8 @@ fn refuse_unknown_state(before: &[Vec<u8>]) {
 }
 
 /// Puts back what [`custom_state`] read, as the Custom test does: boosts and
-/// fan targets, then modes. The targets go with the fans as the test left
+/// fan targets, then modes (after a plain preset, Custom on auto just
+/// before them). The targets go with the fans as the test left
 /// them (manual, unless it ended after a quit preset; a target is
 /// range-checked either way) and the modes (fan byte as read) last; a reset
 /// of a target by the mode write shows in the caller's after-state check. Every send is tried, so a failed one does not
@@ -1116,11 +1117,18 @@ fn the_helper_sends_nothing_once_the_test_put_back() {
 
 /// The writes of [`put_back_custom`] on AC: boosts and fan targets, then
 /// the modes as read. Before a plain preset (fan byte auto in every zone),
-/// Custom with the fans on auto at the boosts read goes first: the two
-/// steps that end a manual fan (ticket 218), as the app's quit sends them;
-/// whether the plain mode write alone does is ticket 291's question.
+/// Custom with the fans on auto at the boosts read goes just before the
+/// modes, so the two steps that end a manual fan (ticket 218, as the app's
+/// quit sends them) come last and back to back; whether the plain mode
+/// write alone does is ticket 291's question. A manual Custom is put back
+/// with its modes after its targets, the order razer-laptop-control warns
+/// may reset a target (kept on firmware 1.6, ticket 144; ticket 297).
 fn put_back_writes(before: &[Vec<u8>]) -> Vec<(u16, Vec<u8>)> {
-    let mut writes = Vec::new();
+    let mut writes: Vec<_> = before[4..6]
+        .iter()
+        .map(|args| (SET_BOOST, args.clone()))
+        .chain(before[6..8].iter().map(|args| (SET_FAN, args.clone())))
+        .collect();
     if before[..4]
         .iter()
         .all(|args| args.get(3) == Some(&FAN_AUTO))
@@ -1131,8 +1139,6 @@ fn put_back_writes(before: &[Vec<u8>]) -> Vec<(u16, Vec<u8>)> {
                 .map(|command| (command.id, command.args)),
         );
     }
-    writes.extend(before[4..6].iter().map(|args| (SET_BOOST, args.clone())));
-    writes.extend(before[6..8].iter().map(|args| (SET_FAN, args.clone())));
     writes.extend(before[..4].iter().map(|args| (0x0D02, args.clone())));
     writes
 }
@@ -1152,21 +1158,17 @@ fn a_plain_preset_is_put_back_after_custom_on_auto() {
             .iter()
             .all(|(id, args)| *id == 0x0D02 && args[2..4] == [BLADE_18.custom.mode, FAN_AUTO])
     );
-    assert_eq!(writes[..auto.len()], auto[..]);
-    assert_eq!(
-        writes[auto.len()..auto.len() + 2],
-        [
-            (SET_BOOST, before[4].clone()),
-            (SET_BOOST, before[5].clone())
-        ]
-    );
-    assert_eq!(
-        writes[writes.len() - 4..],
-        before[..4]
-            .iter()
-            .map(|args| (0x0D02, args.clone()))
-            .collect::<Vec<_>>()[..]
-    );
+    let expected: Vec<_> = [
+        (SET_BOOST, before[4].clone()),
+        (SET_BOOST, before[5].clone()),
+        (SET_FAN, before[6].clone()),
+        (SET_FAN, before[7].clone()),
+    ]
+    .into_iter()
+    .chain(auto)
+    .chain(before[..4].iter().map(|args| (0x0D02, args.clone())))
+    .collect();
+    assert_eq!(writes, expected);
 }
 
 #[test]
@@ -1936,7 +1938,9 @@ fn the_sleeps_quit_preset_leaves_the_fans_on_auto() {
 /// auto first) end a manual Custom fan? The app sends it alone on a click
 /// from Custom to another preset, a charger pull, the power key, and the
 /// quit on battery. Passes if every zone then reads Balanced with the fan
-/// byte auto for 2 min.
+/// byte auto for 2 min, and the fans end at least 500 RPM under the speed
+/// they reached on manual. Start it idle and cool: a warm laptop's own auto speed could
+/// fail the speed check.
 #[test]
 #[ignore = "needs the Blade 18 on its full power charger and idle, and BLADE_BALANCED_ALONE_PROBE=1; runs the fans on manual for 30 s, up to 2.5 min if Balanced does not end it; about 3 min"]
 fn balanced_alone_ends_a_manual_fan() {
@@ -1957,8 +1961,9 @@ fn balanced_alone_ends_a_manual_fan() {
 /// sends `then` and watches 2 min: the modes, fan targets, real speeds and
 /// the CPU each 5 s, stopping at [`LOAD_STOP_CELSIUS`]. On AC and the full
 /// power charger only; the state is put back however it ends. Asserts the
-/// manual phase took, then that every zone reads Balanced with the fan
-/// byte auto after `then`.
+/// manual phase took (fan byte, targets, and both fans at 2000 RPM or more
+/// at its end), then that every zone reads Balanced with the fan byte auto
+/// after `then`, and the fans end at least 500 RPM under the speed reached.
 fn manual_custom_then(rpm: u16, then: &[razer_proto::Command], name: &str) {
     use razer_proto::{BLADE_18, CpuBoost, Custom, FanMode, GpuBoost, PerfMode, Rpm};
 
@@ -2033,17 +2038,28 @@ fn manual_custom_then(rpm: u16, then: &[razer_proto::Command], name: &str) {
             assert_eq!(args[..], [1, fan, hundreds], "{args:02X?}");
         }
     }
+    // And the fans ran it: from auto they stall near 2900 RPM below a
+    // higher target (ticket 173), so the bar is the speed they reached,
+    // at least 2000 RPM (above any idle auto speed seen, NOTES.md).
+    let reached = manual_seen
+        .last()
+        .and_then(|(_, _, real, _)| real.iter().filter_map(|args| args.get(2).copied()).min())
+        .unwrap_or(0);
+    assert!(
+        reached >= 20,
+        "the fans did not reach the manual speed: {manual_seen:02X?}"
+    );
     assert_eq!(then_seen.len(), 24);
     // The fans left the manual speed: the last three reads (105 to 120 s
-    // after `then`) are at least 500 RPM under it. The `0D81` targets keep
-    // the manual speed under Balanced (ticket 218), so a fan byte that
-    // reads auto alone is not proof. Ticket 218's two steps had both fans
-    // at 0 from 55 s on.
+    // after `then`) are at least 500 RPM under what they reached. The
+    // `0D81` targets keep the manual speed under Balanced (ticket 218), so
+    // a fan byte that reads auto alone is not proof. Ticket 218's two
+    // steps had both fans at 0 from 55 s on.
     for (_, _, real, _) in &then_seen[21..] {
         for (args, fan) in real.iter().zip(FANS) {
             assert!(
                 args.starts_with(&[1, fan])
-                    && args.get(2).is_some_and(|&speed| speed + 5 <= hundreds),
+                    && args.get(2).is_some_and(|&speed| speed <= reached - 5),
                 "fan {fan} still near the manual speed after {name}: {args:02X?}"
             );
         }
