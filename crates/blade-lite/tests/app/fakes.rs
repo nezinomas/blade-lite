@@ -76,6 +76,8 @@ pub struct FakeController {
     pub brightness_level: Option<u8>,
     /// The CPU temperature the controller reads back. `None` fails the query.
     pub cpu_celsius: Option<u8>,
+    /// The GPU temperature in the same reply; 0 while it sleeps.
+    pub gpu_celsius: u8,
     pub charger: FakeCharger,
     /// The firmware version reply. `None` fails the query.
     pub firmware: Option<Vec<u8>>,
@@ -181,7 +183,7 @@ impl Query for FakeController {
                 .ok_or(DeviceError::Busy)
         } else if *command == Celsius::query() {
             self.cpu_celsius
-                .map(|celsius| vec![2, celsius, 0, 0])
+                .map(|celsius| vec![2, celsius, self.gpu_celsius, 0])
                 .ok_or(DeviceError::Busy)
         } else {
             Err(DeviceError::Busy)

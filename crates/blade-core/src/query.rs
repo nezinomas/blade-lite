@@ -22,6 +22,9 @@ impl<T: Transport, C: Clock> Query for Device<T, C> {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ControllerReadings {
     pub cpu: Option<Celsius>,
+    /// The NVIDIA GPU's temperature from the same reply, `None` while it
+    /// sleeps: a stand-in when NVML fails (ticket 293).
+    pub gpu: Option<Celsius>,
     /// One per fan, in the model's fan order.
     pub fans: Vec<Option<FanRpm>>,
     /// One line per value that could not be read, such as `fan 1: Busy`.
@@ -35,6 +38,7 @@ impl ControllerReadings {
     pub fn unread(model: &ModelProfile) -> Self {
         Self {
             cpu: None,
+            gpu: None,
             fans: vec![None; model.custom.fan_zones.len()],
             errors: Vec::new(),
         }
@@ -60,7 +64,7 @@ pub fn chosen_native_mode(
 /// Reads the CPU temperature and each fan. A failed read leaves only its
 /// value empty, and names it in the errors.
 pub fn read_controller(controller: &mut impl Query, model: &ModelProfile) -> ControllerReadings {
-    let (cpu, mut errors) = read_cpu_temperature(controller);
+    let (Temperatures { cpu, gpu }, mut errors) = read_temperatures(controller);
     let fans = FanRpm::queries(model)
         .iter()
         .zip(model.custom.fan_zones)
@@ -71,21 +75,42 @@ pub fn read_controller(controller: &mut impl Query, model: &ModelProfile) -> Con
             read_value(controller, query, parse, &name, &mut errors)
         })
         .collect();
-    ControllerReadings { cpu, fans, errors }
+    ControllerReadings {
+        cpu,
+        gpu,
+        fans,
+        errors,
+    }
 }
 
-/// Reads only the CPU temperature. A failed read is `None`, with one line in
-/// the errors.
-pub fn read_cpu_temperature(controller: &mut impl Query) -> (Option<Celsius>, Vec<String>) {
+/// The temperatures of one `0D85` reply. A value is `None` when it could
+/// not be read.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Temperatures {
+    pub cpu: Option<Celsius>,
+    /// `None` while the GPU sleeps (it reads 0).
+    pub gpu: Option<Celsius>,
+}
+
+/// Reads the CPU and GPU temperatures in one read. A failed read, or a
+/// reply with no CPU temperature (then no GPU one either: the reply is not
+/// trusted), adds one line to the errors; a GPU that reads 0 (asleep) is
+/// no error.
+pub fn read_temperatures(controller: &mut impl Query) -> (Temperatures, Vec<String>) {
     let mut errors = Vec::new();
-    let cpu = read_value(
+    let temperatures = read_value(
         controller,
         &Celsius::query(),
-        Celsius::cpu_from_reply,
+        |args: &[u8]| {
+            Some(Temperatures {
+                cpu: Some(Celsius::cpu_from_reply(args)?),
+                gpu: Celsius::gpu_from_reply(args),
+            })
+        },
         "CPU temperature",
         &mut errors,
     );
-    (cpu, errors)
+    (temperatures.unwrap_or_default(), errors)
 }
 
 /// Reads one value. A failed read or a reply not understood adds a line to

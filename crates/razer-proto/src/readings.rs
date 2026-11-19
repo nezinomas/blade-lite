@@ -8,6 +8,8 @@ const GET_FAN_RPM: u16 = 0x0D88;
 const GET_TEMPERATURES: u16 = 0x0D85;
 /// Position of the CPU temperature in a temperature reply.
 const CPU_INDEX: usize = 1;
+/// Position of the NVIDIA GPU's temperature in a temperature reply.
+const GPU_INDEX: usize = 2;
 /// Byte 0 of every temperature reply read so far (`docs/NOTES.md`).
 const REPLY_KIND: u8 = 0x02;
 
@@ -67,6 +69,19 @@ impl Celsius {
             return None;
         }
         let celsius = *args.get(CPU_INDEX)?;
+        (celsius != 0).then_some(Self(celsius))
+    }
+
+    /// The NVIDIA GPU's temperature in a query's reply args, under the same
+    /// rules as [`Self::cpu_from_reply`]. It reads 0 while the GPU sleeps,
+    /// so that is `None` too. It tracked NVML within 3 °C under load with no
+    /// delay (ticket 293, `docs/NOTES.md`).
+    #[must_use]
+    pub fn gpu_from_reply(args: &[u8]) -> Option<Self> {
+        if args.first() != Some(&REPLY_KIND) {
+            return None;
+        }
+        let celsius = *args.get(GPU_INDEX)?;
         (celsius != 0).then_some(Self(celsius))
     }
 }
