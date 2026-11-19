@@ -1834,7 +1834,7 @@ fn watch_modes_and_fans<C: Clock>(
 #[test]
 #[ignore = "needs the Blade 18 on its full power charger and idle, and BLADE_FAN_TEST=1; runs the fans on manual for about 30 s; about 3 min"]
 fn the_sleeps_quit_preset_leaves_the_fans_on_auto() {
-    use razer_proto::{BLADE_18, CpuBoost, Custom, FanMode, GpuBoost, PerfMode, Rpm};
+    use razer_proto::{BLADE_18, CpuBoost, Custom, FanMode, GpuBoost, PerfMode};
 
     if !opted_in("BLADE_FAN_TEST") {
         return;
@@ -1844,26 +1844,63 @@ fn the_sleeps_quit_preset_leaves_the_fans_on_auto() {
     // 1600 RPM in a Start-menu sleep after Custom 3600 on AC. This sends
     // what the app sends around such a sleep, with no app and no real
     // sleep, and reads whether the fan byte is auto after it.
+    // The quit preset on AC with a manual Custom: Custom on auto (boosts
+    // kept), then Balanced (`quit_preset` in the app).
+    let mut sleep = Custom {
+        cpu: CpuBoost::new(1, &BLADE_18).unwrap(),
+        gpu: GpuBoost::new(1, &BLADE_18).unwrap(),
+        fan: FanMode::Auto,
+    }
+    .commands(&BLADE_18);
+    sleep.extend(PerfMode::Balanced.commands(&BLADE_18).unwrap());
+    manual_custom_then(3600, &sleep, "the sleep's quit preset");
+}
+
+/// Ticket 291: does a plain Balanced (`0D02`, fan byte `00`, no Custom on
+/// auto first) end a manual Custom fan? The app sends it alone on a click
+/// from Custom to another preset, a charger pull, the power key, and the
+/// quit on battery. Passes if every zone then reads Balanced with the fan
+/// byte auto for 2 min.
+#[test]
+#[ignore = "needs the Blade 18 on its full power charger and idle, and BLADE_BALANCED_ALONE_PROBE=1; runs the fans on manual for about 30 s; about 3 min"]
+fn balanced_alone_ends_a_manual_fan() {
+    use razer_proto::{BLADE_18, PerfMode};
+
+    if !opted_in("BLADE_BALANCED_ALONE_PROBE") {
+        return;
+    }
+    manual_custom_then(
+        3000,
+        &PerfMode::Balanced.commands(&BLADE_18).unwrap(),
+        "Balanced alone",
+    );
+}
+
+/// Sends Custom with a manual fan at `rpm` (CPU and GPU boost 1), its fan
+/// targets again 2 s later as the app does (ticket 173), watches 30 s, then
+/// sends `then` and watches 2 min: the modes, fan targets, real speeds and
+/// the CPU each 5 s, stopping at [`LOAD_STOP_CELSIUS`]. On AC and the full
+/// power charger only; the state is put back however it ends. Asserts the
+/// manual phase took, then that every zone reads Balanced with the fan
+/// byte auto after `then`.
+fn manual_custom_then(rpm: u16, then: &[razer_proto::Command], name: &str) {
+    use razer_proto::{BLADE_18, CpuBoost, Custom, FanMode, GpuBoost, PerfMode, Rpm};
+
     let mut device = Device::new(open(), SystemClock);
     require_full_power(&mut device);
     let before = custom_state(&mut device);
     refuse_unknown_state(&before);
-    let custom = |fan| Custom {
+    let manual = Custom {
         cpu: CpuBoost::new(1, &BLADE_18).unwrap(),
         gpu: GpuBoost::new(1, &BLADE_18).unwrap(),
-        fan,
+        fan: FanMode::Manual(Rpm::new(rpm, &BLADE_18).unwrap()),
     };
-    let manual = custom(FanMode::Manual(Rpm::new(3600, &BLADE_18).unwrap()));
-    // The quit preset on AC with a manual Custom: Custom on auto (boosts
-    // kept), then Balanced (`quit_preset` in the app).
-    let mut sleep = custom(FanMode::Auto).commands(&BLADE_18);
-    sleep.extend(PerfMode::Balanced.commands(&BLADE_18).unwrap());
 
     // From here on every step keeps its result, and the state is put back
     // before any assert.
     let helper = PutBackHelper::start();
     let mut manual_seen = Vec::new();
-    let mut sleep_seen = Vec::new();
+    let mut then_seen = Vec::new();
     // The Custom click, with its fan targets again 2 s later (ticket 173).
     let result = device
         .run(&manual.commands(&BLADE_18))
@@ -1875,20 +1912,21 @@ fn the_sleeps_quit_preset_leaves_the_fans_on_auto() {
                 .map_err(|error| error.to_string())
         })
         .and_then(|()| watch_modes_and_fans(&mut device, 30, &mut manual_seen))
-        .and_then(|()| device.run(&sleep).map_err(|error| error.to_string()))
-        .and_then(|()| watch_modes_and_fans(&mut device, 120, &mut sleep_seen));
+        .and_then(|()| device.run(then).map_err(|error| error.to_string()))
+        .and_then(|()| watch_modes_and_fans(&mut device, 120, &mut then_seen));
 
     let put_back = put_back_custom(&mut device, &before, helper);
     let after = try_custom_state(&mut device);
 
     eprintln!("before {before:02X?}");
-    for (name, seen) in [
-        ("manual 3600", &manual_seen),
-        ("after the sleep's quit preset", &sleep_seen),
+    let manual_name = format!("manual {rpm}");
+    for (phase, seen) in [
+        (manual_name.as_str(), &manual_seen),
+        (&format!("after {name}"), &then_seen),
     ] {
         for (step, (modes, target, real, cpu)) in seen.iter().enumerate() {
             eprintln!(
-                "{name} {:>3} s: modes {modes:02X?}, target {target:02X?}, real {real:02X?}, CPU {cpu} °C",
+                "{phase} {:>3} s: modes {modes:02X?}, target {target:02X?}, real {real:02X?}, CPU {cpu} °C",
                 (step + 1) * 5
             );
         }
@@ -1899,7 +1937,8 @@ fn the_sleeps_quit_preset_leaves_the_fans_on_auto() {
     assert_eq!(after, Ok(before));
     result.unwrap();
     // The manual phase took: every zone Custom with the fan byte manual,
-    // both targets 3600 RPM. Else the reads after prove nothing.
+    // both targets at `rpm`. Else the reads after prove nothing.
+    let hundreds = u8::try_from(rpm / 100).unwrap();
     for (modes, target, ..) in &manual_seen {
         for (args, &zone) in modes.iter().zip(BLADE_18.perf_zones) {
             assert_eq!(
@@ -1909,12 +1948,12 @@ fn the_sleeps_quit_preset_leaves_the_fans_on_auto() {
             );
         }
         for (args, fan) in target.iter().zip(FANS) {
-            assert_eq!(args[..], [1, fan, 36], "{args:02X?}");
+            assert_eq!(args[..], [1, fan, hundreds], "{args:02X?}");
         }
     }
-    assert_eq!(sleep_seen.len(), 24);
-    // Each read after the quit preset: every zone Balanced, fan byte auto.
-    for (modes, ..) in &sleep_seen {
+    assert_eq!(then_seen.len(), 24);
+    // Each read after `then`: every zone Balanced, fan byte auto.
+    for (modes, ..) in &then_seen {
         for (args, &zone) in modes.iter().zip(BLADE_18.perf_zones) {
             assert_eq!(
                 PerfMode::from_reply(&BLADE_18, zone, args),
