@@ -347,9 +347,13 @@ fn custom_state<C: Clock>(device: &mut Device<HidTransport, C>) -> Vec<Vec<u8>> 
 }
 
 #[test]
-#[ignore = "needs the Blade 18"]
+#[ignore = "needs the Blade 18 and BLADE_FAN_TEST=1; runs the fans on manual for about 5 s"]
 fn custom_is_set_and_read_back_and_the_old_preset_restored() {
     use razer_proto::{BLADE_18, CpuBoost, Custom, FanMode, GpuBoost, Rpm};
+
+    if !opted_in("BLADE_FAN_TEST") {
+        return;
+    }
 
     let mut device = Device::new(open(), SystemClock);
     require_full_power(&mut device);
@@ -376,8 +380,7 @@ fn custom_is_set_and_read_back_and_the_old_preset_restored() {
         try_read_each(&mut device, GET_FAN_RPM, &FANS)
     });
 
-    // Boosts and fan targets first, as razer-laptop-control says a mode
-    // write after them resets them (not seen on 1.6, ticket 144).
+    // In the order of `put_back_writes`.
     let put_back = put_back_custom(&mut device, &before, helper);
     let after = try_custom_state(&mut device);
     eprintln!(
@@ -866,7 +869,7 @@ fn a_custom_mode_write_alone_and_what_the_fans_do() {
 /// the put-back can safely write: one per zone, each echoing its zone, with
 /// a preset the model offers on auto fans, or Custom on auto or manual fans
 /// (a manual fan byte only with Custom, as the app and the open-source
-/// tools send it).
+/// tools send it), and the same fan byte in every zone.
 fn refuse_unknown_modes(modes: &[Vec<u8>]) {
     use razer_proto::{BLADE_18, PerfMode};
 
@@ -885,6 +888,11 @@ fn refuse_unknown_modes(modes: &[Vec<u8>]) {
             "zone {zone} mode reply {args:02X?} not understood: not run"
         );
     }
+    // The app sets every zone alike, so a mix is an unknown state (ticket 297).
+    assert!(
+        modes.iter().all(|args| args[3] == modes[0][3]),
+        "the zones' fan bytes differ {modes:02X?}: not run"
+    );
 }
 
 /// Refuses to run when a mode reply has the fan byte manual: the preset
@@ -967,13 +975,13 @@ fn refuse_unknown_state(before: &[Vec<u8>]) {
     }
 }
 
-/// Puts back what [`custom_state`] read, as the Custom test does: boosts and
-/// fan targets, then modes (after a plain preset, Custom on auto just
-/// before them). The targets go with the fans as the test left
-/// them (manual, unless it ended after a quit preset; a target is
-/// range-checked either way) and the modes (fan byte as read) last; a reset
-/// of a target by the mode write shows in the caller's after-state check. Every send is tried, so a failed one does not
-/// keep the fans manual. The writes and their order: [`put_back_writes`].
+/// Puts back what [`custom_state`] read: a manual fan as the app sends
+/// it (modes, boosts, fan targets); anything else boosts and fan targets,
+/// then modes (after a plain preset, Custom on auto just before them). A
+/// target is range-checked either way, and a reset of a target by a mode
+/// write shows in the caller's after-state check. Every send is tried, so a
+/// failed one does not keep the fans manual. The writes and their order:
+/// [`put_back_writes`].
 fn put_back_custom<C: Clock>(
     device: &mut Device<HidTransport, C>,
     before: &[Vec<u8>],
@@ -1271,20 +1279,31 @@ fn the_helper_sends_nothing_once_the_test_put_back() {
     assert!(!helper_puts_back(&Ok(10), "put back\r\n"));
 }
 
-/// The writes of [`put_back_custom`] on AC: boosts and fan targets, then
-/// the modes as read. Before a plain preset (fan byte auto in every zone),
+/// The writes of [`put_back_custom`] on AC. A state with a manual fan (fan
+/// byte manual in any zone) goes in the app's order, the modes as read,
+/// boosts, then fan targets (`Custom::commands`), as razer-laptop-control
+/// says a mode write after a target resets it (not seen on firmware 1.6,
+/// ticket 144; ticket 297). The app's second target write about 2 s later
+/// (ticket 173) is left out: the after-state check reads the targets, not
+/// the real speed. Any other state goes boosts and fan targets, then the
+/// modes as read. Before a plain preset (fan byte auto in every zone),
 /// Custom with the fans on auto at the boosts read goes just before the
 /// modes, so the two steps that end a manual fan (ticket 218, as the app's
 /// quit sends them) come last and back to back; whether the plain mode
-/// write alone does is ticket 291's question. A manual Custom is put back
-/// with its modes after its targets, the order razer-laptop-control warns
-/// may reset a target (kept on firmware 1.6, ticket 144; ticket 297).
+/// write alone does is ticket 291's question.
 fn put_back_writes(before: &[Vec<u8>]) -> Vec<(u16, Vec<u8>)> {
+    let modes = before[..4].iter().map(|args| (0x0D02, args.clone()));
     let mut writes: Vec<_> = before[4..6]
         .iter()
         .map(|args| (SET_BOOST, args.clone()))
         .chain(before[6..8].iter().map(|args| (SET_FAN, args.clone())))
         .collect();
+    if before[..4]
+        .iter()
+        .any(|args| args.get(3) == Some(&FAN_MANUAL))
+    {
+        return modes.chain(writes).collect();
+    }
     if before[..4]
         .iter()
         .all(|args| args.get(3) == Some(&FAN_AUTO))
@@ -1295,7 +1314,7 @@ fn put_back_writes(before: &[Vec<u8>]) -> Vec<(u16, Vec<u8>)> {
                 .map(|command| (command.id, command.args)),
         );
     }
-    writes.extend(before[..4].iter().map(|args| (0x0D02, args.clone())));
+    writes.extend(modes);
     writes
 }
 
@@ -1333,15 +1352,18 @@ fn a_manual_custom_is_put_back_as_read_with_no_auto_first() {
     for mode in &mut before[..4] {
         mode[2..4].copy_from_slice(&[razer_proto::BLADE_18.custom.mode, FAN_MANUAL]);
     }
-    let expected: Vec<_> = [
-        (SET_BOOST, before[4].clone()),
-        (SET_BOOST, before[5].clone()),
-        (SET_FAN, before[6].clone()),
-        (SET_FAN, before[7].clone()),
-    ]
-    .into_iter()
-    .chain(before[..4].iter().map(|args| (0x0D02, args.clone())))
-    .collect();
+    // The app's order (`Custom::commands`): modes, boosts, fan targets, so
+    // no mode write comes after a target (ticket 297).
+    let expected: Vec<_> = before[..4]
+        .iter()
+        .map(|args| (0x0D02, args.clone()))
+        .chain([
+            (SET_BOOST, before[4].clone()),
+            (SET_BOOST, before[5].clone()),
+            (SET_FAN, before[6].clone()),
+            (SET_FAN, before[7].clone()),
+        ])
+        .collect();
     assert_eq!(put_back_writes(&before), expected);
 }
 
@@ -2262,7 +2284,11 @@ fn state_with(index: usize, args: &[u8]) -> Vec<Vec<u8>> {
 #[test]
 fn a_sane_state_is_put_back() {
     refuse_unknown_state(&sane_state());
-    refuse_unknown_state(&state_with(0, &[1, 1, 0x04, 0x01]));
+    let mut manual = sane_state();
+    for mode in &mut manual[..4] {
+        mode[2..4].copy_from_slice(&[0x04, 0x01]);
+    }
+    refuse_unknown_state(&manual);
     refuse_unknown_state(&state_with(3, &[1, 4, 0x05, 0x00]));
     refuse_unknown_state(&state_with(4, &[1, 1, 3]));
     refuse_unknown_state(&state_with(5, &[1, 2, 0]));
@@ -2374,6 +2400,14 @@ fn the_preset_test_puts_back_only_known_modes() {
 fn the_preset_test_refuses_an_unknown_mode() {
     let mut modes = sane_state()[..4].to_vec();
     modes[0] = vec![1, 1, 0x07, 0x00];
+    refuse_unknown_modes(&modes);
+}
+
+#[test]
+#[should_panic(expected = "fan bytes differ")]
+fn a_state_with_mixed_fan_bytes_is_refused() {
+    let mut modes = sane_state()[..4].to_vec();
+    modes[0][2..4].copy_from_slice(&[razer_proto::BLADE_18.custom.mode, FAN_MANUAL]);
     refuse_unknown_modes(&modes);
 }
 
@@ -2662,6 +2696,21 @@ fn named_a_test(args: &[String]) -> bool {
         .any(|name| *name != NO_NAME && !name.is_empty())
 }
 
+/// What [`cargo_hw_needs_a_test_name`] prints when it passes: the names
+/// asked for, as its own pass is no sign that one of them ran (ticket 297).
+fn asked_note(args: &[String]) -> String {
+    let names: Vec<_> = test_names(args)
+        .into_iter()
+        .filter(|name| *name != NO_NAME && !name.is_empty())
+        .collect();
+    format!(
+        "cargo hw was asked for: {}. Only a name with its own \
+         \"test <name> ... ok\" (or FAILED) line ran; a name no test has, or a \
+         test skipped for its env switch, still shows \"passed\".",
+        names.join(", ")
+    )
+}
+
 #[test]
 #[ignore = "fails when `cargo hw` is given no test name"]
 fn cargo_hw_needs_a_test_name() {
@@ -2670,6 +2719,8 @@ fn cargo_hw_needs_a_test_name() {
         named_a_test(&args),
         "cargo hw runs only the test it is named: cargo hw <test name>. Nothing else ran."
     );
+    // Shown by the alias's `--show-output`.
+    eprintln!("{}", asked_note(&args));
 }
 
 fn args(list: &[&str]) -> Vec<String> {
@@ -2693,6 +2744,12 @@ fn cargo_hw_with_a_name_has_it() {
     let run = args(&["hw.exe", "--ignored", "--exact", NO_NAME, "a_test"]);
     assert_eq!(test_names(&run), [NO_NAME, "a_test"]);
     assert!(named_a_test(&run));
+}
+
+#[test]
+fn the_note_names_each_name_asked_but_its_own() {
+    let run = args(&["hw.exe", "--exact", NO_NAME, "a_test", "", "b_test"]);
+    assert!(asked_note(&run).starts_with("cargo hw was asked for: a_test, b_test. "));
 }
 
 #[test]
