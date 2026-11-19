@@ -3,8 +3,8 @@
 mod common;
 
 use blade_core::{
-    BatteryRate, Config, DISPLAY_ROUNDS, DISPLAY_SETTLE_POLLS, DisplayError, RESUME_RATE_TRIES,
-    RefreshRate, set_refresh_rate,
+    BatteryRate, Config, DISPLAY_QUIET_POLLS, DISPLAY_ROUNDS, DISPLAY_SETTLE_POLLS, DisplayError,
+    RESUME_RATE_TRIES, RefreshRate, set_refresh_rate,
 };
 use common::{FakeDisplays, mode, monitor, panel};
 use platform::{DisplayMode, ModeLife, PowerEvent};
@@ -1026,18 +1026,41 @@ fn the_last_settle_poll_still_sets_60_hz() {
     assert_eq!(api.panel_mode(), mode(3840, 2400, 60));
 }
 
-#[test]
-fn a_spell_begins_at_most_its_rounds() {
-    let (mut battery_rate, mut api) = on_battery_at_60();
+/// Changes the list on each of `polls` polls; returns the rounds begun.
+fn keep_changing(battery_rate: &mut BatteryRate, api: &mut FakeDisplays, polls: usize) -> u8 {
     let mut rounds = 0;
-    for poll in 0..usize::from(DISPLAY_ROUNDS + 2) * usize::from(DISPLAY_SETTLE_POLLS) {
-        api.displays.as_mut().unwrap()[0].connection = i32::try_from(poll).unwrap();
-        if battery_rate.on_displays(true, &config(true), &mut api) {
+    for _ in 0..polls {
+        let connection = &mut api.displays.as_mut().unwrap()[0].connection;
+        *connection = connection.wrapping_add(1);
+        if battery_rate.on_displays(true, &config(true), api) {
             rounds += 1;
         }
     }
+    rounds
+}
 
-    assert_eq!(rounds, DISPLAY_ROUNDS);
+#[test]
+fn a_list_that_keeps_changing_begins_at_most_its_rounds() {
+    let (mut battery_rate, mut api) = on_battery_at_60();
+    let polls = usize::from(DISPLAY_ROUNDS + 2) * usize::from(DISPLAY_SETTLE_POLLS);
+
+    assert_eq!(
+        keep_changing(&mut battery_rate, &mut api, polls),
+        DISPLAY_ROUNDS
+    );
+}
+
+#[test]
+fn a_quiet_list_lets_rounds_begin_again() {
+    // Check 86: five switches a minute or less apart used up the rounds.
+    let (mut battery_rate, mut api) = on_battery_at_60();
+    let polls = usize::from(DISPLAY_ROUNDS + 2) * usize::from(DISPLAY_SETTLE_POLLS);
+    keep_changing(&mut battery_rate, &mut api, polls);
+    for _ in 0..DISPLAY_QUIET_POLLS {
+        battery_rate.on_displays(true, &config(true), &mut api);
+    }
+
+    assert_eq!(keep_changing(&mut battery_rate, &mut api, 1), 1);
 }
 
 #[test]

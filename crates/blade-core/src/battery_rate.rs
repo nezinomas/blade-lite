@@ -37,17 +37,26 @@ pub struct BatteryRate {
     /// the rate saved before battery still gets 60 Hz: Windows may put its
     /// rate back after the list shows the change (not known).
     settle: u8,
-    /// The settle rounds begun in this battery spell.
+    /// The settle rounds begun since the list was last quiet for
+    /// [`DISPLAY_QUIET_POLLS`] polls.
     rounds: u8,
+    /// The polls since the list last changed.
+    quiet: u16,
 }
 
 /// How many polls after a display list change still check the rate.
 pub const DISPLAY_SETTLE_POLLS: u8 = 5;
 
-/// How many settle rounds one battery spell begins at most, so a display
-/// that keeps coming and going (a flaky cable) can't set the rate and log
-/// each second for ever.
-pub const DISPLAY_ROUNDS: u8 = 5;
+/// How many settle rounds begin at most until the list is quiet for
+/// [`DISPLAY_QUIET_POLLS`], so a display that keeps coming and going (a
+/// flaky cable) can't set the rate and log each second for ever. A cap of
+/// 5 a battery spell was too low: check 86's five GPU and Win + P switches
+/// used it up, and the sixth got no 60 Hz (2026-11-19).
+pub const DISPLAY_ROUNDS: u8 = 10;
+
+/// How many polls (about a minute) the list must stay as it is before
+/// rounds may begin again.
+pub const DISPLAY_QUIET_POLLS: u16 = 60;
 
 impl BatteryRate {
     /// Sets the rate for a change of power source. A wake goes to
@@ -159,8 +168,8 @@ impl BatteryRate {
     /// is tried again on the polls), and so for [`DISPLAY_SETTLE_POLLS`]
     /// polls in all (a round), as Windows may put its rate back a little
     /// later. A change within a round begins none, and tries already
-    /// running finish first; at most [`DISPLAY_ROUNDS`] rounds a battery
-    /// spell. A rate change alone is the user's (such as one picked in
+    /// running finish first; at most [`DISPLAY_ROUNDS`] rounds until the
+    /// list stays as it is for [`DISPLAY_QUIET_POLLS`]. A rate change alone is the user's (such as one picked in
     /// Windows Settings) and is kept. The list is read only on a known
     /// battery with the switch on (a light read, no modes); its first read
     /// there begins a round too (not counted, not a change), as a monitor
@@ -182,7 +191,16 @@ impl BatteryRate {
             return self.settle_poll(config, api, false);
         };
         layout.sort();
-        let began = match self.layout.replace(layout.clone()) {
+        let seen = self.layout.replace(layout.clone());
+        if seen.as_ref() == Some(&layout) {
+            self.quiet = self.quiet.saturating_add(1);
+            if self.quiet >= DISPLAY_QUIET_POLLS {
+                self.rounds = 0;
+            }
+        } else {
+            self.quiet = 0;
+        }
+        let began = match seen {
             None => {
                 self.settle = DISPLAY_SETTLE_POLLS;
                 false
