@@ -38,7 +38,19 @@ fn hold_lock() {
 fn open() -> HidTransport {
     hold_lock();
     refuse_razer_software();
+    refuse_an_earlier_helper();
     HidTransport::open(&BLADE_18).unwrap()
+}
+
+/// Refuses to run while the put-back helper of an earlier `razer-device`
+/// hardware test still lives (it holds this lock, `HELPER_MARK` there): the
+/// fans may still be manual until it has sent (ticket 290).
+fn refuse_an_earlier_helper() {
+    let mut mark = WindowsInstance::new("blade-lite-hw-put-back-helper").unwrap();
+    assert!(
+        mark.claim().unwrap(),
+        "the put-back helper of an earlier test still runs: wait for it to end: not run"
+    );
 }
 
 /// Refuses to run while Razer software runs, as it can talk to the

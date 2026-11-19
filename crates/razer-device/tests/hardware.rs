@@ -919,10 +919,15 @@ impl PutBackHelper {
             panic!("can't write the put-back helper's log ({error}): not run")
         });
         let mut child = Command::new(std::env::current_exe().unwrap())
+            // One thread: libtest then writes nothing to the helper's output
+            // while the helper runs (with more, it says a test runs over
+            // 60 s, and a failed write to the dead test's pipe would end the
+            // helper mid-send).
             .args([
                 "--ignored",
                 "--exact",
                 "--nocapture",
+                "--test-threads=1",
                 "put_back_after_a_stopped_run",
             ])
             .env(HELPER_ENV, "1")
