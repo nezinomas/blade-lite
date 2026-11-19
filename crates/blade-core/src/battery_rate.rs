@@ -26,10 +26,21 @@ pub struct BatteryRate {
     /// Whether the next poll is skipped: a switch's tries start then, as
     /// that poll may come at once. A wake's tries wait for the pause.
     wait_a_poll: bool,
-    /// Whether a known power source has come since the app started.
-    source_seen: bool,
+    /// What is known of the power source.
+    source: SourceFollow,
     /// The display list followed on battery (ticket 300).
     display: DisplayFollow,
+}
+
+/// What [`BatteryRate`] knows of the power source.
+#[derive(Debug, Default)]
+struct SourceFollow {
+    /// Whether a known power source has come since the app started.
+    seen: bool,
+    /// Whether the last wake's pause ended with the source unknown, so the
+    /// next battery read sets 60 Hz again as that wake would have
+    /// ([`BatteryRate::on_resume_unknown`]; ticket 286).
+    wake_left: bool,
 }
 
 /// What [`BatteryRate::on_displays`] keeps between polls.
@@ -101,8 +112,12 @@ impl BatteryRate {
         api: &mut impl DisplayApi,
     ) -> Result<(), DisplayError> {
         match event {
+            PowerEvent::OnBattery if std::mem::take(&mut self.source.wake_left) => {
+                self.sixty_again(config, api);
+                Ok(())
+            }
             PowerEvent::OnBattery => {
-                self.source_seen = true;
+                self.source.seen = true;
                 if self.put_back_tries {
                     self.stop_tries();
                 }
@@ -127,7 +142,7 @@ impl BatteryRate {
                     return Ok(());
                 }
                 self.stop_tries();
-                let first = !std::mem::replace(&mut self.source_seen, true);
+                let first = !std::mem::replace(&mut self.source.seen, true);
                 // A held rate is always put back first (none is held now,
                 // as each path that holds one marks the source seen).
                 if first && self.saved.is_none() {
@@ -158,6 +173,7 @@ impl BatteryRate {
         config: &Config,
         api: &mut impl DisplayApi,
     ) -> Result<(), DisplayError> {
+        self.source.wake_left = false;
         if !on_battery {
             return self.on_event(PowerEvent::OnAc, config, api);
         }
@@ -165,10 +181,20 @@ impl BatteryRate {
         Ok(())
     }
 
+    /// Marks a wake whose pause ended with the source unknown: the rate was
+    /// left, though Windows may have put its saved rate back (it does,
+    /// 2026-11-10). The next battery read then sets 60 Hz again as the wake
+    /// would have (see `after_resume`), even with a rate saved, while other
+    /// battery reads keep a panel at the saved rate as the user's (ticket
+    /// 286). Only the first read after it counts; a known wake ends it.
+    pub fn on_resume_unknown(&mut self) {
+        self.source.wake_left = true;
+    }
+
     /// On battery, sets 60 Hz again as after a wake (see `after_resume`); a
     /// refused set starts the tries ([`Self::retry`]), which AC stops.
     fn sixty_again(&mut self, config: &Config, api: &mut impl DisplayApi) {
-        self.source_seen = true;
+        self.source.seen = true;
         if self.put_back_tries {
             self.stop_tries();
         }
