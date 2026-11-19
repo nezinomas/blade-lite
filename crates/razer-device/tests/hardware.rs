@@ -30,6 +30,7 @@ fn hold_lock() {
 fn open() -> HidTransport {
     hold_lock();
     refuse_razer_software();
+    refuse_an_earlier_helper();
     HidTransport::open(&razer_proto::BLADE_18).unwrap()
 }
 
@@ -852,20 +853,47 @@ const PUT_BACK_DONE: &str = "put back";
 /// What the helper prints once it waits for the test's word.
 const HELPER_WAITS: &str = "the put-back helper waits";
 
-/// The put-back helper's log: it has no console.
+/// The put-back helper's log: it has no console. Each run adds to it, so a
+/// new run does not wipe the record of a put-back that did not go.
 fn helper_log() -> PathBuf {
     std::path::Path::new(env!("CARGO_TARGET_TMPDIR")).join("hw-put-back.log")
+}
+
+/// The lock a put-back helper holds while it lives, so no test touches the
+/// controller before an earlier helper has sent its put-back (or ended).
+const HELPER_MARK: &str = "blade-lite-hw-put-back-helper";
+
+/// Takes [`HELPER_MARK`], or `None` while a helper holds it.
+fn claim_helper_mark() -> Option<WindowsInstance> {
+    let mut mark = WindowsInstance::new(HELPER_MARK).unwrap();
+    mark.claim().unwrap().then_some(mark)
+}
+
+/// Refuses to run while a put-back helper of an earlier test still lives:
+/// the state is not known until it has sent (ticket 290).
+fn refuse_an_earlier_helper() {
+    assert!(
+        claim_helper_mark().is_some(),
+        "the put-back helper of an earlier test still runs: wait for it to end (log {}): not run",
+        helper_log().display()
+    );
 }
 
 /// A helper copy of this test program that sends the battery-safe put-back
 /// ([`battery_put_back`]) if this program ends before the test put its
 /// state back itself (ticket 290). A Ctrl+C, a closed terminal or a killed
 /// cargo end this program at once: cargo runs its tests in a Windows job
-/// that kills them all when cargo ends (cargo `src/util/job.rs`), so no
-/// handler in this program would get the time. The helper has no console
-/// and is out of that job (cargo's job allows it), so it lives on. It
-/// hears the end as the end of its input, whose other end only this
-/// program holds.
+/// set to kill them all when cargo ends (`JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`,
+/// cargo `src/util/job.rs`), so no handler in this program would get the
+/// time. The helper has no console and leaves that job (the job also sets
+/// `JOB_OBJECT_LIMIT_BREAKAWAY_OK`), so it lives on. If an outer job does
+/// not allow it, the start fails and the test is not run. The helper hears
+/// the end as the end of its input, whose other end only this program
+/// holds.
+///
+/// After a failed put-back of the test's own, it also sends: the state is
+/// then not known, and its put-back is safe to send twice. It sets the
+/// lowest boosts even when the test did not change the boosts.
 struct PutBackHelper(Option<Child>);
 
 impl PutBackHelper {
@@ -879,8 +907,16 @@ impl PutBackHelper {
         const DETACHED_PROCESS: u32 = 0x0000_0008;
         const CREATE_BREAKAWAY_FROM_JOB: u32 = 0x0100_0000;
 
-        let log = std::fs::File::create(helper_log()).unwrap_or_else(|error| {
-            panic!("can't make the put-back helper's log ({error}): not run")
+        let mut log = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(helper_log())
+            .unwrap_or_else(|error| {
+                panic!("can't open the put-back helper's log ({error}): not run")
+            });
+        let test = std::thread::current().name().unwrap_or("?").to_owned();
+        writeln!(log, "{} {test} starts its put-back helper", utc_now()).unwrap_or_else(|error| {
+            panic!("can't write the put-back helper's log ({error}): not run")
         });
         let mut child = Command::new(std::env::current_exe().unwrap())
             .args([
@@ -900,7 +936,9 @@ impl PutBackHelper {
         let (waits, waiting) = std::sync::mpsc::channel();
         std::thread::spawn(move || {
             for line in BufReader::new(stdout).lines().map_while(Result::ok) {
-                if line.starts_with(HELPER_WAITS) {
+                // Not at the line's start: libtest may print the test's
+                // name before it.
+                if line.contains(HELPER_WAITS) {
                     let _ = waits.send(());
                 }
             }
@@ -931,7 +969,16 @@ impl PutBackHelper {
             .stdin
             .take()
             .map(|mut stdin| writeln!(stdin, "{PUT_BACK_DONE}"));
-        let ended = child.wait();
+        // Not waited for long: the test goes on, and a helper still alive
+        // makes the next test refuse to run.
+        let mut ended = child.try_wait();
+        for _ in 0..100 {
+            if !matches!(ended, Ok(None)) {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(100));
+            ended = child.try_wait();
+        }
         eprintln!("the put-back helper was told {told:?} and ended {ended:?}");
     }
 }
@@ -954,9 +1001,10 @@ fn helper_puts_back(read: &std::io::Result<usize>, line: &str) -> bool {
 }
 
 /// Takes the one-copy lock once the ended test program let go of it,
-/// trying for 10 s.
+/// trying for 60 s (a new test run refuses while the helper lives, but
+/// holds the lock until it ends).
 fn claim_lock_after_the_test() -> WindowsInstance {
-    for _ in 0..50 {
+    for _ in 0..300 {
         let mut instance = WindowsInstance::new(APP_NAME).unwrap();
         if instance.claim().unwrap() {
             return instance;
@@ -973,6 +1021,12 @@ fn put_back_after_a_stopped_run() {
         eprintln!("skipped: a cargo hw test starts this itself");
         return;
     }
+    // Held until this helper ends. With no mark, it does not say it waits,
+    // so the test is not run.
+    let Some(_mark) = claim_helper_mark() else {
+        eprintln!("{} another put-back helper runs: this one ends", utc_now());
+        return;
+    };
     println!("{HELPER_WAITS} ({})", utc_now());
     let mut line = String::new();
     let read = std::io::stdin().read_line(&mut line);
@@ -985,6 +1039,12 @@ fn put_back_after_a_stopped_run() {
         utc_now()
     );
     let _lock = claim_lock_after_the_test();
+    // Sent even while Razer software runs: a manual fan left as it is is
+    // worse, and the app also puts the fans on auto then (ticket 288).
+    eprintln!(
+        "Razer software: {:?}",
+        blade_core::razer_software(&platform::WindowsPrograms)
+    );
     let mut device = Device::new(
         HidTransport::open(&razer_proto::BLADE_18).unwrap(),
         SystemClock,
