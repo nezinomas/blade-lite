@@ -17,6 +17,8 @@ fn hold_lock() {
     static LOCK: Mutex<Option<WindowsInstance>> = Mutex::new(None);
     let mut held = LOCK.lock().unwrap_or_else(PoisonError::into_inner);
     if held.is_none() {
+        // Before the lock: a helper still waiting needs it to send.
+        refuse_an_earlier_helper();
         let mut instance = WindowsInstance::new(APP_NAME).unwrap();
         assert!(
             instance.claim().unwrap(),
@@ -859,13 +861,10 @@ fn helper_log() -> PathBuf {
     std::path::Path::new(env!("CARGO_TARGET_TMPDIR")).join("hw-put-back.log")
 }
 
-/// The lock a put-back helper holds while it lives, so no test touches the
-/// controller before an earlier helper has sent its put-back (or ended).
-const HELPER_MARK: &str = "blade-lite-hw-put-back-helper";
-
-/// Takes [`HELPER_MARK`], or `None` while a helper holds it.
+/// Takes the lock a put-back helper holds while it lives
+/// ([`blade_core::HW_PUT_BACK_HELPER`]), or `None` while a helper holds it.
 fn claim_helper_mark() -> Option<WindowsInstance> {
-    let mut mark = WindowsInstance::new(HELPER_MARK).unwrap();
+    let mut mark = WindowsInstance::new(blade_core::HW_PUT_BACK_HELPER).unwrap();
     mark.claim().unwrap().then_some(mark)
 }
 
@@ -874,7 +873,7 @@ fn claim_helper_mark() -> Option<WindowsInstance> {
 fn refuse_an_earlier_helper() {
     assert!(
         claim_helper_mark().is_some(),
-        "the put-back helper of an earlier test still runs: wait for it to end (log {}): not run",
+        "the put-back helper of an earlier test still runs: wait for it to end (its id is in {}): not run",
         helper_log().display()
     );
 }
@@ -891,8 +890,11 @@ fn refuse_an_earlier_helper() {
 /// `src/cargo/util/job.rs` sets only `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`;
 /// a start with `CREATE_BREAKAWAY_FROM_JOB` was refused, Access is denied,
 /// 2026-11-19). So the helper dies with the test then, and the README says
-/// to run `blade-lite.exe --reset`. On a normal end cargo clears that flag
-/// first, so a helper still waiting lives on.
+/// to run `blade-lite.exe --reset`. When cargo ends by itself, also after a
+/// failed test, it clears that flag first (cargo 1.99.1
+/// `src/bin/cargo/main.rs` drops the job's token before `exit_with_error`),
+/// so a helper still waiting lives on: measured 2026-11-19 with a child of
+/// a passing and of a panicking `cargo test`, both alive after cargo ended.
 ///
 /// After a failed put-back of the test's own, it also sends: the state is
 /// then not known, and its put-back is safe to send twice. It sets the
@@ -938,6 +940,22 @@ impl PutBackHelper {
             .stderr(log)
             .spawn()
             .unwrap_or_else(|error| panic!("can't start the put-back helper ({error}): not run"));
+        // Its id, so a helper that hangs can be found and ended by hand.
+        let noted = std::fs::OpenOptions::new()
+            .append(true)
+            .open(helper_log())
+            .and_then(|mut log| {
+                writeln!(
+                    log,
+                    "{} the helper's process id is {}",
+                    utc_now(),
+                    child.id()
+                )
+            });
+        if let Err(error) = noted {
+            let _ = child.kill();
+            panic!("can't write the put-back helper's log ({error}): not run");
+        }
         let stdout = child.stdout.take().unwrap();
         let (waits, waiting) = std::sync::mpsc::channel();
         std::thread::spawn(move || {

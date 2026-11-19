@@ -6,10 +6,10 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use blade_core::{
-    APP_NAME, BatteryRate, Config, NativeModeState, PowerKeyPresses, Query, RefreshRate,
-    TOUCHPAD_KEY, charge_limit_on, chosen_native_mode, logo_on, native_mode_state, razer_software,
-    refresh_rates, set_charge_limit, set_logo, set_native_mode, set_refresh_rate, set_touchpad,
-    touchpad_on,
+    APP_NAME, BatteryRate, Config, HW_PUT_BACK_HELPER, NativeModeState, PowerKeyPresses, Query,
+    RefreshRate, TOUCHPAD_KEY, charge_limit_on, chosen_native_mode, logo_on, native_mode_state,
+    razer_software, refresh_rates, set_charge_limit, set_logo, set_native_mode, set_refresh_rate,
+    set_touchpad, touchpad_on,
 };
 use platform::{
     Display, DisplayApi, InstanceLock, OutputTechnology, PowerEvent, PowerEvents, RegistryWatch,
@@ -25,6 +25,7 @@ fn hold_lock() {
     static LOCK: Mutex<Option<WindowsInstance>> = Mutex::new(None);
     let mut held = LOCK.lock().unwrap_or_else(PoisonError::into_inner);
     if held.is_none() {
+        refuse_an_earlier_helper();
         let mut instance = WindowsInstance::new(APP_NAME).unwrap();
         assert!(
             instance.claim().unwrap(),
@@ -38,18 +39,18 @@ fn hold_lock() {
 fn open() -> HidTransport {
     hold_lock();
     refuse_razer_software();
-    refuse_an_earlier_helper();
     HidTransport::open(&BLADE_18).unwrap()
 }
 
 /// Refuses to run while the put-back helper of an earlier `razer-device`
-/// hardware test still lives (it holds this lock, `HELPER_MARK` there): the
-/// fans may still be manual until it has sent (ticket 290).
+/// hardware test still lives: the fans may still be manual until it has
+/// sent, and it needs the one-copy lock to send (ticket 290).
 fn refuse_an_earlier_helper() {
-    let mut mark = WindowsInstance::new("blade-lite-hw-put-back-helper").unwrap();
+    let mut mark = WindowsInstance::new(HW_PUT_BACK_HELPER).unwrap();
     assert!(
         mark.claim().unwrap(),
-        "the put-back helper of an earlier test still runs: wait for it to end: not run"
+        "the put-back helper of an earlier test still runs: wait for it to end \
+         (its id is in target/tmp/hw-put-back.log): not run"
     );
 }
 
