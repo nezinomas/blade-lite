@@ -545,7 +545,10 @@ fn a_rate_set_outside_the_app_on_battery_is_kept() {
     let (mut app, _dir, _) = app_with(sixty_hz_on());
     app.take_on_battery(Some(true));
     app.on_power(PowerEvent::OnBattery).unwrap();
-    app.follow_display_layout();
+    // The first read's round runs out.
+    for _ in 0..blade_core::DISPLAY_SETTLE_POLLS {
+        app.follow_display_layout();
+    }
     app.machine_mut().displays.0.current.hz = 240;
 
     app.follow_display_layout();

@@ -3,8 +3,8 @@
 mod common;
 
 use blade_core::{
-    BatteryRate, Config, DISPLAY_SETTLE_POLLS, DisplayError, RESUME_RATE_TRIES, RefreshRate,
-    set_refresh_rate,
+    BatteryRate, Config, DISPLAY_ROUNDS, DISPLAY_SETTLE_POLLS, DisplayError, RESUME_RATE_TRIES,
+    RefreshRate, set_refresh_rate,
 };
 use common::{FakeDisplays, mode, monitor, panel};
 use platform::{DisplayMode, ModeLife, PowerEvent};
@@ -935,7 +935,10 @@ fn on_battery_at_60() -> (BatteryRate, FakeDisplays) {
     battery_rate
         .on_event(PowerEvent::OnBattery, &config(true), &mut api)
         .unwrap();
-    battery_rate.on_displays(true, &config(true), &mut api);
+    // The first read's round runs out.
+    for _ in 0..DISPLAY_SETTLE_POLLS {
+        battery_rate.on_displays(true, &config(true), &mut api);
+    }
     (battery_rate, api)
 }
 
@@ -993,12 +996,48 @@ fn a_display_change_on_ac_or_with_the_option_off_sets_nothing() {
 }
 
 #[test]
-fn the_first_display_read_only_notes_the_list() {
+fn the_first_read_on_battery_begins_a_round() {
+    // A monitor that also charged goes with the switch to battery, and
+    // Windows puts its rate back after the switch's 60 Hz.
     let mut api = panel_at(240);
+    let mut battery_rate = BatteryRate::default();
+    battery_rate
+        .on_event(PowerEvent::OnBattery, &config(true), &mut api)
+        .unwrap();
+    assert!(!battery_rate.on_displays(true, &config(true), &mut api));
+    windows_puts_back_240(&mut api);
 
-    BatteryRate::default().on_displays(true, &config(true), &mut api);
+    battery_rate.on_displays(true, &config(true), &mut api);
 
-    assert_eq!(api.set, []);
+    assert_eq!(api.panel_mode(), mode(3840, 2400, 60));
+}
+
+#[test]
+fn the_last_settle_poll_still_sets_60_hz() {
+    let (mut battery_rate, mut api) = on_battery_at_60();
+    api.displays.as_mut().unwrap()[0].connection = 10;
+    for _ in 1..DISPLAY_SETTLE_POLLS {
+        battery_rate.on_displays(true, &config(true), &mut api);
+    }
+    windows_puts_back_240(&mut api);
+
+    battery_rate.on_displays(true, &config(true), &mut api);
+
+    assert_eq!(api.panel_mode(), mode(3840, 2400, 60));
+}
+
+#[test]
+fn a_spell_begins_at_most_its_rounds() {
+    let (mut battery_rate, mut api) = on_battery_at_60();
+    let mut rounds = 0;
+    for poll in 0..usize::from(DISPLAY_ROUNDS + 2) * usize::from(DISPLAY_SETTLE_POLLS) {
+        api.displays.as_mut().unwrap()[0].connection = i32::try_from(poll).unwrap();
+        if battery_rate.on_displays(true, &config(true), &mut api) {
+            rounds += 1;
+        }
+    }
+
+    assert_eq!(rounds, DISPLAY_ROUNDS);
 }
 
 #[test]
