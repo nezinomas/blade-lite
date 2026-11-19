@@ -25,6 +25,8 @@ pub fn panel(current: DisplayMode) -> Display {
     Display {
         name: r"\\.\DISPLAY1".into(),
         technology: OutputTechnology::Internal,
+        // 0x8000_0000, internal, as Optimus mode reports it.
+        connection: i32::MIN,
         current,
         modes: PANEL_MODES.to_vec(),
     }
@@ -34,6 +36,8 @@ pub fn monitor() -> Display {
     Display {
         name: r"\\.\DISPLAY2".into(),
         technology: OutputTechnology::External,
+        // DisplayPort.
+        connection: 10,
         current: mode(2560, 1440, 165),
         modes: vec![
             mode(2560, 1440, 60),

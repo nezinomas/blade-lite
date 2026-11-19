@@ -141,6 +141,7 @@ fn display(path: &DISPLAYCONFIG_PATH_INFO, panels: &[PanelId]) -> io::Result<Dis
     let device = wide(&name);
     Ok(Display {
         technology: panel_technology(path.targetInfo.outputTechnology, target_edid(path), panels),
+        connection: path.targetInfo.outputTechnology,
         current: mode(&device, ENUM_CURRENT_SETTINGS).ok_or_else(io::Error::last_os_error)?,
         modes: (0..).map_while(|index| mode(&device, index)).collect(),
         name,

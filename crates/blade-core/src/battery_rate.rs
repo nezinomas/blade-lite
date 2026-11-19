@@ -28,6 +28,9 @@ pub struct BatteryRate {
     wait_a_poll: bool,
     /// Whether a known power source has come since the app started.
     source_seen: bool,
+    /// The display list last read by [`Self::on_displays`]: each active
+    /// display's name and connection, by name.
+    layout: Option<Vec<(String, i32)>>,
 }
 
 impl BatteryRate {
@@ -123,6 +126,42 @@ impl BatteryRate {
             }
         }
         Ok(())
+    }
+
+    /// Follows the display list on each poll (ticket 300, user pick A): when
+    /// a display came or went, or one's connection changed (a GPU mode
+    /// switch, ticket 282), Windows may have put its saved rate back (Win + P
+    /// and a GPU mode switch did, check 79), so on a known battery with the
+    /// switch on the 60 Hz goes again as after a wake ([`Self::on_resume`]:
+    /// only if the panel runs the rate saved before battery; a refused set
+    /// is tried again on the polls). A rate change alone is the user's (such
+    /// as one picked in Windows Settings) and is kept. The first read only
+    /// notes the list, and a failed read keeps the last one.
+    ///
+    /// # Errors
+    ///
+    /// See [`DisplayError`].
+    pub fn on_displays(
+        &mut self,
+        on_battery: bool,
+        config: &Config,
+        api: &mut impl DisplayApi,
+    ) -> Result<(), DisplayError> {
+        let Ok(displays) = api.displays() else {
+            return Ok(());
+        };
+        let mut layout: Vec<_> = displays
+            .into_iter()
+            .map(|display| (display.name, display.connection))
+            .collect();
+        layout.sort();
+        let Some(seen) = self.layout.replace(layout.clone()) else {
+            return Ok(());
+        };
+        if seen == layout || !on_battery || !config.sixty_hz_on_battery {
+            return Ok(());
+        }
+        self.on_resume(true, config, api)
     }
 
     /// At the first known source since the start, when it is AC, puts

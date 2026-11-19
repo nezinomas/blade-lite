@@ -237,6 +237,10 @@ pub struct Display {
     /// The GDI name, such as `\\.\DISPLAY1`.
     pub name: String,
     pub technology: OutputTechnology,
+    /// The output technology as Windows reports it for the path, before the
+    /// panel is found by its EDID ids: it changes at a GPU mode switch
+    /// (internal in Optimus, `DisplayPort` in NVIDIA-only mode, ticket 282).
+    pub connection: i32,
     pub current: DisplayMode,
     /// Every mode Windows offers, in its own order, repeats and all.
     pub modes: Vec<DisplayMode>,

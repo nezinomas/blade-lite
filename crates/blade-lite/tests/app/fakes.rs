@@ -213,6 +213,8 @@ impl Default for FakeDisplays {
             Display {
                 name: r"\\.\DISPLAY1".into(),
                 technology: OutputTechnology::Internal,
+                // 0x8000_0000, internal, as Optimus mode reports it.
+                connection: i32::MIN,
                 current: mode(240),
                 modes: vec![mode(60), mode(120), mode(240)],
             },
