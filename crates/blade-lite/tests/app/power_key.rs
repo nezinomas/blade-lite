@@ -120,6 +120,25 @@ static ONE_PRESET: ModelProfile = ModelProfile {
     ..BLADE_18
 };
 
+/// Ticket 298: no step goes before a preset the model refuses, so the
+/// controller is not left on Custom with the fans on auto.
+#[test]
+fn from_a_manual_fan_a_preset_the_model_refuses_sends_nothing() {
+    let mut config = Config {
+        preset: Preset::Custom,
+        ..Config::default()
+    };
+    config.custom.fan_rpm = Some(3000);
+    let (mut app, _dir, _) = app_on(&ONE_PRESET, config);
+    app.take_on_battery(Some(false));
+    app.start().unwrap();
+    app.machine_mut().controller.inner.sent.clear();
+
+    let _ = app.on_performance(ui::PerformanceCommand::SetPreset(Preset::Silent));
+
+    assert_eq!(sent(&app), []);
+}
+
 #[test]
 fn a_model_without_the_power_key_ignores_it() {
     let (mut app, _dir, path) = app_on(&NO_POWER_KEY, Config::default());

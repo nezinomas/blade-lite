@@ -429,10 +429,13 @@ impl Soak {
         .commands(&BLADE_18);
         let two_step_at = |at: usize| {
             let rest = &sent[at..];
-            rest.starts_with(&step)
-                && rest.get(step.len()).map_or(may_cut, |next| {
-                    next.id == SET_PRESET && [bytes.silent, bytes.balanced].contains(&next.args[2])
-                })
+            // A step cut partway ends the run's sends.
+            (may_cut && step.starts_with(rest))
+                || rest.starts_with(&step)
+                    && rest.get(step.len()).map_or(may_cut, |next| {
+                        next.id == SET_PRESET
+                            && [bytes.silent, bytes.balanced].contains(&next.args[2])
+                    })
         };
         // The step's own later zone writes are part of it.
         let step_zones = |at: usize| {

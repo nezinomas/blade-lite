@@ -284,6 +284,23 @@ fn a_power_event_sends_again_after_a_failed_start() {
     assert_eq!(sent(&app), auto_fans_then(PerfMode::Balanced));
 }
 
+/// After a whole start no manual fan may run, so a resend after a cut
+/// switch goes alone, with no step (ticket 298).
+#[test]
+fn after_a_whole_start_the_resend_of_a_cut_switch_has_no_step() {
+    let (mut app, _dir, _) = performance_app();
+    app.take_on_battery(Some(false));
+    app.start().unwrap();
+    app.machine_mut().controller.inner.fails = true;
+    assert!(app.on_power(PowerEvent::OnBattery).is_err());
+    app.machine_mut().controller.inner.fails = false;
+    app.machine_mut().controller.inner.sent.clear();
+
+    assert!(app.resend_preset().unwrap());
+
+    assert_eq!(sent(&app), PerfMode::Balanced.commands(&BLADE_18).unwrap());
+}
+
 #[test]
 fn a_power_event_sends_again_after_a_failed_switch() {
     let (mut app, _dir, _) = performance_app();

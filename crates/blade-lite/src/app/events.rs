@@ -44,6 +44,9 @@ where
             self.note_preset_send(&config, &cut);
             self.check_preset_if_sent(&config, &cut);
             self.note_fan_targets(&config, &cut);
+            // As a start cut in its first write.
+            self.key_red = None;
+            self.read_logo();
             return Ok(cut?);
         }
         let red = self.key_should_be_red();

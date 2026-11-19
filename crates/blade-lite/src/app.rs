@@ -110,8 +110,8 @@ enum Razer {
 enum SentFan {
     /// No preset send went whole yet: a crash or Razer software may have
     /// left a manual fan, but nothing says so. It counts as a maybe only
-    /// while the preset is unsure (ticket 250); a send leaves it in one
-    /// step (ticket 298 leaves the start's send as it was).
+    /// while the preset is unsure (ticket 250), and so does the two-step
+    /// end of a manual fan (ticket 298): a first start adds no step.
     NotYet,
     /// The last preset send that went whole had the fans on auto, and no
     /// cut send since carried the manual flag.
@@ -510,8 +510,8 @@ where
 
     /// Before a send of a preset other than Custom while the controller may
     /// run a manual fan the app sent (a manual Custom sent last, or a cut
-    /// send that carried it, or a panic): Custom with the fans on auto and the lowest
-    /// boosts, the first of the two steps that end a manual fan (ticket
+    /// send that carried it, or a panic): Custom with the fans on auto and
+    /// the lowest boosts, the first of the two steps that end a manual fan (ticket
     /// 218). The preset's own mode write alone left the fans at 1600 RPM
     /// where the two steps reach 0 (ticket 291), so every path that leaves
     /// a manual fan sends both (ticket 298). Custom on auto needs no step:
