@@ -56,8 +56,7 @@ pub use power_key::{
     next_preset,
 };
 pub use query::{
-    ControllerReadings, Query, Temperatures, chosen_native_mode, read_controller,
-    read_cpu_temperature, read_temperatures,
+    ControllerReadings, Query, Temperatures, chosen_native_mode, read_controller, read_temperatures,
 };
 pub use razer_software::{razer_software, razer_updater, razer_warning};
 pub use readings::{HEALTH_EVERY, Readings, ReadingsSampler};

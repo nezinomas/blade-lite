@@ -132,8 +132,10 @@ fn with_nvml_failing_a_hot_gpu_in_the_controller_puts_a_manual_fan_at_full_speed
     assert_eq!(fan_speeds_since(&f, before), [top; 4]);
 }
 
+/// A cool field never ends the guard alone: the failed NVML reads still
+/// hold a manual fan at full speed (ticket 139).
 #[test]
-fn with_nvml_failing_a_cool_gpu_in_the_controller_lets_a_manual_fan_go_back() {
+fn with_nvml_failing_a_cool_gpu_in_the_controller_does_not_end_the_hold() {
     let f = manual_fan();
     FAKE_GPU.set(FakeGpu::Fails);
     let now = ticks(&f, Instant::now(), Duration::from_secs(3), 96);
@@ -142,7 +144,59 @@ fn with_nvml_failing_a_cool_gpu_in_the_controller_lets_a_manual_fan_go_back() {
 
     ticks(&f, now, ui::FAN_GUARD_COOL_HOLD * 2, 62);
 
-    assert_eq!(fan_speeds_since(&f, before), [1600; 4]);
+    assert_eq!(fan_speeds_since(&f, before), []);
+}
+
+/// NVML wins when it reads: a hot NVML reading is not hidden by a cool field.
+#[test]
+fn a_hot_nvml_reading_wins_over_a_cool_controller_field() {
+    let f = manual_fan();
+    FAKE_GPU.set(FakeGpu::Celsius(90));
+    f.shell.app().machine_mut().controller.inner.gpu_celsius = 50;
+    let before = sent_count(&f);
+
+    ticks(&f, Instant::now(), Duration::from_secs(3), 60);
+
+    let top = BLADE_18.custom.fan_rpm.max;
+    assert_eq!(fan_speeds_since(&f, before), [top; 4]);
+}
+
+/// The field counts 3 °C hotter: 85 stands in as 88, over the 87 °C limit.
+#[test]
+fn with_nvml_failing_the_controller_field_counts_three_degrees_hotter() {
+    let f = manual_fan();
+    FAKE_GPU.set(FakeGpu::Fails);
+    f.shell.app().machine_mut().controller.inner.gpu_celsius = 85;
+    let before = sent_count(&f);
+
+    ticks(&f, Instant::now(), Duration::from_secs(3), 60);
+
+    let top = BLADE_18.custom.fan_rpm.max;
+    assert_eq!(fan_speeds_since(&f, before), [top; 4]);
+}
+
+/// After the guard went on, a field of `field` °C with NVML failing: the
+/// fan speeds sent over two cool holds.
+fn held_with_field(field: u8) -> Vec<u16> {
+    let f = manual_fan();
+    FAKE_GPU.set(FakeGpu::Fails);
+    let now = ticks(&f, Instant::now(), Duration::from_secs(3), 96);
+    f.shell.app().machine_mut().controller.inner.gpu_celsius = field;
+    let before = sent_count(&f);
+    ticks(&f, now, ui::FAN_GUARD_COOL_HOLD * 2, 61);
+    fan_speeds_since(&f, before)
+}
+
+/// A field of 0 (asleep) stands in for nothing: the failed reads keep a
+/// manual fan at full speed.
+#[test]
+fn with_nvml_failing_a_zero_controller_field_keeps_full_speed() {
+    assert_eq!(held_with_field(0), []);
+}
+
+#[test]
+fn with_nvml_failing_an_implausibly_low_controller_field_keeps_full_speed() {
+    assert_eq!(held_with_field(10), []);
 }
 
 #[test]

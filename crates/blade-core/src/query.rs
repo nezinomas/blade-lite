@@ -92,16 +92,10 @@ pub struct Temperatures {
     pub gpu: Option<Celsius>,
 }
 
-/// Reads only the CPU temperature. A failed read is `None`, with one line in
-/// the errors.
-pub fn read_cpu_temperature(controller: &mut impl Query) -> (Option<Celsius>, Vec<String>) {
-    let (temperatures, errors) = read_temperatures(controller);
-    (temperatures.cpu, errors)
-}
-
 /// Reads the CPU and GPU temperatures in one read. A failed read, or a
-/// reply with no CPU temperature, adds one line to the errors; a GPU that
-/// reads 0 (asleep) is no error.
+/// reply with no CPU temperature (then no GPU one either: the reply is not
+/// trusted), adds one line to the errors; a GPU that reads 0 (asleep) is
+/// no error.
 pub fn read_temperatures(controller: &mut impl Query) -> (Temperatures, Vec<String>) {
     let mut errors = Vec::new();
     let temperatures = read_value(
