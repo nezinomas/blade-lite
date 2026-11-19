@@ -12,8 +12,9 @@ use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
 use blade_core::{
-    ApplyError, BatteryRate, Config, Controller, Lighting, Preset, Query, apply_fan_targets,
-    apply_performance, charge_limit_on, full_power_charger, logo_on, preset_differs, touchpad_on,
+    ApplyError, BatteryRate, Config, Controller, CustomSettings, Lighting, Preset, Query,
+    apply_fan_targets, apply_performance, charge_limit_on, full_power_charger, logo_on,
+    preset_differs, touchpad_on,
 };
 use platform::{DisplayApi, KeyInjector, Registry};
 use razer_proto::{
@@ -107,6 +108,11 @@ enum Razer {
 /// Whether the controller may run a manual fan (ticket 250).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum SentFan {
+    /// No preset send went whole yet: a crash or Razer software may have
+    /// left a manual fan, but nothing says so. It counts as a maybe only
+    /// while the preset is unsure (ticket 250), and so does the two-step
+    /// end of a manual fan (ticket 298): a first start adds no step.
+    NotYet,
     /// The last preset send that went whole had the fans on auto, and no
     /// cut send since carried the manual flag.
     Auto,
@@ -349,7 +355,7 @@ where
             fan_targets_due: None,
             manual_sends: 0,
             resends_left: 0,
-            sent_fan: SentFan::MaybeManual,
+            sent_fan: SentFan::NotYet,
             slow_resend_at: None,
             preset_failures: 0,
             held_rate_error: None,
@@ -484,13 +490,71 @@ where
         self.preset_unsure
     }
 
-    /// Sends `config`'s preset, then reads it back (ticket 152).
+    /// Sends `config`'s preset, then reads it back (ticket 152). While the
+    /// controller may run a manual fan, a preset other than Custom goes
+    /// after Custom with the fans on auto (see [`Self::end_manual_fan`]).
     fn send_preset(&mut self, config: &Config) -> Result<(), ApplyError> {
+        if let Err(error) = self.end_manual_fan(config) {
+            // As a send of `config` cut partway: nothing known.
+            let cut = Err(error);
+            self.check_preset_if_sent(config, &cut);
+            self.note_fan_targets(config, &cut);
+            return cut;
+        }
         let applied = apply_performance(config, self.model, &mut self.machine.controller);
         self.check_preset_if_sent(config, &applied);
         self.note_fan_targets(config, &applied);
         self.note_manual_sent(config, &applied);
         applied
+    }
+
+    /// Before a send of a preset other than Custom while the controller may
+    /// run a manual fan the app sent (a manual Custom sent last, or a cut
+    /// send that carried it, or a panic): Custom with the fans on auto and
+    /// the lowest boosts, the first of the two steps that end a manual fan (ticket
+    /// 218). The preset's own mode write alone left the fans at 1600 RPM
+    /// where the two steps reach 0 (ticket 291), so every path that leaves
+    /// a manual fan sends both (ticket 298). Custom on auto needs no step:
+    /// it is that step. Before the first send went whole (`NotYet`) it goes
+    /// only while the preset is unsure, as [`Self::manual_fan_unshown`]
+    /// counts it: a cut start resends in two steps, a plain one adds none.
+    /// No step goes for a preset the model refuses (nothing is sent then),
+    /// and a step the model refuses (no Custom) sends nothing, so the
+    /// preset still goes.
+    ///
+    /// # Errors
+    ///
+    /// The step's error. A cut step leaves the manual fan as maybe, so the
+    /// resend goes in two steps again.
+    fn end_manual_fan(&mut self, config: &Config) -> Result<(), ApplyError> {
+        let maybe_manual = match self.sent_fan {
+            SentFan::MaybeManual => true,
+            SentFan::NotYet => self.preset_unsure,
+            SentFan::Auto => false,
+        };
+        let refused = config
+            .preset
+            .perf_mode()
+            .is_some_and(|mode| mode.commands(self.model).is_err());
+        if config.preset == Preset::Custom || !maybe_manual || refused {
+            return Ok(());
+        }
+        let auto_fans = Config {
+            preset: Preset::Custom,
+            custom: CustomSettings {
+                cpu_boost: 0,
+                gpu_boost: 0,
+                fan_rpm: None,
+            },
+            ..*config
+        };
+        let applied = apply_performance(&auto_fans, self.model, &mut self.machine.controller);
+        self.note_manual_sent(&auto_fans, &applied);
+        match applied {
+            // Refused before any send: nothing to end it with here.
+            Err(ApplyError::Preset(_) | ApplyError::Custom(_)) => Ok(()),
+            other => other,
+        }
     }
 
     /// Notes whether the controller may run a manual fan after a send of
@@ -644,7 +708,7 @@ where
     /// and no send went whole since (ticket 250).
     #[must_use]
     pub fn manual_fan_unshown(&self) -> bool {
-        self.preset_unsure && self.sent_fan == SentFan::MaybeManual && !self.manual_fan_shown()
+        self.preset_unsure && self.sent_fan != SentFan::Auto && !self.manual_fan_shown()
     }
 
     /// Whether Custom with a manual fan should run.

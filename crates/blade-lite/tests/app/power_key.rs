@@ -4,7 +4,7 @@ use blade_core::{Config, Preset};
 use platform::PowerEvent;
 use razer_proto::{BLADE_18, ModelProfile, PerfMode};
 
-use crate::{app, app_on, app_with, performance_app, sent};
+use crate::{app, app_on, app_with, auto_fans_then, performance_app, sent};
 
 #[test]
 fn the_power_key_sends_the_next_preset_and_saves_it() {
@@ -49,6 +49,44 @@ fn the_power_key_steps_from_custom_to_silent() {
     assert_eq!(sent(&app), PerfMode::Silent.commands(&BLADE_18).unwrap());
 }
 
+/// Ticket 298: from a manual Custom the key sends the fans on auto first.
+#[test]
+fn the_power_key_from_a_manual_fan_sends_the_fans_on_auto_then_silent() {
+    let mut config = Config {
+        preset: Preset::Custom,
+        ..Config::default()
+    };
+    config.custom.fan_rpm = Some(3000);
+    let (mut app, _dir, _) = app_with(config);
+    app.take_on_battery(Some(false));
+    app.start().unwrap();
+    app.machine_mut().controller.inner.sent.clear();
+
+    app.on_power_key().unwrap();
+
+    let expected = auto_fans_then(PerfMode::Silent);
+    assert_eq!(sent(&app), expected);
+}
+
+/// Ticket 298: Reset from a manual Custom sends the fans on auto first.
+#[test]
+fn a_reset_from_a_manual_fan_sends_the_fans_on_auto_first() {
+    let mut config = Config {
+        preset: Preset::Custom,
+        ..Config::default()
+    };
+    config.custom.fan_rpm = Some(3000);
+    let (mut app, _dir, _) = app_with(config);
+    app.take_on_battery(Some(false));
+    app.start().unwrap();
+    app.machine_mut().controller.inner.sent.clear();
+
+    app.reset_settings().unwrap();
+
+    let expected = auto_fans_then(PerfMode::Balanced);
+    assert_eq!(sent(&app)[..expected.len()], expected[..]);
+}
+
 #[test]
 fn on_battery_the_power_key_steps_from_the_running_preset() {
     let (mut app, _dir, _) = performance_app();
@@ -81,6 +119,25 @@ static ONE_PRESET: ModelProfile = ModelProfile {
     presets: &[PerfMode::Balanced],
     ..BLADE_18
 };
+
+/// Ticket 298: no step goes before a preset the model refuses, so the
+/// controller is not left on Custom with the fans on auto.
+#[test]
+fn from_a_manual_fan_a_preset_the_model_refuses_sends_nothing() {
+    let mut config = Config {
+        preset: Preset::Custom,
+        ..Config::default()
+    };
+    config.custom.fan_rpm = Some(3000);
+    let (mut app, _dir, _) = app_on(&ONE_PRESET, config);
+    app.take_on_battery(Some(false));
+    app.start().unwrap();
+    app.machine_mut().controller.inner.sent.clear();
+
+    let _ = app.on_performance(ui::PerformanceCommand::SetPreset(Preset::Silent));
+
+    assert_eq!(sent(&app), []);
+}
 
 #[test]
 fn a_model_without_the_power_key_ignores_it() {

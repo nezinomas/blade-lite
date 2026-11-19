@@ -12,6 +12,7 @@ mod screens;
 mod settings;
 mod sleep;
 mod soak;
+mod two_step;
 mod usb_suspend;
 mod wear;
 

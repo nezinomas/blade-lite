@@ -14,7 +14,7 @@ use ui::PerformanceCommand;
 use tempfile::TempDir;
 
 use crate::fakes::TestApp;
-use crate::{app_with, sent};
+use crate::{app_with, auto_fans_then, sent};
 
 /// The mode writes, which carry the manual flag.
 const SET_MODE: u16 = 0x0D02;
@@ -125,7 +125,7 @@ fn the_slow_resend_comes_once_a_minute_after_the_tries_run_out() {
     app.keep_resending(start + MANUAL_RESEND_SPACING);
 
     assert!(app.resend_preset().unwrap());
-    assert_eq!(sent(&app), PerfMode::Balanced.commands(&BLADE_18).unwrap());
+    assert_eq!(sent(&app), auto_fans_then(PerfMode::Balanced));
 }
 
 #[test]
@@ -154,7 +154,7 @@ fn the_guard_keeps_the_resends_going_and_sends_nothing_itself() {
     assert!(!app.boost_unsent());
 
     assert!(app.resend_preset().unwrap());
-    assert_eq!(sent(&app), PerfMode::Balanced.commands(&BLADE_18).unwrap());
+    assert_eq!(sent(&app), auto_fans_then(PerfMode::Balanced));
 }
 
 #[test]

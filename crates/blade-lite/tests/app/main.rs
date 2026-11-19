@@ -56,6 +56,19 @@ fn sent(app: &TestApp) -> &[Command] {
     &app.machine().controller.inner.sent
 }
 
+/// The two steps that end a manual fan (ticket 298): Custom with the fans
+/// on auto and the lowest boosts, then `mode`.
+fn auto_fans_then(mode: razer_proto::PerfMode) -> Vec<Command> {
+    let mut sent = razer_proto::Custom {
+        cpu: razer_proto::CpuBoost::new(0, &BLADE_18).unwrap(),
+        gpu: razer_proto::GpuBoost::new(0, &BLADE_18).unwrap(),
+        fan: razer_proto::FanMode::Auto,
+    }
+    .commands(&BLADE_18);
+    sent.extend(mode.commands(&BLADE_18).unwrap());
+    sent
+}
+
 /// Two ticks [`CHARGER_STEADY`](blade_lite::CHARGER_STEADY) apart: the
 /// full charger back has waited its time (ticket 263).
 fn charger_steady(app: &mut TestApp) {

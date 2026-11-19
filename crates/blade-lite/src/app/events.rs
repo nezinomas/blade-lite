@@ -37,6 +37,18 @@ where
         self.read_charge_limit();
         self.read_charger();
         let config = self.running(self.config);
+        // A start at a wake or after a pause may leave a manual fan the
+        // app sent (ticket 298); a first start adds no step (`NotYet`).
+        if let Err(error) = self.end_manual_fan(&config) {
+            let cut = Err(error);
+            self.note_preset_send(&config, &cut);
+            self.check_preset_if_sent(&config, &cut);
+            self.note_fan_targets(&config, &cut);
+            // As a start cut in its first write.
+            self.key_red = None;
+            self.read_logo();
+            return Ok(cut?);
+        }
         let red = self.key_should_be_red();
         let (applied, refused) = match apply(&config, self.model, &mut self.machine.controller, red)
         {
@@ -678,8 +690,9 @@ where
     /// or a cut send may have left a manual fan the window does not show
     /// (ticket 250), Custom with the fans on auto goes first (with the lowest
     /// boosts when Custom is not what should run), the known way to end a
-    /// manual fan; whether the preset's own mode write ends it too is not
-    /// checked on the laptop. The saved preset is kept, so the next start
+    /// manual fan; the preset's own mode write alone left the fans at 1600
+    /// RPM (ticket 291), so every send that leaves a manual fan does the
+    /// same (ticket 298, `send_preset`). The saved preset is kept, so the next start
     /// sends it again. Any fan targets due are dropped first, so none go
     /// after the quit.
     ///

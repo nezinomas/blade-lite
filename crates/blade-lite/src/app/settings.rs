@@ -74,6 +74,14 @@ where
             self.send_if_read_changed(before);
             return Err(error.into());
         }
+        // From a manual fan, Custom with the fans on auto first (ticket 298).
+        if let Err(error) = self.end_manual_fan(&running) {
+            let cut = Err(error);
+            self.note_preset_send(&running, &cut);
+            self.check_preset_if_sent(&running, &cut);
+            self.note_fan_targets(&running, &cut);
+            return Ok(cut?);
+        }
         let red = self.key_should_be_red();
         let applied = apply(&running, self.model, &mut self.machine.controller, red);
         self.key_red = applied.is_ok().then_some(red);
