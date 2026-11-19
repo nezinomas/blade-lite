@@ -370,6 +370,52 @@ fn only_the_first_battery_read_after_a_wake_with_the_source_unknown_counts() {
 }
 
 #[test]
+fn a_refused_60_hz_after_a_wake_with_the_source_unknown_is_an_error_and_waits_a_poll() {
+    // The read comes inside a poll, whose retry may come at once.
+    let (mut battery_rate, mut api) = after_a_wake_with_the_source_unknown();
+    api.failing_sets = 1;
+
+    let set = battery_rate.on_event(PowerEvent::OnBattery, &config(true), &mut api);
+    assert!(set.is_err());
+    assert!(battery_rate.retry_pending());
+    battery_rate.retry(&config(true), &mut api).unwrap();
+
+    assert_eq!(api.panel_mode(), mode(3840, 2400, 240));
+}
+
+#[test]
+fn a_battery_read_with_the_option_off_uses_up_the_mark_and_sends_nothing() {
+    let (mut battery_rate, mut api) = after_a_wake_with_the_source_unknown();
+    battery_rate
+        .on_event(PowerEvent::OnBattery, &config(false), &mut api)
+        .unwrap();
+    assert_eq!(api.panel_mode(), mode(3840, 2400, 240));
+
+    battery_rate
+        .on_event(PowerEvent::OnBattery, &config(true), &mut api)
+        .unwrap();
+
+    assert_eq!(api.panel_mode(), mode(3840, 2400, 240));
+}
+
+#[test]
+fn an_ac_read_after_a_wake_with_the_source_unknown_ends_its_mark() {
+    // The next switch to battery is a plain one: a refused 60 Hz is an
+    // error, not a wake's quiet tries.
+    let mut api = panel_at(240);
+    let mut battery_rate = BatteryRate::default();
+    battery_rate.on_resume_unknown();
+    battery_rate
+        .on_event(PowerEvent::OnAc, &config(true), &mut api)
+        .unwrap();
+    api.failing_sets = 1;
+
+    let set = battery_rate.on_event(PowerEvent::OnBattery, &config(true), &mut api);
+
+    assert!(set.is_err());
+}
+
+#[test]
 fn a_known_wake_after_one_with_the_source_unknown_ends_its_mark() {
     let (mut battery_rate, mut api) = after_a_wake_with_the_source_unknown();
     battery_rate

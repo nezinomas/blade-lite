@@ -112,11 +112,8 @@ impl BatteryRate {
         api: &mut impl DisplayApi,
     ) -> Result<(), DisplayError> {
         match event {
-            PowerEvent::OnBattery if std::mem::take(&mut self.source.wake_left) => {
-                self.sixty_again(config, api);
-                Ok(())
-            }
             PowerEvent::OnBattery => {
+                let wake_left = std::mem::take(&mut self.source.wake_left);
                 self.source.seen = true;
                 if self.put_back_tries {
                     self.stop_tries();
@@ -127,7 +124,11 @@ impl BatteryRate {
                 // A refused 60 Hz is tried again on the polls, as after a
                 // wake. A rate the panel does not offer, or no panel, is
                 // not, and ends a wake's tries too.
-                let set = self.on_battery(api);
+                let set = if wake_left {
+                    self.after_resume(api)
+                } else {
+                    self.on_battery(api)
+                };
                 match &set {
                     Err(error) if error.may_work_later() => self.start_tries(false),
                     Err(_) => self.stop_tries(),
@@ -136,6 +137,7 @@ impl BatteryRate {
                 set
             }
             PowerEvent::OnAc => {
+                self.source.wake_left = false;
                 // The put-back tries are AC's own: they go on (Windows
                 // sends AC once more when the app listens, after the start).
                 if self.put_back_tries {
@@ -186,7 +188,9 @@ impl BatteryRate {
     /// 2026-11-10). The next battery read then sets 60 Hz again as the wake
     /// would have (see `after_resume`), even with a rate saved, while other
     /// battery reads keep a panel at the saved rate as the user's (ticket
-    /// 286). Only the first read after it counts; a known wake ends it.
+    /// 286). Only the first read after it counts, and a refused set is an
+    /// error with its tries, as at a switch; an AC read or a known wake
+    /// ends it.
     pub fn on_resume_unknown(&mut self) {
         self.source.wake_left = true;
     }
