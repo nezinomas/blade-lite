@@ -2,7 +2,7 @@
 
 use blade_core::{
     ApplyError, Controller, ControllerReadings, Preset, Query, Readings, chosen_native_mode,
-    current_rate, native_mode_state, read_controller, read_cpu_temperature, refresh_rates,
+    current_rate, native_mode_state, read_controller, read_temperatures, refresh_rates,
     touchpad_on,
 };
 use platform::{DisplayApi, KeyInjector, Registry};
@@ -38,6 +38,7 @@ where
     fn header_with(&mut self, readings: Readings, controller: ControllerReadings) -> Header {
         self.read_errors = controller.errors;
         self.cpu_celsius = celsius(controller.cpu);
+        self.controller_gpu_celsius = celsius(controller.gpu);
         Header::new(&HeaderState {
             model: self.model,
             on_battery: self.on_battery(),
@@ -55,12 +56,14 @@ where
         &self.read_errors
     }
 
-    /// Reads only the CPU temperature, for the heat warning while no view
-    /// shows. A failed read is kept in [`read_errors`](Self::read_errors).
+    /// Reads only the temperatures (one controller read), for the heat
+    /// warning while no view shows. A failed read is kept in
+    /// [`read_errors`](Self::read_errors).
     pub fn read_cpu_temperature(&mut self) {
-        let (cpu, errors) = read_cpu_temperature(&mut self.machine.controller);
+        let (temperatures, errors) = read_temperatures(&mut self.machine.controller);
         self.read_errors = errors;
-        self.cpu_celsius = celsius(cpu);
+        self.cpu_celsius = celsius(temperatures.cpu);
+        self.controller_gpu_celsius = celsius(temperatures.gpu);
     }
 
     /// The CPU temperature in °C last read, or `None` if it could not be
@@ -68,6 +71,14 @@ where
     #[must_use]
     pub fn cpu_celsius(&self) -> Option<u32> {
         self.cpu_celsius
+    }
+
+    /// The GPU temperature in °C from the controller's last read, or `None`
+    /// if the GPU slept or it could not be read: a stand-in when NVML fails
+    /// (ticket 293).
+    #[must_use]
+    pub fn controller_gpu_celsius(&self) -> Option<u32> {
+        self.controller_gpu_celsius
     }
 
     #[must_use]

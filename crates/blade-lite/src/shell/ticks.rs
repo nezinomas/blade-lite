@@ -475,20 +475,32 @@ impl<P: Parts> Shell<P> {
 
     /// Reads only the temperatures, for the heat warning.
     fn tick_heat(self: &Rc<Self>, now: Instant) {
-        let (gpu, mut errors) = {
+        let (gpu, failed, mut errors) = {
             let (sampler, sensors) = &mut *self.sampler.borrow_mut();
             let gpu = sampler.gpu_celsius(sensors);
-            self.note_gpu_failed(sampler.gpu_failed());
-            (gpu, sampler.errors().to_vec())
+            (gpu, sampler.gpu_failed(), sampler.errors().to_vec())
         };
-        let cpu = {
+        let (cpu, stand_in) = {
             let mut app = self.app.borrow_mut();
             self.controller_read(|| app.read_cpu_temperature());
             errors.extend_from_slice(app.read_errors());
-            app.cpu_celsius()
+            (app.cpu_celsius(), app.controller_gpu_celsius())
         };
+        let gpu = self.gpu_or_stand_in(gpu, failed, stand_in);
         self.say_read_errors(&errors);
         self.watch_heat(cpu, gpu, now);
+    }
+
+    /// The GPU temperature for the heat warning and the fan guard: NVML's,
+    /// or, when that read failed, the controller's GPU field from the same
+    /// poll (ticket 293: within 3 °C of NVML under load, no delay). A read
+    /// that the field stands in for counts as no failure. Not for a GPU
+    /// asleep: that is no failure, and the field then reads 0 or the last
+    /// value for a few seconds. Tells the fan guard whether it failed.
+    fn gpu_or_stand_in(&self, nvml: Option<u32>, failed: bool, field: Option<u32>) -> Option<u32> {
+        let stand_in = field.filter(|_| failed);
+        self.note_gpu_failed(failed && stand_in.is_none());
+        stand_in.or(nvml)
     }
 
     /// Tries a wake's or a switch's refused 60 Hz, or a refused put-back at
@@ -1127,11 +1139,10 @@ impl<P: Parts> Shell<P> {
     /// since the touchpad key can change it at any time, and watches the
     /// temperatures. The reads that failed are logged once in a while.
     fn tick_readings(self: &Rc<Self>, now: Instant) {
-        let (readings, mut errors) = {
+        let (readings, failed, mut errors) = {
             let (sampler, sensors) = &mut *self.sampler.borrow_mut();
             let readings = sampler.sample(sensors);
-            self.note_gpu_failed(sampler.gpu_failed());
-            (readings, sampler.errors().to_vec())
+            (readings, sampler.gpu_failed(), sampler.errors().to_vec())
         };
         self.readings.set(readings);
         let mut app = self.app.borrow_mut();
@@ -1143,9 +1154,9 @@ impl<P: Parts> Shell<P> {
             bind::keyboard(&self.window, &view);
         }
         self.show_touchpad(app.touchpad_on());
-        let cpu = app.cpu_celsius();
+        let (cpu, stand_in) = (app.cpu_celsius(), app.controller_gpu_celsius());
         drop(app);
-        let gpu = readings.gpu.map(|gpu| gpu.celsius);
+        let gpu = self.gpu_or_stand_in(readings.gpu.map(|gpu| gpu.celsius), failed, stand_in);
         self.watch_heat(cpu, gpu, now);
     }
 

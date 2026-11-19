@@ -118,6 +118,33 @@ fn failed_gpu_reads_hold_a_manual_fan_at_full_speed_and_say_so() {
     assert_eq!(fan_speeds_since(&f, before), [1600; 4]);
 }
 
+/// Ticket 293: with NVML failing, the controller's GPU field stands in.
+#[test]
+fn with_nvml_failing_a_hot_gpu_in_the_controller_puts_a_manual_fan_at_full_speed() {
+    let f = manual_fan();
+    FAKE_GPU.set(FakeGpu::Fails);
+    f.shell.app().machine_mut().controller.inner.gpu_celsius = 90;
+    let before = sent_count(&f);
+
+    ticks(&f, Instant::now(), Duration::from_secs(3), 60);
+
+    let top = BLADE_18.custom.fan_rpm.max;
+    assert_eq!(fan_speeds_since(&f, before), [top; 4]);
+}
+
+#[test]
+fn with_nvml_failing_a_cool_gpu_in_the_controller_lets_a_manual_fan_go_back() {
+    let f = manual_fan();
+    FAKE_GPU.set(FakeGpu::Fails);
+    let now = ticks(&f, Instant::now(), Duration::from_secs(3), 96);
+    f.shell.app().machine_mut().controller.inner.gpu_celsius = 50;
+    let before = sent_count(&f);
+
+    ticks(&f, now, ui::FAN_GUARD_COOL_HOLD * 2, 62);
+
+    assert_eq!(fan_speeds_since(&f, before), [1600; 4]);
+}
+
 #[test]
 fn failed_gpu_reads_say_nothing_while_razer_software_runs() {
     let mut config = Config {

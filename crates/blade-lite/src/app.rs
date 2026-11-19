@@ -285,6 +285,9 @@ pub struct App<C, D, R, K> {
     missed_reads: Vec<String>,
     /// The CPU temperature read when the header was last made, in °C.
     cpu_celsius: Option<u32>,
+    /// The NVIDIA GPU's temperature from the same controller read, `None`
+    /// while it sleeps: a stand-in when NVML fails (ticket 293).
+    controller_gpu_celsius: Option<u32>,
     /// The native mode last read or set, for a display view made without
     /// reading the controller. `None` if none yet, or the last read or set
     /// failed.
@@ -388,6 +391,7 @@ where
             read_errors: Vec::new(),
             missed_reads: Vec::new(),
             cpu_celsius: None,
+            controller_gpu_celsius: None,
             native_mode: None,
             preset_check: PresetCheck::Unknown,
             dark_keys: None,

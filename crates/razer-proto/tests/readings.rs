@@ -109,3 +109,19 @@ fn a_temperature_reply_without_02_first_is_not_read() {
     assert_eq!(Celsius::cpu_from_reply(&[0x00, 52, 0, 0]), None);
     assert_eq!(Celsius::cpu_from_reply(&[0x01, 52, 0, 0]), None);
 }
+
+#[test]
+fn the_temperature_reply_gives_the_gpu_in_celsius() {
+    // Read on the laptop under load (ticket 293, 2026-11-19).
+    assert_eq!(
+        Celsius::gpu_from_reply(&[0x02, 60, 74, 0]),
+        Some(Celsius(74))
+    );
+}
+
+#[test]
+fn a_sleeping_gpu_or_another_reply_gives_no_gpu_temperature() {
+    assert_eq!(Celsius::gpu_from_reply(&[0x02, 52, 0, 0]), None);
+    assert_eq!(Celsius::gpu_from_reply(&[0x01, 52, 74, 0]), None);
+    assert_eq!(Celsius::gpu_from_reply(&[0x02, 52]), None);
+}
