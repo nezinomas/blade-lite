@@ -76,7 +76,8 @@ impl<P: Parts> Shell<P> {
 
     /// Puts a new settings window, not shown, in place of the hidden one.
     /// Not while a file dialog it owns is open: the dialog's end makes it
-    /// again. Nothing is sent or read: the open fills it. If it can't be
+    /// again (Windows refused such a close in the laptop check, so this is
+    /// in case another way gets through). Nothing is sent or read: the open fills it. If it can't be
     /// made, the old one stays, with its picture (logged once).
     pub(super) fn make_window_again(self: &Rc<Self>) {
         self.steps
@@ -340,8 +341,12 @@ impl<P: Parts> Shell<P> {
 /// layout, and keeps it if it gets none (laptop check 2026-11-20: 1146 x 171
 /// px), so it always gets one. A minimised window's spot is off screen (the
 /// centre check drops it), but its size is the one from before: Slint drops
-/// the zero-size resize of a minimise. A maximised one, minimised or not,
-/// opens maximised on the same screen (its size before that is lost).
+/// the zero-size resize of a minimise; an empty size is not copied, in case
+/// a later Slint keeps it. A maximised one, minimised or not, opens
+/// maximised on the same screen (its size before that is lost; un-maximised
+/// it came back at 1546 x 1711 px in the check). The spot is checked against
+/// the work area, so a window whose middle was over the taskbar opens where
+/// Windows puts it. Not checked with two monitors of different scales.
 fn place_like(new: &slint::Window, old: &slint::Window) {
     let position = old.position();
     let size = old.size();
@@ -371,7 +376,7 @@ fn place_like(new: &slint::Window, old: &slint::Window) {
     }
     if old.is_maximized() {
         new.set_maximized(true);
-    } else {
+    } else if size.width > 0 && size.height > 0 {
         new.set_size(size.to_logical(old.scale_factor()));
     }
 }
