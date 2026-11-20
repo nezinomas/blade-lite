@@ -335,13 +335,14 @@ impl<P: Parts> Shell<P> {
 
 /// Gives the `new` window the `old` one's place, as the old one kept it when
 /// hidden: its spot, if its middle is still on a screen, and its size, kept
-/// in logical pixels so a scale change since gives the same look. A
-/// minimised window's place is off screen, so it gives none; a maximised one
+/// in logical pixels so a scale change since gives the same look. A window
+/// made while the loop runs is made at once, at the short size of its empty
+/// layout, and keeps it if it gets none (laptop check 2026-11-20: 1146 x 171
+/// px), so it always gets one. A minimised window's spot is off screen (the
+/// centre check drops it), but its size is the one from before: Slint drops
+/// the zero-size resize of a minimise. A maximised one, minimised or not,
 /// opens maximised on the same screen (its size before that is lost).
 fn place_like(new: &slint::Window, old: &slint::Window) {
-    if old.is_minimized() {
-        return;
-    }
     let position = old.position();
     let size = old.size();
     let rect = Rect {

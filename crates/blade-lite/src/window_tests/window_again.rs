@@ -109,10 +109,11 @@ fn the_window_made_again_keeps_the_size() {
     assert_eq!(f.shell.window().window().size(), size);
 }
 
-/// A minimised window's place is off screen: the window made again takes
-/// neither it nor the size, or it would open where no one sees it.
+/// A window made again with no size keeps the short one of its empty
+/// layout (laptop check 2026-11-20), so a minimised one gives its size too.
+/// Its place is off screen; the centre check in `placement.rs` drops it.
 #[test]
-fn a_window_closed_while_minimised_opens_at_its_own_size() {
+fn a_window_closed_while_minimised_keeps_its_size() {
     let f = watched();
     let window = f.shell.window();
     window.window().set_size(PhysicalSize::new(900, 1100));
@@ -121,7 +122,7 @@ fn a_window_closed_while_minimised_opens_at_its_own_size() {
 
     close(&f);
 
-    assert_ne!(
+    assert_eq!(
         f.shell.window().window().size(),
         PhysicalSize::new(900, 1100)
     );
