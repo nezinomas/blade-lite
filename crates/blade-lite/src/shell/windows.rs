@@ -12,8 +12,8 @@ use slint::winit_030::{EventResult, WinitWindowAccessor, winit};
 use slint::{ComponentHandle, PhysicalPosition, Timer};
 
 use super::{Parts, Shell};
-use crate::bind;
 use crate::tray::px;
+use crate::{MainWindow, bind};
 
 /// A tray click this soon after the flyout closed is the click that closed
 /// it, so it must not open it again.
@@ -29,26 +29,82 @@ impl<P: Parts> Shell<P> {
     /// flyout hides when it loses focus.
     pub fn watch_windows(self: &Rc<Self>) {
         let shell = Rc::downgrade(self);
-        self.window.window().on_close_requested(move || {
-            if let Some(shell) = shell.upgrade() {
-                shell.schedule.borrow_mut().hide(View::Window);
-            }
-            slint::CloseRequestResponse::HideWindow
-        });
-        let shell = Rc::downgrade(self);
         self.flyout.window().on_winit_window_event(move |_, event| {
             if let Some(shell) = shell.upgrade() {
                 shell.on_flyout_event(event);
             }
             EventResult::Propagate
         });
+        self.watch_window();
+    }
+
+    /// The settings window's close and focus. Run again for each window
+    /// made again.
+    fn watch_window(self: &Rc<Self>) {
+        let window = self.window();
         let shell = Rc::downgrade(self);
-        self.window.window().on_winit_window_event(move |_, event| {
+        window.window().on_close_requested(move || {
+            if let Some(shell) = shell.upgrade() {
+                shell.window_closed();
+            }
+            slint::CloseRequestResponse::HideWindow
+        });
+        let shell = Rc::downgrade(self);
+        window.window().on_winit_window_event(move |_, event| {
             if let Some(shell) = shell.upgrade() {
                 shell.on_window_event(event);
             }
             EventResult::Propagate
         });
+    }
+
+    /// The user closed the settings window. Slint hides it once this
+    /// returns; on the next turn of the event loop a new window takes its
+    /// place, and the old one goes with its picture (ticket 303: on Windows
+    /// a hidden window keeps it, about 12 MB at 200 %). Not inside the
+    /// close: Slint still uses the old window there.
+    fn window_closed(self: &Rc<Self>) {
+        self.schedule.borrow_mut().hide(View::Window);
+        let shell = Rc::downgrade(self);
+        Timer::single_shot(Duration::ZERO, move || {
+            if let Some(shell) = shell.upgrade() {
+                shell.make_window_again();
+            }
+        });
+    }
+
+    /// Puts a new settings window, not shown, in place of the hidden one,
+    /// at its place and size (not a minimised one's: that place is off
+    /// screen). Nothing is sent or read: the open fills it. If it can't be
+    /// made, the old one stays, with its picture.
+    fn make_window_again(self: &Rc<Self>) {
+        let old = self.window();
+        if old.window().is_visible() {
+            return;
+        }
+        let new = match MainWindow::new() {
+            Ok(new) => new,
+            Err(error) => {
+                report(&format!(
+                    "the closed window stays in memory, as a new one can't be made: {error}"
+                ));
+                return;
+            }
+        };
+        new.set_accent(old.get_accent());
+        new.set_version(old.get_version());
+        let place = old.window();
+        if place.is_minimized() {
+        } else if place.is_maximized() {
+            new.window().set_maximized(true);
+        } else {
+            new.window().set_position(place.position());
+            new.window().set_size(place.size());
+        }
+        drop(old);
+        self.window.replace(new);
+        self.watch_window();
+        bind::window_callbacks(self);
     }
 
     /// The window brought back (restored, Alt+Tab) gets the focus.
@@ -97,9 +153,10 @@ impl<P: Parts> Shell<P> {
     /// The window shown or focused shows the laptop's brightness and Custom
     /// values, not a drag it lost while away.
     fn put_back_sliders(&self) {
-        drop_lost_drag(self.window.window());
-        self.window.invoke_show_brightness();
-        bind::put_back_sliders(&self.window, &self.app.borrow().performance_view());
+        let window = self.window();
+        drop_lost_drag(window.window());
+        window.invoke_show_brightness();
+        bind::put_back_sliders(&window, &self.app.borrow().performance_view());
     }
 
     pub fn show_window(self: &Rc<Self>) {
@@ -108,22 +165,26 @@ impl<P: Parts> Shell<P> {
 
     fn show_window_now(self: &Rc<Self>) {
         self.hide_flyout();
+        let window = self.window();
         // A window that opens shows the Settings and About groups closed; one
         // already open (a second start) keeps the groups the user opened.
-        if !self.window.window().is_visible() {
-            self.window.invoke_close_groups();
+        if !window.window().is_visible() {
+            window.invoke_close_groups();
         }
-        if let Err(error) = self.steps.time("window show", || self.window.show()) {
+        // Filled before it shows: a window made again (ticket 303) has
+        // nothing in it yet.
+        self.refresh(None);
+        if let Err(error) = self.steps.time("window show", || window.show()) {
             report(&format!("cannot show the window: {error}"));
             return;
         }
         self.once_shown(
-            |shell| shell.window.window(),
+            |shell| hwnd(shell.window().window()),
             |shell, hwnd| {
                 put_backdrop(hwnd, false);
                 // A window that is open but minimised or behind others comes
                 // to the front, so a second start shows it.
-                shell.window.window().with_winit_window(|window| {
+                shell.window().window().with_winit_window(|window| {
                     window.set_minimized(false);
                     window.focus_window();
                 });
@@ -132,7 +193,6 @@ impl<P: Parts> Shell<P> {
         self.schedule
             .borrow_mut()
             .show(View::Window, Instant::now());
-        self.refresh(None);
         self.put_back_sliders();
     }
 
@@ -163,7 +223,7 @@ impl<P: Parts> Shell<P> {
         }
         self.flyout_open.set(true);
         self.once_shown(
-            |shell| shell.flyout.window(),
+            |shell| hwnd(shell.flyout.window()),
             move |shell, hwnd| {
                 // Hidden before it got its handle (a tray double click
                 // shows the window): leave it, or it takes the focus.
@@ -187,19 +247,19 @@ impl<P: Parts> Shell<P> {
     /// A window that was just shown has none until the event loop turns.
     pub(super) fn once_shown(
         self: &Rc<Self>,
-        window: fn(&Self) -> &slint::Window,
+        handle: fn(&Self) -> Option<isize>,
         act: impl FnOnce(&Self, isize) + 'static,
     ) {
-        self.wait_for_handle(window, act, SHOW_TRIES);
+        self.wait_for_handle(handle, act, SHOW_TRIES);
     }
 
     fn wait_for_handle(
         self: &Rc<Self>,
-        window: fn(&Self) -> &slint::Window,
+        handle: fn(&Self) -> Option<isize>,
         act: impl FnOnce(&Self, isize) + 'static,
         tries: u32,
     ) {
-        if let Some(hwnd) = hwnd(window(self)) {
+        if let Some(hwnd) = handle(self) {
             self.steps.time("window backdrop", || act(self, hwnd));
             return;
         }
@@ -210,7 +270,7 @@ impl<P: Parts> Shell<P> {
         let shell = Rc::downgrade(self);
         Timer::single_shot(SHOW_DELAY, move || {
             if let Some(shell) = shell.upgrade() {
-                shell.wait_for_handle(window, act, tries - 1);
+                shell.wait_for_handle(handle, act, tries - 1);
             }
         });
     }

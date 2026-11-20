@@ -488,7 +488,7 @@ fn nothing_is_sent_or_read_between_the_sleep_and_the_wake() {
     let before = sent_count(&f);
     let asked = asked_count(&f);
 
-    click(f.shell.window(), Button, "Performance");
+    click(&f.shell.window(), Button, "Performance");
     f.shell.user_act(blade_lite::App::on_power_key);
     FAKE_ON_BATTERY.set(true);
     power(&f, &[PowerEvent::OnBattery]);
@@ -506,7 +506,7 @@ fn a_click_between_the_sleep_and_the_wake_says_why_nothing_happens() {
     let f = fixture(manual_fan());
     power(&f, &[PowerEvent::Suspending]);
 
-    click(f.shell.window(), Button, "Performance");
+    click(&f.shell.window(), Button, "Performance");
 
     let error = f.shell.window().get_error();
     assert!(error.contains("has not said it woke"), "{error}");
@@ -880,9 +880,9 @@ fn an_updater_that_runs_again_and_ends_in_its_own_pause_gets_a_new_pause() {
     step(1000);
     // Two clicks look: the updater runs again, then has ended again.
     f.shell.programs().set(&[UPDATER]);
-    click(f.shell.window(), Button, "Balanced");
+    click(&f.shell.window(), Button, "Balanced");
     f.shell.programs().set(&[]);
-    click(f.shell.window(), Button, "Balanced");
+    click(&f.shell.window(), Button, "Balanced");
     let before = sent_count(&f);
     let firmware = firmware_reads(&f);
     step(1001);
@@ -922,7 +922,7 @@ fn a_click_that_finds_an_updater_ended_sends_after_its_pause_only() {
     let before = sent_count(&f);
     let firmware = firmware_reads(&f);
 
-    click(f.shell.window(), Button, "Balanced");
+    click(&f.shell.window(), Button, "Balanced");
 
     the_updater_gets_its_own_pause(&f, before, firmware);
 }
@@ -937,7 +937,7 @@ fn an_updater_found_ended_in_the_wake_pause_gets_its_own_pause() {
     step(1900);
 
     // A click looks first: it finds the end 0.1 s before the pause ends.
-    click(f.shell.window(), Button, "Balanced");
+    click(&f.shell.window(), Button, "Balanced");
     step(101);
 
     the_updater_gets_its_own_pause(&f, before, firmware);
@@ -1021,7 +1021,7 @@ fn with_no_input_since_the_notice_the_sleep_goes_on() {
 
     assert_eq!(sent_since(&f, before), []);
     let error = {
-        click(f.shell.window(), Button, "Performance");
+        click(&f.shell.window(), Button, "Performance");
         f.shell.window().get_error()
     };
     assert!(error.contains("has not said it woke"), "{error}");

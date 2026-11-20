@@ -36,7 +36,7 @@ fn a_preset_click_sends_saves_and_shows_it() {
     let f = fixture(Config::default());
     let before = sent_count(&f);
 
-    click(f.shell.window(), Button, "Silent");
+    click(&f.shell.window(), Button, "Silent");
 
     assert_eq!(f.shell.app().config().preset, Preset::Silent);
     assert_eq!(
@@ -52,7 +52,7 @@ fn a_preset_the_controller_did_not_take_shows_in_the_window() {
     let f = fixture(Config::default());
     f.shell.app().machine_mut().controller.inner.modes_stuck = true;
 
-    click(f.shell.window(), Button, "Silent");
+    click(&f.shell.window(), Button, "Silent");
 
     let error = f.shell.window().get_error();
     assert!(error.contains("does not run the preset sent"), "{error}");
@@ -63,7 +63,7 @@ fn a_click_on_the_chosen_preset_sends_nothing() {
     let f = fixture(Config::default());
     let before = sent_count(&f);
 
-    click(f.shell.window(), Button, "Balanced");
+    click(&f.shell.window(), Button, "Balanced");
 
     assert_eq!(sent_since(&f, before), []);
 }
@@ -73,7 +73,7 @@ fn a_rate_click_sets_the_panel_and_sends_nothing() {
     let f = fixture(Config::default());
     let before = sent_count(&f);
 
-    click(f.shell.window(), Button, "60 Hz");
+    click(&f.shell.window(), Button, "60 Hz");
 
     assert_eq!(f.shell.app().machine().displays.0.current.hz, 60);
     assert_eq!(sent_since(&f, before), []);
@@ -89,7 +89,7 @@ fn a_locked_rate_does_nothing_on_a_click() {
     assert_eq!(f.shell.app().machine().displays.0.current.hz, 60);
     let before = sent_count(&f);
 
-    click(f.shell.window(), Button, "120 Hz");
+    click(&f.shell.window(), Button, "120 Hz");
 
     assert_eq!(f.shell.app().machine().displays.0.current.hz, 60);
     assert_eq!(sent_since(&f, before), []);
@@ -313,7 +313,7 @@ fn nothing_is_sent_after_the_quit_preset() {
     f.shell.end_session();
     let before = sent_count(&f);
 
-    click(f.shell.window(), Button, "Performance");
+    click(&f.shell.window(), Button, "Performance");
     f.shell.act(|app| app.on_power(PowerEvent::Resumed));
 
     assert_eq!(sent_since(&f, before), []);
@@ -678,7 +678,7 @@ fn a_native_mode_click_sends_that_mode() {
     let f = fixture(Config::default());
     let before = sent_count(&f);
 
-    click(f.shell.window(), Button, "1920 × 1200, up to 440 Hz");
+    click(&f.shell.window(), Button, "1920 × 1200, up to 440 Hz");
 
     assert_eq!(
         sent_since(&f, before),
@@ -716,7 +716,7 @@ fn a_native_mode_click_sends_nothing_while_the_chosen_mode_is_unknown() {
     f.shell.refresh(None);
     let before = sent_count(&f);
 
-    click(f.shell.window(), Button, "1920 × 1200, up to 440 Hz");
+    click(&f.shell.window(), Button, "1920 × 1200, up to 440 Hz");
 
     assert_eq!(sent_since(&f, before), []);
     let error = f.shell.window().get_error();
@@ -762,7 +762,7 @@ fn a_refused_60_hz_tried_again_shows_the_rate_while_the_native_mode_is_unknown()
 fn the_touchpad_switch_presses_the_touchpad_shortcut_once() {
     let f = fixture(Config::default());
 
-    click(f.shell.window(), Switch, "Touchpad");
+    click(&f.shell.window(), Switch, "Touchpad");
 
     assert_eq!(
         f.shell.app().machine().keys.0,
@@ -774,7 +774,7 @@ fn the_touchpad_switch_presses_the_touchpad_shortcut_once() {
 fn the_brightness_slider_sends_where_it_is_let_go() {
     let f = fixture(Config::default());
     let before = sent_count(&f);
-    let slider = control(f.shell.window(), Slider, "Brightness");
+    let slider = control(&f.shell.window(), Slider, "Brightness");
     let start = slider.absolute_position();
     let left_end = LogicalPosition::new(start.x, start.y + slider.size().height / 2.0);
 
@@ -782,7 +782,7 @@ fn the_brightness_slider_sends_where_it_is_let_go() {
 
     assert_eq!(sent_since(&f, before), lighting_commands(0, WHITE));
     assert_eq!(f.shell.app().config().lighting.unwrap().brightness, 0);
-    assert_eq!(percent_shown(f.shell.window(), "KeyboardGroup"), "Off");
+    assert_eq!(percent_shown(&f.shell.window(), "KeyboardGroup"), "Off");
 }
 
 /// The text beside the brightness slider of `component` in `root`.
@@ -832,7 +832,7 @@ fn drag_shows_the_percent<R: ElementRoot + ComponentHandle>(
 #[test]
 fn the_window_brightness_text_follows_the_slider_while_it_is_dragged() {
     let f = fixture(Config::default());
-    drag_shows_the_percent(&f, f.shell.window(), "Brightness", "KeyboardGroup");
+    drag_shows_the_percent(&f, &f.shell.window(), "Brightness", "KeyboardGroup");
 }
 
 #[test]
@@ -845,7 +845,7 @@ fn the_flyout_brightness_text_follows_the_slider_while_it_is_dragged() {
 fn both_brightness_sliders_run_from_0_to_100() {
     let f = fixture(Config::default());
     let sliders = [
-        control(f.shell.window(), Slider, "Brightness"),
+        control(&f.shell.window(), Slider, "Brightness"),
         control(f.shell.flyout(), Slider, "Keyboard light"),
     ];
 
@@ -881,7 +881,7 @@ fn failed_send_shows_the_brightness_again<R: ElementRoot + ComponentHandle>(
 #[test]
 fn the_window_brightness_goes_back_after_a_failed_send() {
     let f = fixture(Config::default());
-    failed_send_shows_the_brightness_again(&f, f.shell.window(), "Brightness", "KeyboardGroup");
+    failed_send_shows_the_brightness_again(&f, &f.shell.window(), "Brightness", "KeyboardGroup");
 }
 
 #[test]
@@ -893,7 +893,7 @@ fn the_flyout_brightness_goes_back_after_a_failed_send() {
 #[test]
 fn a_drag_cut_short_gives_way_to_a_change_from_the_flyout() {
     let f = fixture(Config::default());
-    let window = f.shell.window();
+    let window = &f.shell.window();
     let slider = control(window, Slider, "Brightness");
     let start = slider.absolute_position();
     let middle = LogicalPosition::new(
@@ -925,7 +925,7 @@ fn the_flyout_slider_follows_a_change_from_the_window_after_its_own_drag() {
     let left_end = LogicalPosition::new(start.x, start.y + flyout.size().height / 2.0);
     flyout.mock_drag(left_end, PointerEventButton::Left);
     assert_eq!(percent_shown(f.shell.flyout(), "FlyoutWindow"), "Off");
-    let window = control(f.shell.window(), Slider, "Brightness");
+    let window = control(&f.shell.window(), Slider, "Brightness");
     let start = window.absolute_position();
     let right_end = LogicalPosition::new(
         start.x + window.size().width,
@@ -991,24 +991,24 @@ fn shows_the_laptop_brightness<R: ElementRoot + ComponentHandle>(
 #[test]
 fn showing_the_window_puts_back_a_brightness_drag_cut_short() {
     let f = fixture(Config::default());
-    press_without_release(f.shell.window(), "Brightness");
-    assert_eq!(percent_shown(f.shell.window(), "KeyboardGroup"), "50%");
+    press_without_release(&f.shell.window(), "Brightness");
+    assert_eq!(percent_shown(&f.shell.window(), "KeyboardGroup"), "50%");
     let before = sent_count(&f);
 
     f.shell.show_window();
 
-    shows_the_laptop_brightness(&f, f.shell.window(), "Brightness", "KeyboardGroup", before);
+    shows_the_laptop_brightness(&f, &f.shell.window(), "Brightness", "KeyboardGroup", before);
 }
 
 #[test]
 fn focusing_the_window_puts_back_a_brightness_drag_cut_short() {
     let f = fixture(Config::default());
-    press_without_release(f.shell.window(), "Brightness");
+    press_without_release(&f.shell.window(), "Brightness");
     let before = sent_count(&f);
 
     f.shell.on_window_event(&WinitEvent::Focused(true));
 
-    shows_the_laptop_brightness(&f, f.shell.window(), "Brightness", "KeyboardGroup", before);
+    shows_the_laptop_brightness(&f, &f.shell.window(), "Brightness", "KeyboardGroup", before);
 }
 
 #[test]
@@ -1057,7 +1057,7 @@ fn a_narrator_set_value_on_the_window_brightness_sends_it() {
     let f = fixture(Config::default());
     narrator_sends_the_brightness(
         &f,
-        f.shell.window(),
+        &f.shell.window(),
         ("Brightness", "KeyboardGroup"),
         |slider| slider.set_accessible_value("30"),
         30,
@@ -1070,7 +1070,7 @@ fn a_narrator_decrease_on_the_window_brightness_sends_it() {
     let f = fixture(Config::default());
     narrator_sends_the_brightness(
         &f,
-        f.shell.window(),
+        &f.shell.window(),
         ("Brightness", "KeyboardGroup"),
         ElementHandle::invoke_accessible_decrement_action,
         95,
@@ -1104,7 +1104,7 @@ fn narrator_steps_from_33_percent(act: fn(&ElementHandle), sent: u8) {
     });
     let before = sent_count(&f);
 
-    act(&control(f.shell.window(), Slider, "Brightness"));
+    act(&control(&f.shell.window(), Slider, "Brightness"));
 
     assert_eq!(sent_since(&f, before), lighting_commands(sent, WHITE));
 }
@@ -1123,7 +1123,7 @@ fn a_narrator_decrease_between_two_steps_goes_to_the_next_step_down() {
 fn a_narrator_action_off_the_brightness_slider_sends_nothing() {
     let f = fixture(Config::default());
     let before = sent_count(&f);
-    let slider = control(f.shell.window(), Slider, "Brightness");
+    let slider = control(&f.shell.window(), Slider, "Brightness");
 
     slider.invoke_accessible_increment_action();
     for value in ["150", "-5", "NaN", "half", "33"] {
@@ -1132,7 +1132,7 @@ fn a_narrator_action_off_the_brightness_slider_sends_nothing() {
 
     assert_eq!(sent_since(&f, before), []);
     assert_eq!(slider.accessible_value().unwrap(), "100");
-    assert_eq!(percent_shown(f.shell.window(), "KeyboardGroup"), "100%");
+    assert_eq!(percent_shown(&f.shell.window(), "KeyboardGroup"), "100%");
 }
 
 #[test]
@@ -1162,7 +1162,7 @@ fn a_swatch_click_sends_and_saves_that_colour() {
     let red = f.shell.app().keyboard_view().unwrap().swatches[1].colour;
     let before = sent_count(&f);
 
-    click(f.shell.window(), Button, "Colour 2");
+    click(&f.shell.window(), Button, "Colour 2");
 
     assert_eq!(sent_since(&f, before), lighting_commands(100, red));
     assert_eq!(f.shell.app().config().lighting.unwrap().colour, red);
@@ -1173,7 +1173,7 @@ fn the_vapor_light_switch_turns_it_off() {
     let f = fixture(Config::default());
     let before = sent_count(&f);
 
-    click(f.shell.window(), Switch, "Vapor chamber light");
+    click(&f.shell.window(), Switch, "Vapor chamber light");
 
     let mut expected = brightness_commands(100, false);
     expected.extend(static_colour(WHITE, &BLADE_18));
@@ -1186,7 +1186,7 @@ fn the_lid_logo_switch_turns_it_off() {
     let f = fixture(Config::default());
     let before = sent_count(&f);
 
-    click(f.shell.window(), Switch, "Lid logo");
+    click(&f.shell.window(), Switch, "Lid logo");
 
     assert_eq!(sent_since(&f, before), logo().commands(false));
     assert!(!f.shell.window().get_logo_on());
@@ -1198,8 +1198,8 @@ fn the_keyboard_group_works_when_the_touchpad_cant_be_read() {
     f.shell.app().machine_mut().registry.touchpad = None;
     let before = sent_count(&f);
 
-    click(f.shell.window(), Switch, "Lid logo");
-    let slider = control(f.shell.window(), Slider, "Brightness");
+    click(&f.shell.window(), Switch, "Lid logo");
+    let slider = control(&f.shell.window(), Slider, "Brightness");
     let start = slider.absolute_position();
     let left_end = LogicalPosition::new(start.x, start.y + slider.size().height / 2.0);
     slider.mock_drag(left_end, PointerEventButton::Left);
@@ -1217,7 +1217,7 @@ fn the_charge_limit_switch_turns_it_on() {
     let f = fixture(Config::default());
     let before = sent_count(&f);
 
-    click(f.shell.window(), Switch, "Battery charge limit");
+    click(&f.shell.window(), Switch, "Battery charge limit");
 
     let limit = BLADE_18.charge_limit.unwrap();
     assert_eq!(sent_since(&f, before), [limit.command(true).unwrap()]);
@@ -1330,7 +1330,7 @@ fn a_locked_flyout_rate_does_nothing_on_a_click() {
 /// rate that ran), with 60 Hz on battery off.
 fn on_battery_fixture() -> Fixture {
     let f = fixture(Config::default());
-    click(f.shell.window(), Button, "120 Hz");
+    click(&f.shell.window(), Button, "120 Hz");
     FAKE_ON_BATTERY.set(true);
     f.shell.act(|app| app.on_power(PowerEvent::OnBattery));
     assert_eq!(f.shell.app().machine().displays.0.current.hz, 120);
@@ -1389,7 +1389,7 @@ fn sixty_hz_switch_refused_goes_back_off(f: &Fixture, root: &impl ElementRoot) {
 #[test]
 fn the_window_sixty_hz_switch_goes_back_off_when_60_hz_is_refused() {
     let f = on_battery_fixture();
-    sixty_hz_switch_refused_goes_back_off(&f, f.shell.window());
+    sixty_hz_switch_refused_goes_back_off(&f, &f.shell.window());
 }
 
 #[test]
@@ -1403,7 +1403,7 @@ fn the_sixty_hz_switch_on_ac_only_saves() {
     let f = fixture(Config::default());
     let before = sent_count(&f);
 
-    click(f.shell.window(), Switch, "Switch to 60 Hz on battery");
+    click(&f.shell.window(), Switch, "Switch to 60 Hz on battery");
 
     assert_eq!(f.shell.app().machine().displays.0.current.hz, 240);
     shows_sixty_hz_on_battery(&f, true, true);
@@ -1413,7 +1413,7 @@ fn the_sixty_hz_switch_on_ac_only_saves() {
 #[test]
 fn the_window_sixty_hz_switch_drops_the_rate_on_battery_and_puts_it_back() {
     let f = on_battery_fixture();
-    sixty_hz_switch_drops_the_rate_and_puts_it_back(&f, f.shell.window());
+    sixty_hz_switch_drops_the_rate_and_puts_it_back(&f, &f.shell.window());
 }
 
 #[test]
@@ -1469,11 +1469,11 @@ fn the_touchpad_switches_show_off_and_greyed_when_the_touchpad_cant_be_read() {
         Some(false)
     );
     assert_eq!(
-        control(f.shell.window(), Switch, "Touchpad").accessible_enabled(),
+        control(&f.shell.window(), Switch, "Touchpad").accessible_enabled(),
         Some(false)
     );
     click(f.shell.flyout(), Switch, "Touchpad");
-    click(f.shell.window(), Switch, "Touchpad");
+    click(&f.shell.window(), Switch, "Touchpad");
     assert_eq!(f.shell.app().machine().keys.0, []);
     assert!(!f.shell.window().get_touchpad_on());
     assert!(!f.shell.flyout().get_touchpad_on());
@@ -1495,7 +1495,7 @@ fn a_failed_click_shows_the_error_and_logs_it() {
     f.shell.app().machine_mut().controller.inner.native_fails = true;
     let before = sent_count(&f);
 
-    click(f.shell.window(), Button, "1920 × 1200, up to 440 Hz");
+    click(&f.shell.window(), Button, "1920 × 1200, up to 440 Hz");
 
     assert_eq!(sent_since(&f, before), []);
     let error = f.shell.window().get_error();
@@ -1756,7 +1756,7 @@ fn a_preset_click_during_the_resume_pause_sends_nothing() {
     resuming(&f);
     let before = sent_count(&f);
 
-    click(f.shell.window(), Button, "Silent");
+    click(&f.shell.window(), Button, "Silent");
 
     assert_eq!(sent_since(&f, before), []);
     assert_eq!(f.shell.app().config().preset, Preset::Balanced);
@@ -1770,7 +1770,7 @@ fn a_click_with_a_wake_not_yet_followed_sends_nothing() {
     sender.send(PowerEvent::Resumed).unwrap();
     let before = sent_count(&f);
 
-    click(f.shell.window(), Button, "Silent");
+    click(&f.shell.window(), Button, "Silent");
 
     assert_eq!(sent_since(&f, before), []);
 }
@@ -1794,7 +1794,7 @@ fn a_switch_clicked_in_the_resume_pause_shows_the_saved_value_after_it() {
     let saved = f.shell.window().get_charge_limit_on();
     resuming(&f);
 
-    click(f.shell.window(), Switch, "Battery charge limit");
+    click(&f.shell.window(), Switch, "Battery charge limit");
     i_slint_backend_testing::mock_elapsed_time(
         blade_core::RESUME_PAUSE + std::time::Duration::from_millis(1),
     );
@@ -1823,7 +1823,7 @@ fn a_preset_click_after_the_resume_pause_sends_it() {
     );
     let before = sent_count(&f);
 
-    click(f.shell.window(), Button, "Silent");
+    click(&f.shell.window(), Button, "Silent");
 
     assert_eq!(
         sent_since(&f, before),
@@ -1905,9 +1905,9 @@ fn fn_f11_moves_both_brightness_sliders() {
     let vapor = BLADE_18.vapor_light.unwrap();
     let full = razer_proto::Brightness::new(100).unwrap();
     assert_eq!(sent_since(&f, before), [vapor.command(full, true)]);
-    let window_slider = control(f.shell.window(), Slider, "Brightness");
+    let window_slider = control(&f.shell.window(), Slider, "Brightness");
     assert_eq!(window_slider.accessible_value().unwrap(), "100");
-    assert_eq!(percent_shown(f.shell.window(), "KeyboardGroup"), "100%");
+    assert_eq!(percent_shown(&f.shell.window(), "KeyboardGroup"), "100%");
     let flyout_slider = control(f.shell.flyout(), Slider, "Keyboard light");
     assert_eq!(flyout_slider.accessible_value().unwrap(), "100");
     assert_eq!(percent_shown(f.shell.flyout(), "FlyoutWindow"), "100%");
@@ -1917,7 +1917,7 @@ fn fn_f11_moves_both_brightness_sliders() {
 fn an_fn_press_that_changes_nothing_keeps_a_shown_error() {
     let f = lit_fixture();
     f.shell.app().machine_mut().controller.inner.native_fails = true;
-    click(f.shell.window(), Button, "60 Hz");
+    click(&f.shell.window(), Button, "60 Hz");
     let error = f.shell.window().get_error();
     assert!(error.contains("busy"), "{error}");
     f.shell.app().machine_mut().controller.inner.native_fails = false;
@@ -1967,7 +1967,7 @@ fn a_failed_brightness_read_after_fn_is_logged_not_shown() {
 
     assert_eq!(f.shell.window().get_error(), "");
     assert_eq!(sent_since(&f, before), []);
-    assert_eq!(percent_shown(f.shell.window(), "KeyboardGroup"), "35%");
+    assert_eq!(percent_shown(&f.shell.window(), "KeyboardGroup"), "35%");
     let log = std::fs::read_to_string(log_path()).unwrap();
     assert!(log.contains("keyboard brightness"), "{log}");
 }
@@ -1988,7 +1988,7 @@ fn a_failed_vapor_send_after_fn_shows_the_error_and_the_new_level() {
 
     let error = f.shell.window().get_error();
     assert!(error.contains("busy"), "{error}");
-    assert_eq!(percent_shown(f.shell.window(), "KeyboardGroup"), "100%");
+    assert_eq!(percent_shown(&f.shell.window(), "KeyboardGroup"), "100%");
 }
 
 /// Gives the fake sensors a battery health of 99% and 86 cycles.
@@ -2004,7 +2004,7 @@ fn read_health(f: &Fixture) {
 
 /// Whether a text `label` shows in the window.
 fn text_shown(f: &Fixture, label: &str) -> bool {
-    ElementHandle::find_by_accessible_label(f.shell.window(), label)
+    ElementHandle::find_by_accessible_label(&f.shell.window(), label)
         .next()
         .is_some()
 }
@@ -2023,7 +2023,7 @@ fn the_battery_health_ends_the_charge_limit_note() {
         "Off. Turn on to stop at 80% \u{b7} Health 99%, 86 cycles"
     ));
     assert!(!text_shown(&f, "Battery health"), "no row of its own");
-    click(f.shell.window(), Switch, "Battery charge limit");
+    click(&f.shell.window(), Switch, "Battery charge limit");
     assert!(text_shown(
         &f,
         "Stops charging at 80% \u{b7} Health 99%, 86 cycles"
@@ -2036,7 +2036,7 @@ fn without_the_charge_limit_the_battery_health_has_its_own_row() {
     // A failed set, then a failed read, leaves the limit's state unknown.
     f.shell.app().machine_mut().controller.inner.fails = true;
     f.shell.app().machine_mut().controller.inner.charge = None;
-    click(f.shell.window(), Switch, "Battery charge limit");
+    click(&f.shell.window(), Switch, "Battery charge limit");
     f.shell.app().machine_mut().controller.inner.fails = false;
     assert!(!text_shown(&f, "Battery health"), "nothing known yet");
     read_health(&f);
@@ -2094,7 +2094,7 @@ fn a_new_mode_after_a_touchpad_popup_says_power_mode() {
     f.shell.app().machine_mut().registry.touchpad = Some(0);
     f.shell.follow_touchpad();
 
-    click(f.shell.window(), Button, "Silent");
+    click(&f.shell.window(), Button, "Silent");
 
     assert_eq!(f.shell.popup().get_caption(), "Power mode");
     assert_eq!(f.shell.popup().get_mode(), "Silent");
@@ -2630,11 +2630,12 @@ fn a_typed_custom_colour_sends_and_saves_it_on_enter() {
     let f = fixture(Config::default());
     assert_eq!(f.shell.app().config().lighting, None);
     let before = sent_count(&f);
-    let field = control(f.shell.window(), TextInput, "Custom colour");
+    let field = control(&f.shell.window(), TextInput, "Custom colour");
     let start = field.absolute_position();
     let size = field.size();
     let middle = LogicalPosition::new(start.x + size.width / 2.0, start.y + size.height / 2.0);
-    let window = f.shell.window().window();
+    let main = f.shell.window();
+    let window = main.window();
     let button = PointerEventButton::Left;
     window.dispatch_event(WindowEvent::PointerPressed {
         position: middle,
@@ -2666,7 +2667,7 @@ fn a_custom_cpu_boost_click_one_step_up_sends_the_custom_commands() {
         ..Config::default()
     });
     let before = sent_count(&f);
-    let slider = control(f.shell.window(), Slider, "CPU boost");
+    let slider = control(&f.shell.window(), Slider, "CPU boost");
     assert_eq!(slider.accessible_value().unwrap(), "1");
     let start = slider.absolute_position();
     let size = slider.size();
@@ -2675,7 +2676,8 @@ fn a_custom_cpu_boost_click_one_step_up_sends_the_custom_commands() {
         start.x + size.width * 2.0 / 3.0,
         start.y + size.height / 2.0,
     );
-    let window = f.shell.window().window();
+    let main = f.shell.window();
+    let window = main.window();
     let button = PointerEventButton::Left;
     window.dispatch_event(WindowEvent::PointerPressed { position, button });
     window.dispatch_event(WindowEvent::PointerReleased { position, button });
@@ -2687,14 +2689,14 @@ fn a_custom_cpu_boost_click_one_step_up_sends_the_custom_commands() {
     };
     assert_eq!(sent_since(&f, before), custom.commands(&BLADE_18));
     assert_eq!(f.shell.app().config().custom.cpu_boost, 2);
-    let slider = control(f.shell.window(), Slider, "CPU boost");
+    let slider = control(&f.shell.window(), Slider, "CPU boost");
     assert_eq!(slider.accessible_value().unwrap(), "2");
 }
 
 /// The text beside the Custom slider in row `row` (0 CPU, 1 GPU, 2 Fan).
 fn custom_text_shown(f: &Fixture, row: usize) -> String {
     let id = "PerformanceGroup::slider-text";
-    let text = ElementHandle::find_by_element_id(f.shell.window(), id)
+    let text = ElementHandle::find_by_element_id(&f.shell.window(), id)
         .nth(row)
         .unwrap_or_else(|| panic!("no {id} in row {row}"));
     text.accessible_label().unwrap().into()
@@ -2719,13 +2721,14 @@ fn custom_drag_shows_the_text(
     config.custom.fan_rpm = Some(1600);
     let f = fixture(config);
     let before = sent_count(&f);
-    let slider = control(f.shell.window(), Slider, label);
+    let slider = control(&f.shell.window(), Slider, label);
     let start = slider.absolute_position();
     let size = slider.size();
     let y = start.y + size.height / 2.0;
     let press = LogicalPosition::new(start.x + size.width * at, y);
     let end = LogicalPosition::new(start.x, y);
-    let window = f.shell.window().window();
+    let main = f.shell.window();
+    let window = main.window();
     let button = PointerEventButton::Left;
 
     window.dispatch_event(WindowEvent::PointerPressed {
@@ -2789,7 +2792,7 @@ fn a_custom_slider_let_go_in_the_pause_after_a_wake_goes_back_unsent() {
     sender.send(PowerEvent::Resumed).unwrap();
     f.shell.follow_power(&receiver);
     let before = sent_count(&f);
-    let slider = control(f.shell.window(), Slider, "CPU boost");
+    let slider = control(&f.shell.window(), Slider, "CPU boost");
     let start = slider.absolute_position();
     let left_end = LogicalPosition::new(start.x, start.y + slider.size().height / 2.0);
 
@@ -2797,7 +2800,7 @@ fn a_custom_slider_let_go_in_the_pause_after_a_wake_goes_back_unsent() {
 
     assert_eq!(sent_since(&f, before), []);
     assert_eq!(f.shell.app().config().custom.cpu_boost, 1);
-    let slider = control(f.shell.window(), Slider, "CPU boost");
+    let slider = control(&f.shell.window(), Slider, "CPU boost");
     assert_eq!(slider.accessible_value().unwrap(), "1");
     assert_eq!(custom_text_shown(&f, 0), "1");
 }
@@ -2809,7 +2812,7 @@ fn a_custom_slider_goes_back_after_a_failed_send() {
         ..Config::default()
     });
     f.shell.app().machine_mut().controller.inner.fails = true;
-    let slider = control(f.shell.window(), Slider, "CPU boost");
+    let slider = control(&f.shell.window(), Slider, "CPU boost");
     let start = slider.absolute_position();
     let left_end = LogicalPosition::new(start.x, start.y + slider.size().height / 2.0);
 
@@ -2818,7 +2821,7 @@ fn a_custom_slider_goes_back_after_a_failed_send() {
     let error = f.shell.window().get_error();
     assert!(error.contains("busy"), "{error}");
     assert_eq!(f.shell.app().config().custom.cpu_boost, 1);
-    let slider = control(f.shell.window(), Slider, "CPU boost");
+    let slider = control(&f.shell.window(), Slider, "CPU boost");
     assert_eq!(slider.accessible_value().unwrap(), "1");
 }
 
@@ -2832,7 +2835,7 @@ fn custom_fixture() -> Fixture {
 /// The CPU boost the window shows and the laptop has: the slider, its text
 /// and the saved level all say `level`.
 fn shows_cpu_boost(f: &Fixture, level: u8) {
-    let slider = control(f.shell.window(), Slider, "CPU boost");
+    let slider = control(&f.shell.window(), Slider, "CPU boost");
     assert_eq!(slider.accessible_value().unwrap(), level.to_string());
     assert_eq!(custom_text_shown(f, 0), level.to_string());
     assert_eq!(f.shell.app().config().custom.cpu_boost, level);
@@ -2843,7 +2846,7 @@ fn a_narrator_set_value_on_a_custom_slider_sends_it() {
     let f = custom_fixture();
     let before = sent_count(&f);
 
-    control(f.shell.window(), Slider, "CPU boost").set_accessible_value("2");
+    control(&f.shell.window(), Slider, "CPU boost").set_accessible_value("2");
 
     let fan = razer_proto::FanMode::Auto;
     assert_eq!(sent_since(&f, before), custom_commands(2, fan));
@@ -2856,12 +2859,12 @@ fn narrator_increase_and_decrease_on_a_custom_slider_send_them() {
     let fan = razer_proto::FanMode::Auto;
 
     let before = sent_count(&f);
-    control(f.shell.window(), Slider, "CPU boost").invoke_accessible_increment_action();
+    control(&f.shell.window(), Slider, "CPU boost").invoke_accessible_increment_action();
     assert_eq!(sent_since(&f, before), custom_commands(2, fan));
     shows_cpu_boost(&f, 2);
 
     let before = sent_count(&f);
-    control(f.shell.window(), Slider, "CPU boost").invoke_accessible_decrement_action();
+    control(&f.shell.window(), Slider, "CPU boost").invoke_accessible_decrement_action();
     assert_eq!(sent_since(&f, before), custom_commands(1, fan));
     shows_cpu_boost(&f, 1);
 }
@@ -2872,7 +2875,7 @@ fn a_narrator_set_value_off_a_custom_slider_sends_nothing() {
     let before = sent_count(&f);
 
     for value in ["9", "-1", "NaN", "inf", "two"] {
-        control(f.shell.window(), Slider, "CPU boost").set_accessible_value(value);
+        control(&f.shell.window(), Slider, "CPU boost").set_accessible_value(value);
     }
 
     assert_eq!(sent_since(&f, before), []);
@@ -2885,7 +2888,7 @@ fn a_narrator_set_value_between_two_stops_sends_nothing() {
     let before = sent_count(&f);
 
     for value in ["1.6", "0.4", "2.5"] {
-        control(f.shell.window(), Slider, "CPU boost").set_accessible_value(value);
+        control(&f.shell.window(), Slider, "CPU boost").set_accessible_value(value);
     }
 
     assert_eq!(sent_since(&f, before), []);
@@ -2900,14 +2903,14 @@ fn a_narrator_set_value_in_the_pause_after_a_wake_goes_back_unsent() {
     f.shell.follow_power(&receiver);
     let before = sent_count(&f);
 
-    control(f.shell.window(), Slider, "CPU boost").set_accessible_value("2");
-    control(f.shell.window(), Slider, "Brightness").set_accessible_value("30");
+    control(&f.shell.window(), Slider, "CPU boost").set_accessible_value("2");
+    control(&f.shell.window(), Slider, "Brightness").set_accessible_value("30");
 
     assert_eq!(sent_since(&f, before), []);
     shows_cpu_boost(&f, 1);
-    let slider = control(f.shell.window(), Slider, "Brightness");
+    let slider = control(&f.shell.window(), Slider, "Brightness");
     assert_eq!(slider.accessible_value().unwrap(), "100");
-    assert_eq!(percent_shown(f.shell.window(), "KeyboardGroup"), "100%");
+    assert_eq!(percent_shown(&f.shell.window(), "KeyboardGroup"), "100%");
 }
 
 #[test]
@@ -2920,7 +2923,7 @@ fn a_narrator_increase_at_the_top_of_a_custom_slider_sends_nothing() {
     let f = fixture(config);
     let before = sent_count(&f);
 
-    control(f.shell.window(), Slider, "CPU boost").invoke_accessible_increment_action();
+    control(&f.shell.window(), Slider, "CPU boost").invoke_accessible_increment_action();
 
     assert_eq!(sent_since(&f, before), []);
     shows_cpu_boost(&f, 3);
@@ -2929,11 +2932,12 @@ fn a_narrator_increase_at_the_top_of_a_custom_slider_sends_nothing() {
 /// Clicks the CPU boost handle at level 1 of 0 to 3, which focuses the
 /// slider and changes nothing.
 fn focus_cpu_boost(f: &Fixture) -> ElementHandle {
-    let slider = control(f.shell.window(), Slider, "CPU boost");
+    let slider = control(&f.shell.window(), Slider, "CPU boost");
     let start = slider.absolute_position();
     let size = slider.size();
     let handle = LogicalPosition::new(start.x + size.width / 3.0, start.y + size.height / 2.0);
-    let window = f.shell.window().window();
+    let main = f.shell.window();
+    let window = main.window();
     let button = PointerEventButton::Left;
     window.dispatch_event(WindowEvent::PointerPressed {
         position: handle,
@@ -2988,7 +2992,7 @@ fn a_custom_slider_keeps_the_focus_when_the_window_is_focused_again() {
 #[test]
 fn a_custom_slider_follows_a_preset_change_after_its_own_release() {
     let f = custom_fixture();
-    let slider = control(f.shell.window(), Slider, "CPU boost");
+    let slider = control(&f.shell.window(), Slider, "CPU boost");
     let start = slider.absolute_position();
     let left_end = LogicalPosition::new(start.x, start.y + slider.size().height / 2.0);
     slider.mock_drag(left_end, PointerEventButton::Left);
@@ -3004,10 +3008,11 @@ fn a_custom_slider_follows_a_preset_change_after_its_own_release() {
 #[test]
 fn a_refresh_keeps_a_custom_slider_drag_not_yet_let_go() {
     let f = custom_fixture();
-    let slider = control(f.shell.window(), Slider, "CPU boost");
+    let slider = control(&f.shell.window(), Slider, "CPU boost");
     let start = slider.absolute_position();
     let left_end = LogicalPosition::new(start.x, start.y + slider.size().height / 2.0);
-    let window = f.shell.window().window();
+    let main = f.shell.window();
+    let window = main.window();
     let button = PointerEventButton::Left;
     window.dispatch_event(WindowEvent::PointerPressed {
         position: left_end,
@@ -3046,7 +3051,7 @@ fn custom_drag_cut_short_is_put_back(come_back: impl FnOnce(&Fixture)) {
         preset: Preset::Custom,
         ..Config::default()
     });
-    let slider = control(f.shell.window(), Slider, "CPU boost");
+    let slider = control(&f.shell.window(), Slider, "CPU boost");
     let start = slider.absolute_position();
     let left_end = LogicalPosition::new(start.x, start.y + slider.size().height / 2.0);
     f.shell
@@ -3079,7 +3084,7 @@ fn custom_drag_cut_short_is_put_back(come_back: impl FnOnce(&Fixture)) {
 
     assert_eq!(sent_since(&f, before), []);
     assert_eq!(f.shell.app().config().custom.cpu_boost, 1);
-    let slider = control(f.shell.window(), Slider, "CPU boost");
+    let slider = control(&f.shell.window(), Slider, "CPU boost");
     assert_eq!(slider.accessible_value().unwrap(), "1");
 }
 

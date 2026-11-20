@@ -184,7 +184,7 @@ impl<P: Parts> Shell<P> {
             self.fade_in_on_top();
         } else {
             self.once_shown(
-                |shell| shell.popup.window(),
+                |shell| hwnd(shell.popup.window()),
                 |shell, _| shell.set_up_popup(),
             );
         }

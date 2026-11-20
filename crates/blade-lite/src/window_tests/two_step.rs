@@ -49,7 +49,7 @@ fn a_click_from_a_manual_fan_to_balanced_sends_the_fans_on_auto_first() {
     let f = fixture(manual_custom());
     let before = sent_count(&f);
 
-    click(f.shell.window(), Button, "Balanced");
+    click(&f.shell.window(), Button, "Balanced");
 
     assert_eq!(sent_since(&f, before), two_steps(PerfMode::Balanced));
 }
@@ -62,7 +62,7 @@ fn a_click_from_custom_on_auto_sends_the_preset_alone() {
     });
     let before = sent_count(&f);
 
-    click(f.shell.window(), Button, "Silent");
+    click(&f.shell.window(), Button, "Silent");
 
     assert_eq!(
         sent_since(&f, before),
@@ -75,8 +75,8 @@ fn a_click_between_presets_sends_the_preset_alone() {
     let f = fixture(Config::default());
     let before = sent_count(&f);
 
-    click(f.shell.window(), Button, "Performance");
-    click(f.shell.window(), Button, "Silent");
+    click(&f.shell.window(), Button, "Performance");
+    click(&f.shell.window(), Button, "Silent");
 
     let mut sent = PerfMode::Performance.commands(&BLADE_18).unwrap();
     sent.extend(PerfMode::Silent.commands(&BLADE_18).unwrap());

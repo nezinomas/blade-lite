@@ -28,7 +28,7 @@ fn pick(name: &str) -> (TempDir, PathBuf) {
 
 /// The header of the group `name`, which opens and closes it.
 fn header(f: &Fixture, name: &str) -> ElementHandle {
-    control(f.shell.window(), Button, name)
+    control(&f.shell.window(), Button, name)
 }
 
 fn is_open(f: &Fixture, name: &str) -> bool {
@@ -42,13 +42,13 @@ fn is_open(f: &Fixture, name: &str) -> bool {
 /// Opens the Settings group if it is closed, then clicks its `label` button.
 fn press(f: &Fixture, label: &str) {
     if !is_open(f, "Settings") {
-        click(f.shell.window(), Button, "Settings");
+        click(&f.shell.window(), Button, "Settings");
     }
-    click(f.shell.window(), Button, label);
+    click(&f.shell.window(), Button, label);
 }
 
 fn shown(f: &Fixture, label: &str) -> bool {
-    ElementHandle::find_by_accessible_label(f.shell.window(), label)
+    ElementHandle::find_by_accessible_label(&f.shell.window(), label)
         .next()
         .is_some()
 }
@@ -206,7 +206,7 @@ fn a_file_picked_while_the_laptop_wakes_says_to_try_again() {
 fn the_window_shows_the_slint_credit() {
     let f = fixture(Config::default());
 
-    click(f.shell.window(), Button, "About");
+    click(&f.shell.window(), Button, "About");
 
     assert!(shown(&f, "#MadeWithSlint"));
 }
@@ -217,7 +217,7 @@ fn the_window_shows_the_slint_credit() {
 fn about_shows_the_version_and_the_credit() {
     let f = fixture(Config::default());
 
-    click(f.shell.window(), Button, "About");
+    click(&f.shell.window(), Button, "About");
 
     assert!(shown(
         &f,
@@ -241,19 +241,19 @@ fn the_settings_and_about_groups_start_closed() {
 fn a_click_on_a_group_header_opens_and_closes_it() {
     let f = fixture(Config::default());
 
-    click(f.shell.window(), Button, "Settings");
+    click(&f.shell.window(), Button, "Settings");
     assert!(is_open(&f, "Settings"));
     assert!(shown(&f, "Export…"));
     assert!(!is_open(&f, "About"), "only the clicked group opens");
 
-    click(f.shell.window(), Button, "Settings");
+    click(&f.shell.window(), Button, "Settings");
     assert!(!is_open(&f, "Settings"));
     assert!(!shown(&f, "Export…"));
 
-    click(f.shell.window(), Button, "About");
+    click(&f.shell.window(), Button, "About");
     assert!(is_open(&f, "About"));
     assert!(shown(&f, "#MadeWithSlint"));
-    click(f.shell.window(), Button, "About");
+    click(&f.shell.window(), Button, "About");
     assert!(!shown(&f, "#MadeWithSlint"));
 }
 
@@ -291,8 +291,8 @@ fn a_group_header_tells_narrator_its_state_as_a_toggle() {
 #[test]
 fn the_groups_are_closed_again_when_the_window_opens_again() {
     let f = fixture(Config::default());
-    click(f.shell.window(), Button, "Settings");
-    click(f.shell.window(), Button, "About");
+    click(&f.shell.window(), Button, "Settings");
+    click(&f.shell.window(), Button, "About");
     f.shell.window().hide().unwrap();
 
     f.shell.show_window();
@@ -324,8 +324,8 @@ fn the_keyboard_opens_and_closes_a_group() {
 #[test]
 fn the_groups_stay_open_when_an_open_window_is_shown_again() {
     let f = fixture(Config::default());
-    click(f.shell.window(), Button, "Settings");
-    click(f.shell.window(), Button, "About");
+    click(&f.shell.window(), Button, "Settings");
+    click(&f.shell.window(), Button, "About");
 
     f.shell.show_window();
 

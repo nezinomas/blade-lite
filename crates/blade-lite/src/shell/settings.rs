@@ -38,7 +38,7 @@ impl<P: Parts> Shell<P> {
         if self.dialog_open.get() {
             return;
         }
-        let owner = hwnd(self.window.window());
+        let owner = hwnd(self.window().window());
         self.dialog_open.set(true);
         let shell = Rc::downgrade(self);
         P::pick_file(
