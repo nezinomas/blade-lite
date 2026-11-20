@@ -32,7 +32,7 @@ pub use key_reader::{
     KEY_REOPEN_PAUSE, KeyEvent, KeyReaderLoop, KeyReportOpener, KeyReportSource, OpenedKeyReports,
     ReaderEnd, UNHEARD_SPELLS_BEFORE_ALL, WindowsFnKeys, step_on_presses,
 };
-pub use placement::{Rect, flyout_position, popup_position};
+pub use placement::{Rect, centre_inside, flyout_position, popup_position};
 pub use report::{
     Reporter, SaidLately, ShownErrors, open_log, open_quiet_log, report, report_panics,
 };

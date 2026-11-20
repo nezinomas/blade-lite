@@ -1,6 +1,6 @@
 //! Where the tray flyout opens: above the tray icon, inside the screen.
 
-use blade_lite::{Rect, flyout_position, popup_position};
+use blade_lite::{Rect, centre_inside, flyout_position, popup_position};
 
 /// A 2560 × 1600 screen with the taskbar at the bottom.
 const SCREEN: Rect = Rect {
@@ -176,4 +176,45 @@ fn it_stays_off_a_taskbar_on_the_left() {
     let (x, _) = flyout_position(icon(28, 800), FLYOUT, work_area);
 
     assert_eq!(x, 96 + 12);
+}
+
+/// Ticket 303: a settings window made again goes back to its old place
+/// only while that place's middle is on a screen.
+fn window(x: i32, y: i32) -> Rect {
+    Rect {
+        x,
+        y,
+        width: 1000,
+        height: 800,
+    }
+}
+
+#[test]
+fn a_window_with_its_middle_on_the_screen_is_inside() {
+    assert!(centre_inside(window(100, 100), SCREEN));
+    // Snapped to the left edge: the invisible border is off the screen.
+    assert!(centre_inside(window(-7, 0), SCREEN));
+    assert!(centre_inside(window(-499, -399), SCREEN));
+}
+
+#[test]
+fn a_window_with_its_middle_off_the_screen_is_not_inside() {
+    // A monitor to the right, now gone.
+    assert!(!centre_inside(window(2600, 100), SCREEN));
+    assert!(!centre_inside(window(-501, 100), SCREEN));
+    assert!(!centre_inside(window(100, 1300), SCREEN));
+    // Windows' place for a minimised window.
+    assert!(!centre_inside(window(-32000, -32000), SCREEN));
+}
+
+#[test]
+fn a_broken_size_does_not_overflow() {
+    let huge = Rect {
+        x: i32::MAX,
+        y: i32::MAX,
+        width: i32::MAX,
+        height: i32::MAX,
+    };
+    assert!(!centre_inside(huge, SCREEN));
+    assert!(!centre_inside(window(0, 0), huge));
 }

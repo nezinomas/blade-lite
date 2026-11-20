@@ -38,6 +38,8 @@ pub(crate) use ticks::WITH_THE_PRESET;
 #[cfg(test)]
 pub use ticks::{FULL_SPEED_SENT_AGAIN, MISSED_WAKES_HELD};
 
+use slint::ComponentHandle;
+
 use crate::{FlyoutWindow, MainWindow, ModePopup, bind};
 
 /// The parts of the laptop the shell's app drives: the real ones, or fakes
@@ -366,7 +368,8 @@ pub struct Kept {
 }
 
 pub struct Shell<P: Parts = Laptop> {
-    window: MainWindow,
+    /// The settings window. Made again after each close (ticket 303).
+    window: RefCell<MainWindow>,
     flyout: FlyoutWindow,
     popup: ModePopup,
     app: RefCell<AppOn<P>>,
@@ -503,7 +506,7 @@ impl<P: Parts> Shell<P> {
         // About shows it; the installer takes the same one from the exe.
         window.set_version(env!("CARGO_PKG_VERSION").into());
         Rc::new(Self {
-            window,
+            window: RefCell::new(window),
             flyout,
             popup,
             app: RefCell::new(app),
@@ -558,8 +561,10 @@ impl<P: Parts> Shell<P> {
         })
     }
 
-    pub fn window(&self) -> &MainWindow {
-        &self.window
+    /// The settings window now. A close makes a new one (ticket 303), so
+    /// keep it no longer than needed, or the old one's picture stays.
+    pub fn window(&self) -> MainWindow {
+        self.window.borrow().clone_strong()
     }
 
     pub fn flyout(&self) -> &FlyoutWindow {
@@ -872,8 +877,9 @@ impl<P: Parts> Shell<P> {
     /// Sets both touchpad switches. `None`, a state that can't be read,
     /// shows off and greyed.
     fn show_touchpad(&self, on: Option<bool>) {
-        self.window.set_touchpad_on(on == Some(true));
-        self.window.set_touchpad_known(on.is_some());
+        let window = self.window();
+        window.set_touchpad_on(on == Some(true));
+        window.set_touchpad_known(on.is_some());
         self.flyout.set_touchpad_on(on == Some(true));
         self.flyout.set_touchpad_known(on.is_some());
     }
@@ -890,8 +896,9 @@ impl<P: Parts> Shell<P> {
         self.say_read_errors(app.read_errors());
         self.say_read_errors(&app.take_missed_reads());
         let performance = app.performance_view();
-        bind::header(&self.window, &header);
-        bind::performance(&self.window, &performance);
+        let window = self.window();
+        bind::header(&window, &header);
+        bind::performance(&window, &performance);
         bind::flyout_performance(&self.flyout, &performance, &header);
         // A failed view leaves its parts as last shown and shows the error.
         if let Some(view) = self.display_view(&mut app, &mut errors) {
@@ -899,7 +906,7 @@ impl<P: Parts> Shell<P> {
         }
         match app.keyboard_view() {
             Ok(view) => {
-                bind::keyboard(&self.window, &view);
+                bind::keyboard(&window, &view);
                 bind::flyout_keyboard(&self.flyout, &view);
             }
             Err(error) => errors.push(error.to_string()),
@@ -909,17 +916,16 @@ impl<P: Parts> Shell<P> {
         // when a view failed, so it never shows a value that was not saved
         // or sent. A touchpad state that can't be read shows off, greyed.
         let sixty_hz = app.config().sixty_hz_on_battery;
-        self.window.set_sixty_hz_on_battery(sixty_hz);
+        window.set_sixty_hz_on_battery(sixty_hz);
         self.flyout.set_sixty_hz_on_battery(sixty_hz);
         let touchpad = app.read_touchpad();
         if let Err(error) = &touchpad {
             errors.push(error.to_string());
         }
         self.show_touchpad(touchpad.ok());
-        self.window
-            .set_vapor_light_on(app.vapor_light_on() == Some(true));
-        self.window.set_logo_shown(app.logo_on().is_some());
-        self.window.set_logo_on(app.logo_on() == Some(true));
+        window.set_vapor_light_on(app.vapor_light_on() == Some(true));
+        window.set_logo_shown(app.logo_on().is_some());
+        window.set_logo_on(app.logo_on() == Some(true));
         // Equal lines next to each other show once, such as a click's error
         // that the fill finds again.
         errors.dedup();
@@ -954,6 +960,6 @@ impl<P: Parts> Shell<P> {
             .chain(manual)
             .chain((!errors.is_empty()).then_some(errors.as_str()))
             .collect();
-        self.window.set_error(shown.join("\n").into());
+        window.set_error(shown.join("\n").into());
     }
 }

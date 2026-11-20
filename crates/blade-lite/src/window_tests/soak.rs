@@ -517,7 +517,7 @@ fn fake<T>(f: &Fixture, change: impl FnOnce(&mut FakeController) -> T) -> T {
 
 /// Clicks the one control with `label`, if one shows. Returns whether it did.
 fn click_if_there(f: &Fixture, role: AccessibleRole, label: &str) -> bool {
-    let found: Vec<_> = ElementHandle::find_by_accessible_label(f.shell.window(), label)
+    let found: Vec<_> = ElementHandle::find_by_accessible_label(&f.shell.window(), label)
         .filter(|element| element.accessible_role() == Some(role))
         .collect();
     let [control] = &found[..] else {

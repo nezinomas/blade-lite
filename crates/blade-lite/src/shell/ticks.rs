@@ -162,7 +162,7 @@ impl<P: Parts> Shell<P> {
     /// unknown counts as on) and the window minimised: a view out of sight
     /// reads as with no view, so the fan guard's reads go on (ticket 188).
     fn follow_views_in_sight(&self, now: Instant) {
-        let minimized = self.window.window().is_minimized();
+        let minimized = self.window().window().is_minimized();
         let mut schedule = self.schedule.borrow_mut();
         schedule.set_screen_off(P::screen_on() == Some(false), now);
         schedule.set_window_minimized(minimized, now);
@@ -560,7 +560,7 @@ impl<P: Parts> Shell<P> {
     /// Shows `view` in the window's and the flyout's display groups, and
     /// keeps it for [`Self::follow_displays`].
     pub(super) fn show_display(&self, view: DisplayView) {
-        bind::display(&self.window, &view);
+        bind::display(&self.window(), &view);
         bind::flyout_display(&self.flyout, &view);
         self.display_shown.replace(Some(view));
     }
@@ -1161,9 +1161,9 @@ impl<P: Parts> Shell<P> {
         let header = self.controller_read(|| self.header(&mut app, readings));
         errors.extend_from_slice(app.read_errors());
         self.say_read_errors(&errors);
-        bind::header(&self.window, &header);
+        bind::header(&self.window(), &header);
         if let Ok(view) = app.keyboard_view() {
-            bind::keyboard(&self.window, &view);
+            bind::keyboard(&self.window(), &view);
         }
         self.show_touchpad(app.touchpad_on());
         let (cpu, stand_in) = (app.cpu_celsius(), app.controller_gpu_celsius());

@@ -138,7 +138,7 @@ fn a_click_before_the_tick_after_an_open_again_sends_nothing() {
     let before = f.shell.app().machine().controller.inner.sent.len();
     FAKE_REOPENED.set(Reopened::Opened);
 
-    click(f.shell.window(), Button, "Silent");
+    click(&f.shell.window(), Button, "Silent");
 
     assert_eq!(f.shell.app().machine().controller.inner.sent.len(), before);
     pause_ends();
@@ -188,7 +188,7 @@ fn a_failed_open_again_only_looks_for_razer_software() {
     assert!(!FAKE_RELEASED.get(), "no handle to release");
     // No pause: a click goes on at once.
     let before = f.shell.app().machine().controller.inner.sent.len();
-    click(f.shell.window(), Button, "Silent");
+    click(&f.shell.window(), Button, "Silent");
     assert!(f.shell.app().machine().controller.inner.sent.len() > before);
 }
 
@@ -239,7 +239,7 @@ fn a_click_sends_nothing_while_a_razer_updater_runs() {
     look(&f);
     let before = f.shell.app().machine().controller.inner.sent.len();
 
-    click(f.shell.window(), Button, "Performance");
+    click(&f.shell.window(), Button, "Performance");
 
     assert_eq!(f.shell.app().machine().controller.inner.sent.len(), before);
     let error = f.shell.window().get_error();
@@ -252,7 +252,7 @@ fn a_click_looks_for_a_razer_updater_first() {
     f.shell.programs().set(&[UPDATER]);
     let before = f.shell.app().machine().controller.inner.sent.len();
 
-    click(f.shell.window(), Button, "Silent");
+    click(&f.shell.window(), Button, "Silent");
 
     assert_eq!(f.shell.app().machine().controller.inner.sent.len(), before);
     let error = f.shell.window().get_error();
@@ -494,7 +494,7 @@ fn a_click_that_finds_razer_software_gone_sends_only_its_own_preset() {
     f.shell.programs().set(&[]);
     let before = sent_count(&f);
 
-    click(f.shell.window(), Button, "Balanced");
+    click(&f.shell.window(), Button, "Balanced");
 
     let bytes = fan_bytes_since(&f, before);
     assert!(all_auto(&bytes), "{bytes:?}");
@@ -633,7 +633,7 @@ fn with_razer_software_at_start_the_rates_show_and_no_native_mode_is_chosen() {
 fn while_razer_software_runs_a_rate_click_sets_the_rate_and_reads_no_native_mode() {
     let f = fixture_with_programs(Config::default(), &[SYNAPSE]);
 
-    click(f.shell.window(), Button, "120 Hz");
+    click(&f.shell.window(), Button, "120 Hz");
 
     assert_eq!(native_reads_since(&f, 0), 0);
     assert_eq!(f.shell.app().machine().displays.0.current.hz, 120);
@@ -670,7 +670,7 @@ fn while_razer_software_runs_a_native_mode_click_shows_the_new_mode() {
     f.shell.programs().set(&[SYNAPSE]);
     look(&f);
 
-    click(f.shell.window(), Button, "1920 × 1200, up to 440 Hz");
+    click(&f.shell.window(), Button, "1920 × 1200, up to 440 Hz");
 
     let natives = f.shell.window().get_native_modes();
     assert_eq!(chosen(&natives), "1920 × 1200, up to 440 Hz");

@@ -268,7 +268,9 @@ fn flyout_callbacks<P: Parts>(shell: &Rc<Shell<P>>) {
     });
 }
 
-fn window_callbacks<P: Parts>(shell: &Rc<Shell<P>>) {
+/// The settings window's callbacks: at start, and for each window made
+/// again (ticket 303).
+pub fn window_callbacks<P: Parts>(shell: &Rc<Shell<P>>) {
     let window = shell.window();
     let s = Rc::downgrade(shell);
     window.on_pick_preset(move |i| on(&s, |shell| pick_preset(shell, i)));

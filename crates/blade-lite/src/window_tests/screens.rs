@@ -34,8 +34,8 @@ fn window_with_the_groups_open() {
     let f = fixture(Config::default());
     // A fixed version, so a version bump does not change the picture.
     f.shell.window().set_version("x.y.z".into());
-    click(f.shell.window(), Button, "Settings");
-    click(f.shell.window(), Button, "About");
+    click(&f.shell.window(), Button, "Settings");
+    click(&f.shell.window(), Button, "About");
     // Shift+Tab puts the keyboard focus on the About header: its focus ring.
     shift_tab(&f);
     check("window-groups-open", f.shell.window().window());
@@ -61,7 +61,7 @@ fn window_on_battery() {
 fn window_with_an_error() {
     let f = fixture(Config::default());
     f.shell.app().machine_mut().controller.inner.fails = true;
-    click(f.shell.window(), Button, "Silent");
+    click(&f.shell.window(), Button, "Silent");
     check("window-error", f.shell.window().window());
 }
 

@@ -136,7 +136,7 @@ fn the_fan_targets_go_once_more_while_the_line_shows() {
     let f = fixture(config);
     FAKE_USB_SUSPEND_ON.set(true);
     assert!(says_suspend(&shown(&f)));
-    click(f.shell.window(), Button, "Custom");
+    click(&f.shell.window(), Button, "Custom");
     let before = sent_count(&f);
     let t0 = Instant::now();
 

@@ -1,10 +1,11 @@
 //! Showing, placing and hiding the settings window and the tray flyout.
 
 use std::rc::Rc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
 use blade_core::View;
-use blade_lite::{Rect, flyout_position, report};
+use blade_lite::{Rect, centre_inside, flyout_position, report};
 use platform::{hide_caption_buttons, round_corners, set_mica, work_area, work_area_at};
 use raw_window_handle::{HasWindowHandle, RawWindowHandle};
 use slint::platform::WindowEvent;
@@ -12,8 +13,8 @@ use slint::winit_030::{EventResult, WinitWindowAccessor, winit};
 use slint::{ComponentHandle, PhysicalPosition, Timer};
 
 use super::{Parts, Shell};
-use crate::bind;
 use crate::tray::px;
+use crate::{MainWindow, bind};
 
 /// A tray click this soon after the flyout closed is the click that closed
 /// it, so it must not open it again.
@@ -29,26 +30,89 @@ impl<P: Parts> Shell<P> {
     /// flyout hides when it loses focus.
     pub fn watch_windows(self: &Rc<Self>) {
         let shell = Rc::downgrade(self);
-        self.window.window().on_close_requested(move || {
-            if let Some(shell) = shell.upgrade() {
-                shell.schedule.borrow_mut().hide(View::Window);
-            }
-            slint::CloseRequestResponse::HideWindow
-        });
-        let shell = Rc::downgrade(self);
         self.flyout.window().on_winit_window_event(move |_, event| {
             if let Some(shell) = shell.upgrade() {
                 shell.on_flyout_event(event);
             }
             EventResult::Propagate
         });
+        self.watch_window();
+    }
+
+    /// The settings window's close and focus. Run again for each window
+    /// made again.
+    fn watch_window(self: &Rc<Self>) {
+        let window = self.window();
         let shell = Rc::downgrade(self);
-        self.window.window().on_winit_window_event(move |_, event| {
+        window.window().on_close_requested(move || {
+            if let Some(shell) = shell.upgrade() {
+                shell.window_closed();
+            }
+            slint::CloseRequestResponse::HideWindow
+        });
+        let shell = Rc::downgrade(self);
+        window.window().on_winit_window_event(move |_, event| {
             if let Some(shell) = shell.upgrade() {
                 shell.on_window_event(event);
             }
             EventResult::Propagate
         });
+    }
+
+    /// The user closed the settings window. Slint hides it once this
+    /// returns; on the next turn of the event loop a new window takes its
+    /// place, and the old one goes with its picture (ticket 303: on Windows
+    /// a hidden window keeps it, about 12 MB at 200 %). Not inside the
+    /// close: Slint still uses the old window there.
+    fn window_closed(self: &Rc<Self>) {
+        self.schedule.borrow_mut().hide(View::Window);
+        let shell = Rc::downgrade(self);
+        Timer::single_shot(Duration::ZERO, move || {
+            if let Some(shell) = shell.upgrade() {
+                shell.make_window_again();
+            }
+        });
+    }
+
+    /// Puts a new settings window, not shown, in place of the hidden one.
+    /// Not while a file dialog it owns is open: the dialog's end makes it
+    /// again (Windows refused such a close in the laptop check, so this is
+    /// in case another way gets through). Nothing is sent or read: the open fills it. If it can't be
+    /// made, the old one stays, with its picture (logged once).
+    pub(super) fn make_window_again(self: &Rc<Self>) {
+        self.steps
+            .time("window made again", || self.make_window_again_now());
+    }
+
+    fn make_window_again_now(self: &Rc<Self>) {
+        static FAILURE_SAID: AtomicBool = AtomicBool::new(false);
+        let old = self.window();
+        if old.window().is_visible() || self.dialog_open.get() {
+            return;
+        }
+        let new = match MainWindow::new() {
+            Ok(new) => new,
+            Err(error) => {
+                if !FAILURE_SAID.swap(true, Ordering::Relaxed) {
+                    report(&format!(
+                        "the closed window stays in memory, as a new one can't be made (said once): {error}"
+                    ));
+                }
+                return;
+            }
+        };
+        new.set_accent(old.get_accent());
+        new.set_version(old.get_version());
+        place_like(new.window(), old.window());
+        // The display groups are filled only on a change (ticket 287), and a
+        // failed read at the open leaves them as last shown.
+        if let Some(view) = self.display_shown.borrow().as_ref() {
+            bind::display(&new, view);
+        }
+        drop(old);
+        self.window.replace(new);
+        self.watch_window();
+        bind::window_callbacks(self);
     }
 
     /// The window brought back (restored, Alt+Tab) gets the focus.
@@ -97,9 +161,10 @@ impl<P: Parts> Shell<P> {
     /// The window shown or focused shows the laptop's brightness and Custom
     /// values, not a drag it lost while away.
     fn put_back_sliders(&self) {
-        drop_lost_drag(self.window.window());
-        self.window.invoke_show_brightness();
-        bind::put_back_sliders(&self.window, &self.app.borrow().performance_view());
+        let window = self.window();
+        drop_lost_drag(window.window());
+        window.invoke_show_brightness();
+        bind::put_back_sliders(&window, &self.app.borrow().performance_view());
     }
 
     pub fn show_window(self: &Rc<Self>) {
@@ -108,22 +173,26 @@ impl<P: Parts> Shell<P> {
 
     fn show_window_now(self: &Rc<Self>) {
         self.hide_flyout();
+        let window = self.window();
         // A window that opens shows the Settings and About groups closed; one
         // already open (a second start) keeps the groups the user opened.
-        if !self.window.window().is_visible() {
-            self.window.invoke_close_groups();
+        if !window.window().is_visible() {
+            window.invoke_close_groups();
         }
-        if let Err(error) = self.steps.time("window show", || self.window.show()) {
+        // Filled before it shows: a window made again (ticket 303) has
+        // nothing in it yet.
+        self.refresh(None);
+        if let Err(error) = self.steps.time("window show", || window.show()) {
             report(&format!("cannot show the window: {error}"));
             return;
         }
         self.once_shown(
-            |shell| shell.window.window(),
+            |shell| hwnd(shell.window().window()),
             |shell, hwnd| {
                 put_backdrop(hwnd, false);
                 // A window that is open but minimised or behind others comes
                 // to the front, so a second start shows it.
-                shell.window.window().with_winit_window(|window| {
+                shell.window().window().with_winit_window(|window| {
                     window.set_minimized(false);
                     window.focus_window();
                 });
@@ -132,7 +201,6 @@ impl<P: Parts> Shell<P> {
         self.schedule
             .borrow_mut()
             .show(View::Window, Instant::now());
-        self.refresh(None);
         self.put_back_sliders();
     }
 
@@ -163,7 +231,7 @@ impl<P: Parts> Shell<P> {
         }
         self.flyout_open.set(true);
         self.once_shown(
-            |shell| shell.flyout.window(),
+            |shell| hwnd(shell.flyout.window()),
             move |shell, hwnd| {
                 // Hidden before it got its handle (a tray double click
                 // shows the window): leave it, or it takes the focus.
@@ -187,19 +255,19 @@ impl<P: Parts> Shell<P> {
     /// A window that was just shown has none until the event loop turns.
     pub(super) fn once_shown(
         self: &Rc<Self>,
-        window: fn(&Self) -> &slint::Window,
+        handle: fn(&Self) -> Option<isize>,
         act: impl FnOnce(&Self, isize) + 'static,
     ) {
-        self.wait_for_handle(window, act, SHOW_TRIES);
+        self.wait_for_handle(handle, act, SHOW_TRIES);
     }
 
     fn wait_for_handle(
         self: &Rc<Self>,
-        window: fn(&Self) -> &slint::Window,
+        handle: fn(&Self) -> Option<isize>,
         act: impl FnOnce(&Self, isize) + 'static,
         tries: u32,
     ) {
-        if let Some(hwnd) = hwnd(window(self)) {
+        if let Some(hwnd) = handle(self) {
             self.steps.time("window backdrop", || act(self, hwnd));
             return;
         }
@@ -210,7 +278,7 @@ impl<P: Parts> Shell<P> {
         let shell = Rc::downgrade(self);
         Timer::single_shot(SHOW_DELAY, move || {
             if let Some(shell) = shell.upgrade() {
-                shell.wait_for_handle(window, act, tries - 1);
+                shell.wait_for_handle(handle, act, tries - 1);
             }
         });
     }
@@ -263,6 +331,53 @@ impl<P: Parts> Shell<P> {
             }
         };
         Some(flyout_position(icon, flyout, screen))
+    }
+}
+
+/// Gives the `new` window the `old` one's place, as the old one kept it when
+/// hidden: its spot, if its middle is still on a screen, and its size, kept
+/// in logical pixels so a scale change since gives the same look. A window
+/// made while the loop runs is made at once, at the short size of its empty
+/// layout, and keeps it if it gets none (laptop check 2026-11-20: 1146 x 171
+/// px), so it always gets one. A minimised window's spot is off screen (the
+/// centre check drops it), but its size is the one from before: Slint drops
+/// the zero-size resize of a minimise; an empty size is not copied, in case
+/// a later Slint keeps it. A maximised one, minimised or not, opens
+/// maximised on the same screen (its size before that is lost; un-maximised
+/// it came back at 1546 x 1711 px in the check). The spot is checked against
+/// the work area, so a window whose middle was over the taskbar opens where
+/// Windows puts it. Not checked with two monitors of different scales.
+fn place_like(new: &slint::Window, old: &slint::Window) {
+    let position = old.position();
+    let size = old.size();
+    let rect = Rect {
+        x: position.x,
+        y: position.y,
+        width: px(size.width),
+        height: px(size.height),
+    };
+    let centre = (
+        rect.x.saturating_add(rect.width / 2),
+        rect.y.saturating_add(rect.height / 2),
+    );
+    let on_screen = work_area_at(centre).is_ok_and(|(x, y, width, height)| {
+        centre_inside(
+            rect,
+            Rect {
+                x,
+                y,
+                width,
+                height,
+            },
+        )
+    });
+    if on_screen {
+        new.set_position(position);
+    }
+    if old.is_maximized() {
+        new.set_maximized(true);
+    } else if size.width > 0 && size.height > 0 {
+        new.set_size(size.to_logical(old.scale_factor()));
     }
 }
 

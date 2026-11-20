@@ -15,6 +15,7 @@ mod soak;
 mod two_step;
 mod usb_suspend;
 mod wear;
+mod window_again;
 
 use std::cell::RefCell;
 use std::io;
@@ -353,7 +354,8 @@ pub fn click(root: &impl ElementRoot, role: AccessibleRole, label: &str) {
 
 /// Presses and lets go `key` in the window, as the keyboard does.
 pub fn press_key(f: &Fixture, key: slint::platform::Key) {
-    let window = f.shell.window().window();
+    let main = f.shell.window();
+    let window = main.window();
     let text: slint::SharedString = key.into();
     window.dispatch_event(slint::platform::WindowEvent::KeyPressed { text: text.clone() });
     window.dispatch_event(slint::platform::WindowEvent::KeyReleased { text });
@@ -361,7 +363,8 @@ pub fn press_key(f: &Fixture, key: slint::platform::Key) {
 
 /// Shift+Tab in the window: the keyboard focus goes back one control.
 pub fn shift_tab(f: &Fixture) {
-    let window = f.shell.window().window();
+    let main = f.shell.window();
+    let window = main.window();
     let shift: slint::SharedString = slint::platform::Key::Shift.into();
     window.dispatch_event(slint::platform::WindowEvent::KeyPressed {
         text: shift.clone(),

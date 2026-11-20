@@ -61,7 +61,7 @@ fn tick(f: &Fixture, at: Instant) {
 #[test]
 fn the_fan_targets_go_once_more_two_seconds_after_a_custom_click() {
     let f = fixture(manual_fan_saved(Preset::Balanced));
-    click(f.shell.window(), Button, "Custom");
+    click(&f.shell.window(), Button, "Custom");
     let before = sent_count(&f);
     let t0 = Instant::now();
 
@@ -99,10 +99,10 @@ fn the_start_with_a_manual_fan_sends_its_fan_targets_once_more() {
 #[test]
 fn a_preset_click_before_the_two_seconds_sends_no_fan_targets() {
     let f = fixture(manual_fan_saved(Preset::Balanced));
-    click(f.shell.window(), Button, "Custom");
+    click(&f.shell.window(), Button, "Custom");
     let t0 = Instant::now();
     tick(&f, t0);
-    click(f.shell.window(), Button, "Balanced");
+    click(&f.shell.window(), Button, "Balanced");
     let before = sent_count(&f);
 
     tick(&f, t0 + Duration::from_secs(2));
@@ -114,7 +114,7 @@ fn a_preset_click_before_the_two_seconds_sends_no_fan_targets() {
 #[test]
 fn custom_with_the_fans_on_auto_sends_no_fan_targets_again() {
     let f = fixture(Config::default());
-    click(f.shell.window(), Button, "Custom");
+    click(&f.shell.window(), Button, "Custom");
     let before = sent_count(&f);
     let t0 = Instant::now();
 
@@ -158,12 +158,12 @@ fn the_wake_sends_the_fan_targets_once_more_after_its_own_send() {
 #[test]
 fn a_newer_custom_send_waits_its_own_two_seconds() {
     let f = fixture(manual_fan_saved(Preset::Balanced));
-    click(f.shell.window(), Button, "Custom");
+    click(&f.shell.window(), Button, "Custom");
     let t0 = Instant::now();
     tick(&f, t0);
     // Before the next tick: Balanced, then Custom again.
-    click(f.shell.window(), Button, "Balanced");
-    click(f.shell.window(), Button, "Custom");
+    click(&f.shell.window(), Button, "Balanced");
+    click(&f.shell.window(), Button, "Custom");
     let before = sent_count(&f);
 
     tick(&f, t0 + Duration::from_secs(2));
@@ -176,7 +176,7 @@ fn a_newer_custom_send_waits_its_own_two_seconds() {
 #[test]
 fn the_fan_guard_s_full_speed_goes_once_more_too() {
     let f = fixture(manual_fan_saved(Preset::Balanced));
-    click(f.shell.window(), Button, "Custom");
+    click(&f.shell.window(), Button, "Custom");
     let t0 = Instant::now();
     tick(&f, t0);
     f.shell.watch_heat(Some(96), None, t0);
@@ -196,7 +196,7 @@ fn the_fan_guard_s_full_speed_goes_once_more_too() {
 #[test]
 fn no_fan_targets_go_again_in_the_pause_of_an_open_again_but_after_its_start() {
     let f = fixture(manual_fan_saved(Preset::Balanced));
-    click(f.shell.window(), Button, "Custom");
+    click(&f.shell.window(), Button, "Custom");
     let t0 = Instant::now();
     tick(&f, t0);
     FAKE_REOPENED.set(Reopened::Opened);
@@ -220,7 +220,7 @@ fn no_fan_targets_go_again_while_razer_software_runs() {
         manual_fan_saved(Preset::Balanced),
         &["Razer Synapse Service"],
     );
-    click(f.shell.window(), Button, "Custom");
+    click(&f.shell.window(), Button, "Custom");
     let before = sent_count(&f);
     let t0 = Instant::now();
 
@@ -233,7 +233,7 @@ fn no_fan_targets_go_again_while_razer_software_runs() {
 #[test]
 fn no_fan_targets_go_after_the_quit() {
     let f = fixture(manual_fan_saved(Preset::Balanced));
-    click(f.shell.window(), Button, "Custom");
+    click(&f.shell.window(), Button, "Custom");
     let t0 = Instant::now();
     tick(&f, t0);
     f.shell.quit();
@@ -247,7 +247,7 @@ fn no_fan_targets_go_after_the_quit() {
 #[test]
 fn a_failed_fan_target_send_is_shown_and_not_tried_again() {
     let f = fixture(manual_fan_saved(Preset::Balanced));
-    click(f.shell.window(), Button, "Custom");
+    click(&f.shell.window(), Button, "Custom");
     let t0 = Instant::now();
     tick(&f, t0);
     f.shell.app().machine_mut().controller.inner.fails = true;
@@ -265,7 +265,7 @@ fn a_failed_fan_target_send_is_shown_and_not_tried_again() {
 #[test]
 fn fan_targets_due_when_an_updater_holds_the_controller_are_dropped() {
     let f = fixture(manual_fan_saved(Preset::Balanced));
-    click(f.shell.window(), Button, "Custom");
+    click(&f.shell.window(), Button, "Custom");
     f.shell.programs().set(&["RazerFirmwareUpdater.exe"]);
     f.shell.look_for_razer();
     let t0 = Instant::now();
