@@ -49,6 +49,8 @@ impl<P: Parts> Shell<P> {
                     return;
                 };
                 shell.dialog_open.set(false);
+                // A close while the dialog was open left the old window.
+                shell.make_window_again();
                 match picked {
                     Ok(Some(path)) => {
                         // The dialog does not block the app, so the laptop

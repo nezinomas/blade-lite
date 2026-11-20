@@ -8,9 +8,9 @@ use blade_core::Config;
 use i_slint_backend_testing::AccessibleRole::Button;
 use razer_proto::{BLADE_18, PerfMode};
 use slint::platform::WindowEvent;
-use slint::{ComponentHandle, PhysicalSize};
+use slint::{ComponentHandle, Model, PhysicalSize};
 
-use super::{Fixture, click, fixture, selected_preset};
+use super::{FAKE_HELD, FAKE_HOLD, Fixture, click, fixture, selected_preset};
 
 /// The user closes the window (its X): Slint hides it, and the next turn
 /// of the event loop makes it again.
@@ -137,4 +137,55 @@ fn a_window_closed_while_maximised_opens_maximised() {
     close(&f);
 
     assert!(f.shell.window().window().is_maximized());
+}
+
+/// The user opens the window again before the event loop turns: the
+/// shown window stays, and is not swapped for a hidden one.
+#[test]
+fn a_window_opened_again_before_the_loop_turns_is_kept() {
+    let f = watched();
+    let before = sent_count(&f);
+    let first = f.shell.window().as_weak();
+    f.shell
+        .window()
+        .window()
+        .dispatch_event(WindowEvent::CloseRequested);
+    f.shell.show_window();
+
+    i_slint_backend_testing::mock_elapsed_time(Duration::from_millis(1));
+
+    assert!(first.upgrade().is_some(), "the shown window was swapped");
+    assert!(f.shell.window().window().is_visible());
+    assert_eq!(sent_count(&f), before);
+}
+
+/// A file dialog is owned by the window, so a close while it is open
+/// keeps the window until the dialog ends.
+#[test]
+fn a_close_while_a_file_dialog_is_open_waits_for_its_end() {
+    let f = watched();
+    FAKE_HOLD.set(true);
+    click(&f.shell.window(), Button, "Settings");
+    click(&f.shell.window(), Button, "Export…");
+    let old = f.shell.window().as_weak();
+
+    close(&f);
+    assert!(old.upgrade().is_some(), "the dialog's window was dropped");
+
+    FAKE_HELD.take().unwrap()();
+    assert!(old.upgrade().is_none(), "the old window is still kept");
+}
+
+/// The display groups are filled only on a change (ticket 287): the
+/// window made again shows the last view before any read.
+#[test]
+fn the_window_made_again_has_the_display_groups_filled() {
+    let f = watched();
+    let rates = f.shell.window().get_rates().row_count();
+    assert!(rates > 0);
+
+    close(&f);
+
+    assert_eq!(f.shell.window().get_rates().row_count(), rates);
+    assert!(f.shell.window().get_native_modes().row_count() > 0);
 }

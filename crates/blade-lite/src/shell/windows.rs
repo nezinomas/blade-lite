@@ -1,10 +1,11 @@
 //! Showing, placing and hiding the settings window and the tray flyout.
 
 use std::rc::Rc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
 use blade_core::View;
-use blade_lite::{Rect, flyout_position, report};
+use blade_lite::{Rect, centre_inside, flyout_position, report};
 use platform::{hide_caption_buttons, round_corners, set_mica, work_area, work_area_at};
 use raw_window_handle::{HasWindowHandle, RawWindowHandle};
 use slint::platform::WindowEvent;
@@ -73,33 +74,39 @@ impl<P: Parts> Shell<P> {
         });
     }
 
-    /// Puts a new settings window, not shown, in place of the hidden one,
-    /// at its place and size (not a minimised one's: that place is off
-    /// screen). Nothing is sent or read: the open fills it. If it can't be
-    /// made, the old one stays, with its picture.
-    fn make_window_again(self: &Rc<Self>) {
+    /// Puts a new settings window, not shown, in place of the hidden one.
+    /// Not while a file dialog it owns is open: the dialog's end makes it
+    /// again. Nothing is sent or read: the open fills it. If it can't be
+    /// made, the old one stays, with its picture (logged once).
+    pub(super) fn make_window_again(self: &Rc<Self>) {
+        self.steps
+            .time("window made again", || self.make_window_again_now());
+    }
+
+    fn make_window_again_now(self: &Rc<Self>) {
+        static FAILURE_SAID: AtomicBool = AtomicBool::new(false);
         let old = self.window();
-        if old.window().is_visible() {
+        if old.window().is_visible() || self.dialog_open.get() {
             return;
         }
         let new = match MainWindow::new() {
             Ok(new) => new,
             Err(error) => {
-                report(&format!(
-                    "the closed window stays in memory, as a new one can't be made: {error}"
-                ));
+                if !FAILURE_SAID.swap(true, Ordering::Relaxed) {
+                    report(&format!(
+                        "the closed window stays in memory, as a new one can't be made (said once): {error}"
+                    ));
+                }
                 return;
             }
         };
         new.set_accent(old.get_accent());
         new.set_version(old.get_version());
-        let place = old.window();
-        if place.is_minimized() {
-        } else if place.is_maximized() {
-            new.window().set_maximized(true);
-        } else {
-            new.window().set_position(place.position());
-            new.window().set_size(place.size());
+        place_like(new.window(), old.window());
+        // The display groups are filled only on a change (ticket 287), and a
+        // failed read at the open leaves them as last shown.
+        if let Some(view) = self.display_shown.borrow().as_ref() {
+            bind::display(&new, view);
         }
         drop(old);
         self.window.replace(new);
@@ -323,6 +330,48 @@ impl<P: Parts> Shell<P> {
             }
         };
         Some(flyout_position(icon, flyout, screen))
+    }
+}
+
+/// Gives the `new` window the `old` one's place, as the old one kept it when
+/// hidden: its spot, if its middle is still on a screen, and its size, kept
+/// in logical pixels so a scale change since gives the same look. A
+/// minimised window's place is off screen, so it gives none; a maximised one
+/// opens maximised on the same screen (its size before that is lost).
+fn place_like(new: &slint::Window, old: &slint::Window) {
+    if old.is_minimized() {
+        return;
+    }
+    let position = old.position();
+    let size = old.size();
+    let rect = Rect {
+        x: position.x,
+        y: position.y,
+        width: px(size.width),
+        height: px(size.height),
+    };
+    let centre = (
+        rect.x.saturating_add(rect.width / 2),
+        rect.y.saturating_add(rect.height / 2),
+    );
+    let on_screen = work_area_at(centre).is_ok_and(|(x, y, width, height)| {
+        centre_inside(
+            rect,
+            Rect {
+                x,
+                y,
+                width,
+                height,
+            },
+        )
+    });
+    if on_screen {
+        new.set_position(position);
+    }
+    if old.is_maximized() {
+        new.set_maximized(true);
+    } else {
+        new.set_size(size.to_logical(old.scale_factor()));
     }
 }
 

@@ -35,6 +35,16 @@ pub fn flyout_position(icon: Rect, (width, height): (i32, i32), screen: Rect) ->
     )
 }
 
+/// Whether the middle of `window` is inside `area`, so a window there can be
+/// seen and dragged (ticket 303). The sums saturate.
+#[must_use]
+pub fn centre_inside(window: Rect, area: Rect) -> bool {
+    let middle = |at: i32, size: i32| at.saturating_add(size / 2);
+    let span = |start: i32, size: i32| start..start.saturating_add(size);
+    span(area.x, area.width).contains(&middle(window.x, window.width))
+        && span(area.y, area.height).contains(&middle(window.y, window.height))
+}
+
 /// Moves `at` so a window of `size` there ends a gap before the far edge of
 /// the span, but starts no less than a gap after its start: the start wins
 /// when the span is too short for both.
