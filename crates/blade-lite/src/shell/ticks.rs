@@ -1016,6 +1016,9 @@ impl<P: Parts> Shell<P> {
             return;
         }
         self.wake_due.set(false);
+        // The settings go now, so the last sleep's quit preset no longer
+        // holds (ticket 304).
+        self.sleep_preset_sent.set(false);
         self.woke.set(true);
         {
             let mut app = self.app.borrow_mut();
@@ -1052,11 +1055,12 @@ impl<P: Parts> Shell<P> {
     /// updater), as no send goes then: the controller may not be ready, and
     /// after an open again its new handle is held (ticket 132). A manual
     /// fan may then run on in the sleep: after a wake, only if the sleep
-    /// before it was not sent; after an open again or an updater, if it was
-    /// running. Nor for a notice Windows no longer waits for: the app may
-    /// have been frozen and thawed since, so the controller may have just
-    /// woken. Both are rare (a sleep within 2 s of such an event, or an
-    /// event loop busy for over 1 s), and logged. No retry for the same
+    /// before it was not sent (if it was, that is logged as still the last
+    /// send, and counts as sent at a new notice); after an open again or an
+    /// updater, if it was running. Nor for a notice Windows no longer waits
+    /// for: the app may have been frozen and thawed since, so the
+    /// controller may have just woken. Both are rare (a sleep within 2 s
+    /// of such an event, or an event loop busy for over 1 s), and logged. No retry for the same
     /// notice: Windows freezes the app a few seconds later.
     ///
     /// A quit preset that did not go (failed or not sent) goes again at a
@@ -1091,11 +1095,22 @@ impl<P: Parts> Shell<P> {
         if (again && self.sleep_preset_sent.get()) || self.quit_sent.get() {
             return;
         }
-        if !again {
+        // The wake's settings have not gone since a sleep whose quit preset
+        // did, so that is still the last send (each night, Windows' move
+        // from Modern Standby to hibernate: a wake notice and a sleep notice
+        // in the same second, app log and System log 2026-11-19 to 11-26).
+        // The source is not read again: a charger pulled in that wake keeps
+        // the AC quit preset, which ends a manual fan too.
+        let held = !again && self.wake_due.get() && self.sleep_preset_sent.get();
+        if !again && !held {
             self.sleep_preset_sent.set(false);
         }
-        // The sleep's own count is no pause.
-        if self.resuming.get() > u32::from(again) {
+        if held {
+            report(
+                "the laptop goes to sleep in the pause after a wake, so the quit preset was not sent again: nothing was sent since the quit preset of the last sleep",
+            );
+        } else if self.resuming.get() > u32::from(again) {
+            // The sleep's own count is no pause.
             report(
                 "the laptop goes to sleep in the pause after a wake, an open again or an updater, so the quit preset was not sent: a manual fan or Performance may keep running in the sleep",
             );

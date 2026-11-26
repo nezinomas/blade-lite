@@ -80,6 +80,15 @@ fn log() -> String {
     std::fs::read_to_string(log_path()).unwrap()
 }
 
+/// The end of the line for a sleep notice in a pause with no quit preset
+/// held.
+const PAUSE_WARNING: &str = "so the quit preset was not sent: a manual fan";
+
+/// How many log lines contain `text` (the log is shared by the tests).
+fn log_lines(text: &str) -> usize {
+    log().lines().filter(|line| line.contains(text)).count()
+}
+
 #[test]
 fn a_sleep_from_a_manual_fan_sends_the_fans_on_auto_then_balanced() {
     let f = fixture(manual_fan());
@@ -555,16 +564,63 @@ fn a_sleep_in_the_wake_pause_sends_nothing_and_the_pause_end_neither() {
     let f = fixture(manual_fan());
     power(&f, &[PowerEvent::Resumed]);
     let before = sent_count(&f);
+    let warned = log_lines(PAUSE_WARNING);
 
     power(&f, &[PowerEvent::Suspending]);
     pause_ends();
 
     assert_eq!(sent_since(&f, before), []);
-    assert!(log().contains("in the pause after a wake"));
+    // Other tests share the log, so at least one more.
+    assert!(log_lines(PAUSE_WARNING) > warned);
     // The next wake sends them.
     power(&f, &[PowerEvent::Resumed]);
     pause_ends();
     assert!(sets_a_manual_fan(&sent_since(&f, before)));
+}
+
+#[test]
+fn a_sleep_in_the_wake_pause_after_a_sent_sleep_says_the_quit_preset_holds() {
+    // Windows' move from Modern Standby to hibernate: a wake notice and a
+    // sleep notice in the same second (app log and System log, 2026-11-19
+    // to 11-26).
+    let f = fixture(manual_fan());
+    power(&f, &[PowerEvent::Suspending]);
+    pause_ends();
+    power(&f, &[PowerEvent::Resumed]);
+    let before = sent_count(&f);
+
+    power(&f, &[PowerEvent::Suspending]);
+    assert!(log().contains("nothing was sent since the quit preset of the last sleep"));
+    // Counts as sent: a new notice once the pause ends sends nothing, unlike
+    // one skipped with no quit preset before it
+    // (`a_sleep_notice_skipped_in_a_wake_pause_goes_at_a_new_notice_once_the_pause_ends`).
+    pause_ends();
+    power(&f, &[PowerEvent::Suspending]);
+
+    assert_eq!(sent_since(&f, before), []);
+    // The next wake sends them.
+    power(&f, &[PowerEvent::Resumed]);
+    pause_ends();
+    assert!(sets_a_manual_fan(&sent_since(&f, before)));
+}
+
+#[test]
+fn a_sent_sleep_before_a_wake_whose_settings_went_does_not_count_as_held() {
+    let f = fixture(manual_fan());
+    power(&f, &[PowerEvent::Suspending]);
+    power(&f, &[PowerEvent::Resumed]);
+    pause_ends();
+    // A sleep read only after its wake: its notice is skipped.
+    power(&f, &[PowerEvent::Suspending, PowerEvent::Resumed]);
+    let before = sent_count(&f);
+    let warned = log_lines(PAUSE_WARNING);
+
+    power(&f, &[PowerEvent::Suspending]);
+
+    assert!(log_lines(PAUSE_WARNING) > warned);
+    pause_ends();
+    power(&f, &[PowerEvent::Suspending]);
+    assert_the_quit_preset(&sent_since(&f, before));
 }
 
 #[test]
