@@ -453,8 +453,9 @@ pub struct Shell<P: Parts = Laptop> {
     /// It counts as one more pause in `resuming`, so nothing is sent until
     /// the wake, which ends it.
     asleep: Cell<bool>,
-    /// Whether the quit preset went at the sleep notice since the last
-    /// wake: if not, a new notice tries it again (ticket 191).
+    /// Whether the quit preset went at the last sleep notice and no wake's
+    /// settings went since: if not, a new notice tries it again (ticket
+    /// 191); if so, a sleep in a wake's pause keeps it (ticket 304).
     sleep_preset_sent: Cell<bool>,
     /// Since a sleep notice: when the ticks' run with no gap began, and
     /// the last tick, by the wall clock (ticket 170).

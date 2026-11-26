@@ -1016,6 +1016,9 @@ impl<P: Parts> Shell<P> {
             return;
         }
         self.wake_due.set(false);
+        // The settings go now, so the last sleep's quit preset no longer
+        // holds (ticket 304).
+        self.sleep_preset_sent.set(false);
         self.woke.set(true);
         {
             let mut app = self.app.borrow_mut();
