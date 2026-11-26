@@ -1059,8 +1059,8 @@ impl<P: Parts> Shell<P> {
     /// send, and counts as sent at a new notice); after an open again or an
     /// updater, if it was running. Nor for a notice Windows no longer waits
     /// for: the app may have been frozen and thawed since, so the
-    /// controller may have just woken. Both are rare (a sleep within 2 s of such an event, or an
-    /// event loop busy for over 1 s), and logged. No retry for the same
+    /// controller may have just woken. Both are rare (a sleep within 2 s
+    /// of such an event, or an event loop busy for over 1 s), and logged. No retry for the same
     /// notice: Windows freezes the app a few seconds later.
     ///
     /// A quit preset that did not go (failed or not sent) goes again at a
@@ -1109,8 +1109,8 @@ impl<P: Parts> Shell<P> {
             report(
                 "the laptop goes to sleep in the pause after a wake, so the quit preset was not sent again: nothing was sent since the quit preset of the last sleep",
             );
-        // The sleep's own count is no pause.
         } else if self.resuming.get() > u32::from(again) {
+            // The sleep's own count is no pause.
             report(
                 "the laptop goes to sleep in the pause after a wake, an open again or an updater, so the quit preset was not sent: a manual fan or Performance may keep running in the sleep",
             );
