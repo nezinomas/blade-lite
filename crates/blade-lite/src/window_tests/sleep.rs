@@ -568,6 +568,29 @@ fn a_sleep_in_the_wake_pause_sends_nothing_and_the_pause_end_neither() {
 }
 
 #[test]
+fn a_sleep_in_the_wake_pause_after_a_sent_sleep_says_the_quit_preset_holds() {
+    // Windows' move from Modern Standby to hibernate: a wake notice and a
+    // sleep notice in the same second (app log and System log, 2026-11-19
+    // to 11-26).
+    let f = fixture(manual_fan());
+    power(&f, &[PowerEvent::Suspending]);
+    pause_ends();
+    power(&f, &[PowerEvent::Resumed]);
+    let before = sent_count(&f);
+
+    power(&f, &[PowerEvent::Suspending]);
+    power(&f, &[PowerEvent::Suspending]);
+    pause_ends();
+
+    assert_eq!(sent_since(&f, before), []);
+    assert!(log().contains("nothing was sent since the quit preset of the last sleep"));
+    // The next wake sends them.
+    power(&f, &[PowerEvent::Resumed]);
+    pause_ends();
+    assert!(sets_a_manual_fan(&sent_since(&f, before)));
+}
+
+#[test]
 fn a_sleep_read_only_after_its_wake_sends_nothing_but_the_wake_does() {
     let f = fixture(manual_fan());
     let before = sent_count(&f);
