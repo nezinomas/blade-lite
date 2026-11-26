@@ -579,11 +579,14 @@ fn a_sleep_in_the_wake_pause_after_a_sent_sleep_says_the_quit_preset_holds() {
     let before = sent_count(&f);
 
     power(&f, &[PowerEvent::Suspending]);
-    power(&f, &[PowerEvent::Suspending]);
+    assert!(log().contains("nothing was sent since the quit preset of the last sleep"));
+    // Counts as sent: a new notice once the pause ends sends nothing, unlike
+    // one skipped with no quit preset before it
+    // (`a_sleep_notice_skipped_in_a_wake_pause_goes_at_a_new_notice_once_the_pause_ends`).
     pause_ends();
+    power(&f, &[PowerEvent::Suspending]);
 
     assert_eq!(sent_since(&f, before), []);
-    assert!(log().contains("nothing was sent since the quit preset of the last sleep"));
     // The next wake sends them.
     power(&f, &[PowerEvent::Resumed]);
     pause_ends();

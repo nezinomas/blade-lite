@@ -1054,9 +1054,9 @@ impl<P: Parts> Shell<P> {
     /// fan may then run on in the sleep: after a wake, only if the sleep
     /// before it was not sent (if it was, that is logged as still the last
     /// send, and counts as sent at a new notice); after an open again or an
-    /// updater, if it was running. Nor for a notice Windows no longer waits for: the app may
-    /// have been frozen and thawed since, so the controller may have just
-    /// woken. Both are rare (a sleep within 2 s of such an event, or an
+    /// updater, if it was running. Nor for a notice Windows no longer waits
+    /// for: the app may have been frozen and thawed since, so the
+    /// controller may have just woken. Both are rare (a sleep within 2 s of such an event, or an
     /// event loop busy for over 1 s), and logged. No retry for the same
     /// notice: Windows freezes the app a few seconds later.
     ///
@@ -1096,15 +1096,17 @@ impl<P: Parts> Shell<P> {
         // did, so that is still the last send (each night, Windows' move
         // from Modern Standby to hibernate: a wake notice and a sleep notice
         // in the same second, app log and System log 2026-11-19 to 11-26).
+        // The source is not read again: a charger pulled in that wake keeps
+        // the AC quit preset, which ends a manual fan too.
         let held = !again && self.wake_due.get() && self.sleep_preset_sent.get();
         if !again && !held {
             self.sleep_preset_sent.set(false);
         }
-        // Below, the sleep's own count is no pause.
         if held {
             report(
                 "the laptop goes to sleep in the pause after a wake, so the quit preset was not sent again: nothing was sent since the quit preset of the last sleep",
             );
+        // The sleep's own count is no pause.
         } else if self.resuming.get() > u32::from(again) {
             report(
                 "the laptop goes to sleep in the pause after a wake, an open again or an updater, so the quit preset was not sent: a manual fan or Performance may keep running in the sleep",
